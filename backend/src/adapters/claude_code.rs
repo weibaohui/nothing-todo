@@ -241,11 +241,17 @@ impl CodeExecutor for ClaudeCodeExecutor {
     }
 
     fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
+        use regex::Regex;
+
         // Claude Code 的结果在 result 类型日志中
-        logs.iter()
+        let content = logs.iter()
             .rev()
             .find(|l| l.log_type == "result" || l.log_type == "text")
-            .map(|l| l.content.clone())
+            .map(|l| l.content.clone())?;
+
+        // 去掉 /*usage:...*/ 注释
+        let usage_re = Regex::new(r"/\*usage:[0-9]+:[0-9]+:[0-9]+:[0-9]+\*/").ok()?;
+        Some(usage_re.replace_all(&content, "").to_string())
     }
 
     fn get_usage(&self, logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
