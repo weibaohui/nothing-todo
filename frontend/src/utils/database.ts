@@ -1,12 +1,12 @@
 const API_BASE = '';
 
 export async function getAllTodos(): Promise<any[]> {
-  const res = await fetch(`${API_BASE}/api/todos`);
+  const res = await fetch(`${API_BASE}/xyz/todos`);
   return res.json();
 }
 
 export async function createTodo(title: string, description: string = ''): Promise<number> {
-  const res = await fetch(`${API_BASE}/api/todos`, {
+  const res = await fetch(`${API_BASE}/xyz/todos`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title, description }),
@@ -16,7 +16,7 @@ export async function createTodo(title: string, description: string = ''): Promi
 }
 
 export async function updateTodo(id: number, title: string, description: string, status: string): Promise<void> {
-  await fetch(`${API_BASE}/api/todos/${id}`, {
+  await fetch(`${API_BASE}/xyz/todos/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title, description, status }),
@@ -24,18 +24,18 @@ export async function updateTodo(id: number, title: string, description: string,
 }
 
 export async function deleteTodo(id: number): Promise<void> {
-  await fetch(`${API_BASE}/api/todos/${id}`, {
+  await fetch(`${API_BASE}/xyz/todos/${id}`, {
     method: 'DELETE',
   });
 }
 
 export async function getAllTags(): Promise<any[]> {
-  const res = await fetch(`${API_BASE}/api/tags`);
+  const res = await fetch(`${API_BASE}/xyz/tags`);
   return res.json();
 }
 
 export async function createTag(name: string, color: string): Promise<number> {
-  const res = await fetch(`${API_BASE}/api/tags`, {
+  const res = await fetch(`${API_BASE}/xyz/tags`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, color }),
@@ -45,13 +45,13 @@ export async function createTag(name: string, color: string): Promise<number> {
 }
 
 export async function deleteTag(id: number): Promise<void> {
-  await fetch(`${API_BASE}/api/tags/${id}`, {
+  await fetch(`${API_BASE}/xyz/tags/${id}`, {
     method: 'DELETE',
   });
 }
 
 export async function getExecutionRecords(todoId: number): Promise<any[]> {
-  const res = await fetch(`${API_BASE}/api/execution-records?todo_id=${todoId}`);
+  const res = await fetch(`${API_BASE}/xyz/execution-records?todo_id=${todoId}`);
   return res.json();
 }
 
@@ -60,7 +60,7 @@ export interface ExecuteResponse {
 }
 
 export async function executeJoinai(todoId: number, message: string, executor?: string): Promise<ExecuteResponse> {
-  const res = await fetch(`${API_BASE}/api/execute`, {
+  const res = await fetch(`${API_BASE}/xyz/execute`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ todo_id: todoId, message, executor }),
@@ -69,7 +69,7 @@ export async function executeJoinai(todoId: number, message: string, executor?: 
 }
 
 export async function forceUpdateTodoStatus(id: number, status: string): Promise<void> {
-  await fetch(`${API_BASE}/api/todos/${id}/force-status`, {
+  await fetch(`${API_BASE}/xyz/todos/${id}/force-status`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
@@ -77,6 +77,6 @@ export async function forceUpdateTodoStatus(id: number, status: string): Promise
 }
 
 export async function getExecutionSummary(todoId: number): Promise<any> {
-  const res = await fetch(`${API_BASE}/api/todos/${todoId}/summary`);
+  const res = await fetch(`${API_BASE}/xyz/todos/${todoId}/summary`);
   return res.json();
 }

@@ -71,6 +71,8 @@ pub struct ParsedLogEntry {
     #[serde(rename = "type")]
     pub log_type: String,
     pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<ExecutionUsage>,
 }
 
 // Request/Response types

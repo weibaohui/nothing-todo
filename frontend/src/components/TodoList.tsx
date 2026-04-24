@@ -29,7 +29,7 @@ export function TodoList({ onOpenCreateModal, onSelectTodo }: TodoListProps) {
   const filteredTodos = selectedTagId ? todos : todos;
 
   return (
-    <div style={{ width: 350, borderRight: '1px solid #f0f0f0', padding: 16, height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ width: '100%', maxWidth: 350, borderRight: '1px solid #f0f0f0', padding: 16, height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h3 style={{ margin: 0 }}>Todo 列表</h3>
         <Button type="primary" size="small" icon={<PlusOutlined />} onClick={onOpenCreateModal}>

@@ -33,6 +33,7 @@ code {
     padding: 8px 16px;
     border-bottom: 1px solid #f0f0f0;
     background: #fff;
+    flex-shrink: 0;
   }
 
   .mobile-title {
@@ -42,6 +43,12 @@ code {
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 200px;
+  }
+
+  /* Force all elements to respect mobile viewport */
+  * {
+    max-width: 100vw;
+    box-sizing: border-box;
   }
 }
 

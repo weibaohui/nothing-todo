@@ -144,6 +144,7 @@ pub async fn execute_handler(
             timestamp: get_timestamp(),
             log_type: "info".to_string(),
             content: format!("Starting {} with message: {}", executor.executor_type(), req.message),
+            usage: None,
         };
         let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
 
@@ -160,6 +161,7 @@ pub async fn execute_handler(
                     timestamp: get_timestamp(),
                     log_type: "error".to_string(),
                     content: format!("Failed to spawn executor: {}", e),
+                    usage: None,
                 };
                 let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
                 let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), success: false, result: None });
@@ -212,6 +214,7 @@ pub async fn execute_handler(
                         timestamp: get_timestamp(),
                         log_type: "stderr".to_string(),
                         content: line.clone(),
+                        usage: None,
                     };
                     logs_for_stderr.lock().push(entry.clone());
                     let _ = stderr_tx.send(ExecEvent::Output { task_id: stderr_tid.clone(), entry });
@@ -256,6 +259,7 @@ pub async fn execute_handler(
             timestamp: get_timestamp(),
             log_type: if success { "info".to_string() } else { "error".to_string() },
             content: format!("Executor finished with exit_code: {}, result: {}", exit_code, result_str),
+            usage: None,
         };
         let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
 
@@ -345,18 +349,18 @@ pub fn create_app(db: Arc<Database>, executor_registry: Arc<ExecutorRegistry>, t
 
     Router::new()
         .route("/", get(index_handler))
-        .route("/api/todos", get(get_todos))
-        .route("/api/todos", post(create_todo))
-        .route("/api/todos/{id}", put(update_todo))
-        .route("/api/todos/{id}", delete(delete_todo))
-        .route("/api/todos/{id}/force-status", put(force_update_todo_status))
-        .route("/api/todos/{id}/summary", get(get_execution_summary))
-        .route("/api/tags", get(get_tags))
-        .route("/api/tags", post(create_tag))
-        .route("/api/tags/{id}", delete(delete_tag))
-        .route("/api/execution-records", get(get_execution_records))
-        .route("/api/execute", post(execute_handler))
-        .route("/api/events", get(events_handler))
+        .route("/xyz/todos", get(get_todos))
+        .route("/xyz/todos", post(create_todo))
+        .route("/xyz/todos/{id}", put(update_todo))
+        .route("/xyz/todos/{id}", delete(delete_todo))
+        .route("/xyz/todos/{id}/force-status", put(force_update_todo_status))
+        .route("/xyz/todos/{id}/summary", get(get_execution_summary))
+        .route("/xyz/tags", get(get_tags))
+        .route("/xyz/tags", post(create_tag))
+        .route("/xyz/tags/{id}", delete(delete_tag))
+        .route("/xyz/execution-records", get(get_execution_records))
+        .route("/xyz/execute", post(execute_handler))
+        .route("/xyz/events", get(events_handler))
         .route("/assets/{*path}", get(static_handler))
         .with_state(state)
 }

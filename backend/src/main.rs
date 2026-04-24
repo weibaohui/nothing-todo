@@ -43,13 +43,13 @@ fn main() {
 
     info!("===========================================");
     info!("  Todo Executor Server");
-    info!("  Open http://127.0.0.1:8088 in your browser");
+    info!("  Open http://0.0.0.0:8088 in your browser");
     info!("===========================================");
 
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         use std::os::fd::AsRawFd;
 
-        let std_listener = std::net::TcpListener::bind("127.0.0.1:8088").unwrap();
+        let std_listener = std::net::TcpListener::bind("0.0.0.0:8088").unwrap();
         // Enable SO_REUSEADDR before anything else to allow quick restart
         unsafe {
             let fd = std_listener.as_raw_fd();

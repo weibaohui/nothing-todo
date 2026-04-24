@@ -146,6 +146,7 @@ impl CodeExecutor for ClaudeCodeExecutor {
                         timestamp: get_timestamp(),
                         log_type: "system".to_string(),
                         content: format!("Session init: {:?}", session_id.or(subtype)),
+                        usage: None,
                     })
                 }
                 ClaudeMessage::Assistant { message, .. } => {
@@ -182,6 +183,7 @@ impl CodeExecutor for ClaudeCodeExecutor {
                             timestamp: get_timestamp(),
                             log_type: "assistant".to_string(),
                             content: parts.join("\n"),
+                            usage: None,
                         })
                     }
                 }
@@ -200,29 +202,29 @@ impl CodeExecutor for ClaudeCodeExecutor {
                             timestamp: get_timestamp(),
                             log_type: "user".to_string(),
                             content: parts.join("\n"),
+                            usage: None,
                         })
                     }
                 }
                 ClaudeMessage::Result { result, is_error, duration_ms, total_cost_usd, usage, .. } => {
                     let err_str = if is_error { "[error] " } else { "" };
                     let result_str = result.unwrap_or_default();
-                    let cost_str = total_cost_usd.map(|c| format!(" (${:.6})", c)).unwrap_or_default();
-                    let duration_str = duration_ms.map(|d| format!(" [{}ms]", d)).unwrap_or_default();
 
-                    // Append usage info as hidden comment for extraction later
-                    let usage_str = if let Some(u) = usage {
-                        format!(" /*usage:{}:{}:{}:{}*/",
-                            u.input_tokens, u.output_tokens,
-                            u.cache_read_input_tokens.unwrap_or(0),
-                            u.cache_creation_input_tokens.unwrap_or(0))
-                    } else {
-                        String::new()
-                    };
+                    // Build usage from Result fields
+                    let usage = usage.map(|u| crate::models::ExecutionUsage {
+                        input_tokens: u.input_tokens,
+                        output_tokens: u.output_tokens,
+                        cache_read_input_tokens: u.cache_read_input_tokens,
+                        cache_creation_input_tokens: u.cache_creation_input_tokens,
+                        total_cost_usd,
+                        duration_ms,
+                    });
 
                     Some(ParsedLogEntry {
                         timestamp: get_timestamp(),
                         log_type: if is_error { "error".to_string() } else { "result".to_string() },
-                        content: format!("{}{}{}{}{}", err_str, result_str, cost_str, duration_str, usage_str),
+                        content: format!("{}{}", err_str, result_str),
+                        usage,
                     })
                 }
             };
@@ -233,6 +235,7 @@ impl CodeExecutor for ClaudeCodeExecutor {
             timestamp: get_timestamp(),
             log_type: "text".to_string(),
             content: line.to_string(),
+            usage: None,
         })
     }
 
@@ -241,66 +244,16 @@ impl CodeExecutor for ClaudeCodeExecutor {
     }
 
     fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
-        use regex::Regex;
-
         // Claude Code 的结果在 result 类型日志中
-        let content = logs.iter()
+        logs.iter()
             .rev()
             .find(|l| l.log_type == "result" || l.log_type == "text")
-            .map(|l| l.content.clone())?;
-
-        // 去掉 /*usage:...*/ 注释
-        let usage_re = Regex::new(r"/\*usage:[0-9]+:[0-9]+:[0-9]+:[0-9]+\*/").ok()?;
-        Some(usage_re.replace_all(&content, "").to_string())
+            .map(|l| l.content.clone())
     }
 
     fn get_usage(&self, logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
-        use regex::Regex;
-
-        // Find the result log which contains cost, duration and usage info
-        let result_log = logs.iter().rev().find(|l| l.log_type == "result")?;
-        let content = &result_log.content;
-
-        // Extract cost: " ($0.026710)"
-        let cost_re = Regex::new(r"\(\$([0-9.]+)\)").ok()?;
-        let cost = cost_re.captures(content)
-            .and_then(|c| c.get(1))
-            .and_then(|m| m.as_str().parse::<f64>().ok());
-
-        // Extract duration: " [12824ms]"
-        let duration_re = Regex::new(r"\[([0-9]+)ms\]").ok()?;
-        let duration = duration_re.captures(content)
-            .and_then(|c| c.get(1))
-            .and_then(|m| m.as_str().parse::<u64>().ok());
-
-        // Extract usage info from the same content: "/*usage:123:456:789:0*/"
-        let usage_re = Regex::new(r"/\*usage:([0-9]+):([0-9]+):([0-9]+):([0-9]+)\*/").ok()?;
-        let mut input_tokens = 0u64;
-        let mut output_tokens = 0u64;
-        let mut cache_read: Option<u64> = None;
-        let mut cache_creation: Option<u64> = None;
-
-        if let Some(caps) = usage_re.captures(content) {
-            input_tokens = caps.get(1).and_then(|m| m.as_str().parse::<u64>().ok()).unwrap_or(0);
-            output_tokens = caps.get(2).and_then(|m| m.as_str().parse::<u64>().ok()).unwrap_or(0);
-            let cr = caps.get(3).and_then(|m| m.as_str().parse::<u64>().ok());
-            let cc = caps.get(4).and_then(|m| m.as_str().parse::<u64>().ok());
-            if cr.unwrap_or(0) > 0 {
-                cache_read = cr;
-            }
-            if cc.unwrap_or(0) > 0 {
-                cache_creation = cc;
-            }
-        }
-
-        Some(ExecutionUsage {
-            input_tokens,
-            output_tokens,
-            cache_read_input_tokens: cache_read,
-            cache_creation_input_tokens: cache_creation,
-            total_cost_usd: cost,
-            duration_ms: duration,
-        })
+        // Usage is now captured directly in the ParsedLogEntry.usage field
+        logs.iter().rev().find(|l| l.log_type == "result")?.usage.clone()
     }
 
     fn get_model(&self) -> Option<String> {

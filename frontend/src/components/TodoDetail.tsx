@@ -102,7 +102,7 @@ export function TodoDetail() {
   // Setup WebSocket connection
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/api/events`);
+    const ws = new WebSocket(`${protocol}//${window.location.host}/xyz/events`);
     wsRef.current = ws;
 
     ws.onmessage = (event) => {
@@ -222,7 +222,7 @@ export function TodoDetail() {
   }
 
   return (
-    <div style={{ flex: 1, padding: 24, overflow: 'auto' }}>
+    <div style={{ flex: 1, padding: 16, overflow: 'auto', minWidth: 0 }}>
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
@@ -235,7 +235,7 @@ export function TodoDetail() {
           ) : (
             <h2 style={{ margin: 0 }}>{selectedTodo.title}</h2>
           )}
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {isEditing ? (
               <>
                 <Button onClick={() => setIsEditing(false)}>取消</Button>
@@ -274,7 +274,7 @@ export function TodoDetail() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <Select
             value={editStatus}
             onChange={(val) => {
@@ -283,7 +283,7 @@ export function TodoDetail() {
                 handleStatusChange(val);
               }
             }}
-            style={{ width: 120 }}
+            style={{ width: 100 }}
             options={[
               { value: 'pending', label: '待执行' },
               { value: 'running', label: '执行中' },
@@ -310,7 +310,7 @@ export function TodoDetail() {
           <Select
             value={selectedExecutor}
             onChange={setSelectedExecutor}
-            style={{ width: 140 }}
+            style={{ width: 110 }}
             disabled={isExecuting}
             options={[
               { value: 'joinai', label: 'JoinAI' },
@@ -480,8 +480,8 @@ export function TodoDetail() {
                 marginBottom: 12,
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 12, color: '#999' }}>
                     {new Date(record.started_at).toLocaleString()}
                   </span>
@@ -536,9 +536,9 @@ export function TodoDetail() {
 
               {/* Usage */}
               {record.usage && (
-                <div style={{ fontSize: 11, color: '#999', marginBottom: 8 }}>
-                  <span style={{ marginRight: 12 }}>Input: {record.usage.input_tokens.toLocaleString()}</span>
-                  <span style={{ marginRight: 12 }}>Output: {record.usage.output_tokens.toLocaleString()}</span>
+                <div style={{ fontSize: 11, color: '#999', marginBottom: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  <span>Input: {record.usage.input_tokens.toLocaleString()}</span>
+                  <span>Output: {record.usage.output_tokens.toLocaleString()}</span>
                   {record.usage.total_cost_usd !== null && (
                     <span style={{ color: '#faad14' }}>${record.usage.total_cost_usd.toFixed(6)}</span>
                   )}

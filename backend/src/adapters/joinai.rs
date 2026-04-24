@@ -140,6 +140,7 @@ impl CodeExecutor for JoinaiExecutor {
                     timestamp,
                     log_type: "step_start".to_string(),
                     content: format!("Step started"),
+                    usage: None,
                 })
             }
             "tool_use" => {
@@ -162,6 +163,7 @@ impl CodeExecutor for JoinaiExecutor {
                     timestamp,
                     log_type: "tool".to_string(),
                     content,
+                    usage: None,
                 })
             }
             "text" => {
@@ -173,6 +175,7 @@ impl CodeExecutor for JoinaiExecutor {
                     timestamp,
                     log_type: "text".to_string(),
                     content: text,
+                    usage: None,
                 })
             }
             "step_finish" => {
@@ -194,6 +197,7 @@ impl CodeExecutor for JoinaiExecutor {
                     timestamp,
                     log_type: "step_finish".to_string(),
                     content: "Step finished".to_string(),
+                    usage: None,
                 })
             }
             _ => None,

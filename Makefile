@@ -34,11 +34,13 @@ install: build
 
 # Stop the aitodo binary
 stop:
-	@pkill -f "^aitodo$$" || echo "aitodo process not running"
+	-@pkill -f "^aitodo$$" || echo "aitodo process not running"
 
 # Start the aitodo binary (after installing)
 start: install
-	@$$HOME/.local/bin/aitodo
+	@mkdir -p $$HOME/.aitodo
+	@$$HOME/.local/bin/aitodo >> $$HOME/.aitodo/run.log 2>&1 &
+	@echo "aitodo started, logs: ~/.aitodo/run.log"
 
 # Restart: stop then start
 restart: stop start
