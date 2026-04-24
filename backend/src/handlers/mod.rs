@@ -51,6 +51,7 @@ pub async fn create_todo(State(state): State<AppState>, Json(req): Json<CreateTo
         status: "pending".to_string(),
         created_at: now.clone(),
         updated_at: now,
+        tag_ids: vec![],
     })
 }
 

@@ -8,6 +8,8 @@ pub struct Todo {
     pub status: String,
     pub created_at: String,
     pub updated_at: String,
+    #[serde(default)]
+    pub tag_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -102,7 +102,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, title, description, status, created_at, updated_at FROM todos WHERE deleted_at IS NULL ORDER BY created_at DESC"
         ).unwrap();
-        stmt.query_map([], |row| {
+        let todos: Vec<Todo> = stmt.query_map([], |row| {
             Ok(Todo {
                 id: row.get(0)?,
                 title: row.get(1)?,
@@ -110,8 +110,27 @@ impl Database {
                 status: row.get(3)?,
                 created_at: row.get(4)?,
                 updated_at: row.get(5)?,
+                tag_ids: vec![],
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        }).unwrap().filter_map(|r| r.ok()).collect();
+
+        drop(stmt);
+
+        // Fetch tag_ids for each todo
+        let mut tag_stmt = conn.prepare(
+            "SELECT tag_id FROM todo_tags WHERE todo_id = ?1"
+        ).unwrap();
+
+        let mut result = Vec::new();
+        for mut todo in todos {
+            let tag_ids: Vec<i64> = tag_stmt.query_map([todo.id], |row| {
+                row.get(0)
+            }).unwrap().filter_map(|r| r.ok()).collect();
+            todo.tag_ids = tag_ids;
+            result.push(todo);
+        }
+
+        result
     }
 
     pub fn create_todo(&self, title: &str, description: &str) -> i64 {
@@ -156,7 +175,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, title, description, status, created_at, updated_at FROM todos WHERE id = ?1 AND deleted_at IS NULL"
         ).unwrap();
-        stmt.query_row(params![id], |row| {
+        let mut todo: Option<Todo> = stmt.query_row(params![id], |row| {
             Ok(Todo {
                 id: row.get(0)?,
                 title: row.get(1)?,
@@ -164,8 +183,17 @@ impl Database {
                 status: row.get(3)?,
                 created_at: row.get(4)?,
                 updated_at: row.get(5)?,
+                tag_ids: vec![],
             })
-        }).ok()
+        }).ok();
+
+        if let Some(ref mut t) = todo {
+            let mut tag_stmt = conn.prepare("SELECT tag_id FROM todo_tags WHERE todo_id = ?1").unwrap();
+            let tag_ids: Vec<i64> = tag_stmt.query_map([id], |row| row.get(0)).unwrap().filter_map(|r| r.ok()).collect();
+            t.tag_ids = tag_ids;
+        }
+
+        todo
     }
 
     // Tag operations

@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef } from 'react';
 import { useApp } from '../hooks/useApp';
-import { Button, Empty, Input, Select, message, Popconfirm, Tag, Collapse, Badge } from 'antd';
+import { Button, Empty, Input, message, Popconfirm, Tag, Collapse, Badge } from 'antd';
 import { PlayCircleOutlined, EditOutlined, DeleteOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import * as db from '../utils/database';
 import type { LogEntry, ExecutionSummary } from '../types';
+import { StatusPicker } from './StatusPicker';
 
 const { TextArea } = Input;
 const { Panel } = Collapse;
@@ -57,7 +58,7 @@ export function TodoDetail() {
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editStatus, setEditStatus] = useState<string>('pending');
-  const [selectedExecutor, setSelectedExecutor] = useState<string>('joinai');
+  const [selectedExecutor] = useState<string>('joinai');
   const [summary, setSummary] = useState<ExecutionSummary | null>(null);
 
   const [isExecuting, setIsExecuting] = useState(false);
@@ -278,30 +279,18 @@ export function TodoDetail() {
       <div className="detail-card settings-card">
         <div className="setting-row">
           <span className="setting-label">状态</span>
-          <Select
+          <StatusPicker
             value={editStatus}
-            onChange={(val) => { setEditStatus(val); if (val !== selectedTodo?.status) handleStatusChange(val); }}
-            className="setting-select"
-            options={[
-              { value: 'pending', label: '待执行' },
-              { value: 'running', label: '执行中' },
-              { value: 'completed', label: '已完成' },
-              { value: 'failed', label: '失败' },
-            ]}
+            onChange={(val) => {
+              setEditStatus(val);
+              if (val !== selectedTodo?.status) handleStatusChange(val);
+            }}
+            disabled={isExecuting}
           />
         </div>
         <div className="setting-row">
           <span className="setting-label">执行器</span>
-          <Select
-            value={selectedExecutor}
-            onChange={setSelectedExecutor}
-            className="setting-select"
-            disabled={isExecuting}
-            options={[
-              { value: 'joinai', label: 'JoinAI' },
-              { value: 'claudecode', label: 'Claude' },
-            ]}
-          />
+          <Tag className="executor-tag">{selectedExecutor === 'joinai' ? 'JoinAI' : 'Claude'}</Tag>
         </div>
       </div>
 
