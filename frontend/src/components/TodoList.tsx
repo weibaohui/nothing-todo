@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
@@ -18,28 +19,45 @@ const statusLabels: Record<string, string> = {
   pending: '待执行',
   running: '执行中',
   completed: '已完成',
-  failed: '执行失败',
+  failed: '失败',
 };
 
 export function TodoList({ onOpenCreateModal, onSelectTodo }: TodoListProps) {
   const { state, dispatch } = useApp();
   const { todos, selectedTodoId, selectedTagId } = state;
+  const [isMobile, setIsMobile] = useState(false);
 
-  // TODO: filter by actual tag relations (need to query todo_tags table)
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   const filteredTodos = selectedTagId ? todos : todos;
 
   return (
-    <div style={{ width: '100%', maxWidth: 350, borderRight: '1px solid #f0f0f0', padding: 16, height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h3 style={{ margin: 0 }}>Todo 列表</h3>
-        <Button type="primary" size="small" icon={<PlusOutlined />} onClick={onOpenCreateModal}>
-          新建
-        </Button>
-      </div>
+    <div className="todo-list-container">
+      {!isMobile && (
+        <div className="todo-list-header">
+          <h3 style={{ margin: 0, fontWeight: 600, fontSize: 16 }}>我的任务</h3>
+          <Button
+            type="primary"
+            size="small"
+            icon={<PlusOutlined />}
+            className="action-btn action-btn-primary"
+            onClick={onOpenCreateModal}
+          >
+            新建
+          </Button>
+        </div>
+      )}
 
-      <div style={{ flex: 1, overflow: 'auto' }}>
+      <div className="todo-list-content">
         {filteredTodos.length === 0 ? (
-          <Empty description="暂无 Todo" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          <div className="empty-state">
+            <Empty description="暂无任务" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          </div>
         ) : (
           filteredTodos.map(todo => (
             <div
@@ -48,41 +66,30 @@ export function TodoList({ onOpenCreateModal, onSelectTodo }: TodoListProps) {
                 dispatch({ type: 'SELECT_TODO', payload: todo.id });
                 onSelectTodo?.(todo.id);
               }}
-              style={{
-                padding: 12,
-                marginBottom: 8,
-                borderRadius: 8,
-                border: '1px solid #f0f0f0',
-                cursor: 'pointer',
-                background: selectedTodoId === todo.id ? '#f5f5f5' : '#fff',
-                transition: 'all 0.2s',
-              }}
+              className={`todo-item ${selectedTodoId === todo.id ? 'selected' : ''}`}
+              style={{ cursor: 'pointer' }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{
-                    fontWeight: 500,
-                    marginBottom: 4,
-                    textDecoration: todo.status === 'completed' ? 'line-through' : 'none',
-                    color: todo.status === 'completed' ? '#999' : 'inherit',
-                  }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, width: '100%' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className={`todo-item-title ${todo.status === 'completed' ? 'completed' : ''}`}>
                     {todo.title}
                   </div>
                   {todo.description && (
-                    <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
-                      {todo.description.substring(0, 50)}{todo.description.length > 50 ? '...' : ''}
+                    <div className="todo-item-desc">
+                      {todo.description.substring(0, 60)}{todo.description.length > 60 ? '...' : ''}
                     </div>
                   )}
                 </div>
-                <div style={{
-                  fontSize: 12,
-                  padding: '2px 8px',
-                  borderRadius: 10,
-                  backgroundColor: statusColors[todo.status],
-                  color: '#fff',
-                }}>
+                <span
+                  className="todo-status-badge"
+                  style={{
+                    backgroundColor: statusColors[todo.status],
+                    color: '#fff',
+                    flexShrink: 0,
+                  }}
+                >
                   {statusLabels[todo.status]}
-                </div>
+                </span>
               </div>
             </div>
           ))

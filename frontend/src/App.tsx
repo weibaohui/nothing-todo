@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ConfigProvider, Layout, Spin, Drawer, Button } from 'antd';
-import { MenuOutlined, CloseOutlined } from '@ant-design/icons';
+import { MenuOutlined, CloseOutlined, PlusOutlined } from '@ant-design/icons';
 import { AppProvider, useApp } from './hooks/useApp';
 import { Sidebar } from './components/Sidebar';
 import { TodoList } from './components/TodoList';
@@ -54,16 +54,17 @@ function AppContent() {
     <div className="mobile-header">
       <Button
         type="text"
-        icon={<MenuOutlined />}
+        icon={<MenuOutlined style={{ fontSize: 20 }} />}
         onClick={() => setSidebarOpen(true)}
+        className="mobile-menu-btn"
       />
       <span className="mobile-title">
-        {selectedPanel === 'list' ? 'Todo 列表' : state.todos.find(t => t.id === state.selectedTodoId)?.title || '详情'}
+        {selectedPanel === 'list' ? '任务列表' : state.todos.find(t => t.id === state.selectedTodoId)?.title || '详情'}
       </span>
       {selectedPanel === 'detail' && (
         <Button
           type="text"
-          icon={<CloseOutlined />}
+          icon={<CloseOutlined style={{ fontSize: 20 }} />}
           onClick={() => {
             setSelectedPanel('list');
           }}
@@ -77,13 +78,26 @@ function AppContent() {
       {isMobile && renderMobileHeader()}
 
       {!isMobile && (
-        <Sider width={220} style={{ background: '#fff' }}>
-          <Sidebar onOpenTagModal={() => setTagModalOpen(true)} />
+        <Sider width={220} style={{ background: '#fff', boxShadow: '2px 0 8px rgba(0,0,0,0.05)' }}>
+          <div className="sidebar-container">
+            <Sidebar onOpenTagModal={() => setTagModalOpen(true)} />
+          </div>
         </Sider>
       )}
 
+      {/* Mobile FAB */}
+      {isMobile && selectedPanel === 'list' && (
+        <button
+          className="mobile-fab"
+          onClick={() => setTodoModalOpen(true)}
+          aria-label="新建任务"
+        >
+          <PlusOutlined style={{ fontSize: 24, color: '#fff' }} />
+        </button>
+      )}
+
       <Layout>
-        <Content style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row' }}>
+        <Content style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', padding: isMobile ? 0 : 16, gap: isMobile ? 0 : 16 }}>
           {(!isMobile || selectedPanel === 'list') && (
             <TodoList
               onOpenCreateModal={() => setTodoModalOpen(true)}

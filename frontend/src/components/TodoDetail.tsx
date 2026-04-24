@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useApp } from '../hooks/useApp';
-import { Button, Empty, Input, Select, message, Popconfirm, Tag, Collapse, Badge, Tooltip } from 'antd';
-import { PlayCircleOutlined, EditOutlined, DeleteOutlined, CloseCircleOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { Button, Empty, Input, Select, message, Popconfirm, Tag, Collapse, Badge } from 'antd';
+import { PlayCircleOutlined, EditOutlined, DeleteOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import * as db from '../utils/database';
 import type { LogEntry, ExecutionSummary } from '../types';
 
@@ -60,7 +60,6 @@ export function TodoDetail() {
   const [selectedExecutor, setSelectedExecutor] = useState<string>('joinai');
   const [summary, setSummary] = useState<ExecutionSummary | null>(null);
 
-  // Current execution state
   const [isExecuting, setIsExecuting] = useState(false);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
   const [realtimeLogs, setRealtimeLogs] = useState<LogEntry[]>([]);
@@ -72,14 +71,12 @@ export function TodoDetail() {
 
   const records = selectedTodoId ? executionRecords[selectedTodoId] || [] : [];
 
-  // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
     if (logsEndRef.current) {
       logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [realtimeLogs]);
 
-  // Fetch execution records and summary when todo changes
   useEffect(() => {
     if (selectedTodo) {
       setEditTitle(selectedTodo.title);
@@ -99,7 +96,6 @@ export function TodoDetail() {
     }
   }, [selectedTodoId, selectedTodo, dispatch]);
 
-  // Setup WebSocket connection
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/xyz/events`);
@@ -122,7 +118,6 @@ export function TodoDetail() {
           setExecutionResult(data.result ?? null);
           message.success(data.success ? '执行成功' : '执行失败');
 
-          // Reload todos and execution records and summary
           db.getAllTodos().then(todos => {
             dispatch({ type: 'SET_TODOS', payload: todos });
           });
@@ -145,10 +140,8 @@ export function TodoDetail() {
     };
 
     ws.onclose = () => {
-      // Reconnect after a delay if not intentionally closed
       setTimeout(() => {
         if (wsRef.current?.readyState !== WebSocket.OPEN) {
-          // Will be handled by next useEffect cycle
         }
       }, 1000);
     };
@@ -160,7 +153,6 @@ export function TodoDetail() {
 
   const handleExecute = async () => {
     if (!selectedTodo) return;
-
     try {
       const result = await db.executeJoinai(
         selectedTodo.id,
@@ -173,7 +165,6 @@ export function TodoDetail() {
       setExecutionSuccess(null);
       setExecutionResult(null);
     } catch (error) {
-      console.error('Execution failed:', error);
       message.error('执行失败: ' + error);
     }
   };
@@ -215,315 +206,252 @@ export function TodoDetail() {
 
   if (!selectedTodo) {
     return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Empty description="选择一个 Todo 查看详情" />
+      <div className="detail-panel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Empty description="选择一个任务查看详情" />
       </div>
     );
   }
 
   return (
-    <div style={{ flex: 1, padding: 16, overflow: 'auto', minWidth: 0 }}>
-      {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-          {isEditing ? (
+    <div className="detail-panel">
+      {/* 标题卡片 */}
+      <div className="detail-card title-card">
+        {isEditing ? (
+          <>
             <Input
               value={editTitle}
               onChange={e => setEditTitle(e.target.value)}
-              style={{ fontSize: 20, fontWeight: 600, width: 300 }}
+              placeholder="任务标题"
+              className="card-input"
             />
-          ) : (
-            <h2 style={{ margin: 0 }}>{selectedTodo.title}</h2>
-          )}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {isEditing ? (
-              <>
-                <Button onClick={() => setIsEditing(false)}>取消</Button>
-                <Button type="primary" onClick={handleSaveEdit}>保存</Button>
-              </>
-            ) : (
-              <>
-                <Button icon={<EditOutlined />} onClick={() => setIsEditing(true)}>编辑</Button>
-                {isExecuting ? (
-                  <Button
-                    danger
-                    icon={<CloseCircleOutlined />}
-                    onClick={handleStopExecution}
-                  >
-                    停止
-                  </Button>
-                ) : (
-                  <Button
-                    type="primary"
-                    icon={<PlayCircleOutlined />}
-                    onClick={handleExecute}
-                    disabled={selectedTodo.status === 'running'}
-                  >
-                    执行
-                  </Button>
-                )}
-                <Popconfirm
-                  title="删除 Todo"
-                  description="确定要删除这个 Todo 吗？"
-                  onConfirm={handleDelete}
-                >
-                  <Button icon={<DeleteOutlined />} danger>删除</Button>
-                </Popconfirm>
-              </>
+            <TextArea
+              value={editDescription}
+              onChange={e => setEditDescription(e.target.value)}
+              rows={3}
+              placeholder="输入任务描述..."
+              className="card-textarea"
+            />
+          </>
+        ) : (
+          <>
+            <h2 className="card-title">{selectedTodo.title}</h2>
+            {selectedTodo.description && (
+              <p className="card-description">{selectedTodo.description}</p>
             )}
-          </div>
-        </div>
+          </>
+        )}
+      </div>
 
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      {/* 执行按钮卡片 */}
+      <div className="detail-card action-card">
+        {isEditing ? (
+          <div className="action-row">
+            <Button onClick={() => setIsEditing(false)} className="btn-secondary btn-block">取消</Button>
+            <Button type="primary" onClick={handleSaveEdit} className="btn-primary btn-block">保存</Button>
+          </div>
+        ) : (
+          <>
+            <div className="action-row">
+              <Button icon={<EditOutlined />} onClick={() => setIsEditing(true)} className="btn-secondary btn-flex">
+                编辑
+              </Button>
+              {isExecuting ? (
+                <Button danger icon={<CloseCircleOutlined />} onClick={handleStopExecution} className="btn-danger btn-flex">
+                  停止
+                </Button>
+              ) : (
+                <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleExecute} disabled={selectedTodo.status === 'running'} className="btn-primary btn-flex">
+                  执行
+                </Button>
+              )}
+            </div>
+            <Popconfirm title="删除任务" description="确定要删除吗？" onConfirm={handleDelete}>
+              <Button danger icon={<DeleteOutlined />} className="btn-danger-outline btn-block">
+                删除任务
+              </Button>
+            </Popconfirm>
+          </>
+        )}
+      </div>
+
+      {/* 设置卡片 */}
+      <div className="detail-card settings-card">
+        <div className="setting-row">
+          <span className="setting-label">状态</span>
           <Select
             value={editStatus}
-            onChange={(val) => {
-              setEditStatus(val);
-              if (val !== selectedTodo?.status) {
-                handleStatusChange(val);
-              }
-            }}
-            style={{ width: 100 }}
+            onChange={(val) => { setEditStatus(val); if (val !== selectedTodo?.status) handleStatusChange(val); }}
+            className="setting-select"
             options={[
               { value: 'pending', label: '待执行' },
               { value: 'running', label: '执行中' },
               { value: 'completed', label: '已完成' },
-              { value: 'failed', label: '执行失败' },
+              { value: 'failed', label: '失败' },
             ]}
           />
-          <Tooltip title="强制修改状态（当进程崩溃时使用）">
-            <Button
-              type="text"
-              size="small"
-              icon={<ExclamationCircleOutlined />}
-              onClick={() => {
-                const newStatus = editStatus === 'running' ? 'failed' : 'running';
-                setEditStatus(newStatus);
-                handleStatusChange(newStatus);
-              }}
-            >
-              强制
-            </Button>
-          </Tooltip>
-
-          <span style={{ fontSize: 12, color: '#999' }}>执行器:</span>
+        </div>
+        <div className="setting-row">
+          <span className="setting-label">执行器</span>
           <Select
             value={selectedExecutor}
             onChange={setSelectedExecutor}
-            style={{ width: 110 }}
+            className="setting-select"
             disabled={isExecuting}
             options={[
               { value: 'joinai', label: 'JoinAI' },
-              { value: 'claudecode', label: 'Claude Code' },
+              { value: 'claudecode', label: 'Claude' },
             ]}
           />
-
-          {isExecuting && (
-            <Tag color="blue" icon={<PlayCircleOutlined />}>执行中</Tag>
-          )}
-          {executionSuccess === true && (
-            <Tag color="green" icon={<CheckCircleOutlined />}>执行成功</Tag>
-          )}
-          {executionSuccess === false && (
-            <Tag color="red" icon={<CloseCircleOutlined />}>执行失败</Tag>
-          )}
         </div>
       </div>
 
-      {/* Description */}
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 12, color: '#999', marginBottom: 4 }}>描述</div>
-        {isEditing ? (
-          <TextArea
-            value={editDescription}
-            onChange={e => setEditDescription(e.target.value)}
-            rows={3}
-            placeholder="输入描述..."
-          />
-        ) : (
-          <div style={{ color: '#666' }}>
-            {selectedTodo.description || '无描述'}
-          </div>
-        )}
-      </div>
-
-      {/* Execution Summary */}
-      {summary && summary.total_executions > 0 && (
-        <div style={{ marginBottom: 16, padding: 12, background: '#f5f5f5', borderRadius: 8 }}>
-          <div style={{ fontSize: 12, color: '#999', marginBottom: 8 }}>执行统计</div>
-          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-            <div>
-              <span style={{ color: '#666' }}>总执行:</span>
-              <span style={{ fontWeight: 600, marginLeft: 4 }}>{summary.total_executions}</span>
-            </div>
-            <div>
-              <span style={{ color: '#52c41a' }}>成功:</span>
-              <span style={{ fontWeight: 600, marginLeft: 4, color: '#52c41a' }}>{summary.success_count}</span>
-            </div>
-            <div>
-              <span style={{ color: '#ff4d4f' }}>失败:</span>
-              <span style={{ fontWeight: 600, marginLeft: 4, color: '#ff4d4f' }}>{summary.failed_count}</span>
-            </div>
-            {summary.running_count > 0 && (
-              <div>
-                <span style={{ color: '#1890ff' }}>进行中:</span>
-                <span style={{ fontWeight: 600, marginLeft: 4, color: '#1890ff' }}>{summary.running_count}</span>
-              </div>
-            )}
-            {summary.total_cost_usd !== null && summary.total_cost_usd !== undefined && (
-              <div>
-                <span style={{ color: '#666' }}>总费用:</span>
-                <span style={{ fontWeight: 600, marginLeft: 4 }}>${summary.total_cost_usd.toFixed(6)}</span>
-              </div>
-            )}
-            <div>
-              <span style={{ color: '#666' }}>Input:</span>
-              <span style={{ marginLeft: 4 }}>{summary.total_input_tokens.toLocaleString()}</span>
-            </div>
-            <div>
-              <span style={{ color: '#666' }}>Output:</span>
-              <span style={{ marginLeft: 4 }}>{summary.total_output_tokens.toLocaleString()}</span>
-            </div>
-          </div>
+      {/* 状态标签 */}
+      {(isExecuting || executionSuccess !== null || selectedTodo.status === 'running') && (
+        <div className="status-indicator">
+          {isExecuting && <Tag color="blue" className="status-tag">执行中</Tag>}
+          {executionSuccess === true && <Tag color="green" className="status-tag">成功</Tag>}
+          {executionSuccess === false && <Tag color="red" className="status-tag">失败</Tag>}
+          {!isExecuting && executionSuccess === null && selectedTodo.status === 'running' && (
+            <Tag color="orange" className="status-tag">进行中</Tag>
+          )}
         </div>
       )}
 
-      {/* Realtime Execution Panel */}
-      <Collapse defaultActiveKey={isExecuting ? ['realtime'] : []} style={{ marginBottom: 24 }}>
-        <Panel
-          key="realtime"
-          header={
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span>执行过程</span>
-              {isExecuting && <Badge status="processing" text="运行中" />}
-              {!isExecuting && executionSuccess !== null && (
-                <Badge status={executionSuccess ? 'success' : 'error'} text={executionSuccess ? '已完成' : '已失败'} />
-              )}
-              {!isExecuting && executionSuccess === null && <span style={{ color: '#999' }}>暂无执行</span>}
-              {realtimeLogs.length > 0 && <Tag>{realtimeLogs.length} 条日志</Tag>}
-            </div>
-          }
-        >
-          <div style={{
-            background: '#1e1e1e',
-            color: '#d4d4d4',
-            padding: 12,
-            borderRadius: 6,
-            fontFamily: 'monospace',
-            fontSize: 12,
-            maxHeight: 500,
-            overflow: 'auto',
-          }}>
-            {realtimeLogs.length === 0 && !isExecuting ? (
-              <div style={{ color: '#666', textAlign: 'center', padding: 20 }}>
-                暂无执行日志
+      <div className="detail-content">
+        {summary && summary.total_executions > 0 && (
+          <div className="stats-card" style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 13, color: '#999', marginBottom: 12, fontWeight: 500 }}>执行统计</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 12 }}>
+              <div className="stats-item">
+                <span className="stats-label">总执行</span>
+                <span className="stats-value">{summary.total_executions}</span>
               </div>
-            ) : (
-              <>
-                {realtimeLogs.map((log, idx) => (
-                  <div key={idx} style={{ marginBottom: 6, display: 'flex', gap: 8 }}>
-                    <span style={{ color: '#666', flexShrink: 0 }}>{log.timestamp}</span>
-                    <span
-                      style={{
-                        color: logTypeColors[log.type] || '#d4d4d4',
-                        background: `${logTypeColors[log.type]}20` || 'transparent',
-                        padding: '0 4px',
-                        borderRadius: 2,
-                        flexShrink: 0,
-                        minWidth: 50,
-                      }}
-                    >
-                      {logTypeLabels[log.type] || log.type}
-                    </span>
-                    <span style={{ wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>{log.content}</span>
-                  </div>
-                ))}
-                <div ref={logsEndRef} />
-              </>
-            )}
-          </div>
-
-          {/* Final Result */}
-          {executionResult !== null && executionResult !== '' && (
-            <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 12, color: '#999', marginBottom: 4 }}>最终结果:</div>
-              <div style={{
-                background: executionSuccess ? '#f6ffed' : '#fff2f0',
-                border: `1px solid ${executionSuccess ? '#b7eb8f' : '#ffccc7'}`,
-                padding: 12,
-                borderRadius: 4,
-                fontSize: 13,
-                color: '#333',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-all',
-              }}>
-                {executionResult}
+              <div className="stats-item">
+                <span className="stats-label" style={{ color: '#52c41a' }}>成功</span>
+                <span className="stats-value" style={{ color: '#52c41a' }}>{summary.success_count}</span>
               </div>
-            </div>
-          )}
-        </Panel>
-      </Collapse>
-
-      {/* Execution History */}
-      <div>
-        <h4 style={{ marginBottom: 12 }}>执行历史</h4>
-        {records.length === 0 ? (
-          <Empty description="暂无执行记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        ) : (
-          records.map(record => (
-            <div
-              key={record.id}
-              style={{
-                border: '1px solid #f0f0f0',
-                borderRadius: 8,
-                padding: 12,
-                marginBottom: 12,
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12, color: '#999' }}>
-                    {new Date(record.started_at).toLocaleString()}
-                  </span>
-                  {record.executor && (
-                    <Tag color={record.executor === 'claudecode' ? 'purple' : 'cyan'}>
-                      {record.executor === 'claudecode' ? 'Claude Code' : 'JoinAI'}
-                    </Tag>
-                  )}
-                  {record.model && (
-                    <Tag color='blue'>
-                      {record.model}
-                    </Tag>
-                  )}
-                  {record.usage?.duration_ms && (
-                    <span style={{ fontSize: 11, color: '#52c41a', fontWeight: 500 }}>
-                      {(record.usage.duration_ms / 1000).toFixed(2)}s
-                    </span>
-                  )}
+              <div className="stats-item">
+                <span className="stats-label" style={{ color: '#ff4d4f' }}>失败</span>
+                <span className="stats-value" style={{ color: '#ff4d4f' }}>{summary.failed_count}</span>
+              </div>
+              {summary.total_cost_usd !== null && summary.total_cost_usd !== undefined && (
+                <div className="stats-item">
+                  <span className="stats-label">费用</span>
+                  <span className="stats-value">${summary.total_cost_usd.toFixed(6)}</span>
                 </div>
-                <span style={{
-                  fontSize: 12,
-                  padding: '2px 8px',
-                  borderRadius: 10,
-                  backgroundColor: record.status === 'success' ? '#52c41a' : record.status === 'failed' ? '#ff4d4f' : '#1890ff',
-                  color: '#fff',
-                }}>
-                  {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
-                </span>
-              </div>
-              <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
-                命令: <code>{record.command}</code>
-              </div>
+              )}
+            </div>
+          </div>
+        )}
 
-              {/* Result */}
-              {record.result !== null && record.result !== '' && (
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 12, color: '#999', marginBottom: 4 }}>执行结果:</div>
+        <Collapse defaultActiveKey={isExecuting ? ['realtime'] : []} style={{ marginBottom: 20 }}>
+          <Panel
+            key="realtime"
+            header={
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 500 }}>执行过程</span>
+                {isExecuting && <Badge status="processing" text="运行中" />}
+                {!isExecuting && executionSuccess !== null && (
+                  <Badge status={executionSuccess ? 'success' : 'error'} text={executionSuccess ? '已完成' : '已失败'} />
+                )}
+                {!isExecuting && executionSuccess === null && <span style={{ color: '#999' }}>暂无执行</span>}
+                {realtimeLogs.length > 0 && <Tag>{realtimeLogs.length} 条日志</Tag>}
+              </div>
+            }
+          >
+            <div className="log-panel">
+              {realtimeLogs.length === 0 && !isExecuting ? (
+                <div style={{ color: '#666', textAlign: 'center', padding: 20 }}>暂无执行日志</div>
+              ) : (
+                <>
+                  {realtimeLogs.map((log, idx) => (
+                    <div key={idx} style={{ padding: '4px 12px', borderBottom: '1px solid #333' }}>
+                      <span style={{ color: '#666', marginRight: 8 }}>{log.timestamp}</span>
+                      <span style={{
+                        color: logTypeColors[log.type] || '#d4d4d4',
+                        background: `${logTypeColors[log.type]}20`,
+                        padding: '0 6px',
+                        borderRadius: 3,
+                        marginRight: 8,
+                        fontSize: 11,
+                        fontWeight: 600,
+                      }}>
+                        {logTypeLabels[log.type] || log.type}
+                      </span>
+                      <span style={{ wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>{log.content}</span>
+                    </div>
+                  ))}
+                  <div ref={logsEndRef} />
+                </>
+              )}
+            </div>
+
+            {executionResult !== null && executionResult !== '' && (
+              <div style={{ marginTop: 12, padding: '0 12px 12px' }}>
+                <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>最终结果:</div>
+                <div style={{
+                  background: executionSuccess ? '#f6ffed' : '#fff2f0',
+                  border: `1px solid ${executionSuccess ? '#b7eb8f' : '#ffccc7'}`,
+                  padding: 12,
+                  borderRadius: 6,
+                  fontSize: 13,
+                  color: '#333',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                }}>
+                  {executionResult}
+                </div>
+              </div>
+            )}
+          </Panel>
+        </Collapse>
+
+        <div>
+          <h4 style={{ marginBottom: 12, fontSize: 15, fontWeight: 600 }}>执行历史</h4>
+          {records.length === 0 ? (
+            <Empty description="暂无执行记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          ) : (
+            records.map(record => (
+              <div key={record.id} style={{
+                border: '1px solid #f0f0f0',
+                borderRadius: 10,
+                padding: 16,
+                marginBottom: 12,
+                background: '#fff',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12, color: '#999' }}>{new Date(record.started_at).toLocaleString()}</span>
+                    {record.executor && (
+                      <Tag color={record.executor === 'claudecode' ? 'purple' : 'cyan'}>
+                        {record.executor === 'claudecode' ? 'Claude' : 'JoinAI'}
+                      </Tag>
+                    )}
+                    {record.model && <Tag color='blue'>{record.model}</Tag>}
+                    {record.usage?.duration_ms && (
+                      <span style={{ fontSize: 11, color: '#52c41a', fontWeight: 500 }}>
+                        {(record.usage.duration_ms / 1000).toFixed(2)}s
+                      </span>
+                    )}
+                  </div>
+                  <span style={{
+                    fontSize: 11,
+                    padding: '2px 10px',
+                    borderRadius: 12,
+                    backgroundColor: record.status === 'success' ? '#52c41a' : record.status === 'failed' ? '#ff4d4f' : '#1890ff',
+                    color: '#fff',
+                    fontWeight: 500,
+                  }}>
+                    {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
+                  </span>
+                </div>
+
+                {record.result !== null && record.result !== '' && (
                   <div style={{
                     background: record.status === 'success' ? '#f6ffed' : '#fff2f0',
                     border: `1px solid ${record.status === 'success' ? '#b7eb8f' : '#ffccc7'}`,
                     padding: 12,
-                    borderRadius: 4,
+                    borderRadius: 6,
                     fontSize: 13,
                     color: '#333',
                     whiteSpace: 'pre-wrap',
@@ -531,59 +459,57 @@ export function TodoDetail() {
                   }}>
                     {record.result}
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Usage */}
-              {record.usage && (
-                <div style={{ fontSize: 11, color: '#999', marginBottom: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                  <span>Input: {record.usage.input_tokens.toLocaleString()}</span>
-                  <span>Output: {record.usage.output_tokens.toLocaleString()}</span>
-                  {record.usage.total_cost_usd !== null && (
-                    <span style={{ color: '#faad14' }}>${record.usage.total_cost_usd.toFixed(6)}</span>
-                  )}
-                </div>
-              )}
-
-              {/* Logs */}
-              {record.logs && record.logs !== '[]' && (
-                <details>
-                  <summary style={{ cursor: 'pointer', color: '#1890ff' }}>
-                    查看日志 ({JSON.parse(record.logs).length} 条)
-                  </summary>
-                  <div style={{
-                    background: '#1e1e1e',
-                    color: '#d4d4d4',
-                    padding: 8,
-                    borderRadius: 4,
-                    fontFamily: 'monospace',
-                    fontSize: 11,
-                    marginTop: 8,
-                    maxHeight: 300,
-                    overflow: 'auto',
-                  }}>
-                    {(() => {
-                      try {
-                        const logs = JSON.parse(record.logs) as LogEntry[];
-                        return logs.map((log, idx) => (
-                          <div key={idx} style={{ marginBottom: 4, display: 'flex', gap: 8 }}>
-                            <span style={{ color: '#666', flexShrink: 0 }}>{log.timestamp}</span>
-                            <span style={{ color: logTypeColors[log.type] || '#d4d4d4' }}>
-                              [{logTypeLabels[log.type] || log.type}]
-                            </span>
-                            <span>{log.content}</span>
-                          </div>
-                        ));
-                      } catch {
-                        return <div>{record.logs}</div>;
-                      }
-                    })()}
+                {record.usage && (
+                  <div style={{ fontSize: 11, color: '#999', marginTop: 8, display: 'flex', gap: 12 }}>
+                    <span>Input: {record.usage.input_tokens.toLocaleString()}</span>
+                    <span>Output: {record.usage.output_tokens.toLocaleString()}</span>
+                    {record.usage.total_cost_usd !== null && (
+                      <span style={{ color: '#faad14' }}>${record.usage.total_cost_usd.toFixed(6)}</span>
+                    )}
                   </div>
-                </details>
-              )}
-            </div>
-          ))
-        )}
+                )}
+
+                {record.logs && record.logs !== '[]' && (
+                  <details style={{ marginTop: 8 }}>
+                    <summary style={{ cursor: 'pointer', color: '#1890ff', fontSize: 12 }}>
+                      查看日志 ({JSON.parse(record.logs).length} 条)
+                    </summary>
+                    <div style={{
+                      background: '#1e1e1e',
+                      color: '#d4d4d4',
+                      padding: 8,
+                      borderRadius: 6,
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      marginTop: 8,
+                      maxHeight: 250,
+                      overflow: 'auto',
+                    }}>
+                      {(() => {
+                        try {
+                          const logs = JSON.parse(record.logs) as LogEntry[];
+                          return logs.map((log, idx) => (
+                            <div key={idx} style={{ marginBottom: 4, display: 'flex', gap: 8 }}>
+                              <span style={{ color: '#666', flexShrink: 0 }}>{log.timestamp}</span>
+                              <span style={{ color: logTypeColors[log.type] || '#d4d4d4' }}>
+                                [{logTypeLabels[log.type] || log.type}]
+                              </span>
+                              <span>{log.content}</span>
+                            </div>
+                          ));
+                        } catch {
+                          return <div>{record.logs}</div>;
+                        }
+                      })()}
+                    </div>
+                  </details>
+                )}
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );
