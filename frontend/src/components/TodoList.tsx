@@ -4,6 +4,7 @@ import { PlusOutlined } from '@ant-design/icons';
 
 interface TodoListProps {
   onOpenCreateModal: () => void;
+  onSelectTodo?: (todoId: string | number) => void;
 }
 
 const statusColors: Record<string, string> = {
@@ -20,7 +21,7 @@ const statusLabels: Record<string, string> = {
   failed: '执行失败',
 };
 
-export function TodoList({ onOpenCreateModal }: TodoListProps) {
+export function TodoList({ onOpenCreateModal, onSelectTodo }: TodoListProps) {
   const { state, dispatch } = useApp();
   const { todos, selectedTodoId, selectedTagId } = state;
 
@@ -43,7 +44,10 @@ export function TodoList({ onOpenCreateModal }: TodoListProps) {
           filteredTodos.map(todo => (
             <div
               key={todo.id}
-              onClick={() => dispatch({ type: 'SELECT_TODO', payload: todo.id })}
+              onClick={() => {
+                dispatch({ type: 'SELECT_TODO', payload: todo.id });
+                onSelectTodo?.(todo.id);
+              }}
               style={{
                 padding: 12,
                 marginBottom: 8,

@@ -1,4 +1,47 @@
-.PHONY: build clean run dev watch
+.PHONY: setup build clean run dev watch kill-port install start stop
+
+# Setup: install all dependencies for frontend and backend
+setup:
+	@echo "=== Setting up aietodo ==="
+	@echo ""
+	@echo "[1/4] Checking Rust toolchain..."
+	@which rustc > /dev/null 2>&1 || (echo "Installing Rust..." && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y)
+	@source $$HOME/.cargo/env 2>/dev/null || true
+	@echo "  Rust: $$(rustc --version 2>/dev/null || echo 'NOT FOUND')"
+	@echo ""
+	@echo "[2/4] Checking Node.js..."
+	@echo "  Node: $$(node --version 2>/dev/null || echo 'NOT FOUND')"
+	@echo "  npm:  $$(npm --version 2>/dev/null || echo 'NOT FOUND')"
+	@echo ""
+	@echo "[3/4] Installing frontend dependencies..."
+	cd frontend && npm install
+	@echo ""
+	@echo "[4/4] Pre-compiling Rust backend (downloads deps)..."
+	cd backend && source $$HOME/.cargo/env 2>/dev/null && cargo fetch
+	@echo ""
+	@echo "=== Setup complete! ==="
+	@echo "Run 'make dev'    to start development (frontend + backend)"
+	@echo "Run 'make watch'  to start with hot reload"
+	@echo "Run 'make build'  to build for production"
+	@echo "Run 'make install' to build and install binary to ~/.local/bin"
+
+# Install the built binary to ~/.local/bin
+install: build
+	@mkdir -p $$HOME/.local/bin
+	@cp backend/target/release/aitodo $$HOME/.local/bin/
+	@echo "Installed to $$HOME/.local/bin/aitodo"
+	@echo "Make sure $$HOME/.local/bin is in your PATH"
+
+# Stop the aitodo binary
+stop:
+	@pkill -f "^aitodo$$" || echo "aitodo process not running"
+
+# Start the aitodo binary (after installing)
+start: install
+	@$$HOME/.local/bin/aitodo
+
+# Restart: stop then start
+restart: stop start
 
 # Kill processes on ports used by dev servers
 kill-port:
@@ -17,7 +60,7 @@ clean:
 
 # Run the server (after build)
 run:
-	./backend/target/release/todo-executor
+	./backend/target/release/aitodo
 
 # Development mode (both frontend and backend, one-shot)
 dev: kill-port build

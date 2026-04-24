@@ -2,7 +2,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use log::info;
 
-use todo_executor::{adapters, db, handlers};
+use aitodo::{adapters, db, handlers};
 
 fn main() {
     // Initialize logger with default level info

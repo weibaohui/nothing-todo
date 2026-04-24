@@ -23,3 +23,31 @@ code {
   border-radius: 4px;
   font-family: 'Monaco', 'Menlo', monospace;
 }
+
+/* Mobile Responsive Styles */
+@media (max-width: 767px) {
+  .mobile-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    border-bottom: 1px solid #f0f0f0;
+    background: #fff;
+  }
+
+  .mobile-title {
+    font-size: 16px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 200px;
+  }
+}
+
+/* Desktop layout adjustments */
+@media (min-width: 768px) {
+  .mobile-header {
+    display: none;
+  }
+}
