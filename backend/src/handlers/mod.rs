@@ -42,7 +42,7 @@ pub async fn get_todos(State(state): State<AppState>) -> Json<Vec<Todo>> {
 }
 
 pub async fn create_todo(State(state): State<AppState>, Json(req): Json<CreateTodoRequest>) -> Json<Todo> {
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let id = state.db.create_todo(&req.title, &req.description);
 
     // Save tag associations
@@ -61,6 +61,7 @@ pub async fn create_todo(State(state): State<AppState>, Json(req): Json<CreateTo
         executor: Some("claudecode".to_string()),
         scheduler_enabled: false,
         scheduler_config: None,
+        scheduler_next_run_at: None,
         task_id: None,
     })
 }
@@ -104,7 +105,7 @@ pub async fn get_tags(State(state): State<AppState>) -> Json<Vec<Tag>> {
 }
 
 pub async fn create_tag(State(state): State<AppState>, Json(req): Json<CreateTagRequest>) -> Json<Tag> {
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let id = state.db.create_tag(&req.name, &req.color);
     Json(Tag {
         id,

@@ -5,14 +5,13 @@ export async function getAllTodos(): Promise<any[]> {
   return res.json();
 }
 
-export async function createTodo(title: string, description: string = '', tagIds: number[] = []): Promise<number> {
+export async function createTodo(title: string, description: string = '', tagIds: number[] = []): Promise<any> {
   const res = await fetch(`${API_BASE}/xyz/todos`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title, description, tag_ids: tagIds }),
   });
-  const data = await res.json();
-  return data.id;
+  return res.json();
 }
 
 export async function updateTodo(
@@ -23,17 +22,18 @@ export async function updateTodo(
   executor?: string,
   scheduler_enabled?: boolean,
   scheduler_config?: string | null,
-): Promise<void> {
+): Promise<any> {
   const body: any = { title, description, status };
   if (executor !== undefined) body.executor = executor;
   if (scheduler_enabled !== undefined) body.scheduler_enabled = scheduler_enabled;
   if (scheduler_config !== undefined) body.scheduler_config = scheduler_config;
 
-  await fetch(`${API_BASE}/xyz/todos/${id}`, {
+  const res = await fetch(`${API_BASE}/xyz/todos/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  return res.json();
 }
 
 export async function deleteTodo(id: number): Promise<void> {
@@ -47,14 +47,13 @@ export async function getAllTags(): Promise<any[]> {
   return res.json();
 }
 
-export async function createTag(name: string, color: string): Promise<number> {
+export async function createTag(name: string, color: string): Promise<any> {
   const res = await fetch(`${API_BASE}/xyz/tags`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, color }),
   });
-  const data = await res.json();
-  return data.id;
+  return res.json();
 }
 
 export async function deleteTag(id: number): Promise<void> {
@@ -81,12 +80,13 @@ export async function executeJoinai(todoId: number, message: string, executor?: 
   return res.json();
 }
 
-export async function forceUpdateTodoStatus(id: number, status: string): Promise<void> {
-  await fetch(`${API_BASE}/xyz/todos/${id}/force-status`, {
+export async function forceUpdateTodoStatus(id: number, status: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/xyz/todos/${id}/force-status`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
   });
+  return res.json();
 }
 
 export async function getExecutionSummary(todoId: number): Promise<any> {

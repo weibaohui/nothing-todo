@@ -25,6 +25,35 @@ export function StatusPicker({ value, onChange, disabled }: StatusPickerProps) {
     setOpen(false);
   };
 
+  const triggerNode = (
+    <div
+      className="status-picker-trigger"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 28,
+        height: 28,
+        borderRadius: '50%',
+        backgroundColor: current.color,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.5 : 1,
+        border: 'none',
+        flexShrink: 0,
+        transition: 'all 0.2s ease',
+        boxShadow: `0 2px 6px ${current.color}40`,
+      }}
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-label={`当前状态: ${current.label}`}
+      onClick={(e) => e.stopPropagation()}
+    />
+  );
+
+  if (disabled) {
+    return triggerNode;
+  }
+
   return (
     <Popover
       content={
@@ -59,34 +88,11 @@ export function StatusPicker({ value, onChange, disabled }: StatusPickerProps) {
       open={open}
       onOpenChange={setOpen}
       placement="bottomLeft"
+      getPopupContainer={() => document.body}
+      zIndex={1050}
+      destroyTooltipOnHide
     >
-      <div
-        className="status-picker-trigger"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: 28,
-          height: 28,
-          borderRadius: '50%',
-          backgroundColor: current.color,
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          opacity: disabled ? 0.5 : 1,
-          border: 'none',
-          flexShrink: 0,
-          transition: 'all 0.2s ease',
-          boxShadow: `0 2px 6px ${current.color}40`,
-        }}
-        onClick={(e) => {
-          if (!disabled) {
-            e.stopPropagation();
-            setOpen(true);
-          }
-        }}
-        role="button"
-        tabIndex={disabled ? -1 : 0}
-        aria-label={`当前状态: ${current.label}`}
-      />
+      {triggerNode}
     </Popover>
   );
 }

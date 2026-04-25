@@ -9,6 +9,7 @@ export interface Todo {
   executor?: string;
   scheduler_enabled?: boolean;
   scheduler_config?: string | null;
+  scheduler_next_run_at?: string | null;
   task_id?: string | null;
 }
 
@@ -63,6 +64,8 @@ export interface ExecutionSummary {
   running_count: number;
   total_input_tokens: number;
   total_output_tokens: number;
+  total_cache_read_tokens: number;
+  total_cache_creation_tokens: number;
   total_cost_usd: number | null;
 }
 

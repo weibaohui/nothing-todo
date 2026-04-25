@@ -11,10 +11,10 @@ async fn main() {
         .format_timestamp_millis()
         .init();
 
-    // Get database path from config directory
-    let db_path = dirs::config_dir()
+    // Get database path from home directory
+    let db_path = dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("aitodo")
+        .join(".aitodo")
         .join("data.db");
 
     // Ensure the directory exists

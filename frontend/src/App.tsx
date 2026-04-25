@@ -187,7 +187,7 @@ const customTheme = {
 
 function App() {
   return (
-    <ConfigProvider locale={zhCN} theme={customTheme}>
+    <ConfigProvider locale={zhCN} theme={customTheme} getPopupContainer={() => document.body}>
       <AppProvider>
         <AppContent />
       </AppProvider>

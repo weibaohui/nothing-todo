@@ -22,13 +22,7 @@ export function CreateTagModal({ open, onClose }: CreateTagModalProps) {
 
     setLoading(true);
     try {
-      const id = await db.createTag(name.trim(), color);
-      const newTag = {
-        id,
-        name: name.trim(),
-        color,
-        created_at: new Date().toISOString(),
-      };
+      const newTag = await db.createTag(name.trim(), color);
       dispatch({ type: 'ADD_TAG', payload: newTag });
       message.success('标签创建成功');
       setName('');

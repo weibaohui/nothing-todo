@@ -2,8 +2,15 @@ use rusqlite::{params, Connection, Result};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use chrono::Utc;
+use std::str::FromStr;
 
 use crate::models::{Todo, Tag, ExecutionRecord, ExecutionUsage, ExecutionSummary};
+
+fn compute_next_run(cron_expr: &str) -> Option<String> {
+    cron::Schedule::from_str(cron_expr).ok().and_then(|schedule| {
+        schedule.upcoming(Utc).next().map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+    })
+}
 
 pub struct Database {
     conn: Arc<Mutex<Connection>>,
@@ -27,8 +34,8 @@ impl Database {
                 title TEXT NOT NULL,
                 description TEXT DEFAULT '',
                 status TEXT DEFAULT 'pending',
-                created_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT DEFAULT (datetime('now')),
+                created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
                 deleted_at TEXT
             )",
             [],
@@ -39,7 +46,7 @@ impl Database {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
                 color TEXT DEFAULT '#1890ff',
-                created_at TEXT DEFAULT (datetime('now'))
+                created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
             )",
             [],
         )?;
@@ -107,7 +114,7 @@ impl Database {
                 usage TEXT,
                 executor TEXT,
                 model TEXT,
-                started_at TEXT DEFAULT (datetime('now')),
+                started_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
                 finished_at TEXT,
                 FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE
             )",
@@ -118,6 +125,13 @@ impl Database {
     }
 
     fn row_to_todo(&self, row: &rusqlite::Row) -> Result<Todo> {
+        let scheduler_enabled: bool = row.get::<_, i64>(7)? != 0;
+        let scheduler_config: Option<String> = row.get(8)?;
+        let scheduler_next_run_at = if scheduler_enabled {
+            scheduler_config.as_ref().and_then(|c| compute_next_run(c))
+        } else {
+            None
+        };
         Ok(Todo {
             id: row.get(0)?,
             title: row.get(1)?,
@@ -127,8 +141,9 @@ impl Database {
             updated_at: row.get(5)?,
             tag_ids: vec![],
             executor: row.get(6)?,
-            scheduler_enabled: row.get::<_, i64>(7)? != 0,
-            scheduler_config: row.get(8)?,
+            scheduler_enabled,
+            scheduler_config,
+            scheduler_next_run_at,
             task_id: row.get(9)?,
         })
     }
@@ -164,7 +179,7 @@ impl Database {
 
     pub fn create_todo(&self, title: &str, description: &str) -> i64 {
         let conn = self.conn.lock();
-        let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         conn.execute(
             "INSERT INTO todos (title, description, created_at, updated_at, executor) VALUES (?1, ?2, ?3, ?3, 'claudecode')",
             params![title, description, now],
@@ -174,7 +189,7 @@ impl Database {
 
     pub fn update_todo(&self, id: i64, title: &str, description: &str, status: &str) {
         let conn = self.conn.lock();
-        let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         conn.execute(
             "UPDATE todos SET title = ?1, description = ?2, status = ?3, updated_at = ?4 WHERE id = ?5",
             params![title, description, status, now, id],
@@ -183,7 +198,7 @@ impl Database {
 
     pub fn update_todo_full(&self, id: i64, title: &str, description: &str, status: &str, executor: Option<&str>, scheduler_enabled: Option<bool>, scheduler_config: Option<&str>) {
         let conn = self.conn.lock();
-        let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
         if let Some(exec) = executor {
             conn.execute(
@@ -232,7 +247,7 @@ impl Database {
 
     pub fn force_update_todo_status(&self, id: i64, status: &str) {
         let conn = self.conn.lock();
-        let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         conn.execute(
             "UPDATE todos SET status = ?1, updated_at = ?2 WHERE id = ?3",
             params![status, now, id],
@@ -241,7 +256,7 @@ impl Database {
 
     pub fn delete_todo(&self, id: i64) {
         let conn = self.conn.lock();
-        let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         conn.execute(
             "UPDATE todos SET deleted_at = ?1 WHERE id = ?2",
             params![now, id],
@@ -309,7 +324,7 @@ impl Database {
 
     pub fn create_tag(&self, name: &str, color: &str) -> i64 {
         let conn = self.conn.lock();
-        let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         conn.execute(
             "INSERT INTO tags (name, color, created_at) VALUES (?1, ?2, ?3)",
             params![name, color, now],
@@ -379,7 +394,7 @@ impl Database {
     pub fn create_execution_record(&self, todo_id: i64, command: &str, executor: &str) -> i64 {
         let conn = self.conn.lock();
         conn.execute(
-            "INSERT INTO execution_records (todo_id, command, executor, status, started_at) VALUES (?1, ?2, ?3, 'running', datetime('now'))",
+            "INSERT INTO execution_records (todo_id, command, executor, status, started_at) VALUES (?1, ?2, ?3, 'running', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
             params![todo_id, command, executor],
         ).unwrap();
         conn.last_insert_rowid()
@@ -388,7 +403,7 @@ impl Database {
     pub fn update_execution_record(&self, id: i64, status: &str, logs: &str, result: &str) {
         let conn = self.conn.lock();
         conn.execute(
-            "UPDATE execution_records SET status = ?1, logs = ?2, result = ?3, finished_at = datetime('now') WHERE id = ?4",
+            "UPDATE execution_records SET status = ?1, logs = ?2, result = ?3, finished_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?4",
             params![status, logs, result, id],
         ).unwrap();
     }
@@ -397,7 +412,7 @@ impl Database {
         let conn = self.conn.lock();
         let usage_json = serde_json::to_string(usage).unwrap_or_default();
         conn.execute(
-            "UPDATE execution_records SET status = ?1, logs = ?2, result = ?3, usage = ?4, finished_at = datetime('now') WHERE id = ?5",
+            "UPDATE execution_records SET status = ?1, logs = ?2, result = ?3, usage = ?4, finished_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?5",
             params![status, logs, result, usage_json, id],
         ).unwrap();
     }
@@ -413,7 +428,7 @@ impl Database {
     pub fn update_todo_status(&self, todo_id: i64, status: &str) {
         let conn = self.conn.lock();
         conn.execute(
-            "UPDATE todos SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
+            "UPDATE todos SET status = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?2",
             params![status, todo_id],
         ).unwrap();
     }
@@ -424,7 +439,7 @@ impl Database {
         let mut stmt = conn.prepare("SELECT todo_id FROM execution_records WHERE id = ?1").unwrap();
         if let Ok(todo_id) = stmt.query_row(params![record_id], |row| row.get::<_, i64>(0)) {
             drop(stmt);
-            let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+            let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
             conn.execute(
                 "UPDATE todos SET status = ?1, updated_at = ?2 WHERE id = ?3",
                 params![status, now, todo_id],
@@ -449,6 +464,8 @@ impl Database {
         let mut running_count = 0i64;
         let mut total_input_tokens = 0u64;
         let mut total_output_tokens = 0u64;
+        let mut total_cache_read_tokens = 0u64;
+        let mut total_cache_creation_tokens = 0u64;
         let mut total_cost = 0.0f64;
 
         for record in records {
@@ -464,6 +481,8 @@ impl Database {
                 if let Ok(usage) = serde_json::from_str::<ExecutionUsage>(&usage_str) {
                     total_input_tokens += usage.input_tokens;
                     total_output_tokens += usage.output_tokens;
+                    total_cache_read_tokens += usage.cache_read_input_tokens.unwrap_or(0);
+                    total_cache_creation_tokens += usage.cache_creation_input_tokens.unwrap_or(0);
                     if let Some(cost) = usage.total_cost_usd {
                         total_cost += cost;
                     }
@@ -479,6 +498,8 @@ impl Database {
             running_count,
             total_input_tokens,
             total_output_tokens,
+            total_cache_read_tokens,
+            total_cache_creation_tokens,
             total_cost_usd: if total_cost > 0.0 { Some(total_cost) } else { None },
         }
     }

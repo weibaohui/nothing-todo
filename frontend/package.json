@@ -16,6 +16,7 @@
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "antd": "^6.3.6",
+    "cron-parser": "^5.5.0",
     "rc-field-form": "^2.7.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"

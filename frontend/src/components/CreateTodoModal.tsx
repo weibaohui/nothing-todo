@@ -27,17 +27,7 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
     setLoading(true);
     try {
       const tagIds = selectedTag !== null ? [selectedTag] : [];
-      const id = await db.createTodo(title.trim(), description.trim(), tagIds);
-      const newTodo = {
-        id,
-        title: title.trim(),
-        description: description.trim(),
-        status: 'pending' as const,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        deleted_at: null,
-        tag_ids: tagIds,
-      };
+      const newTodo = await db.createTodo(title.trim(), description.trim(), tagIds);
       dispatch({ type: 'ADD_TODO', payload: newTodo });
 
       message.success('Todo 创建成功');

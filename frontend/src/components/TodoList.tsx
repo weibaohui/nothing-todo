@@ -213,18 +213,15 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal }: To
                   <div
                     className="todo-item-status"
                     onClick={(e) => e.stopPropagation()}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => e.stopPropagation()}
                     aria-label="更改任务状态"
                   >
                     <StatusPicker
                       value={todo.status}
-                      onChange={(newStatus) => {
-                        db.forceUpdateTodoStatus(todo.id, newStatus);
+                      onChange={async (newStatus) => {
+                        const updated = await db.forceUpdateTodoStatus(todo.id, newStatus);
                         dispatch({
                           type: 'UPDATE_TODO',
-                          payload: { ...todo, status: newStatus as any, updated_at: new Date().toISOString() }
+                          payload: updated
                         });
                       }}
                     />

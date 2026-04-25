@@ -69,10 +69,10 @@ impl Default for ExecutorRegistry {
     }
 }
 
-/// 解析时间的辅助函数
+/// 返回当前 UTC 时间的 ISO 8601 格式字符串 (2024-01-15T08:30:00.000Z)
 pub fn get_timestamp() -> String {
     use chrono::Utc;
-    Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
+    Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
 }
 
 /// 去除 think 标签，只保留最终结论

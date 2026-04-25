@@ -1,11 +1,13 @@
 import { useEffect, useState, useRef } from 'react';
 import { useApp } from '../hooks/useApp';
-import { Button, Empty, Input, Select, message, Popconfirm, Tag, Collapse, Badge, Switch, Tooltip, Divider } from 'antd';
-import { PlayCircleOutlined, EditOutlined, DeleteOutlined, CloseCircleOutlined, ClockCircleOutlined, InfoCircleOutlined, CheckCircleOutlined } from '@ant-design/icons';
-import { StatisticCard } from '@ant-design/pro-components';
+import { Button, Empty, Input, message, Popconfirm, Tag, Collapse, Badge } from 'antd';
+import { PlayCircleOutlined, EditOutlined, DeleteOutlined, CloseCircleOutlined, SettingOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import { TagCheckCardGroup } from './TagCheckCard';
+import { PieChart, PieChartLegend } from './PieChart';
+import { TodoSettingsModal } from './TodoSettingsModal';
 import * as db from '../utils/database';
+import { formatLocalDateTime } from '../utils/datetime';
 import type { LogEntry, ExecutionSummary } from '../types';
 
 const { TextArea } = Input;
@@ -51,18 +53,6 @@ const logTypeLabels: Record<string, string> = {
   thinking: 'THINK',
 };
 
-const cronPresets = [
-  { label: '每分钟', value: '0 * * * * *' },
-  { label: '每5分钟', value: '0 */5 * * * *' },
-  { label: '每10分钟', value: '0 */10 * * * *' },
-  { label: '每30分钟', value: '0 */30 * * * *' },
-  { label: '每小时', value: '0 0 * * * *' },
-  { label: '每天早8点', value: '0 0 8 * * *' },
-  { label: '每天午夜', value: '0 0 0 * * *' },
-  { label: '每周一8点', value: '0 0 8 * * 1' },
-  { label: '自定义', value: 'custom' },
-];
-
 export function TodoDetail() {
   const { state, dispatch } = useApp();
   const { todos, selectedTodoId, executionRecords } = state;
@@ -73,11 +63,8 @@ export function TodoDetail() {
   const [editDescription, setEditDescription] = useState('');
   const [editStatus, setEditStatus] = useState<string>('pending');
   const [editTags, setEditTags] = useState<number[]>([]);
-  const [editExecutor, setEditExecutor] = useState<string>('claudecode');
-  const [editSchedulerEnabled, setEditSchedulerEnabled] = useState(false);
-  const [editSchedulerConfig, setEditSchedulerConfig] = useState<string>('');
-  const [editCronPreset, setEditCronPreset] = useState<string>('custom');
   const [summary, setSummary] = useState<ExecutionSummary | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [isExecuting, setIsExecuting] = useState(false);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
@@ -89,9 +76,6 @@ export function TodoDetail() {
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   const records = selectedTodoId ? executionRecords[selectedTodoId] || [] : [];
-
-  const totalInputTokens = records.reduce((sum, record) => sum + (record.usage?.input_tokens || 0), 0);
-  const totalOutputTokens = records.reduce((sum, record) => sum + (record.usage?.output_tokens || 0), 0);
 
   useEffect(() => {
     if (logsEndRef.current) {
@@ -105,9 +89,6 @@ export function TodoDetail() {
       setEditDescription(selectedTodo.description || '');
       setEditStatus(selectedTodo.status);
       setEditTags((selectedTodo as any).tag_ids || []);
-      setEditExecutor(selectedTodo.executor || 'claudecode');
-      setEditSchedulerEnabled(selectedTodo.scheduler_enabled || false);
-      setEditSchedulerConfig(selectedTodo.scheduler_config || '');
 
       db.getExecutionRecords(selectedTodo.id).then(recs => {
         dispatch({
@@ -205,65 +186,32 @@ export function TodoDetail() {
 
   const handleStatusChange = async (newStatus: string) => {
     if (!selectedTodo) return;
-    await db.updateTodo(selectedTodo.id, selectedTodo.title, selectedTodo.description || '', newStatus);
+    const updated = await db.updateTodo(selectedTodo.id, selectedTodo.title, selectedTodo.description || '', newStatus);
     dispatch({
       type: 'UPDATE_TODO',
-      payload: { ...selectedTodo, status: newStatus as any, updated_at: new Date().toISOString() }
+      payload: updated
     });
     message.success('状态已更新');
   };
 
   const handleSaveEdit = async () => {
     if (!selectedTodo) return;
-    await db.updateTodo(
+    const updated = await db.updateTodo(
       selectedTodo.id,
       editTitle,
       editDescription,
       editStatus,
-      editExecutor,
-      editSchedulerEnabled,
-      editSchedulerConfig || null,
     );
     await db.updateTodoTags(selectedTodo.id, editTags);
     dispatch({
       type: 'UPDATE_TODO',
       payload: {
-        ...selectedTodo,
-        title: editTitle,
-        description: editDescription,
-        status: editStatus as any,
-        executor: editExecutor,
-        scheduler_enabled: editSchedulerEnabled,
-        scheduler_config: editSchedulerConfig || null,
-        updated_at: new Date().toISOString(),
+        ...updated,
         tag_ids: editTags,
-      } as any
+      }
     });
     setIsEditing(false);
     message.success('更新成功');
-  };
-
-  const handleUpdateScheduler = async () => {
-    if (!selectedTodo) return;
-    try {
-      const res = await fetch(`/xyz/todos/${selectedTodo.id}/scheduler`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scheduler_enabled: editSchedulerEnabled,
-          scheduler_config: editSchedulerConfig || null,
-        }),
-      });
-      if (!res.ok) throw new Error('Failed to update scheduler');
-      const updatedTodo = await res.json();
-      dispatch({
-        type: 'UPDATE_TODO',
-        payload: { ...selectedTodo, ...updatedTodo, updated_at: new Date().toISOString() }
-      });
-      message.success('调度设置已更新');
-    } catch (error) {
-      message.error('调度更新失败: ' + error);
-    }
   };
 
   const handleDelete = async () => {
@@ -272,13 +220,6 @@ export function TodoDetail() {
     dispatch({ type: 'DELETE_TODO', payload: selectedTodo.id });
     dispatch({ type: 'SELECT_TODO', payload: null });
     message.success('删除成功');
-  };
-
-  const handleCronPresetChange = (value: string) => {
-    setEditCronPreset(value);
-    if (value !== 'custom') {
-      setEditSchedulerConfig(value);
-    }
   };
 
   if (!selectedTodo) {
@@ -326,16 +267,6 @@ export function TodoDetail() {
               className="card-textarea"
               style={{ marginBottom: 12 }}
             />
-            <Select
-              value={editExecutor}
-              onChange={(val) => setEditExecutor(val)}
-              style={{ width: '100%', marginBottom: 12 }}
-              placeholder="选择执行器"
-              options={[
-                { value: 'claudecode', label: 'Claude' },
-                { value: 'joinai', label: 'JoinAI' },
-              ]}
-            />
             {state.tags.length > 0 && (
               <div style={{ marginBottom: 12 }}>
                 <div style={{ marginBottom: 8, fontWeight: 600 }}>标签</div>
@@ -362,15 +293,44 @@ export function TodoDetail() {
                     disabled={isExecuting}
                   />
                   <h2 className="card-title" style={{ margin: 0 }}>{selectedTodo.title}</h2>
-                  <Tag color={executorColor} style={{ fontWeight: 600 }}>
-                    {executorLabel}
-                  </Tag>
                 </div>
                 {selectedTodo.description && (
                   <p className="card-description">{selectedTodo.description}</p>
                 )}
+                {/* Info tags: executor + scheduler */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                  <Tag color={executorColor} style={{ fontWeight: 600 }}>
+                    {executorLabel}
+                  </Tag>
+                  {selectedTodo.scheduler_enabled ? (
+                    <Tag color="var(--color-primary)" style={{ fontWeight: 600 }}>
+                      调度: {selectedTodo.scheduler_config}
+                    </Tag>
+                  ) : (
+                    <Tag style={{ fontWeight: 600, color: 'var(--color-text-tertiary)', borderColor: 'var(--color-border)' }}>
+                      调度: 关闭
+                    </Tag>
+                  )}
+                  {records.length > 0 && (
+                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                      上次: {formatLocalDateTime(records[0].started_at)}
+                    </span>
+                  )}
+                  {selectedTodo.scheduler_next_run_at && (
+                    <span style={{ fontSize: 12, color: 'var(--color-success)' }}>
+                      下次: {formatLocalDateTime(selectedTodo.scheduler_next_run_at)}
+                    </span>
+                  )}
+                </div>
               </div>
               <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                <Button
+                  type="text"
+                  icon={<SettingOutlined />}
+                  onClick={() => setSettingsOpen(true)}
+                  className="icon-btn"
+                  aria-label="任务设置"
+                />
                 <Button
                   type="text"
                   icon={<EditOutlined />}
@@ -393,83 +353,110 @@ export function TodoDetail() {
         )}
       </div>
 
-      {/* Settings Card */}
-      {!isEditing && (
-        <div className="detail-card settings-card">
-          <div className="setting-row">
-            <span className="setting-label">执行器</span>
-            <Tag color={executorColor} style={{ fontWeight: 600 }}>
-              {executorLabel}
-            </Tag>
-          </div>
+      {/* Execution Stats */}
+      {summary && summary.total_executions > 0 && (
+        <div className="detail-card" style={{ padding: '16px 20px' }}>
+          {(() => {
+            const input = summary.total_input_tokens;
+            const output = summary.total_output_tokens;
+            const cacheRead = (summary as any).total_cache_read_tokens ?? 0;
+            const cacheCreate = (summary as any).total_cache_creation_tokens ?? 0;
+            const totalTokens = input + output + cacheRead + cacheCreate;
 
-          <Divider style={{ margin: '12px 0' }} />
+            const tokenSegments = [
+              { value: input, color: '#3b82f6', label: '输入' },
+              { value: output, color: '#22c55e', label: '输出' },
+              { value: cacheRead, color: '#f59e0b', label: '缓存读' },
+              { value: cacheCreate, color: '#a78bfa', label: '缓存写' },
+            ];
 
-          <div className="setting-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-              <span className="setting-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <ClockCircleOutlined style={{ color: 'var(--color-primary)' }} />
-                定时调度
-                <Tooltip title="使用 Cron 表达式设置周期性自动执行">
-                  <InfoCircleOutlined style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }} />
-                </Tooltip>
-              </span>
-              <Switch
-                checked={editSchedulerEnabled}
-                onChange={(checked) => {
-                  setEditSchedulerEnabled(checked);
-                  if (checked && !editSchedulerConfig) {
-                    setEditSchedulerConfig('0 */10 * * * *');
-                    setEditCronPreset('0 */10 * * * *');
-                  }
-                }}
-              />
-            </div>
+            return (
+              <div>
+                {/* Top row: pie + big number */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 20,
+                    flexWrap: 'wrap',
+                    marginBottom: 12,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <PieChart
+                      segments={tokenSegments.filter((s) => s.value > 0)}
+                      size={90}
+                    />
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 28,
+                          fontWeight: 700,
+                          color: 'var(--color-text)',
+                          lineHeight: 1.2,
+                          letterSpacing: '-0.02em',
+                        }}
+                      >
+                        {totalTokens > 0
+                          ? totalTokens.toLocaleString()
+                          : '0'}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--color-text-tertiary)',
+                          fontWeight: 500,
+                        }}
+                      >
+                        Tokens
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <PieChartLegend segments={tokenSegments} />
+                  </div>
+                </div>
 
-            <div style={{ width: '100%' }}>
-              <Select
-                value={editCronPreset}
-                onChange={handleCronPresetChange}
-                style={{ width: '100%', marginBottom: 8 }}
-                placeholder="选择预设或自定义"
-                options={cronPresets}
-                disabled={!editSchedulerEnabled}
-              />
-              {editCronPreset === 'custom' && (
-                <Input
-                  value={editSchedulerConfig}
-                  onChange={e => setEditSchedulerConfig(e.target.value)}
-                  placeholder="Cron 表达式，例如: 0 */10 * * * *"
-                  disabled={!editSchedulerEnabled}
-                  style={{ marginBottom: 8 }}
-                />
-              )}
-              <Button
-                type="primary"
-                size="small"
-                onClick={handleUpdateScheduler}
-                disabled={!editSchedulerConfig}
-                block
-              >
-                保存调度设置
-              </Button>
-            </div>
-
-            {selectedTodo.scheduler_config && (
-              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', width: '100%' }}>
-                <div>当前配置: <code>{selectedTodo.scheduler_config}</code></div>
-                <div style={{ marginTop: 4 }}>
-                  状态:{' '}
-                  <span style={{
-                    color: selectedTodo.scheduler_enabled ? 'var(--color-success)' : 'var(--color-text-tertiary)',
-                    fontWeight: 600,
-                  }}>
-                    {selectedTodo.scheduler_enabled ? '已启用' : '已禁用'}
+                {/* Bottom row: execution summary + cost */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    flexWrap: 'wrap',
+                    paddingTop: 12,
+                    borderTop: '1px solid var(--color-border-light)',
+                    fontSize: 12,
+                    color: 'var(--color-text-secondary)',
+                  }}
+                >
+                  <span>
+                    执行{' '}
+                    <strong style={{ color: 'var(--color-text)' }}>
+                      {summary.total_executions}
+                    </strong>{' '}
+                    次
                   </span>
+                  <span style={{ color: 'var(--color-border)' }}>|</span>
+                  <span style={{ color: 'var(--color-success)' }}>
+                    成功 {summary.success_count}
+                  </span>
+                  <span style={{ color: 'var(--color-error)' }}>
+                    失败 {summary.failed_count}
+                  </span>
+                  {summary.total_cost_usd !== null &&
+                    summary.total_cost_usd !== undefined && (
+                      <>
+                        <span style={{ color: 'var(--color-border)' }}>|</span>
+                        <span style={{ color: 'var(--color-warning)', fontWeight: 600 }}>
+                          ${summary.total_cost_usd.toFixed(4)}
+                        </span>
+                      </>
+                    )}
                 </div>
               </div>
-            )}
-          </div>
+            );
+          })()}
         </div>
       )}
 
@@ -499,61 +486,6 @@ export function TodoDetail() {
             </Button>
           )}
         </div>
-      )}
-
-      {/* Stats Card */}
-      {summary && summary.total_executions > 0 && (
-        <StatisticCard.Group style={{ marginBottom: 12, flexShrink: 0 }}>
-          <StatisticCard
-            statistic={{
-              title: '总执行',
-              value: summary.total_executions,
-            }}
-          />
-          <StatisticCard
-            statistic={{
-              title: '成功',
-              value: summary.success_count,
-              description: (
-                <span style={{ color: 'var(--color-success)', fontSize: 12 }}>
-                  {((summary.success_count / summary.total_executions) * 100).toFixed(1)}%
-                </span>
-              ),
-            }}
-          />
-          <StatisticCard
-            statistic={{
-              title: '失败',
-              value: summary.failed_count,
-              description: (
-                <span style={{ color: 'var(--color-error)', fontSize: 12 }}>
-                  {((summary.failed_count / summary.total_executions) * 100).toFixed(1)}%
-                </span>
-              ),
-            }}
-          />
-          {summary.total_cost_usd !== null && summary.total_cost_usd !== undefined && (
-            <StatisticCard
-              statistic={{
-                title: '费用',
-                value: `$${summary.total_cost_usd.toFixed(4)}`,
-              }}
-            />
-          )}
-          {(totalInputTokens > 0 || totalOutputTokens > 0) && (
-            <StatisticCard
-              statistic={{
-                title: 'Tokens',
-                value: `${(totalInputTokens + totalOutputTokens).toLocaleString()}`,
-                description: (
-                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                    In: {totalInputTokens.toLocaleString()} / Out: {totalOutputTokens.toLocaleString()}
-                  </span>
-                ),
-              }}
-            />
-          )}
-        </StatisticCard.Group>
       )}
 
       {/* Realtime Logs */}
@@ -635,7 +567,7 @@ export function TodoDetail() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                    {new Date(record.started_at).toLocaleString()}
+                    {formatLocalDateTime(record.started_at)}
                   </span>
                   {record.executor && (
                     <Tag color={record.executor === 'claudecode' ? '#7c3aed' : '#0d9488'} style={{ fontWeight: 600 }}>
@@ -716,6 +648,22 @@ export function TodoDetail() {
           ))
         )}
       </div>
+
+      <TodoSettingsModal
+        open={settingsOpen}
+        todo={selectedTodo}
+        onClose={() => setSettingsOpen(false)}
+        onUpdated={() => {
+          db.getAllTodos().then(todos => {
+            dispatch({ type: 'SET_TODOS', payload: todos });
+          });
+          if (selectedTodoId) {
+            db.getExecutionSummary(selectedTodoId).then(sum => {
+              setSummary(sum);
+            });
+          }
+        }}
+      />
     </div>
   );
 }

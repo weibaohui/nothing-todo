@@ -17,6 +17,8 @@ pub struct Todo {
     #[serde(default)]
     pub scheduler_config: Option<String>,
     #[serde(default)]
+    pub scheduler_next_run_at: Option<String>,
+    #[serde(default)]
     pub task_id: Option<String>,
 }
 
@@ -64,6 +66,8 @@ pub struct ExecutionSummary {
     pub running_count: i64,
     pub total_input_tokens: u64,
     pub total_output_tokens: u64,
+    pub total_cache_read_tokens: u64,
+    pub total_cache_creation_tokens: u64,
     pub total_cost_usd: Option<f64>,
 }
 
