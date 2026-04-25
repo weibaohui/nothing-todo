@@ -55,6 +55,27 @@ impl Database {
             [],
         )?;
 
+        // Add new columns to todos table (for existing databases)
+        conn.execute(
+            "ALTER TABLE todos ADD COLUMN executor TEXT DEFAULT 'claudecode'",
+            [],
+        ).ok();
+
+        conn.execute(
+            "ALTER TABLE todos ADD COLUMN scheduler_enabled INTEGER DEFAULT 0",
+            [],
+        ).ok();
+
+        conn.execute(
+            "ALTER TABLE todos ADD COLUMN scheduler_config TEXT",
+            [],
+        ).ok();
+
+        conn.execute(
+            "ALTER TABLE todos ADD COLUMN task_id TEXT",
+            [],
+        ).ok();
+
         // Add usage column if not exists (for existing databases)
         conn.execute(
             "ALTER TABLE execution_records ADD COLUMN usage TEXT",
@@ -96,22 +117,30 @@ impl Database {
         Ok(())
     }
 
+    fn row_to_todo(&self, row: &rusqlite::Row) -> Result<Todo> {
+        Ok(Todo {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            description: row.get(2)?,
+            status: row.get(3)?,
+            created_at: row.get(4)?,
+            updated_at: row.get(5)?,
+            tag_ids: vec![],
+            executor: row.get(6)?,
+            scheduler_enabled: row.get::<_, i64>(7)? != 0,
+            scheduler_config: row.get(8)?,
+            task_id: row.get(9)?,
+        })
+    }
+
     // Todo operations
     pub fn get_todos(&self) -> Vec<Todo> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, title, description, status, created_at, updated_at FROM todos WHERE deleted_at IS NULL ORDER BY created_at DESC"
+            "SELECT id, title, description, status, created_at, updated_at, executor, scheduler_enabled, scheduler_config, task_id FROM todos WHERE deleted_at IS NULL ORDER BY created_at DESC"
         ).unwrap();
         let todos: Vec<Todo> = stmt.query_map([], |row| {
-            Ok(Todo {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                description: row.get(2)?,
-                status: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-                tag_ids: vec![],
-            })
+            self.row_to_todo(row)
         }).unwrap().filter_map(|r| r.ok()).collect();
 
         drop(stmt);
@@ -137,7 +166,7 @@ impl Database {
         let conn = self.conn.lock();
         let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
         conn.execute(
-            "INSERT INTO todos (title, description, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)",
+            "INSERT INTO todos (title, description, created_at, updated_at, executor) VALUES (?1, ?2, ?3, ?3, 'claudecode')",
             params![title, description, now],
         ).unwrap();
         conn.last_insert_rowid()
@@ -149,6 +178,55 @@ impl Database {
         conn.execute(
             "UPDATE todos SET title = ?1, description = ?2, status = ?3, updated_at = ?4 WHERE id = ?5",
             params![title, description, status, now, id],
+        ).unwrap();
+    }
+
+    pub fn update_todo_full(&self, id: i64, title: &str, description: &str, status: &str, executor: Option<&str>, scheduler_enabled: Option<bool>, scheduler_config: Option<&str>) {
+        let conn = self.conn.lock();
+        let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+        if let Some(exec) = executor {
+            conn.execute(
+                "UPDATE todos SET executor = ?1 WHERE id = ?2",
+                params![exec, id],
+            ).unwrap();
+        }
+
+        if let Some(enabled) = scheduler_enabled {
+            let val = if enabled { 1 } else { 0 };
+            conn.execute(
+                "UPDATE todos SET scheduler_enabled = ?1 WHERE id = ?2",
+                params![val, id],
+            ).unwrap();
+        }
+
+        if scheduler_config.is_some() {
+            conn.execute(
+                "UPDATE todos SET scheduler_config = ?1 WHERE id = ?2",
+                params![scheduler_config, id],
+            ).unwrap();
+        }
+
+        conn.execute(
+            "UPDATE todos SET title = ?1, description = ?2, status = ?3, updated_at = ?4 WHERE id = ?5",
+            params![title, description, status, now, id],
+        ).unwrap();
+    }
+
+    pub fn update_todo_executor(&self, id: i64, executor: &str) {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE todos SET executor = ?1 WHERE id = ?2",
+            params![executor, id],
+        ).unwrap();
+    }
+
+    pub fn update_todo_scheduler(&self, id: i64, enabled: bool, config: Option<&str>, task_id: Option<&str>) {
+        let conn = self.conn.lock();
+        let enabled_val = if enabled { 1 } else { 0 };
+        conn.execute(
+            "UPDATE todos SET scheduler_enabled = ?1, scheduler_config = ?2, task_id = ?3 WHERE id = ?4",
+            params![enabled_val, config, task_id, id],
         ).unwrap();
     }
 
@@ -173,18 +251,10 @@ impl Database {
     pub fn get_todo(&self, id: i64) -> Option<Todo> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, title, description, status, created_at, updated_at FROM todos WHERE id = ?1 AND deleted_at IS NULL"
+            "SELECT id, title, description, status, created_at, updated_at, executor, scheduler_enabled, scheduler_config, task_id FROM todos WHERE id = ?1 AND deleted_at IS NULL"
         ).unwrap();
         let mut todo: Option<Todo> = stmt.query_row(params![id], |row| {
-            Ok(Todo {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                description: row.get(2)?,
-                status: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-                tag_ids: vec![],
-            })
+            self.row_to_todo(row)
         }).ok();
 
         if let Some(ref mut t) = todo {
@@ -194,6 +264,33 @@ impl Database {
         }
 
         todo
+    }
+
+    pub fn get_scheduler_todos(&self) -> Vec<Todo> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, title, description, status, created_at, updated_at, executor, scheduler_enabled, scheduler_config, task_id FROM todos WHERE deleted_at IS NULL AND scheduler_config IS NOT NULL"
+        ).unwrap();
+        let todos: Vec<Todo> = stmt.query_map([], |row| {
+            self.row_to_todo(row)
+        }).unwrap().filter_map(|r| r.ok()).collect();
+
+        drop(stmt);
+
+        let mut tag_stmt = conn.prepare(
+            "SELECT tag_id FROM todo_tags WHERE todo_id = ?1"
+        ).unwrap();
+
+        let mut result = Vec::new();
+        for mut todo in todos {
+            let tag_ids: Vec<i64> = tag_stmt.query_map([todo.id], |row| {
+                row.get(0)
+            }).unwrap().filter_map(|r| r.ok()).collect();
+            todo.tag_ids = tag_ids;
+            result.push(todo);
+        }
+
+        result
     }
 
     // Tag operations

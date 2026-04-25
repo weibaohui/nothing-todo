@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = { version = "0.8", features = ["ws"] }
+axum = { version = "0.8", features = ["ws", "macros"] }
 tokio = { version = "1", features = ["full"] }
 rust-embed = "8"
 serde = { version = "1", features = ["derive"] }
@@ -19,6 +19,8 @@ async-trait = "0.1"
 regex = "1"
 dirs = "5"
 libc = "0.2"
+tokio-cron-scheduler = { version = "0.13", features = ["signal"] }
+cron = "0.15"
 
 [dev-dependencies]
 cargo-watch = "8"

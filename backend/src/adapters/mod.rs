@@ -55,7 +55,7 @@ impl ExecutorRegistry {
     }
 
     pub fn get_default(&self) -> Option<Arc<dyn CodeExecutor>> {
-        self.get(ExecutorType::Joinai)
+        self.get(ExecutorType::Claudecode)
     }
 
     pub fn list_executors(&self) -> Vec<ExecutorType> {

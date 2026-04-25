@@ -1,7 +1,9 @@
 pub mod adapters;
 pub mod db;
+pub mod executor_service;
 pub mod handlers;
 pub mod models;
+pub mod scheduler;
 
 use rust_embed::RustEmbed;
 

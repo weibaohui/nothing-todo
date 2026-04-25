@@ -7,25 +7,25 @@ use axum::{
 };
 use serde::Serialize;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
-use parking_lot::Mutex;
 use tokio::sync::broadcast;
-use uuid::Uuid;
 
-use crate::adapters::{ExecutorRegistry, get_timestamp};
+use crate::adapters::ExecutorRegistry;
 use crate::Assets;
 use crate::db::Database;
+use crate::executor_service::run_todo_execution;
 use crate::models::{
     CreateTodoRequest, UpdateTodoRequest, UpdateTagsRequest, CreateTagRequest, ExecuteRequest, TodoIdQuery,
+    UpdateSchedulerRequest,
     Todo, Tag, ExecutionRecord, ExecutionSummary, ParsedLogEntry,
 };
+use crate::scheduler::TodoScheduler;
 
 #[derive(Clone)]
-struct AppState {
-    db: Arc<Database>,
-    executor_registry: Arc<ExecutorRegistry>,
-    tx: broadcast::Sender<ExecEvent>,
+pub struct AppState {
+    pub db: Arc<Database>,
+    pub executor_registry: Arc<ExecutorRegistry>,
+    pub tx: broadcast::Sender<ExecEvent>,
+    pub scheduler: Arc<TodoScheduler>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -58,6 +58,10 @@ pub async fn create_todo(State(state): State<AppState>, Json(req): Json<CreateTo
         created_at: now.clone(),
         updated_at: now,
         tag_ids: req.tag_ids.clone(),
+        executor: Some("claudecode".to_string()),
+        scheduler_enabled: false,
+        scheduler_config: None,
+        task_id: None,
     })
 }
 
@@ -66,7 +70,15 @@ pub async fn update_todo(
     Path(id): Path<i64>,
     Json(req): Json<UpdateTodoRequest>,
 ) -> Json<Todo> {
-    state.db.update_todo(id, &req.title, &req.description, &req.status);
+    state.db.update_todo_full(
+        id,
+        &req.title,
+        &req.description,
+        &req.status,
+        req.executor.as_deref(),
+        req.scheduler_enabled,
+        req.scheduler_config.as_deref(),
+    );
 
     let todo = state.db.get_todo(id).unwrap();
     Json(todo)
@@ -120,169 +132,67 @@ pub async fn execute_handler(
     State(state): State<AppState>,
     Json(req): Json<ExecuteRequest>,
 ) -> Json<serde_json::Value> {
-    let tx = state.tx.clone();
-    let task_id = Uuid::new_v4().to_string();
-    let todo_id = req.todo_id;
+    let task_id = run_todo_execution(
+        state.db.clone(),
+        state.executor_registry.clone(),
+        state.tx.clone(),
+        req.todo_id,
+        req.message,
+        req.executor,
+    ).await;
 
-    // Determine which executor to use
-    let executor_type = req.executor
-        .map(|e| {
-            match e.to_lowercase().as_str() {
-                "claudecode" | "claude" => crate::models::ExecutorType::Claudecode,
-                _ => crate::models::ExecutorType::Joinai,
-            }
-        })
-        .unwrap_or(crate::models::ExecutorType::Joinai);
+    Json(serde_json::json!({ "status": "started", "task_id": task_id }))
+}
 
-    let executor = state.executor_registry.get(executor_type)
-        .unwrap_or_else(|| state.executor_registry.get_default().unwrap());
+// Scheduler handlers
+#[axum::debug_handler]
+pub async fn update_scheduler(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<UpdateSchedulerRequest>,
+) -> Json<Todo> {
+    let todo = state.db.get_todo(id);
+    let old_task_id = todo.as_ref().and_then(|t| t.task_id.clone());
 
-    let executable_path = executor.executable_path().to_string();
-    let command_args = executor.command_args(&req.message);
-
-    // Create execution record
-    let command = format!("{} {}", executable_path, command_args.join(" "));
-    let executor_str = executor.executor_type().to_string();
-    let record_id = state.db.create_execution_record(todo_id, &command, &executor_str);
-
-    // Update todo status
-    state.db.update_todo_status(todo_id, "running");
-
-    // Spawn execution
-    let task_id_return = task_id.clone();
-    let db = state.db.clone();
-    let tx_clone = tx.clone();
-
-    tokio::spawn(async move {
-        let _ = tx_clone.send(ExecEvent::Started { task_id: task_id.clone() });
-
-        let entry = ParsedLogEntry {
-            timestamp: get_timestamp(),
-            log_type: "info".to_string(),
-            content: format!("Starting {} with message: {}", executor.executor_type(), req.message),
-            usage: None,
-        };
-        let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
-
-        let mut child = match Command::new(&executable_path)
-            .args(&command_args)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                let entry = ParsedLogEntry {
-                    timestamp: get_timestamp(),
-                    log_type: "error".to_string(),
-                    content: format!("Failed to spawn executor: {}", e),
-                    usage: None,
-                };
-                let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
-                let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), success: false, result: None });
-                return;
-            }
-        };
-
-        let stdout_handle = child.stdout.take();
-        let stderr_handle = child.stderr.take();
-
-        let logs = Arc::new(Mutex::new(Vec::<ParsedLogEntry>::new()));
-        let logs_for_db = logs.clone();
-        let logs_for_result = logs.clone();
-
-        // Clone executor for async task
-        let executor_for_parse = executor.clone();
-
-        // Process stdout
-        if let Some(stdout_reader) = stdout_handle {
-            let tx_clone = tx.clone();
-            let tid = task_id.clone();
-            let db_clone = db.clone();
-            let rid = record_id;
-            let executor_clone = executor_for_parse.clone();
-
-            tokio::spawn(async move {
-                let mut reader = BufReader::new(stdout_reader).lines();
-                while let Ok(Some(line)) = reader.next_line().await {
-                    if let Some(parsed) = executor_clone.parse_output_line(&line) {
-                        logs_for_db.lock().push(parsed.clone());
-                        let _ = tx_clone.send(ExecEvent::Output { task_id: tid.clone(), entry: parsed });
-
-                        // Update logs in database periodically
-                        let logs_json = serde_json::to_string(&*logs_for_db.lock()).unwrap_or_default();
-                        db_clone.update_execution_record(rid, "running", &logs_json, "");
-                    }
-                }
-            });
+    // Remove old scheduled task if exists
+    if let Some(ref task_id_str) = old_task_id {
+        if let Ok(uuid) = uuid::Uuid::parse_str(task_id_str) {
+            let _ = state.scheduler.remove_task(uuid).await;
         }
+    }
 
-        // Capture stderr
-        let stderr_tx = tx.clone();
-        let stderr_tid = task_id.clone();
-        let logs_for_stderr = logs.clone();
-        let stderr_task = if let Some(stderr_reader) = stderr_handle {
-            Some(tokio::spawn(async move {
-                let mut reader = BufReader::new(stderr_reader).lines();
-                while let Ok(Some(line)) = reader.next_line().await {
-                    let entry = ParsedLogEntry {
-                        timestamp: get_timestamp(),
-                        log_type: "stderr".to_string(),
-                        content: line.clone(),
-                        usage: None,
-                    };
-                    logs_for_stderr.lock().push(entry.clone());
-                    let _ = stderr_tx.send(ExecEvent::Output { task_id: stderr_tid.clone(), entry });
+    let new_task_id = if req.scheduler_enabled {
+        if let Some(ref config) = req.scheduler_config {
+            match state.scheduler.add_task(
+                state.db.clone(),
+                state.executor_registry.clone(),
+                state.tx.clone(),
+                id,
+                config.clone(),
+            ).await {
+                Ok(uuid) => Some(uuid.to_string()),
+                Err(e) => {
+                    log::error!("Failed to add scheduled task for todo {}: {}", id, e);
+                    None
                 }
-            }))
+            }
         } else {
             None
-        };
-
-        let status = child.wait().await;
-
-        // Wait for stderr task to complete
-        if let Some(handle) = stderr_task {
-            let _ = handle.await;
         }
+    } else {
+        None
+    };
 
-        let exit_code = status.as_ref().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
-        let success = executor.check_success(exit_code);
+    state.db.update_todo_scheduler(id, req.scheduler_enabled, req.scheduler_config.as_deref(), new_task_id.as_deref());
 
-        // Extract final result using adapter's method
-        let all_logs_snapshot = logs_for_result.lock().clone();
-        let result_str = executor.get_final_result(&all_logs_snapshot).unwrap_or_default();
+    let todo = state.db.get_todo(id).unwrap();
+    Json(todo)
+}
 
-        // Update database with usage info
-        let final_status = if success { "success" } else { "failed" };
-        let logs_json = serde_json::to_string(&all_logs_snapshot).unwrap_or_default();
-        let usage = executor.get_usage(&all_logs_snapshot);
-        if let Some(u) = usage {
-            db.update_execution_record_with_usage(record_id, final_status, &logs_json, &result_str, &u);
-        } else {
-            db.update_execution_record(record_id, final_status, &logs_json, &result_str);
-        }
-
-        // Update model if found
-        if let Some(model) = executor.get_model() {
-            db.update_execution_record_with_model(record_id, &model);
-        }
-
-        db.update_todo_status(todo_id, final_status);
-
-        let entry = ParsedLogEntry {
-            timestamp: get_timestamp(),
-            log_type: if success { "info".to_string() } else { "error".to_string() },
-            content: format!("Executor finished with exit_code: {}, result: {}", exit_code, result_str),
-            usage: None,
-        };
-        let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
-
-        let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), success, result: Some(result_str) });
-    });
-
-    Json(serde_json::json!({ "status": "started", "task_id": task_id_return }))
+pub async fn get_scheduler_todos(
+    State(state): State<AppState>,
+) -> Json<Vec<Todo>> {
+    Json(state.db.get_scheduler_todos())
 }
 
 // WebSocket handler
@@ -360,24 +270,26 @@ pub async fn get_execution_summary(
 }
 
 // Build router
-pub fn create_app(db: Arc<Database>, executor_registry: Arc<ExecutorRegistry>, tx: broadcast::Sender<ExecEvent>) -> Router {
-    let state = AppState { db, executor_registry, tx };
+pub fn create_app(db: Arc<Database>, executor_registry: Arc<ExecutorRegistry>, tx: broadcast::Sender<ExecEvent>, scheduler: Arc<TodoScheduler>) -> Router {
+    let state = AppState { db, executor_registry, tx, scheduler };
 
     Router::new()
         .route("/", get(index_handler))
         .route("/xyz/todos", get(get_todos))
         .route("/xyz/todos", post(create_todo))
-        .route("/xyz/todos/{id}", put(update_todo))
-        .route("/xyz/todos/{id}", delete(delete_todo))
         .route("/xyz/todos/{id}/force-status", put(force_update_todo_status))
         .route("/xyz/todos/{id}/tags", put(update_todo_tags))
         .route("/xyz/todos/{id}/summary", get(get_execution_summary))
+        .route("/xyz/todos/{id}/scheduler", put(update_scheduler))
+        .route("/xyz/todos/{id}", put(update_todo))
+        .route("/xyz/todos/{id}", delete(delete_todo))
         .route("/xyz/tags", get(get_tags))
         .route("/xyz/tags", post(create_tag))
         .route("/xyz/tags/{id}", delete(delete_tag))
         .route("/xyz/execution-records", get(get_execution_records))
         .route("/xyz/execute", post(execute_handler))
         .route("/xyz/events", get(events_handler))
+        .route("/xyz/scheduler/todos", get(get_scheduler_todos))
         .route("/assets/{*path}", get(static_handler))
         .with_state(state)
 }

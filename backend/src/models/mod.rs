@@ -10,6 +10,14 @@ pub struct Todo {
     pub updated_at: String,
     #[serde(default)]
     pub tag_ids: Vec<i64>,
+    #[serde(default)]
+    pub executor: Option<String>,
+    #[serde(default)]
+    pub scheduler_enabled: bool,
+    #[serde(default)]
+    pub scheduler_config: Option<String>,
+    #[serde(default)]
+    pub task_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,6 +99,12 @@ pub struct UpdateTodoRequest {
     pub title: String,
     pub description: String,
     pub status: String,
+    #[serde(default)]
+    pub executor: Option<String>,
+    #[serde(default)]
+    pub scheduler_enabled: Option<bool>,
+    #[serde(default)]
+    pub scheduler_config: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -116,6 +130,12 @@ pub struct TodoIdQuery {
     pub todo_id: i64,
 }
 
+#[derive(Deserialize)]
+pub struct UpdateSchedulerRequest {
+    pub scheduler_enabled: bool,
+    pub scheduler_config: Option<String>,
+}
+
 // Executor types
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
@@ -126,7 +146,7 @@ pub enum ExecutorType {
 
 impl Default for ExecutorType {
     fn default() -> Self {
-        ExecutorType::Joinai
+        ExecutorType::Claudecode
     }
 }
 

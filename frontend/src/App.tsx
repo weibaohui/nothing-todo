@@ -31,12 +31,7 @@ function AppContent() {
 
   if (state.loading) {
     return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100vh'
-      }}>
+      <div className="flex-center" style={{ height: '100vh' }}>
         <Spin size="large" tip="加载中..." />
       </div>
     );
@@ -60,6 +55,8 @@ function AppContent() {
           onClick={() => {
             setSelectedPanel('list');
           }}
+          className="icon-btn"
+          aria-label="返回列表"
         />
       )}
     </div>
@@ -81,21 +78,45 @@ function AppContent() {
       )}
 
       <Layout>
-        <Content style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', padding: isMobile ? 0 : 16, gap: isMobile ? 0 : 16, height: '100vh', overflow: 'hidden' }}>
-          {(!isMobile || selectedPanel === 'list') && (
-            <div style={{ width: isMobile ? '100%' : '350px', flexShrink: 0, height: '100%' }}>
-              <TodoList
-                onOpenCreateModal={() => setTodoModalOpen(true)}
-                onSelectTodo={handleSelectTodo}
-                onOpenTagModal={() => setTagModalOpen(true)}
-              />
-            </div>
-          )}
-          {(!isMobile || selectedPanel === 'detail') && (
-            <div style={{ flex: 1, height: '100%', overflow: 'auto' }}>
-              <TodoDetail />
-            </div>
-          )}
+        <Content
+          style={{
+            display: 'flex',
+            flexDirection: isMobile ? 'column' : 'row',
+            padding: isMobile ? 0 : 16,
+            gap: isMobile ? 0 : 16,
+            height: '100vh',
+            overflow: 'hidden',
+          }}
+        >
+          {/* Todo List Panel */}
+          <div
+            className={(!isMobile || selectedPanel === 'list') ? 'animate-fade-in' : ''}
+            style={{
+              width: isMobile ? '100%' : 350,
+              flexShrink: 0,
+              height: '100%',
+              display: !isMobile || selectedPanel === 'list' ? 'block' : 'none',
+            }}
+          >
+            <TodoList
+              onOpenCreateModal={() => setTodoModalOpen(true)}
+              onSelectTodo={handleSelectTodo}
+              onOpenTagModal={() => setTagModalOpen(true)}
+            />
+          </div>
+
+          {/* Detail Panel */}
+          <div
+            className={(!isMobile || selectedPanel === 'detail') ? 'animate-slide-in-right' : ''}
+            style={{
+              flex: 1,
+              height: '100%',
+              overflow: 'hidden',
+              display: !isMobile || selectedPanel === 'detail' ? 'block' : 'none',
+            }}
+          >
+            <TodoDetail />
+          </div>
         </Content>
       </Layout>
 
@@ -111,9 +132,62 @@ function AppContent() {
   );
 }
 
+const customTheme = {
+  token: {
+    colorPrimary: '#0891b2',
+    colorSuccess: '#22c55e',
+    colorWarning: '#f59e0b',
+    colorError: '#ef4444',
+    colorInfo: '#3b82f6',
+    borderRadius: 12,
+    borderRadiusLG: 16,
+    borderRadiusSM: 8,
+    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    fontSize: 14,
+    controlHeight: 40,
+    lineHeight: 1.5,
+    colorBgContainer: '#ffffff',
+    colorBgLayout: '#f8fafc',
+    colorText: '#0f172a',
+    colorTextSecondary: '#475569',
+    colorBorder: '#e2e8f0',
+    colorBorderSecondary: '#f1f5f9',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+    boxShadowSecondary: '0 8px 24px rgba(0, 0, 0, 0.12)',
+  },
+  components: {
+    Button: {
+      borderRadius: 10,
+      controlHeight: 40,
+      paddingInline: 20,
+    },
+    Card: {
+      borderRadius: 16,
+      paddingLG: 24,
+    },
+    Modal: {
+      borderRadiusLG: 16,
+      paddingContentHorizontalLG: 24,
+    },
+    Input: {
+      borderRadius: 10,
+      paddingInline: 14,
+    },
+    Select: {
+      borderRadius: 10,
+    },
+    Tag: {
+      borderRadius: 6,
+    },
+    Switch: {
+      colorPrimary: '#0891b2',
+    },
+  },
+};
+
 function App() {
   return (
-    <ConfigProvider locale={zhCN}>
+    <ConfigProvider locale={zhCN} theme={customTheme}>
       <AppProvider>
         <AppContent />
       </AppProvider>
