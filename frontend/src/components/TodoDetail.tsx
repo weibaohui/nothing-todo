@@ -239,6 +239,16 @@ export function TodoDetail() {
               className="card-textarea"
               style={{ marginBottom: 12 }}
             />
+            <Select
+              value={editExecutor}
+              onChange={(val) => setEditExecutor(val)}
+              style={{ width: '100%', marginBottom: 12 }}
+              placeholder="选择执行器"
+              options={[
+                { value: 'claudecode', label: 'Claude' },
+                { value: 'joinai', label: 'JoinAI' },
+              ]}
+            />
             {state.tags.length > 0 && (
               <Select
                 value={editTags[0] || null}
@@ -271,14 +281,14 @@ export function TodoDetail() {
           </>
         ) : (
           <>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
               <div style={{ flex: 1 }}>
-                <h2 className="card-title">{selectedTodo.title}</h2>
+                <h2 className="card-title" style={{ margin: 0 }}>{selectedTodo.title}</h2>
                 {selectedTodo.description && (
                   <p className="card-description">{selectedTodo.description}</p>
                 )}
               </div>
-              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                 <Button
                   type="text"
                   icon={<EditOutlined />}
@@ -320,22 +330,9 @@ export function TodoDetail() {
       <div className="detail-card settings-card">
         <div className="setting-row">
           <span className="setting-label">执行器</span>
-          {isEditing ? (
-            <Select
-              value={editExecutor}
-              onChange={(val) => setEditExecutor(val)}
-              disabled={isExecuting}
-              className="executor-select"
-              options={[
-                { value: 'claudecode', label: 'Claude' },
-                { value: 'joinai', label: 'JoinAI' },
-              ]}
-            />
-          ) : (
-            <Tag color={selectedExecutor === 'claudecode' ? 'purple' : 'cyan'}>
-              {selectedExecutor === 'claudecode' ? 'Claude' : 'JoinAI'}
-            </Tag>
-          )}
+          <Tag color={selectedExecutor === 'claudecode' ? 'purple' : 'cyan'}>
+            {selectedExecutor === 'claudecode' ? 'Claude' : 'JoinAI'}
+          </Tag>
         </div>
       </div>
 
