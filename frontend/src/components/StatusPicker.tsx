@@ -53,15 +53,15 @@ export function StatusPicker({ value, onChange, disabled }: StatusPickerProps) {
   return (
     <Popover
       content={
-        <div style={{ padding: 4, minWidth: 140 }}>
+        <div style={{ padding: 2, minWidth: 120 }}>
           {Object.entries(statusConfig).map(([key, config]) => (
             <div
               key={key}
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 12,
-                padding: '8px 12px',
+                gap: 8,
+                padding: '6px 10px',
                 borderRadius: 6,
                 cursor: 'pointer',
                 transition: 'background 150ms ease',
@@ -81,17 +81,17 @@ export function StatusPicker({ value, onChange, disabled }: StatusPickerProps) {
             >
               <span
                 style={{
-                  width: 14,
-                  height: 14,
+                  width: 12,
+                  height: 12,
                   borderRadius: '50%',
                   backgroundColor: config.color,
                   flexShrink: 0,
                 }}
               />
-              <span style={{ fontSize: 14, color: 'var(--color-text)', fontWeight: 500 }}>
+              <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>
                 {config.label}
               </span>
-              {value === key && <CheckOutlined style={{ color: 'var(--color-primary)', fontWeight: 700, fontSize: 12 }} />}
+              {value === key && <CheckOutlined style={{ color: 'var(--color-primary)', fontWeight: 700, fontSize: 11 }} />}
             </div>
           ))}
         </div>

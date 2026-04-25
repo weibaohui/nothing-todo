@@ -478,11 +478,11 @@ export function TodoDetail() {
               type="primary"
               icon={<PlayCircleOutlined />}
               onClick={handleExecute}
-              disabled={selectedTodo.status === 'running'}
+              disabled={isExecuting}
               block
               className="btn-execute"
             >
-              {selectedTodo.status === 'running' ? '执行中...' : '执行任务'}
+              执行任务
             </Button>
           )}
         </div>
