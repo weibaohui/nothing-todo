@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Input, ColorPicker, Button, message } from 'antd';
+import { Modal, Input, ColorPicker, Button, App } from 'antd';
 import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
 
@@ -10,6 +10,7 @@ interface CreateTagModalProps {
 
 export function CreateTagModal({ open, onClose }: CreateTagModalProps) {
   const { dispatch } = useApp();
+  const { message } = App.useApp();
   const [name, setName] = useState('');
   const [color, setColor] = useState('#1890ff');
   const [loading, setLoading] = useState(false);

@@ -32,7 +32,7 @@ function AppContent() {
   if (state.loading) {
     return (
       <div className="flex-center" style={{ height: '100vh' }}>
-        <Spin size="large" tip="加载中..." />
+        <Spin size="large" description="加载中..." />
       </div>
     );
   }
@@ -187,7 +187,13 @@ const customTheme = {
 
 function App() {
   return (
-    <ConfigProvider locale={zhCN} theme={customTheme} getPopupContainer={() => document.body}>
+    <ConfigProvider
+      locale={zhCN}
+      theme={customTheme}
+      getPopupContainer={(triggerNode) => {
+        return triggerNode?.parentElement || document.body;
+      }}
+    >
       <AppProvider>
         <AppContent />
       </AppProvider>

@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useApp } from '../hooks/useApp';
-import { Button, Empty, Input, message, Popconfirm, Tag, Collapse, Badge } from 'antd';
+import { Button, Empty, Input, App, Popconfirm, Tag, Collapse, Badge } from 'antd';
 import { PlayCircleOutlined, EditOutlined, DeleteOutlined, CloseCircleOutlined, SettingOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import { TagCheckCardGroup } from './TagCheckCard';
@@ -11,7 +11,6 @@ import { formatLocalDateTime } from '../utils/datetime';
 import type { LogEntry, ExecutionSummary } from '../types';
 
 const { TextArea } = Input;
-const { Panel } = Collapse;
 
 interface ExecEvent {
   type: 'Started' | 'Output' | 'Finished';
@@ -55,6 +54,7 @@ const logTypeLabels: Record<string, string> = {
 
 export function TodoDetail() {
   const { state, dispatch } = useApp();
+  const { message } = App.useApp();
   const { todos, selectedTodoId, executionRecords } = state;
   const selectedTodo = todos.find(t => t.id === selectedTodoId);
 
@@ -489,69 +489,76 @@ export function TodoDetail() {
       )}
 
       {/* Realtime Logs */}
-      <Collapse defaultActiveKey={isExecuting ? ['realtime'] : []} style={{ marginBottom: 12, flexShrink: 0 }}>
-        <Panel
-          key="realtime"
-          header={
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontWeight: 600 }}>执行过程</span>
-              {isExecuting && <Badge status="processing" text="运行中" />}
-              {!isExecuting && executionSuccess !== null && (
-                <Badge status={executionSuccess ? 'success' : 'error'} text={executionSuccess ? '已完成' : '已失败'} />
-              )}
-              {!isExecuting && executionSuccess === null && <span style={{ color: 'var(--color-text-tertiary)' }}>暂无执行</span>}
-              {realtimeLogs.length > 0 && <Tag color="var(--color-primary)">{realtimeLogs.length} 条日志</Tag>}
-            </div>
-          }
-        >
-          <div className="log-panel" style={{ maxHeight: 400, overflow: 'auto' }}>
-            {realtimeLogs.length === 0 && !isExecuting ? (
-              <div style={{ color: 'var(--color-text-tertiary)', textAlign: 'center', padding: 24 }}>
-                暂无执行日志
+      <Collapse
+        defaultActiveKey={isExecuting ? ['realtime'] : []}
+        style={{ marginBottom: 12, flexShrink: 0 }}
+        items={[
+          {
+            key: 'realtime',
+            label: (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 600 }}>执行过程</span>
+                {isExecuting && <Badge status="processing" text="运行中" />}
+                {!isExecuting && executionSuccess !== null && (
+                  <Badge status={executionSuccess ? 'success' : 'error'} text={executionSuccess ? '已完成' : '已失败'} />
+                )}
+                {!isExecuting && executionSuccess === null && <span style={{ color: 'var(--color-text-tertiary)' }}>暂无执行</span>}
+                {realtimeLogs.length > 0 && <Tag color="var(--color-primary)">{realtimeLogs.length} 条日志</Tag>}
               </div>
-            ) : (
+            ),
+            children: (
               <>
-                {realtimeLogs.map((log, idx) => (
-                  <div key={idx} style={{ padding: '4px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                    <span className="log-timestamp">{log.timestamp}</span>
-                    <span style={{
-                      color: logTypeColors[log.type] || '#cbd5e1',
-                      background: `${logTypeColors[log.type]}20`,
-                      padding: '1px 6px',
-                      borderRadius: 3,
-                      marginRight: 8,
-                      fontSize: 10,
-                      fontWeight: 700,
-                    }}>
-                      {logTypeLabels[log.type] || log.type}
-                    </span>
-                    <span style={{ wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>{log.content}</span>
-                  </div>
-                ))}
-                <div ref={logsEndRef} />
-              </>
-            )}
-          </div>
+                <div className="log-panel" style={{ maxHeight: 400, overflow: 'auto' }}>
+                  {realtimeLogs.length === 0 && !isExecuting ? (
+                    <div style={{ color: 'var(--color-text-tertiary)', textAlign: 'center', padding: 24 }}>
+                      暂无执行日志
+                    </div>
+                  ) : (
+                    <>
+                      {realtimeLogs.map((log, idx) => (
+                        <div key={idx} style={{ padding: '4px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                          <span className="log-timestamp">{log.timestamp}</span>
+                          <span style={{
+                            color: logTypeColors[log.type] || '#cbd5e1',
+                            background: `${logTypeColors[log.type]}20`,
+                            padding: '1px 6px',
+                            borderRadius: 3,
+                            marginRight: 8,
+                            fontSize: 10,
+                            fontWeight: 700,
+                          }}>
+                            {logTypeLabels[log.type] || log.type}
+                          </span>
+                          <span style={{ wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>{log.content}</span>
+                        </div>
+                      ))}
+                      <div ref={logsEndRef} />
+                    </>
+                  )}
+                </div>
 
-          {executionResult !== null && executionResult !== '' && (
-            <div style={{ marginTop: 12, padding: '0 12px 12px' }}>
-              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 6, fontWeight: 600 }}>最终结果</div>
-              <div style={{
-                background: executionSuccess ? 'var(--color-success-bg)' : 'var(--color-error-bg)',
-                border: `1px solid ${executionSuccess ? '#bbf7d0' : '#fecaca'}`,
-                padding: 12,
-                borderRadius: 8,
-                fontSize: 13,
-                color: 'var(--color-text)',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-all',
-              }}>
-                {executionResult}
-              </div>
-            </div>
-          )}
-        </Panel>
-      </Collapse>
+                {executionResult !== null && executionResult !== '' && (
+                  <div style={{ marginTop: 12, padding: '0 12px 12px' }}>
+                    <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 6, fontWeight: 600 }}>最终结果</div>
+                    <div style={{
+                      background: executionSuccess ? 'var(--color-success-bg)' : 'var(--color-error-bg)',
+                      border: `1px solid ${executionSuccess ? '#bbf7d0' : '#fecaca'}`,
+                      padding: 12,
+                      borderRadius: 8,
+                      fontSize: 13,
+                      color: 'var(--color-text)',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-all',
+                    }}>
+                      {executionResult}
+                    </div>
+                  </div>
+                )}
+              </>
+            ),
+          },
+        ]}
+      />
 
       {/* Execution History */}
       <div style={{ paddingBottom: 20, flexShrink: 0 }}>

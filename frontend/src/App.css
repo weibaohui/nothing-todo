@@ -174,7 +174,6 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
 .todo-list-header {
@@ -991,4 +990,17 @@
 ::selection {
   background: var(--color-primary-light);
   color: var(--color-primary-hover);
+}
+
+/* Fix for Ant Design Popover and Select dropdown z-index */
+.ant-popover {
+  z-index: 1060 !important;
+}
+
+.ant-select-dropdown {
+  z-index: 1060 !important;
+}
+
+.ant-dropdown {
+  z-index: 1060 !important;
 }

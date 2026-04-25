@@ -115,7 +115,7 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal }: To
       )}
 
       {/* Todo list */}
-      <div className="todo-list-content stagger-children">
+      <div className="todo-list-content">
         {filteredTodos.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon">
@@ -212,13 +212,17 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal }: To
                   </div>
                   <div
                     className="todo-item-status"
-                    onClick={(e) => e.stopPropagation()}
                     aria-label="更改任务状态"
                   >
                     <StatusPicker
                       value={todo.status}
                       onChange={async (newStatus) => {
-                        const updated = await db.forceUpdateTodoStatus(todo.id, newStatus);
+                        const updated = await db.updateTodo(
+                          todo.id,
+                          todo.title,
+                          todo.description || '',
+                          newStatus
+                        );
                         dispatch({
                           type: 'UPDATE_TODO',
                           payload: updated

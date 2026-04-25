@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Input, Button, message } from 'antd';
+import { Modal, Input, Button, App } from 'antd';
 import { useApp } from '../hooks/useApp';
 import { TagCheckCardGroup } from './TagCheckCard';
 import * as db from '../utils/database';
@@ -13,6 +13,7 @@ interface CreateTodoModalProps {
 
 export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
   const { dispatch, state } = useApp();
+  const { message } = App.useApp();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [selectedTag, setSelectedTag] = useState<number | null>(null);

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Modal, Select, Input, Button, Switch, Divider, Tag, message } from 'antd';
+import { Modal, Select, Input, Button, Switch, Divider, Tag, App } from 'antd';
 import { ClockCircleOutlined } from '@ant-design/icons';
 import * as db from '../utils/database';
 import type { Todo } from '../types';
@@ -24,6 +24,7 @@ interface TodoSettingsModalProps {
 }
 
 export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettingsModalProps) {
+  const { message } = App.useApp();
   const [executor, setExecutor] = useState<string>('claudecode');
   const [schedulerEnabled, setSchedulerEnabled] = useState(false);
   const [schedulerConfig, setSchedulerConfig] = useState<string>('');
@@ -107,6 +108,7 @@ export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettin
             { value: 'claudecode', label: 'Claude' },
             { value: 'joinai', label: 'JoinAI' },
           ]}
+          getPopupContainer={() => document.body}
         />
         <div style={{ marginTop: 8 }}>
           <Tag color={executorColor} style={{ fontWeight: 600 }}>
@@ -151,6 +153,7 @@ export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettin
               style={{ width: '100%', marginBottom: 8 }}
               placeholder="选择预设或自定义"
               options={cronPresets}
+              getPopupContainer={() => document.body}
             />
             {cronPreset === 'custom' && (
               <Input
