@@ -57,8 +57,9 @@ pub async fn run_todo_execution(
     let command = format!("{} {}", executable_path, command_args.join(" "));
     let record_id = db.create_execution_record(todo_id, &command, &executor_str, trigger_type);
 
-    // Update todo status
+    // Update todo status and task_id
     db.update_todo_status(todo_id, "running");
+    db.update_todo_task_id(todo_id, Some(&task_id));
 
     let task_id_return = task_id.clone();
     let db_clone = db.clone();
@@ -177,6 +178,7 @@ pub async fn run_todo_execution(
         }
 
         db_clone.update_todo_status(todo_id, final_status);
+        db_clone.update_todo_task_id(todo_id, None);
 
         let entry = ParsedLogEntry {
             timestamp: get_timestamp(),

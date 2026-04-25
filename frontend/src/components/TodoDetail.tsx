@@ -84,11 +84,24 @@ export function TodoDetail() {
   }, [realtimeLogs]);
 
   useEffect(() => {
+    // 切换todo时，重置所有执行相关的状态
+    setIsExecuting(false);
+    setCurrentTaskId(null);
+    setRealtimeLogs([]);
+    setExecutionSuccess(null);
+    setExecutionResult(null);
+
     if (selectedTodo) {
       setEditTitle(selectedTodo.title);
       setEditDescription(selectedTodo.description || '');
       setEditStatus(selectedTodo.status);
       setEditTags((selectedTodo as any).tag_ids || []);
+
+      // 检查是否有正在执行的任务（通过todo的task_id和状态）
+      if (selectedTodo.task_id && selectedTodo.status === 'running') {
+        setCurrentTaskId(selectedTodo.task_id);
+        setIsExecuting(true);
+      }
 
       db.getExecutionRecords(selectedTodo.id).then(recs => {
         dispatch({

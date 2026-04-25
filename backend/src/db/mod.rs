@@ -242,6 +242,14 @@ impl Database {
         ).unwrap();
     }
 
+    pub fn update_todo_task_id(&self, id: i64, task_id: Option<&str>) {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE todos SET task_id = ?1 WHERE id = ?2",
+            params![task_id, id],
+        ).unwrap();
+    }
+
     pub fn update_todo_scheduler(&self, id: i64, enabled: bool, config: Option<&str>, task_id: Option<&str>) {
         let conn = self.conn.lock();
         let enabled_val = if enabled { 1 } else { 0 };
