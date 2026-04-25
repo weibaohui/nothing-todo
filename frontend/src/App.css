@@ -317,13 +317,9 @@ code {
   box-sizing: border-box;
 }
 
-.detail-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0;
+.detail-card {
+  flex-shrink: 0;
 }
-
-/* Card Base */
 .detail-card {
   background: #fff;
   border-radius: 16px;

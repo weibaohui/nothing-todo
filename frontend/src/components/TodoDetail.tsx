@@ -341,9 +341,8 @@ export function TodoDetail() {
         </div>
       </div>
 
-      <div className="detail-content">
-        {summary && summary.total_executions > 0 && (
-          <div className="stats-card" style={{ marginBottom: 20 }}>
+      {summary && summary.total_executions > 0 && (
+          <div className="stats-card" style={{ marginBottom: 20, flexShrink: 0 }}>
             <div style={{ fontSize: 13, color: '#999', marginBottom: 12, fontWeight: 500 }}>执行统计</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 12 }}>
               <div className="stats-item">
@@ -380,7 +379,7 @@ export function TodoDetail() {
           </div>
         )}
 
-        <Collapse defaultActiveKey={isExecuting ? ['realtime'] : []} style={{ marginBottom: 20 }}>
+        <Collapse defaultActiveKey={isExecuting ? ['realtime'] : []} style={{ marginBottom: 20, flexShrink: 0 }}>
           <Panel
             key="realtime"
             header={
@@ -442,7 +441,7 @@ export function TodoDetail() {
           </Panel>
         </Collapse>
 
-        <div>
+        <div style={{ paddingBottom: 20, flexShrink: 0 }}>
           <h4 style={{ marginBottom: 12, fontSize: 15, fontWeight: 600 }}>执行历史</h4>
           {records.length === 0 ? (
             <Empty description="暂无执行记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
