@@ -421,6 +421,19 @@ code {
   background: #e8e8e8 !important;
 }
 
+.icon-btn {
+  min-width: 36px !important;
+  min-height: 36px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 8px !important;
+}
+
+.icon-btn:hover {
+  background: #f0f0f0 !important;
+}
+
 .btn-danger {
   background: linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%) !important;
   border: none !important;

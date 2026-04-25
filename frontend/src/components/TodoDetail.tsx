@@ -219,6 +219,7 @@ export function TodoDetail() {
               onChange={e => setEditTitle(e.target.value)}
               placeholder="任务标题"
               className="card-input"
+              style={{ marginBottom: 12 }}
             />
             <TextArea
               value={editDescription}
@@ -226,12 +227,13 @@ export function TodoDetail() {
               rows={3}
               placeholder="输入任务描述..."
               className="card-textarea"
+              style={{ marginBottom: 12 }}
             />
             {state.tags.length > 0 && (
               <Select
                 value={editTags[0] || null}
                 onChange={(val) => setEditTags(val ? [val] : [])}
-                style={{ width: '100%' }}
+                style={{ width: '100%', marginBottom: 12 }}
                 placeholder="选择标签"
                 allowClear
                 options={state.tags.map(tag => ({
@@ -252,45 +254,54 @@ export function TodoDetail() {
                 }))}
               />
             )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button onClick={() => setIsEditing(false)} block>取消</Button>
+              <Button type="primary" onClick={handleSaveEdit} block>保存</Button>
+            </div>
           </>
         ) : (
           <>
-            <h2 className="card-title">{selectedTodo.title}</h2>
-            {selectedTodo.description && (
-              <p className="card-description">{selectedTodo.description}</p>
-            )}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+              <div style={{ flex: 1 }}>
+                <h2 className="card-title">{selectedTodo.title}</h2>
+                {selectedTodo.description && (
+                  <p className="card-description">{selectedTodo.description}</p>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                <Button
+                  type="text"
+                  icon={<EditOutlined />}
+                  onClick={() => setIsEditing(true)}
+                  className="icon-btn"
+                />
+                <Popconfirm title="删除任务" description="确定要删除吗？" onConfirm={handleDelete}>
+                  <Button
+                    type="text"
+                    danger
+                    icon={<DeleteOutlined />}
+                    className="icon-btn"
+                  />
+                </Popconfirm>
+              </div>
+            </div>
           </>
         )}
       </div>
 
       {/* 执行按钮卡片 */}
       <div className="detail-card action-card">
-        {isEditing ? (
-          <div className="action-row">
-            <Button onClick={() => setIsEditing(false)} className="btn-secondary btn-block">取消</Button>
-            <Button type="primary" onClick={handleSaveEdit} className="btn-primary btn-block">保存</Button>
-          </div>
-        ) : (
+        {isEditing ? null : (
           <>
-            <div className="action-row">
-              <Button icon={<EditOutlined />} onClick={() => setIsEditing(true)} className="btn-secondary btn-flex">
-                编辑
+            {isExecuting ? (
+              <Button danger icon={<CloseCircleOutlined />} onClick={handleStopExecution} block>
+                停止执行
               </Button>
-              {isExecuting ? (
-                <Button danger icon={<CloseCircleOutlined />} onClick={handleStopExecution} className="btn-danger btn-flex">
-                  停止
-                </Button>
-              ) : (
-                <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleExecute} disabled={selectedTodo.status === 'running'} className="btn-primary btn-flex">
-                  执行
-                </Button>
-              )}
-            </div>
-            <Popconfirm title="删除任务" description="确定要删除吗？" onConfirm={handleDelete}>
-              <Button danger icon={<DeleteOutlined />} className="btn-danger-outline btn-block">
-                删除任务
+            ) : (
+              <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleExecute} disabled={selectedTodo.status === 'running'} block>
+                执行任务
               </Button>
-            </Popconfirm>
+            )}
           </>
         )}
       </div>
