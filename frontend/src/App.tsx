@@ -190,9 +190,6 @@ function App() {
     <ConfigProvider
       locale={zhCN}
       theme={customTheme}
-      getPopupContainer={(triggerNode) => {
-        return triggerNode?.parentElement || document.body;
-      }}
     >
       <AppProvider>
         <AppContent />

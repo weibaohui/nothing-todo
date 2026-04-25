@@ -108,7 +108,6 @@ export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettin
             { value: 'claudecode', label: 'Claude' },
             { value: 'joinai', label: 'JoinAI' },
           ]}
-          getPopupContainer={() => document.body}
         />
         <div style={{ marginTop: 8 }}>
           <Tag color={executorColor} style={{ fontWeight: 600 }}>
@@ -153,7 +152,6 @@ export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettin
               style={{ width: '100%', marginBottom: 8 }}
               placeholder="选择预设或自定义"
               options={cronPresets}
-              getPopupContainer={() => document.body}
             />
             {cronPreset === 'custom' && (
               <Input
