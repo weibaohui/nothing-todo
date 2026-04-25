@@ -73,6 +73,9 @@ export function TodoDetail() {
 
   const records = selectedTodoId ? executionRecords[selectedTodoId] || [] : [];
 
+  const totalInputTokens = records.reduce((sum, record) => sum + (record.usage?.input_tokens || 0), 0);
+  const totalOutputTokens = records.reduce((sum, record) => sum + (record.usage?.output_tokens || 0), 0);
+
   useEffect(() => {
     if (logsEndRef.current) {
       logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -324,17 +327,6 @@ export function TodoDetail() {
       {/* 设置卡片 */}
       <div className="detail-card settings-card">
         <div className="setting-row">
-          <span className="setting-label">状态</span>
-          <StatusPicker
-            value={editStatus}
-            onChange={(val) => {
-              setEditStatus(val);
-              if (val !== selectedTodo?.status) handleStatusChange(val);
-            }}
-            disabled={isExecuting}
-          />
-        </div>
-        <div className="setting-row">
           <span className="setting-label">执行器</span>
           <Select
             value={selectedExecutor}
@@ -371,6 +363,18 @@ export function TodoDetail() {
                   <span className="stats-label">费用</span>
                   <span className="stats-value">${summary.total_cost_usd.toFixed(6)}</span>
                 </div>
+              )}
+              {(totalInputTokens > 0 || totalOutputTokens > 0) && (
+                <>
+                  <div className="stats-item">
+                    <span className="stats-label">输入Tokens</span>
+                    <span className="stats-value">{totalInputTokens.toLocaleString()}</span>
+                  </div>
+                  <div className="stats-item">
+                    <span className="stats-label">输出Tokens</span>
+                    <span className="stats-value">{totalOutputTokens.toLocaleString()}</span>
+                  </div>
+                </>
               )}
             </div>
           </div>

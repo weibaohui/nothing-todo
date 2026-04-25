@@ -81,16 +81,20 @@ function AppContent() {
       )}
 
       <Layout>
-        <Content style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', padding: isMobile ? 0 : 16, gap: isMobile ? 0 : 16 }}>
+        <Content style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', padding: isMobile ? 0 : 16, gap: isMobile ? 0 : 16, height: '100vh', overflow: 'hidden' }}>
           {(!isMobile || selectedPanel === 'list') && (
-            <TodoList
-              onOpenCreateModal={() => setTodoModalOpen(true)}
-              onSelectTodo={handleSelectTodo}
-              onOpenTagModal={() => setTagModalOpen(true)}
-            />
+            <div style={{ width: isMobile ? '100%' : '350px', flexShrink: 0, height: '100%' }}>
+              <TodoList
+                onOpenCreateModal={() => setTodoModalOpen(true)}
+                onSelectTodo={handleSelectTodo}
+                onOpenTagModal={() => setTagModalOpen(true)}
+              />
+            </div>
           )}
           {(!isMobile || selectedPanel === 'detail') && (
-            <TodoDetail />
+            <div style={{ flex: 1, height: '100%', overflow: 'hidden' }}>
+              <TodoDetail />
+            </div>
           )}
         </Content>
       </Layout>

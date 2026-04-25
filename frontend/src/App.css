@@ -314,6 +314,7 @@ code {
   gap: 12px;
   padding: 12px;
   overflow-y: auto;
+  box-sizing: border-box;
 }
 
 .detail-content {
