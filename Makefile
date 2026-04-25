@@ -28,13 +28,15 @@ setup:
 # Install the built binary to ~/.local/bin
 install: stop build
 	@mkdir -p $$HOME/.local/bin
+	@rm -f $$HOME/.local/bin/aitodo
 	@cp backend/target/release/aitodo $$HOME/.local/bin/
 	@echo "Installed to $$HOME/.local/bin/aitodo"
 	@echo "Make sure $$HOME/.local/bin is in your PATH"
 
 # Stop the aitodo binary
 stop:
-	-@pkill -f "^aitodo$$" || echo "aitodo process not running"
+	-@pkill -9 -f "^aitodo$$" || echo "aitodo process not running"
+	@sleep 1
 
 # Start the aitodo binary (after installing)
 start: install
@@ -42,8 +44,17 @@ start: install
 	@$$HOME/.local/bin/aitodo >> $$HOME/.aitodo/run.log 2>&1 &
 	@echo "aitodo started, logs: ~/.aitodo/run.log"
 
-# Restart: stop then start
-restart: stop start
+# Restart: clean install and start fresh
+restart:
+	-@pkill -f "^aitodo$$" || true
+	@sleep 1
+	@rm -f $$HOME/.local/bin/aitodo
+	cd frontend && npm run build
+	cd backend && cargo build --release
+	@mkdir -p $$HOME/.local/bin
+	@cp backend/target/release/aitodo $$HOME/.local/bin/
+	@$$HOME/.local/bin/aitodo >> $$HOME/.aitodo/run.log 2>&1 &
+	@echo "aitodo rebuilt and started"
 
 # Kill processes on ports used by dev servers
 kill-port:

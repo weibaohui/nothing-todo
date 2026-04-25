@@ -4,7 +4,6 @@ import { Button, Empty, Input, Select, message, Popconfirm, Tag, Collapse, Badge
 import { PlayCircleOutlined, EditOutlined, DeleteOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import * as db from '../utils/database';
 import type { LogEntry, ExecutionSummary } from '../types';
-import { StatusPicker } from './StatusPicker';
 
 const { TextArea } = Input;
 const { Panel } = Collapse;
@@ -193,16 +192,6 @@ export function TodoDetail() {
     message.success('更新成功');
   };
 
-  const handleStatusChange = async (newStatus: string) => {
-    if (!selectedTodo) return;
-    await db.forceUpdateTodoStatus(selectedTodo.id, newStatus);
-    dispatch({
-      type: 'UPDATE_TODO',
-      payload: { ...selectedTodo, status: newStatus as any, updated_at: new Date().toISOString() }
-    });
-    message.success('状态已更新');
-  };
-
   const handleDelete = async () => {
     if (!selectedTodo) return;
     await db.deleteTodo(selectedTodo.id);
@@ -225,23 +214,12 @@ export function TodoDetail() {
       <div className="detail-card title-card">
         {isEditing ? (
           <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <StatusPicker
-                value={editStatus}
-                onChange={(val) => {
-                  setEditStatus(val);
-                  if (val !== selectedTodo?.status) handleStatusChange(val);
-                }}
-                disabled={isExecuting}
-              />
-              <Input
-                value={editTitle}
-                onChange={e => setEditTitle(e.target.value)}
-                placeholder="任务标题"
-                className="card-input"
-                style={{ flex: 1 }}
-              />
-            </div>
+            <Input
+              value={editTitle}
+              onChange={e => setEditTitle(e.target.value)}
+              placeholder="任务标题"
+              className="card-input"
+            />
             <TextArea
               value={editDescription}
               onChange={e => setEditDescription(e.target.value)}
@@ -277,14 +255,7 @@ export function TodoDetail() {
           </>
         ) : (
           <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <StatusPicker
-                value={selectedTodo.status}
-                onChange={(val) => handleStatusChange(val)}
-                disabled={isExecuting}
-              />
-              <h2 className="card-title" style={{ margin: 0 }}>{selectedTodo.title}</h2>
-            </div>
+            <h2 className="card-title">{selectedTodo.title}</h2>
             {selectedTodo.description && (
               <p className="card-description">{selectedTodo.description}</p>
             )}
