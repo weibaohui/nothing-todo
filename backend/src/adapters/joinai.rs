@@ -20,7 +20,7 @@ fn strip_think_tags(content: &str) -> String {
 impl JoinaiExecutor {
     pub fn new() -> Self {
         let path = env::var("JOINAI_PATH")
-            .unwrap_or_else(|_| "/home/Admin/.joinai-code/joinai".to_string());
+            .unwrap_or_else(|_| "joinai".to_string());
         Self { path, usage: Arc::new(Mutex::new(None)) }
     }
 }

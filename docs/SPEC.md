@@ -168,7 +168,7 @@ finished_at: DATETIME NULL
 
 ## 8. joinai 集成
 
-- 命令路径: `/home/Admin/.joinai-code/joinai` (或通过 PATH)
+- 命令路径: `joinai` (通过 PATH 或环境变量 JOINAI_PATH)
 - 执行命令: `joinai run --format json "<todo 描述>"`
 - 实时捕获 stdout 输出
 - 记录完整的交互日志
