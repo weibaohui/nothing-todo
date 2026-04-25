@@ -70,7 +70,7 @@ pub async fn update_todo(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(req): Json<UpdateTodoRequest>,
-) -> Result<Json<Todo>, StatusCode> {
+) -> Result<Json<Todo>, (StatusCode, Json<serde_json::Value>)> {
     state.db.update_todo_full(
         id,
         &req.title,
@@ -83,7 +83,7 @@ pub async fn update_todo(
 
     match state.db.get_todo(id) {
         Some(todo) => Ok(Json(todo)),
-        None => Err(StatusCode::NOT_FOUND),
+        None => Err((StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Todo not found" })))),
     }
 }
 
@@ -153,7 +153,7 @@ pub async fn update_scheduler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(req): Json<UpdateSchedulerRequest>,
-) -> Json<Todo> {
+) -> Result<Json<Todo>, (StatusCode, Json<serde_json::Value>)> {
     let todo = state.db.get_todo(id);
     let old_task_id = todo.as_ref().and_then(|t| t.task_id.clone());
 
@@ -188,8 +188,10 @@ pub async fn update_scheduler(
 
     state.db.update_todo_scheduler(id, req.scheduler_enabled, req.scheduler_config.as_deref(), new_task_id.as_deref());
 
-    let todo = state.db.get_todo(id).unwrap();
-    Json(todo)
+    match state.db.get_todo(id) {
+        Some(todo) => Ok(Json(todo)),
+        None => Err((StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Todo not found" })))),
+    }
 }
 
 pub async fn get_scheduler_todos(
@@ -258,10 +260,12 @@ pub async fn force_update_todo_status(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(req): Json<UpdateTodoRequest>,
-) -> Json<Todo> {
+) -> Result<Json<Todo>, (StatusCode, Json<serde_json::Value>)> {
     state.db.force_update_todo_status(id, &req.status);
-    let todo = state.db.get_todo(id).unwrap();
-    Json(todo)
+    match state.db.get_todo(id) {
+        Some(todo) => Ok(Json(todo)),
+        None => Err((StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Todo not found" })))),
+    }
 }
 
 // Get execution summary for a todo

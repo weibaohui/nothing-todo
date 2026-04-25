@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ConfigProvider, Layout, Spin, Button } from 'antd';
+import { ConfigProvider, Layout, Spin, Button, App as AntApp } from 'antd';
 import { CloseOutlined, PlusOutlined } from '@ant-design/icons';
 import { AppProvider, useApp } from './hooks/useApp';
 import { TodoList } from './components/TodoList';
@@ -191,9 +191,11 @@ function App() {
       locale={zhCN}
       theme={customTheme}
     >
-      <AppProvider>
-        <AppContent />
-      </AppProvider>
+      <AntApp>
+        <AppProvider>
+          <AppContent />
+        </AppProvider>
+      </AntApp>
     </ConfigProvider>
   );
 }

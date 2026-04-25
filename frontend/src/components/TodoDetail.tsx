@@ -8,7 +8,7 @@ import { PieChart, PieChartLegend } from './PieChart';
 import { TodoSettingsModal } from './TodoSettingsModal';
 import * as db from '../utils/database';
 import { formatLocalDateTime } from '../utils/datetime';
-import type { LogEntry, ExecutionSummary } from '../types';
+import type { LogEntry, ExecutionSummary, Todo } from '../types';
 
 const { TextArea } = Input;
 
@@ -163,7 +163,7 @@ export function TodoDetail() {
   const handleExecute = async () => {
     if (!selectedTodo) return;
     try {
-      const result = await db.executeJoinai(
+      const result = await db.executeTodo(
         selectedTodo.id,
         selectedTodo.description || selectedTodo.title,
         selectedTodo.executor || undefined
@@ -208,7 +208,7 @@ export function TodoDetail() {
       payload: {
         ...updated,
         tag_ids: editTags,
-      }
+      } as Todo
     });
     setIsEditing(false);
     message.success('更新成功');

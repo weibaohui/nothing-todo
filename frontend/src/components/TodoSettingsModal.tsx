@@ -64,15 +64,7 @@ export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettin
       );
 
       // Update scheduler via dedicated API
-      const res = await fetch(`/xyz/todos/${todo.id}/scheduler`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scheduler_enabled: schedulerEnabled,
-          scheduler_config: schedulerConfig || null,
-        }),
-      });
-      if (!res.ok) throw new Error('Failed to update scheduler');
+      await db.updateScheduler(todo.id, schedulerEnabled, schedulerConfig || null);
 
       message.success('设置已保存');
       onUpdated();
