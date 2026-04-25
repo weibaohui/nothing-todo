@@ -60,7 +60,7 @@ export function TodoDetail() {
 
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
-  const [editDescription, setEditDescription] = useState('');
+  const [editPrompt, setEditPrompt] = useState('');
   const [editStatus, setEditStatus] = useState<string>('pending');
   const [editTags, setEditTags] = useState<number[]>([]);
   const [summary, setSummary] = useState<ExecutionSummary | null>(null);
@@ -68,12 +68,30 @@ export function TodoDetail() {
 
   const [isExecuting, setIsExecuting] = useState(false);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
-  const [realtimeLogs, setRealtimeLogs] = useState<LogEntry[]>([]);
+  const [logsMap, setLogsMap] = useState<Map<number, LogEntry[]>>(new Map());
   const [executionSuccess, setExecutionSuccess] = useState<boolean | null>(null);
   const [executionResult, setExecutionResult] = useState<string | null>(null);
 
+  const realtimeLogs = selectedTodoId ? logsMap.get(selectedTodoId) || [] : [];
+
   const wsRef = useRef<WebSocket | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const isExecutingRef = useRef(isExecuting);
+  const currentTaskIdRef = useRef(currentTaskId);
+  const selectedTodoIdRef = useRef(selectedTodoId);
+
+  // 保持ref与状态同步
+  useEffect(() => {
+    isExecutingRef.current = isExecuting;
+  }, [isExecuting]);
+
+  useEffect(() => {
+    currentTaskIdRef.current = currentTaskId;
+  }, [currentTaskId]);
+
+  useEffect(() => {
+    selectedTodoIdRef.current = selectedTodoId;
+  }, [selectedTodoId]);
 
   const records = selectedTodoId ? executionRecords[selectedTodoId] || [] : [];
 
@@ -84,25 +102,32 @@ export function TodoDetail() {
   }, [realtimeLogs]);
 
   useEffect(() => {
-    // 切换todo时，重置所有执行相关的状态
-    setIsExecuting(false);
-    setCurrentTaskId(null);
-    setRealtimeLogs([]);
-    setExecutionSuccess(null);
-    setExecutionResult(null);
-
     if (selectedTodo) {
+      // 先设置编辑相关状态
       setEditTitle(selectedTodo.title);
-      setEditDescription(selectedTodo.description || '');
+      setEditPrompt(selectedTodo.prompt || '');
       setEditStatus(selectedTodo.status);
       setEditTags((selectedTodo as any).tag_ids || []);
 
-      // 检查是否有正在执行的任务（通过todo的task_id和状态）
-      if (selectedTodo.task_id && selectedTodo.status === 'running') {
-        setCurrentTaskId(selectedTodo.task_id);
+      // 检查是否有正在执行的任务
+      const hasRunningTask = selectedTodo.task_id && selectedTodo.status === 'running';
+      if (hasRunningTask) {
+        // 如果有正在执行的任务，保持执行状态
+        setCurrentTaskId(selectedTodo.task_id ?? null);
         setIsExecuting(true);
+      } else {
+        // 否则重置执行状态
+        setIsExecuting(false);
+        setCurrentTaskId(null);
+        // 清空当前todo的日志
+        if (selectedTodoId) {
+          setLogsMap(prev => new Map(prev).set(selectedTodoId, []));
+        }
+        setExecutionSuccess(null);
+        setExecutionResult(null);
       }
 
+      // 加载数据
       db.getExecutionRecords(selectedTodo.id).then(recs => {
         dispatch({
           type: 'SET_EXECUTION_RECORDS',
@@ -113,6 +138,14 @@ export function TodoDetail() {
       db.getExecutionSummary(selectedTodo.id).then(sum => {
         setSummary(sum);
       });
+    } else {
+      // 没有选中的todo，重置所有状态
+      setIsEditing(false);
+      setIsExecuting(false);
+      setCurrentTaskId(null);
+      setLogsMap(new Map());
+      setExecutionSuccess(null);
+      setExecutionResult(null);
     }
   }, [selectedTodoId, selectedTodo, dispatch]);
 
@@ -126,6 +159,10 @@ export function TodoDetail() {
     const ws = new WebSocket(`${protocol}//${window.location.host}/xyz/events`);
     wsRef.current = ws;
 
+    ws.onopen = () => {
+      console.log('WebSocket连接已建立', { currentTaskId, selectedTodoId });
+    };
+
     ws.onmessage = (event) => {
       if (event.data === 'Connected') return;
       try {
@@ -136,13 +173,26 @@ export function TodoDetail() {
           return;
         }
 
+        console.log('收到WebSocket消息', { type: data.type, task_id: data.task_id, todoId: selectedTodoId });
+
         if (data.type === 'Started') {
           setIsExecuting(true);
-          setRealtimeLogs([]);
+          // 清空当前todo的日志
+          if (selectedTodoId) {
+            setLogsMap(prev => new Map(prev).set(selectedTodoId, []));
+          }
           setExecutionSuccess(null);
           setExecutionResult(null);
-        } else if (data.type === 'Output' && data.entry) {
-          setRealtimeLogs(prev => [...prev, data.entry!]);
+      } else if (data.type === 'Output' && data.entry) {
+        // 添加日志到当前todo
+        if (selectedTodoId) {
+          setLogsMap(prev => {
+            const newMap = new Map(prev);
+            const currentLogs = newMap.get(selectedTodoId) || [];
+            newMap.set(selectedTodoId, [...currentLogs, data.entry!]);
+            return newMap;
+          });
+        }
         } else if (data.type === 'Finished') {
           setIsExecuting(false);
           setExecutionSuccess(data.success ?? null);
@@ -171,12 +221,35 @@ export function TodoDetail() {
     };
 
     ws.onclose = () => {
-      // 连接关闭时，如果任务还在执行中，说明是异常断开
-      // 这里不自动重连，等待下次状态变化触发重新连接
+      console.log('WebSocket连接已关闭');
+      // 如果任务还在执行中，延迟重连
+      setTimeout(() => {
+        // 使用ref获取最新状态
+        if (isExecutingRef.current && currentTaskIdRef.current && selectedTodoIdRef.current) {
+          // 检查当前连接是否已关闭
+          if (wsRef.current?.readyState !== WebSocket.OPEN) {
+            console.log('尝试重新建立WebSocket连接', {
+              task_id: currentTaskIdRef.current,
+              todoId: selectedTodoIdRef.current
+            });
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const newWs = new WebSocket(`${protocol}//${window.location.host}/xyz/events`);
+            wsRef.current = newWs;
+          }
+        }
+      }, 1000);
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket错误:', error);
     };
 
     return () => {
-      ws.close();
+      console.log('清理WebSocket连接');
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
   }, [isExecuting, currentTaskId, selectedTodoId, dispatch]);
 
@@ -185,12 +258,13 @@ export function TodoDetail() {
     try {
       const result = await db.executeTodo(
         selectedTodo.id,
-        selectedTodo.description || selectedTodo.title,
+        selectedTodo.prompt || selectedTodo.title,
         selectedTodo.executor || undefined
       );
       setCurrentTaskId(result.task_id);
       setIsExecuting(true);
-      setRealtimeLogs([]);
+      // 清空当前todo的日志
+      setLogsMap(prev => new Map(prev).set(selectedTodo.id, []));
       setExecutionSuccess(null);
       setExecutionResult(null);
     } catch (error) {
@@ -201,12 +275,15 @@ export function TodoDetail() {
   const handleStopExecution = () => {
     setIsExecuting(false);
     setCurrentTaskId(null);
+    if (selectedTodoId) {
+      setLogsMap(prev => new Map(prev).set(selectedTodoId, []));
+    }
     message.info('已停止执行');
   };
 
   const handleStatusChange = async (newStatus: string) => {
     if (!selectedTodo) return;
-    const updated = await db.updateTodo(selectedTodo.id, selectedTodo.title, selectedTodo.description || '', newStatus);
+    const updated = await db.updateTodo(selectedTodo.id, selectedTodo.title, selectedTodo.prompt || '', newStatus);
     dispatch({
       type: 'UPDATE_TODO',
       payload: updated
@@ -219,7 +296,7 @@ export function TodoDetail() {
     const updated = await db.updateTodo(
       selectedTodo.id,
       editTitle,
-      editDescription,
+      editPrompt,
       editStatus,
     );
     await db.updateTodoTags(selectedTodo.id, editTags);
@@ -280,10 +357,10 @@ export function TodoDetail() {
               style={{ marginBottom: 12 }}
             />
             <TextArea
-              value={editDescription}
-              onChange={e => setEditDescription(e.target.value)}
+              value={editPrompt}
+              onChange={e => setEditPrompt(e.target.value)}
               rows={3}
-              placeholder="输入任务描述..."
+              placeholder="输入 Prompt..."
               className="card-textarea"
               style={{ marginBottom: 12 }}
             />
@@ -314,8 +391,8 @@ export function TodoDetail() {
                   />
                   <h2 className="card-title" style={{ margin: 0 }}>{selectedTodo.title}</h2>
                 </div>
-                {selectedTodo.description && (
-                  <p className="card-description">{selectedTodo.description}</p>
+                {selectedTodo.prompt && (
+                  <p className="card-description">{selectedTodo.prompt}</p>
                 )}
                 {/* Info tags: executor + scheduler */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>

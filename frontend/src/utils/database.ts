@@ -38,23 +38,25 @@ export async function getAllTodos(): Promise<Todo[]> {
   return unwrap(await api.get<ApiResp<Todo[]>>('/xyz/todos'));
 }
 
-export async function createTodo(title: string, description: string = '', tagIds: number[] = []): Promise<Todo> {
-  return unwrap(await api.post<ApiResp<Todo>>('/xyz/todos', { title, description, tag_ids: tagIds }));
+export async function createTodo(title: string, prompt: string = '', tagIds: number[] = []): Promise<Todo> {
+  return unwrap(await api.post<ApiResp<Todo>>('/xyz/todos', { title, prompt, tag_ids: tagIds }));
 }
 
 export async function updateTodo(
   id: number,
   title: string,
-  description: string,
+  prompt: string,
   status: string,
   executor?: string,
   scheduler_enabled?: boolean,
   scheduler_config?: string | null,
 ): Promise<Todo> {
-  const body: Record<string, unknown> = { title, description, status };
+  const body: Record<string, unknown> = { title, prompt, status };
   if (executor !== undefined) body.executor = executor;
   if (scheduler_enabled !== undefined) body.scheduler_enabled = scheduler_enabled;
   if (scheduler_config !== undefined) body.scheduler_config = scheduler_config;
+
+  console.log('发送更新请求:', { id, body }); // 调试信息
 
   return unwrap(await api.put<ApiResp<Todo>>(`/xyz/todos/${id}`, body));
 }

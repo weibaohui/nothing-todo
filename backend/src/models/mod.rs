@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 pub struct Todo {
     pub id: i64,
     pub title: String,
-    pub description: String,
+    pub prompt: String,
     pub status: String,
     pub created_at: String,
     pub updated_at: String,
@@ -97,7 +97,7 @@ pub struct ParsedLogEntry {
 #[derive(Deserialize)]
 pub struct CreateTodoRequest {
     pub title: String,
-    pub description: String,
+    pub prompt: String,
     #[serde(default)]
     pub tag_ids: Vec<i64>,
 }
@@ -105,7 +105,7 @@ pub struct CreateTodoRequest {
 #[derive(Deserialize)]
 pub struct UpdateTodoRequest {
     pub title: String,
-    pub description: String,
+    pub prompt: String,
     pub status: String,
     #[serde(default)]
     pub executor: Option<String>,

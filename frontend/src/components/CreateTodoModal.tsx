@@ -15,7 +15,7 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
   const { dispatch, state } = useApp();
   const { message } = App.useApp();
   const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  const [prompt, setPrompt] = useState('');
   const [selectedTag, setSelectedTag] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -28,12 +28,12 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
     setLoading(true);
     try {
       const tagIds = selectedTag !== null ? [selectedTag] : [];
-      const newTodo = await db.createTodo(title.trim(), description.trim(), tagIds);
+      const newTodo = await db.createTodo(title.trim(), prompt.trim(), tagIds);
       dispatch({ type: 'ADD_TODO', payload: newTodo });
 
       message.success('Todo 创建成功');
       setTitle('');
-      setDescription('');
+      setPrompt('');
       setSelectedTag(null);
       onClose();
     } catch (error) {
@@ -62,12 +62,12 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
         />
       </div>
       <div style={{ marginBottom: 16 }}>
-        <div style={{ marginBottom: 8 }}>描述</div>
+        <div style={{ marginBottom: 8 }}>Prompt</div>
         <TextArea
-          value={description}
-          onChange={e => setDescription(e.target.value)}
+          value={prompt}
+          onChange={e => setPrompt(e.target.value)}
           rows={4}
-          placeholder="输入描述（会作为任务执行的内容）"
+          placeholder="输入 Prompt（会作为任务执行的内容，留空则使用标题）"
         />
       </div>
       {state.tags.length > 0 && (

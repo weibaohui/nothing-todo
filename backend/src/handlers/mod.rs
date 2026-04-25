@@ -43,7 +43,8 @@ pub async fn get_todos(State(state): State<AppState>) -> Json<ApiResponse<Vec<To
 
 pub async fn create_todo(State(state): State<AppState>, Json(req): Json<CreateTodoRequest>) -> Json<ApiResponse<Todo>> {
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    let id = state.db.create_todo(&req.title, &req.description);
+    let prompt = if req.prompt.is_empty() { req.title.clone() } else { req.prompt.clone() };
+    let id = state.db.create_todo(&req.title, &prompt);
 
     for tag_id in &req.tag_ids {
         state.db.add_todo_tag(id, *tag_id);
@@ -52,7 +53,7 @@ pub async fn create_todo(State(state): State<AppState>, Json(req): Json<CreateTo
     Json(ApiResponse::ok(Todo {
         id,
         title: req.title,
-        description: req.description,
+        prompt,
         status: "pending".to_string(),
         created_at: now.clone(),
         updated_at: now,
@@ -70,8 +71,9 @@ pub async fn update_todo(
     Path(id): Path<i64>,
     Json(req): Json<UpdateTodoRequest>,
 ) -> Json<ApiResponse<Todo>> {
+    let prompt = if req.prompt.is_empty() { req.title.clone() } else { req.prompt.clone() };
     state.db.update_todo_full(
-        id, &req.title, &req.description, &req.status,
+        id, &req.title, &prompt, &req.status,
         req.executor.as_deref(), req.scheduler_enabled, req.scheduler_config.as_deref(),
     );
 

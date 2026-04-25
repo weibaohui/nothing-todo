@@ -64,7 +64,7 @@ impl TodoScheduler {
 
             Box::pin(async move {
                 if let Some(todo) = db.get_todo(todo_id) {
-                    let message = if todo.description.is_empty() { todo.title.clone() } else { todo.description.clone() };
+                    let message = if todo.prompt.is_empty() { todo.title.clone() } else { todo.prompt.clone() };
                     let executor = todo.executor.clone();
                     info!("Scheduled execution triggered for todo {}: {}", todo_id, message);
                     run_todo_execution(db, registry, tx, todo_id, message, executor, "cron").await;

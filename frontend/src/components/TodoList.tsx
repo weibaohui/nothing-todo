@@ -180,9 +180,9 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal }: To
                         {executor === 'claudecode' ? 'Claude' : executor === 'opencode' ? 'Opencode' : 'JoinAI'}
                       </span>
                     </div>
-                    {todo.description && (
+                    {todo.prompt && (
                       <div className="todo-item-desc">
-                        {todo.description.substring(0, 60)}{todo.description.length > 60 ? '...' : ''}
+                        {todo.prompt.length > 60 ? todo.prompt.substring(0, 60) + '...' : todo.prompt}
                       </div>
                     )}
                     <div className="todo-item-tags">
@@ -220,7 +220,7 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal }: To
                         const updated = await db.updateTodo(
                           todo.id,
                           todo.title,
-                          todo.description || '',
+                          todo.prompt || '',
                           newStatus
                         );
                         dispatch({

@@ -56,7 +56,7 @@ export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettin
       await db.updateTodo(
         todo.id,
         todo.title,
-        todo.description || '',
+        todo.prompt || '',
         todo.status,
         executor,
         schedulerEnabled,

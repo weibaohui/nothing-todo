@@ -32,7 +32,7 @@ impl Database {
             "CREATE TABLE IF NOT EXISTS todos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
-                description TEXT DEFAULT '',
+                prompt TEXT DEFAULT '',
                 status TEXT DEFAULT 'pending',
                 created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
                 updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
@@ -127,6 +127,12 @@ impl Database {
             [],
         ).ok();
 
+        // Rename description column to prompt (for existing databases)
+        conn.execute(
+            "ALTER TABLE todos RENAME COLUMN description TO prompt",
+            [],
+        ).ok();
+
         Ok(())
     }
 
@@ -141,7 +147,7 @@ impl Database {
         Ok(Todo {
             id: row.get(0)?,
             title: row.get(1)?,
-            description: row.get(2)?,
+            prompt: row.get(2)?,
             status: row.get(3)?,
             created_at: row.get(4)?,
             updated_at: row.get(5)?,
@@ -158,7 +164,7 @@ impl Database {
     pub fn get_todos(&self) -> Vec<Todo> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, title, description, status, created_at, updated_at, executor, scheduler_enabled, scheduler_config, task_id FROM todos WHERE deleted_at IS NULL ORDER BY created_at DESC"
+            "SELECT id, title, prompt, status, created_at, updated_at, executor, scheduler_enabled, scheduler_config, task_id FROM todos WHERE deleted_at IS NULL ORDER BY created_at DESC"
         ).unwrap();
         let todos: Vec<Todo> = stmt.query_map([], |row| {
             self.row_to_todo(row)
@@ -183,26 +189,26 @@ impl Database {
         result
     }
 
-    pub fn create_todo(&self, title: &str, description: &str) -> i64 {
+    pub fn create_todo(&self, title: &str, prompt: &str) -> i64 {
         let conn = self.conn.lock();
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         conn.execute(
-            "INSERT INTO todos (title, description, created_at, updated_at, executor) VALUES (?1, ?2, ?3, ?3, 'claudecode')",
-            params![title, description, now],
+            "INSERT INTO todos (title, prompt, created_at, updated_at, executor) VALUES (?1, ?2, ?3, ?3, 'claudecode')",
+            params![title, prompt, now],
         ).unwrap();
         conn.last_insert_rowid()
     }
 
-    pub fn update_todo(&self, id: i64, title: &str, description: &str, status: &str) {
+    pub fn update_todo(&self, id: i64, title: &str, prompt: &str, status: &str) {
         let conn = self.conn.lock();
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         conn.execute(
-            "UPDATE todos SET title = ?1, description = ?2, status = ?3, updated_at = ?4 WHERE id = ?5",
-            params![title, description, status, now, id],
+            "UPDATE todos SET title = ?1, prompt = ?2, status = ?3, updated_at = ?4 WHERE id = ?5",
+            params![title, prompt, status, now, id],
         ).unwrap();
     }
 
-    pub fn update_todo_full(&self, id: i64, title: &str, description: &str, status: &str, executor: Option<&str>, scheduler_enabled: Option<bool>, scheduler_config: Option<&str>) {
+    pub fn update_todo_full(&self, id: i64, title: &str, prompt: &str, status: &str, executor: Option<&str>, scheduler_enabled: Option<bool>, scheduler_config: Option<&str>) {
         let conn = self.conn.lock();
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
@@ -229,8 +235,8 @@ impl Database {
         }
 
         conn.execute(
-            "UPDATE todos SET title = ?1, description = ?2, status = ?3, updated_at = ?4 WHERE id = ?5",
-            params![title, description, status, now, id],
+            "UPDATE todos SET title = ?1, prompt = ?2, status = ?3, updated_at = ?4 WHERE id = ?5",
+            params![title, prompt, status, now, id],
         ).unwrap();
     }
 
@@ -280,7 +286,7 @@ impl Database {
     pub fn get_todo(&self, id: i64) -> Option<Todo> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, title, description, status, created_at, updated_at, executor, scheduler_enabled, scheduler_config, task_id FROM todos WHERE id = ?1 AND deleted_at IS NULL"
+            "SELECT id, title, prompt, status, created_at, updated_at, executor, scheduler_enabled, scheduler_config, task_id FROM todos WHERE id = ?1 AND deleted_at IS NULL"
         ).unwrap();
         let mut todo: Option<Todo> = stmt.query_row(params![id], |row| {
             self.row_to_todo(row)
@@ -298,7 +304,7 @@ impl Database {
     pub fn get_scheduler_todos(&self) -> Vec<Todo> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, title, description, status, created_at, updated_at, executor, scheduler_enabled, scheduler_config, task_id FROM todos WHERE deleted_at IS NULL AND scheduler_config IS NOT NULL"
+            "SELECT id, title, prompt, status, created_at, updated_at, executor, scheduler_enabled, scheduler_config, task_id FROM todos WHERE deleted_at IS NULL AND scheduler_config IS NOT NULL"
         ).unwrap();
         let todos: Vec<Todo> = stmt.query_map([], |row| {
             self.row_to_todo(row)

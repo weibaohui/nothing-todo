@@ -1,7 +1,7 @@
 export interface Todo {
   id: number;
   title: string;
-  description: string;
+  prompt: string;
   status: 'pending' | 'running' | 'completed' | 'failed';
   created_at: string;
   updated_at: string;
