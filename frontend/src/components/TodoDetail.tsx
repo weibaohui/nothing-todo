@@ -3,6 +3,7 @@ import { useApp } from '../hooks/useApp';
 import { Button, Empty, Input, Select, message, Popconfirm, Tag, Collapse, Badge, Switch, Tooltip, Divider } from 'antd';
 import { PlayCircleOutlined, EditOutlined, DeleteOutlined, CloseCircleOutlined, ClockCircleOutlined, InfoCircleOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
+import { TagCheckCardGroup } from './TagCheckCard';
 import * as db from '../utils/database';
 import type { LogEntry, ExecutionSummary } from '../types';
 
@@ -335,33 +336,14 @@ export function TodoDetail() {
               ]}
             />
             {state.tags.length > 0 && (
-              <Select
-                value={editTags[0] || null}
-                onChange={(val) => setEditTags(val ? [val] : [])}
-                style={{ width: '100%', marginBottom: 12 }}
-                placeholder="选择标签"
-                allowClear
-                options={state.tags.map(tag => ({
-                  value: tag.id,
-                  label: tag.name,
-                }))}
-                optionRender={(option) => {
-                  const tag = state.tags.find(t => t.id === option.value);
-                  return (
-                    <span>
-                      <span style={{
-                        display: 'inline-block',
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        backgroundColor: tag?.color || '#999',
-                        marginRight: 8,
-                      }} />
-                      {option.label}
-                    </span>
-                  );
-                }}
-              />
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ marginBottom: 8, fontWeight: 600 }}>标签</div>
+                <TagCheckCardGroup
+                  tags={state.tags}
+                  value={editTags[0] || null}
+                  onChange={(val) => setEditTags(val ? [val as number] : [])}
+                />
+              </div>
             )}
             <div style={{ display: 'flex', gap: 8 }}>
               <Button onClick={() => setIsEditing(false)} block>取消</Button>
