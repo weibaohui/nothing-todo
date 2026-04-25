@@ -15,7 +15,7 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
   const { dispatch, state } = useApp();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [selectedTags, setSelectedTags] = useState<number[]>([]);
+  const [selectedTag, setSelectedTag] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleCreate = async () => {
@@ -26,7 +26,8 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
 
     setLoading(true);
     try {
-      const id = await db.createTodo(title.trim(), description.trim(), selectedTags);
+      const tagIds = selectedTag !== null ? [selectedTag] : [];
+      const id = await db.createTodo(title.trim(), description.trim(), tagIds);
       const newTodo = {
         id,
         title: title.trim(),
@@ -35,14 +36,14 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         deleted_at: null,
-        tag_ids: selectedTags,
+        tag_ids: tagIds,
       };
       dispatch({ type: 'ADD_TODO', payload: newTodo });
 
       message.success('Todo 创建成功');
       setTitle('');
       setDescription('');
-      setSelectedTags([]);
+      setSelectedTag(null);
       onClose();
     } catch (error) {
       message.error('创建失败: ' + error);
@@ -83,9 +84,8 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
           <div style={{ marginBottom: 10, fontWeight: 600 }}>标签</div>
           <TagCheckCardGroup
             tags={state.tags}
-            value={selectedTags}
-            onChange={(val) => setSelectedTags((val as number[] | null) || [])}
-            multiple
+            value={selectedTag}
+            onChange={(val) => setSelectedTag(val as number | null)}
           />
         </div>
       )}

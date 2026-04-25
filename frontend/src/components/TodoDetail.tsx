@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty, Input, Select, message, Popconfirm, Tag, Collapse, Badge, Switch, Tooltip, Divider } from 'antd';
 import { PlayCircleOutlined, EditOutlined, DeleteOutlined, CloseCircleOutlined, ClockCircleOutlined, InfoCircleOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { StatisticCard } from '@ant-design/pro-components';
 import { StatusPicker } from './StatusPicker';
 import { TagCheckCardGroup } from './TagCheckCard';
 import * as db from '../utils/database';
@@ -502,43 +503,57 @@ export function TodoDetail() {
 
       {/* Stats Card */}
       {summary && summary.total_executions > 0 && (
-        <div className="stats-card">
-          <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)', marginBottom: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            执行统计
-          </div>
-          <div className="stats-grid">
-            <div className="stats-item">
-              <span className="stats-label">总执行</span>
-              <span className="stats-value">{summary.total_executions}</span>
-            </div>
-            <div className="stats-item">
-              <span className="stats-label" style={{ color: 'var(--color-success)' }}>成功</span>
-              <span className="stats-value" style={{ color: 'var(--color-success)' }}>{summary.success_count}</span>
-            </div>
-            <div className="stats-item">
-              <span className="stats-label" style={{ color: 'var(--color-error)' }}>失败</span>
-              <span className="stats-value" style={{ color: 'var(--color-error)' }}>{summary.failed_count}</span>
-            </div>
-            {summary.total_cost_usd !== null && summary.total_cost_usd !== undefined && (
-              <div className="stats-item">
-                <span className="stats-label">费用</span>
-                <span className="stats-value">${summary.total_cost_usd.toFixed(6)}</span>
-              </div>
-            )}
-            {(totalInputTokens > 0 || totalOutputTokens > 0) && (
-              <>
-                <div className="stats-item">
-                  <span className="stats-label">输入Tokens</span>
-                  <span className="stats-value">{totalInputTokens.toLocaleString()}</span>
-                </div>
-                <div className="stats-item">
-                  <span className="stats-label">输出Tokens</span>
-                  <span className="stats-value">{totalOutputTokens.toLocaleString()}</span>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+        <StatisticCard.Group style={{ marginBottom: 12, flexShrink: 0 }}>
+          <StatisticCard
+            statistic={{
+              title: '总执行',
+              value: summary.total_executions,
+            }}
+          />
+          <StatisticCard
+            statistic={{
+              title: '成功',
+              value: summary.success_count,
+              description: (
+                <span style={{ color: 'var(--color-success)', fontSize: 12 }}>
+                  {((summary.success_count / summary.total_executions) * 100).toFixed(1)}%
+                </span>
+              ),
+            }}
+          />
+          <StatisticCard
+            statistic={{
+              title: '失败',
+              value: summary.failed_count,
+              description: (
+                <span style={{ color: 'var(--color-error)', fontSize: 12 }}>
+                  {((summary.failed_count / summary.total_executions) * 100).toFixed(1)}%
+                </span>
+              ),
+            }}
+          />
+          {summary.total_cost_usd !== null && summary.total_cost_usd !== undefined && (
+            <StatisticCard
+              statistic={{
+                title: '费用',
+                value: `$${summary.total_cost_usd.toFixed(4)}`,
+              }}
+            />
+          )}
+          {(totalInputTokens > 0 || totalOutputTokens > 0) && (
+            <StatisticCard
+              statistic={{
+                title: 'Tokens',
+                value: `${(totalInputTokens + totalOutputTokens).toLocaleString()}`,
+                description: (
+                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                    In: {totalInputTokens.toLocaleString()} / Out: {totalOutputTokens.toLocaleString()}
+                  </span>
+                ),
+              }}
+            />
+          )}
+        </StatisticCard.Group>
       )}
 
       {/* Realtime Logs */}
