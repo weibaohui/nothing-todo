@@ -309,6 +309,16 @@ export function TodoDetail() {
         )}
       </div>
 
+      {/* 设置卡片 - 执行器 */}
+      <div className="detail-card settings-card">
+        <div className="setting-row">
+          <span className="setting-label">执行器</span>
+          <Tag color={selectedExecutor === 'claudecode' ? 'purple' : 'cyan'}>
+            {selectedExecutor === 'claudecode' ? 'Claude' : 'JoinAI'}
+          </Tag>
+        </div>
+      </div>
+
       {/* 执行按钮卡片 */}
       <div className="detail-card action-card">
         {isEditing ? null : (
@@ -324,16 +334,6 @@ export function TodoDetail() {
             )}
           </>
         )}
-      </div>
-
-      {/* 设置卡片 */}
-      <div className="detail-card settings-card">
-        <div className="setting-row">
-          <span className="setting-label">执行器</span>
-          <Tag color={selectedExecutor === 'claudecode' ? 'purple' : 'cyan'}>
-            {selectedExecutor === 'claudecode' ? 'Claude' : 'JoinAI'}
-          </Tag>
-        </div>
       </div>
 
       {summary && summary.total_executions > 0 && (
