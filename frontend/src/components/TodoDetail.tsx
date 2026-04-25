@@ -243,8 +243,8 @@ export function TodoDetail() {
   }
 
   const executor = selectedTodo.executor || 'claudecode';
-  const executorLabel = executor === 'claudecode' ? 'Claude' : 'JoinAI';
-  const executorColor = executor === 'claudecode' ? '#7c3aed' : '#0d9488';
+  const executorLabel = executor === 'claudecode' ? 'Claude' : executor === 'opencode' ? 'Opencode' : 'JoinAI';
+  const executorColor = executor === 'claudecode' ? '#7c3aed' : executor === 'opencode' ? '#f59e0b' : '#0d9488';
 
   return (
     <div className="detail-panel">
@@ -577,8 +577,8 @@ export function TodoDetail() {
                     {formatLocalDateTime(record.started_at)}
                   </span>
                   {record.executor && (
-                    <Tag color={record.executor === 'claudecode' ? '#7c3aed' : '#0d9488'} style={{ fontWeight: 600 }}>
-                      {record.executor === 'claudecode' ? 'Claude' : 'JoinAI'}
+                    <Tag color={record.executor === 'claudecode' ? '#7c3aed' : record.executor === 'opencode' ? '#f59e0b' : '#0d9488'} style={{ fontWeight: 600 }}>
+                      {record.executor === 'claudecode' ? 'Claude' : record.executor === 'opencode' ? 'Opencode' : 'JoinAI'}
                     </Tag>
                   )}
                   {record.model && <Tag color="#3b82f6">{record.model}</Tag>}

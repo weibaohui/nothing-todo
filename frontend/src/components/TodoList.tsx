@@ -175,9 +175,9 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal }: To
                         {todo.title}
                       </div>
                       <span
-                        className={`executor-badge ${executor === 'claudecode' ? 'executor-badge-claude' : 'executor-badge-joinai'}`}
+                        className={`executor-badge ${executor === 'claudecode' ? 'executor-badge-claude' : executor === 'opencode' ? 'executor-badge-opencode' : 'executor-badge-joinai'}`}
                       >
-                        {executor === 'claudecode' ? 'Claude' : 'JoinAI'}
+                        {executor === 'claudecode' ? 'Claude' : executor === 'opencode' ? 'Opencode' : 'JoinAI'}
                       </span>
                     </div>
                     {todo.description && (

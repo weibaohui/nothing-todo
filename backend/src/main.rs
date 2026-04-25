@@ -31,6 +31,7 @@ async fn main() {
     let executor_registry = Arc::new(adapters::ExecutorRegistry::new());
     executor_registry.register(adapters::joinai::JoinaiExecutor::new());
     executor_registry.register(adapters::claude_code::ClaudeCodeExecutor::new());
+    executor_registry.register(adapters::opencode::OpencodeExecutor::new());
 
     // List available executors
     let executors = executor_registry.list_executors();

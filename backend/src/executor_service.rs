@@ -13,6 +13,7 @@ use crate::models::{ParsedLogEntry, ExecutorType};
 fn parse_executor_type(executor: &str) -> ExecutorType {
     match executor.to_lowercase().as_str() {
         "claudecode" | "claude" => ExecutorType::Claudecode,
+        "opencode" => ExecutorType::Opencode,
         _ => ExecutorType::Joinai,
     }
 }

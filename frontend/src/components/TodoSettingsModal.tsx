@@ -84,8 +84,8 @@ export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettin
     }
   };
 
-  const executorLabel = executor === 'claudecode' ? 'Claude' : 'JoinAI';
-  const executorColor = executor === 'claudecode' ? '#7c3aed' : '#0d9488';
+  const executorLabel = executor === 'claudecode' ? 'Claude' : executor === 'opencode' ? 'Opencode' : 'JoinAI';
+  const executorColor = executor === 'claudecode' ? '#7c3aed' : executor === 'opencode' ? '#f59e0b' : '#0d9488';
 
   return (
     <Modal
@@ -107,6 +107,7 @@ export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettin
           options={[
             { value: 'claudecode', label: 'Claude' },
             { value: 'joinai', label: 'JoinAI' },
+            { value: 'opencode', label: 'Opencode' },
           ]}
         />
         <div style={{ marginTop: 8 }}>

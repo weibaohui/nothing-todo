@@ -7,6 +7,7 @@ use crate::models::{ExecutorType, ParsedLogEntry, ExecutionUsage};
 
 pub mod joinai;
 pub mod claude_code;
+pub mod opencode;
 
 #[async_trait]
 pub trait CodeExecutor: Send + Sync {

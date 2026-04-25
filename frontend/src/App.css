@@ -319,6 +319,12 @@ body {
   border: 1px solid #0d948830;
 }
 
+.executor-badge-opencode {
+  background: #f59e0b12;
+  color: #f59e0b;
+  border: 1px solid #f59e0b30;
+}
+
 /* Status Container */
 .todo-item-status {
   flex-shrink: 0;

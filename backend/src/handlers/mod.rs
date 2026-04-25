@@ -70,7 +70,7 @@ pub async fn update_todo(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(req): Json<UpdateTodoRequest>,
-) -> Json<Todo> {
+) -> Result<Json<Todo>, StatusCode> {
     state.db.update_todo_full(
         id,
         &req.title,
@@ -81,8 +81,10 @@ pub async fn update_todo(
         req.scheduler_config.as_deref(),
     );
 
-    let todo = state.db.get_todo(id).unwrap();
-    Json(todo)
+    match state.db.get_todo(id) {
+        Some(todo) => Ok(Json(todo)),
+        None => Err(StatusCode::NOT_FOUND),
+    }
 }
 
 pub async fn update_todo_tags(

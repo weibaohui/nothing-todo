@@ -146,6 +146,7 @@ pub struct UpdateSchedulerRequest {
 pub enum ExecutorType {
     Joinai,
     Claudecode,
+    Opencode,
 }
 
 impl Default for ExecutorType {
@@ -154,11 +155,18 @@ impl Default for ExecutorType {
     }
 }
 
+impl ExecutorType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ExecutorType::Joinai => "joinai",
+            ExecutorType::Claudecode => "claudecode",
+            ExecutorType::Opencode => "opencode",
+        }
+    }
+}
+
 impl std::fmt::Display for ExecutorType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ExecutorType::Joinai => write!(f, "joinai"),
-            ExecutorType::Claudecode => write!(f, "claudecode"),
-        }
+        write!(f, "{}", self.as_str())
     }
 }
