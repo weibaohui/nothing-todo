@@ -116,10 +116,16 @@ impl Database {
                 model TEXT,
                 started_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
                 finished_at TEXT,
+                trigger_type TEXT DEFAULT 'manual',
                 FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE
             )",
             [],
         )?;
+
+        conn.execute(
+            "ALTER TABLE execution_records ADD COLUMN trigger_type TEXT DEFAULT 'manual'",
+            [],
+        ).ok();
 
         Ok(())
     }
@@ -365,7 +371,7 @@ impl Database {
     pub fn get_execution_records(&self, todo_id: i64) -> Vec<ExecutionRecord> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, todo_id, status, command, stdout, stderr, logs, result, started_at, finished_at, usage, executor, model
+            "SELECT id, todo_id, status, command, stdout, stderr, logs, result, started_at, finished_at, usage, executor, model, trigger_type
              FROM execution_records WHERE todo_id = ?1 ORDER BY started_at DESC"
         ).unwrap();
         stmt.query_map(params![todo_id], |row| {
@@ -373,6 +379,7 @@ impl Database {
             let usage = usage_str.and_then(|u| serde_json::from_str(&u).ok());
             let executor: Option<String> = row.get(11)?;
             let model: Option<String> = row.get(12)?;
+            let trigger_type: Option<String> = row.get(13)?;
             Ok(ExecutionRecord {
                 id: row.get(0)?,
                 todo_id: row.get(1)?,
@@ -387,15 +394,16 @@ impl Database {
                 usage,
                 executor,
                 model,
+                trigger_type: trigger_type.unwrap_or_else(|| "manual".to_string()),
             })
         }).unwrap().filter_map(|r| r.ok()).collect()
     }
 
-    pub fn create_execution_record(&self, todo_id: i64, command: &str, executor: &str) -> i64 {
+    pub fn create_execution_record(&self, todo_id: i64, command: &str, executor: &str, trigger_type: &str) -> i64 {
         let conn = self.conn.lock();
         conn.execute(
-            "INSERT INTO execution_records (todo_id, command, executor, status, started_at) VALUES (?1, ?2, ?3, 'running', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
-            params![todo_id, command, executor],
+            "INSERT INTO execution_records (todo_id, command, executor, trigger_type, status, started_at) VALUES (?1, ?2, ?3, ?4, 'running', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
+            params![todo_id, command, executor, trigger_type],
         ).unwrap();
         conn.last_insert_rowid()
     }
@@ -590,7 +598,7 @@ mod tests {
         let db = setup_db();
         let todo_id = db.create_todo("Test", "Desc");
         let before = truncate_seconds(Utc::now());
-        let record_id = db.create_execution_record(todo_id, "echo hi", "claudecode");
+        let record_id = db.create_execution_record(todo_id, "echo hi", "claudecode", "manual");
         let after = truncate_seconds(Utc::now());
 
         let records = db.get_execution_records(todo_id);
@@ -606,7 +614,7 @@ mod tests {
     fn test_execution_record_finished_at_is_utc() {
         let db = setup_db();
         let todo_id = db.create_todo("Test", "Desc");
-        let record_id = db.create_execution_record(todo_id, "echo hi", "claudecode");
+        let record_id = db.create_execution_record(todo_id, "echo hi", "claudecode", "manual");
 
         let before = truncate_seconds(Utc::now());
         db.update_execution_record(record_id, "success", "[]", "done");

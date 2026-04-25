@@ -30,6 +30,8 @@ pub struct Tag {
     pub created_at: String,
 }
 
+fn default_trigger_type() -> String { "manual".to_string() }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionRecord {
     pub id: i64,
@@ -45,6 +47,8 @@ pub struct ExecutionRecord {
     pub usage: Option<ExecutionUsage>,
     pub executor: Option<String>,
     pub model: Option<String>,
+    #[serde(default = "default_trigger_type")]
+    pub trigger_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

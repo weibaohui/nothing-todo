@@ -134,6 +134,7 @@ pub async fn execute_handler(
         state.executor_registry.clone(),
         state.tx.clone(),
         req.todo_id, req.message, req.executor,
+        "manual",
     ).await;
 
     Json(ApiResponse::ok(serde_json::json!({ "task_id": task_id })))

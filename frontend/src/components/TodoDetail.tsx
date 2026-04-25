@@ -104,6 +104,11 @@ export function TodoDetail() {
   }, [selectedTodoId, selectedTodo, dispatch]);
 
   useEffect(() => {
+    // 只在有正在执行的任务时才建立WebSocket连接
+    if (!isExecuting || !currentTaskId || !selectedTodoId) {
+      return;
+    }
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/xyz/events`);
     wsRef.current = ws;
@@ -113,14 +118,19 @@ export function TodoDetail() {
       try {
         const data: ExecEvent = JSON.parse(event.data);
 
-        if (data.type === 'Started' && data.task_id === currentTaskId) {
+        // 只处理当前任务的当前todo的消息
+        if (data.task_id !== currentTaskId) {
+          return;
+        }
+
+        if (data.type === 'Started') {
           setIsExecuting(true);
           setRealtimeLogs([]);
           setExecutionSuccess(null);
           setExecutionResult(null);
-        } else if (data.type === 'Output' && data.entry && data.task_id === currentTaskId) {
+        } else if (data.type === 'Output' && data.entry) {
           setRealtimeLogs(prev => [...prev, data.entry!]);
-        } else if (data.type === 'Finished' && data.task_id === currentTaskId) {
+        } else if (data.type === 'Finished') {
           setIsExecuting(false);
           setExecutionSuccess(data.success ?? null);
           setExecutionResult(data.result ?? null);
@@ -148,17 +158,14 @@ export function TodoDetail() {
     };
 
     ws.onclose = () => {
-      setTimeout(() => {
-        if (wsRef.current?.readyState !== WebSocket.OPEN) {
-          // reconnect logic handled by component re-mount
-        }
-      }, 1000);
+      // 连接关闭时，如果任务还在执行中，说明是异常断开
+      // 这里不自动重连，等待下次状态变化触发重新连接
     };
 
     return () => {
       ws.close();
     };
-  }, [currentTaskId, selectedTodoId, dispatch]);
+  }, [isExecuting, currentTaskId, selectedTodoId, dispatch]);
 
   const handleExecute = async () => {
     if (!selectedTodo) return;
@@ -571,7 +578,7 @@ export function TodoDetail() {
               key={record.id}
               className={`history-card history-card-${record.status}`}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
                     {formatLocalDateTime(record.started_at)}
@@ -582,6 +589,9 @@ export function TodoDetail() {
                     </Tag>
                   )}
                   {record.model && <Tag color="#3b82f6">{record.model}</Tag>}
+                  <Tag color={record.trigger_type === 'cron' ? '#8b5cf6' : '#6b7280'} style={{ fontSize: 10 }}>
+                    {record.trigger_type === 'cron' ? 'Cron' : '手动'}
+                  </Tag>
                   {record.usage?.duration_ms && (
                     <span style={{ fontSize: 11, color: 'var(--color-success)', fontWeight: 600 }}>
                       {(record.usage.duration_ms / 1000).toFixed(2)}s
@@ -599,6 +609,11 @@ export function TodoDetail() {
                   {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
                 </span>
               </div>
+              {record.command && (
+                <div style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginBottom: 8, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {record.command}
+                </div>
+              )}
 
               {record.result !== null && record.result !== '' && (
                 <div className={`history-result ${record.status === 'success' ? 'history-result-success' : 'history-result-failed'}`}>

@@ -46,6 +46,7 @@ export interface ExecutionRecord {
   usage: ExecutionUsage | null;
   executor: string | null;
   model: string | null;
+  trigger_type: string;
 }
 
 export interface ExecutionUsage {

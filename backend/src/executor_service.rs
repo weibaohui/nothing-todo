@@ -26,6 +26,7 @@ pub async fn run_todo_execution(
     todo_id: i64,
     message: String,
     req_executor: Option<String>,
+    trigger_type: &str,
 ) -> String {
     let task_id = Uuid::new_v4().to_string();
 
@@ -54,7 +55,7 @@ pub async fn run_todo_execution(
 
     // Create execution record
     let command = format!("{} {}", executable_path, command_args.join(" "));
-    let record_id = db.create_execution_record(todo_id, &command, &executor_str);
+    let record_id = db.create_execution_record(todo_id, &command, &executor_str, trigger_type);
 
     // Update todo status
     db.update_todo_status(todo_id, "running");

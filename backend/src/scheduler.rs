@@ -67,7 +67,7 @@ impl TodoScheduler {
                     let message = todo.description.clone();
                     let executor = todo.executor.clone();
                     info!("Scheduled execution triggered for todo {}: {}", todo_id, message);
-                    run_todo_execution(db, registry, tx, todo_id, message, executor).await;
+                    run_todo_execution(db, registry, tx, todo_id, message, executor, "cron").await;
                 }
             })
         })?;
