@@ -58,6 +58,7 @@ export function TodoDetail() {
   const [editDescription, setEditDescription] = useState('');
   const [editStatus, setEditStatus] = useState<string>('pending');
   const [editTags, setEditTags] = useState<number[]>([]);
+  const [editExecutor, setEditExecutor] = useState<string>('claudecode');
   const [selectedExecutor, setSelectedExecutor] = useState<string>('claudecode');
   const [summary, setSummary] = useState<ExecutionSummary | null>(null);
 
@@ -87,6 +88,7 @@ export function TodoDetail() {
       setEditDescription(selectedTodo.description || '');
       setEditStatus(selectedTodo.status);
       setEditTags((selectedTodo as any).tag_ids || []);
+      setEditExecutor(selectedExecutor);
 
       db.getExecutionRecords(selectedTodo.id).then(recs => {
         dispatch({
@@ -100,6 +102,13 @@ export function TodoDetail() {
       });
     }
   }, [selectedTodoId, selectedTodo, dispatch]);
+
+  // Sync editExecutor when entering edit mode
+  useEffect(() => {
+    if (isEditing) {
+      setEditExecutor(selectedExecutor);
+    }
+  }, [isEditing, selectedExecutor]);
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -184,6 +193,7 @@ export function TodoDetail() {
     if (!selectedTodo) return;
     await db.updateTodo(selectedTodo.id, editTitle, editDescription, editStatus);
     await db.updateTodoTags(selectedTodo.id, editTags);
+    setSelectedExecutor(editExecutor);
     dispatch({
       type: 'UPDATE_TODO',
       payload: { ...selectedTodo, title: editTitle, description: editDescription, status: editStatus as any, updated_at: new Date().toISOString(), tag_ids: editTags } as any
@@ -310,16 +320,22 @@ export function TodoDetail() {
       <div className="detail-card settings-card">
         <div className="setting-row">
           <span className="setting-label">执行器</span>
-          <Select
-            value={selectedExecutor}
-            onChange={(val) => setSelectedExecutor(val)}
-            disabled={isExecuting}
-            className="executor-select"
-            options={[
-              { value: 'claudecode', label: 'Claude' },
-              { value: 'joinai', label: 'JoinAI' },
-            ]}
-          />
+          {isEditing ? (
+            <Select
+              value={editExecutor}
+              onChange={(val) => setEditExecutor(val)}
+              disabled={isExecuting}
+              className="executor-select"
+              options={[
+                { value: 'claudecode', label: 'Claude' },
+                { value: 'joinai', label: 'JoinAI' },
+              ]}
+            />
+          ) : (
+            <Tag color={selectedExecutor === 'claudecode' ? 'purple' : 'cyan'}>
+              {selectedExecutor === 'claudecode' ? 'Claude' : 'JoinAI'}
+            </Tag>
+          )}
         </div>
       </div>
 
