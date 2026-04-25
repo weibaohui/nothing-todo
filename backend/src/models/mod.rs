@@ -170,3 +170,28 @@ impl std::fmt::Display for ExecutorType {
         write!(f, "{}", self.as_str())
     }
 }
+
+// Unified API Response
+#[derive(Debug, Serialize)]
+pub struct ApiResponse<T: Serialize> {
+    pub code: i32,
+    pub data: Option<T>,
+    pub message: String,
+}
+
+impl<T: Serialize> ApiResponse<T> {
+    pub fn ok(data: T) -> Self {
+        Self { code: 0, data: Some(data), message: "ok".to_string() }
+    }
+
+    pub fn err(code: i32, message: &str) -> Self {
+        Self { code, data: None, message: message.to_string() }
+    }
+}
+
+// Business error codes
+pub mod codes {
+    pub const NOT_FOUND: i32 = 40001;
+    pub const BAD_REQUEST: i32 = 40002;
+    pub const INTERNAL: i32 = 50001;
+}

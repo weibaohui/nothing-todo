@@ -3,7 +3,6 @@ use axum::{
     routing::{get, post, put, delete},
     response::{Html, IntoResponse, Response, Json},
     extract::{State, Path, Query, WebSocketUpgrade},
-    http::StatusCode,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -14,6 +13,7 @@ use crate::Assets;
 use crate::db::Database;
 use crate::executor_service::run_todo_execution;
 use crate::models::{
+    ApiResponse, codes,
     CreateTodoRequest, UpdateTodoRequest, UpdateTagsRequest, CreateTagRequest, ExecuteRequest, TodoIdQuery,
     UpdateSchedulerRequest,
     Todo, Tag, ExecutionRecord, ExecutionSummary, ParsedLogEntry,
@@ -37,20 +37,19 @@ pub enum ExecEvent {
 }
 
 // Todo handlers
-pub async fn get_todos(State(state): State<AppState>) -> Json<Vec<Todo>> {
-    Json(state.db.get_todos())
+pub async fn get_todos(State(state): State<AppState>) -> Json<ApiResponse<Vec<Todo>>> {
+    Json(ApiResponse::ok(state.db.get_todos()))
 }
 
-pub async fn create_todo(State(state): State<AppState>, Json(req): Json<CreateTodoRequest>) -> Json<Todo> {
+pub async fn create_todo(State(state): State<AppState>, Json(req): Json<CreateTodoRequest>) -> Json<ApiResponse<Todo>> {
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let id = state.db.create_todo(&req.title, &req.description);
 
-    // Save tag associations
     for tag_id in &req.tag_ids {
         state.db.add_todo_tag(id, *tag_id);
     }
 
-    Json(Todo {
+    Json(ApiResponse::ok(Todo {
         id,
         title: req.title,
         description: req.description,
@@ -63,27 +62,22 @@ pub async fn create_todo(State(state): State<AppState>, Json(req): Json<CreateTo
         scheduler_config: None,
         scheduler_next_run_at: None,
         task_id: None,
-    })
+    }))
 }
 
 pub async fn update_todo(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(req): Json<UpdateTodoRequest>,
-) -> Result<Json<Todo>, (StatusCode, Json<serde_json::Value>)> {
+) -> Json<ApiResponse<Todo>> {
     state.db.update_todo_full(
-        id,
-        &req.title,
-        &req.description,
-        &req.status,
-        req.executor.as_deref(),
-        req.scheduler_enabled,
-        req.scheduler_config.as_deref(),
+        id, &req.title, &req.description, &req.status,
+        req.executor.as_deref(), req.scheduler_enabled, req.scheduler_config.as_deref(),
     );
 
     match state.db.get_todo(id) {
-        Some(todo) => Ok(Json(todo)),
-        None => Err((StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Todo not found" })))),
+        Some(todo) => Json(ApiResponse::ok(todo)),
+        None => Json(ApiResponse::err(codes::NOT_FOUND, "Todo not found")),
     }
 }
 
@@ -91,73 +85,69 @@ pub async fn update_todo_tags(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(req): Json<UpdateTagsRequest>,
-) -> StatusCode {
+) -> Json<ApiResponse<()>> {
     state.db.set_todo_tags(id, &req.tag_ids);
-    StatusCode::OK
+    Json(ApiResponse::ok(()))
 }
 
-pub async fn delete_todo(State(state): State<AppState>, Path(id): Path<i64>) -> StatusCode {
+pub async fn delete_todo(State(state): State<AppState>, Path(id): Path<i64>) -> Json<ApiResponse<()>> {
     state.db.delete_todo(id);
-    StatusCode::OK
+    Json(ApiResponse::ok(()))
 }
 
 // Tag handlers
-pub async fn get_tags(State(state): State<AppState>) -> Json<Vec<Tag>> {
-    Json(state.db.get_tags())
+pub async fn get_tags(State(state): State<AppState>) -> Json<ApiResponse<Vec<Tag>>> {
+    Json(ApiResponse::ok(state.db.get_tags()))
 }
 
-pub async fn create_tag(State(state): State<AppState>, Json(req): Json<CreateTagRequest>) -> Json<Tag> {
+pub async fn create_tag(State(state): State<AppState>, Json(req): Json<CreateTagRequest>) -> Json<ApiResponse<Tag>> {
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let id = state.db.create_tag(&req.name, &req.color);
-    Json(Tag {
+    Json(ApiResponse::ok(Tag {
         id,
         name: req.name,
         color: req.color,
         created_at: now,
-    })
+    }))
 }
 
-pub async fn delete_tag(State(state): State<AppState>, Path(id): Path<i64>) -> StatusCode {
+pub async fn delete_tag(State(state): State<AppState>, Path(id): Path<i64>) -> Json<ApiResponse<()>> {
     state.db.delete_tag(id);
-    StatusCode::OK
+    Json(ApiResponse::ok(()))
 }
 
 // Execution record handlers
 pub async fn get_execution_records(
     State(state): State<AppState>,
     Query(query): Query<TodoIdQuery>,
-) -> Json<Vec<ExecutionRecord>> {
-    Json(state.db.get_execution_records(query.todo_id))
+) -> Json<ApiResponse<Vec<ExecutionRecord>>> {
+    Json(ApiResponse::ok(state.db.get_execution_records(query.todo_id)))
 }
 
 // Execute handler
 pub async fn execute_handler(
     State(state): State<AppState>,
     Json(req): Json<ExecuteRequest>,
-) -> Json<serde_json::Value> {
+) -> Json<ApiResponse<serde_json::Value>> {
     let task_id = run_todo_execution(
         state.db.clone(),
         state.executor_registry.clone(),
         state.tx.clone(),
-        req.todo_id,
-        req.message,
-        req.executor,
+        req.todo_id, req.message, req.executor,
     ).await;
 
-    Json(serde_json::json!({ "status": "started", "task_id": task_id }))
+    Json(ApiResponse::ok(serde_json::json!({ "task_id": task_id })))
 }
 
 // Scheduler handlers
-#[axum::debug_handler]
 pub async fn update_scheduler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(req): Json<UpdateSchedulerRequest>,
-) -> Result<Json<Todo>, (StatusCode, Json<serde_json::Value>)> {
+) -> Json<ApiResponse<Todo>> {
     let todo = state.db.get_todo(id);
     let old_task_id = todo.as_ref().and_then(|t| t.task_id.clone());
 
-    // Remove old scheduled task if exists
     if let Some(ref task_id_str) = old_task_id {
         if let Ok(uuid) = uuid::Uuid::parse_str(task_id_str) {
             let _ = state.scheduler.remove_task(uuid).await;
@@ -167,11 +157,8 @@ pub async fn update_scheduler(
     let new_task_id = if req.scheduler_enabled {
         if let Some(ref config) = req.scheduler_config {
             match state.scheduler.add_task(
-                state.db.clone(),
-                state.executor_registry.clone(),
-                state.tx.clone(),
-                id,
-                config.clone(),
+                state.db.clone(), state.executor_registry.clone(), state.tx.clone(),
+                id, config.clone(),
             ).await {
                 Ok(uuid) => Some(uuid.to_string()),
                 Err(e) => {
@@ -189,15 +176,33 @@ pub async fn update_scheduler(
     state.db.update_todo_scheduler(id, req.scheduler_enabled, req.scheduler_config.as_deref(), new_task_id.as_deref());
 
     match state.db.get_todo(id) {
-        Some(todo) => Ok(Json(todo)),
-        None => Err((StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Todo not found" })))),
+        Some(todo) => Json(ApiResponse::ok(todo)),
+        None => Json(ApiResponse::err(codes::NOT_FOUND, "Todo not found")),
     }
 }
 
-pub async fn get_scheduler_todos(
+pub async fn get_scheduler_todos(State(state): State<AppState>) -> Json<ApiResponse<Vec<Todo>>> {
+    Json(ApiResponse::ok(state.db.get_scheduler_todos()))
+}
+
+// Force update todo status (for recovering from crashed executions)
+pub async fn force_update_todo_status(
     State(state): State<AppState>,
-) -> Json<Vec<Todo>> {
-    Json(state.db.get_scheduler_todos())
+    Path(id): Path<i64>,
+    Json(req): Json<UpdateTodoRequest>,
+) -> Json<ApiResponse<Todo>> {
+    state.db.force_update_todo_status(id, &req.status);
+    match state.db.get_todo(id) {
+        Some(todo) => Json(ApiResponse::ok(todo)),
+        None => Json(ApiResponse::err(codes::NOT_FOUND, "Todo not found")),
+    }
+}
+
+pub async fn get_execution_summary(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Json<ApiResponse<ExecutionSummary>> {
+    Json(ApiResponse::ok(state.db.get_execution_summary(id)))
 }
 
 // WebSocket handler
@@ -253,27 +258,6 @@ pub async fn static_handler(Path(path): Path<String>) -> Response {
             Html(String::from_utf8_lossy(&content.data).to_string()).into_response()
         }
     }
-}
-
-// Force update todo status (for recovering from crashed executions)
-pub async fn force_update_todo_status(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-    Json(req): Json<UpdateTodoRequest>,
-) -> Result<Json<Todo>, (StatusCode, Json<serde_json::Value>)> {
-    state.db.force_update_todo_status(id, &req.status);
-    match state.db.get_todo(id) {
-        Some(todo) => Ok(Json(todo)),
-        None => Err((StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Todo not found" })))),
-    }
-}
-
-// Get execution summary for a todo
-pub async fn get_execution_summary(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-) -> Json<ExecutionSummary> {
-    Json(state.db.get_execution_summary(id))
 }
 
 // Build router
