@@ -6,6 +6,7 @@ export interface Todo {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  tag_ids: number[];
   executor?: string;
   scheduler_enabled?: boolean;
   scheduler_config?: string | null;

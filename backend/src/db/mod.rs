@@ -504,3 +504,137 @@ impl Database {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{DateTime, Timelike};
+
+    fn setup_db() -> Database {
+        Database::new(":memory:").unwrap()
+    }
+
+    fn parse_utc(ts: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(ts).unwrap().with_timezone(&Utc)
+    }
+
+    fn truncate_seconds(dt: DateTime<Utc>) -> DateTime<Utc> {
+        dt.with_nanosecond(0).unwrap()
+    }
+
+    #[test]
+    fn test_todo_created_at_is_utc() {
+        let db = setup_db();
+        let before = truncate_seconds(Utc::now());
+        let id = db.create_todo("Test", "Desc");
+        let after = truncate_seconds(Utc::now());
+
+        let todo = db.get_todo(id).unwrap();
+        let created = parse_utc(&todo.created_at);
+
+        assert!(created >= before, "created_at should not be before test start");
+        assert!(created <= after, "created_at should not be after test end");
+        assert!(todo.created_at.ends_with('Z'), "UTC timestamp must end with Z");
+    }
+
+    #[test]
+    fn test_todo_updated_at_changes_on_update() {
+        let db = setup_db();
+        let id = db.create_todo("Test", "Desc");
+        let original = db.get_todo(id).unwrap().updated_at;
+
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        db.update_todo(id, "Updated", "Desc", "in_progress");
+        let updated = db.get_todo(id).unwrap().updated_at;
+
+        assert_ne!(original, updated, "updated_at should change after update");
+        assert!(updated.ends_with('Z'));
+    }
+
+    #[test]
+    fn test_todo_deleted_at_is_utc() {
+        let db = setup_db();
+        let id = db.create_todo("Test", "Desc");
+        let before = truncate_seconds(Utc::now());
+        db.delete_todo(id);
+        let after = truncate_seconds(Utc::now());
+
+        let conn = db.conn.lock();
+        let deleted_at: String = conn
+            .query_row("SELECT deleted_at FROM todos WHERE id = ?1", [id], |row| row.get(0))
+            .unwrap();
+
+        let dt = parse_utc(&deleted_at);
+        assert!(dt >= before);
+        assert!(dt <= after);
+        assert!(deleted_at.ends_with('Z'));
+    }
+
+    #[test]
+    fn test_tag_created_at_is_utc() {
+        let db = setup_db();
+        let before = truncate_seconds(Utc::now());
+        let id = db.create_tag("urgent", "#ff0000");
+        let after = truncate_seconds(Utc::now());
+
+        let tag = db.get_tags().into_iter().find(|t| t.id == id).unwrap();
+        let created = parse_utc(&tag.created_at);
+
+        assert!(created >= before);
+        assert!(created <= after);
+        assert!(tag.created_at.ends_with('Z'));
+    }
+
+    #[test]
+    fn test_execution_record_started_at_is_utc() {
+        let db = setup_db();
+        let todo_id = db.create_todo("Test", "Desc");
+        let before = truncate_seconds(Utc::now());
+        let record_id = db.create_execution_record(todo_id, "echo hi", "claudecode");
+        let after = truncate_seconds(Utc::now());
+
+        let records = db.get_execution_records(todo_id);
+        let record = records.into_iter().find(|r| r.id == record_id).unwrap();
+        let started = parse_utc(&record.started_at);
+
+        assert!(started >= before);
+        assert!(started <= after);
+        assert!(record.started_at.ends_with('Z'));
+    }
+
+    #[test]
+    fn test_execution_record_finished_at_is_utc() {
+        let db = setup_db();
+        let todo_id = db.create_todo("Test", "Desc");
+        let record_id = db.create_execution_record(todo_id, "echo hi", "claudecode");
+
+        let before = truncate_seconds(Utc::now());
+        db.update_execution_record(record_id, "success", "[]", "done");
+        let after = truncate_seconds(Utc::now());
+
+        let records = db.get_execution_records(todo_id);
+        let record = records.into_iter().find(|r| r.id == record_id).unwrap();
+        let finished_at = record.finished_at.unwrap();
+        let finished = parse_utc(&finished_at);
+
+        assert!(finished >= before);
+        assert!(finished <= after);
+        assert!(finished_at.ends_with('Z'));
+    }
+
+    #[test]
+    fn test_sqlite_default_timestamp_is_utc() {
+        let db = setup_db();
+        let conn = db.conn.lock();
+        let ts: String = conn
+            .query_row(
+                "SELECT strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert!(ts.ends_with('Z'), "SQLite default timestamp must end with Z");
+        assert!(DateTime::parse_from_rfc3339(&ts).is_ok());
+    }
+}
