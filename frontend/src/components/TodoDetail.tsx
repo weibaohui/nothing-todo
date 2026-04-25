@@ -546,6 +546,5 @@ export function TodoDetail() {
           )}
         </div>
       </div>
-    </div>
   );
 }
