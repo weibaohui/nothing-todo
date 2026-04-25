@@ -25,7 +25,7 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
 
     setLoading(true);
     try {
-      const id = await db.createTodo(title.trim(), description.trim());
+      const id = await db.createTodo(title.trim(), description.trim(), selectedTags);
       const newTodo = {
         id,
         title: title.trim(),
@@ -34,6 +34,7 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         deleted_at: null,
+        tag_ids: selectedTags,
       };
       dispatch({ type: 'ADD_TODO', payload: newTodo });
 

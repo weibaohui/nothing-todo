@@ -2,19 +2,14 @@ import { useState, useEffect } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty } from 'antd';
 import { PlusOutlined, TagOutlined } from '@ant-design/icons';
+import { StatusPicker } from './StatusPicker';
+import * as db from '../utils/database';
 
 interface TodoListProps {
   onOpenCreateModal: () => void;
   onSelectTodo?: (todoId: string | number) => void;
   onOpenTagModal?: () => void;
 }
-
-const statusColors: Record<string, string> = {
-  pending: '#d9d9d9',
-  running: '#1890ff',
-  completed: '#52c41a',
-  failed: '#ff4d4f',
-};
 
 export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal }: TodoListProps) {
   const { state, dispatch } = useApp();
@@ -128,11 +123,16 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal }: To
                       </div>
                     )}
                   </div>
-                  <div className="todo-item-status">
-                    <span
-                      className="status-circle"
-                      style={{ backgroundColor: statusColors[todo.status] }}
-                      title={todo.status}
+                  <div className="todo-item-status" onClick={(e) => e.stopPropagation()}>
+                    <StatusPicker
+                      value={todo.status}
+                      onChange={(newStatus) => {
+                        db.forceUpdateTodoStatus(todo.id, newStatus);
+                        dispatch({
+                          type: 'UPDATE_TODO',
+                          payload: { ...todo, status: newStatus as any, updated_at: new Date().toISOString() }
+                        });
+                      }}
                     />
                   </div>
                 </div>

@@ -26,7 +26,7 @@ setup:
 	@echo "Run 'make install' to build and install binary to ~/.local/bin"
 
 # Install the built binary to ~/.local/bin
-install: build
+install: stop build
 	@mkdir -p $$HOME/.local/bin
 	@cp backend/target/release/aitodo $$HOME/.local/bin/
 	@echo "Installed to $$HOME/.local/bin/aitodo"

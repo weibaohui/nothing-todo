@@ -17,7 +17,7 @@ use crate::adapters::{ExecutorRegistry, get_timestamp};
 use crate::Assets;
 use crate::db::Database;
 use crate::models::{
-    CreateTodoRequest, UpdateTodoRequest, CreateTagRequest, ExecuteRequest, TodoIdQuery,
+    CreateTodoRequest, UpdateTodoRequest, UpdateTagsRequest, CreateTagRequest, ExecuteRequest, TodoIdQuery,
     Todo, Tag, ExecutionRecord, ExecutionSummary, ParsedLogEntry,
 };
 
@@ -44,6 +44,12 @@ pub async fn get_todos(State(state): State<AppState>) -> Json<Vec<Todo>> {
 pub async fn create_todo(State(state): State<AppState>, Json(req): Json<CreateTodoRequest>) -> Json<Todo> {
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let id = state.db.create_todo(&req.title, &req.description);
+
+    // Save tag associations
+    for tag_id in &req.tag_ids {
+        state.db.add_todo_tag(id, *tag_id);
+    }
+
     Json(Todo {
         id,
         title: req.title,
@@ -51,7 +57,7 @@ pub async fn create_todo(State(state): State<AppState>, Json(req): Json<CreateTo
         status: "pending".to_string(),
         created_at: now.clone(),
         updated_at: now,
-        tag_ids: vec![],
+        tag_ids: req.tag_ids.clone(),
     })
 }
 
@@ -64,6 +70,15 @@ pub async fn update_todo(
 
     let todo = state.db.get_todo(id).unwrap();
     Json(todo)
+}
+
+pub async fn update_todo_tags(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<UpdateTagsRequest>,
+) -> StatusCode {
+    state.db.set_todo_tags(id, &req.tag_ids);
+    StatusCode::OK
 }
 
 pub async fn delete_todo(State(state): State<AppState>, Path(id): Path<i64>) -> StatusCode {
@@ -355,6 +370,7 @@ pub fn create_app(db: Arc<Database>, executor_registry: Arc<ExecutorRegistry>, t
         .route("/xyz/todos/{id}", put(update_todo))
         .route("/xyz/todos/{id}", delete(delete_todo))
         .route("/xyz/todos/{id}/force-status", put(force_update_todo_status))
+        .route("/xyz/todos/{id}/tags", put(update_todo_tags))
         .route("/xyz/todos/{id}/summary", get(get_execution_summary))
         .route("/xyz/tags", get(get_tags))
         .route("/xyz/tags", post(create_tag))

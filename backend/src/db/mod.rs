@@ -225,6 +225,30 @@ impl Database {
         conn.execute("DELETE FROM tags WHERE id = ?1", params![id]).unwrap();
     }
 
+    pub fn add_todo_tag(&self, todo_id: i64, tag_id: i64) {
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT OR IGNORE INTO todo_tags (todo_id, tag_id) VALUES (?1, ?2)",
+            params![todo_id, tag_id],
+        ).unwrap();
+    }
+
+    pub fn remove_todo_tags(&self, todo_id: i64) {
+        let conn = self.conn.lock();
+        conn.execute("DELETE FROM todo_tags WHERE todo_id = ?1", params![todo_id]).unwrap();
+    }
+
+    pub fn set_todo_tags(&self, todo_id: i64, tag_ids: &[i64]) {
+        let conn = self.conn.lock();
+        conn.execute("DELETE FROM todo_tags WHERE todo_id = ?1", params![todo_id]).unwrap();
+        for tag_id in tag_ids {
+            conn.execute(
+                "INSERT OR IGNORE INTO todo_tags (todo_id, tag_id) VALUES (?1, ?2)",
+                params![todo_id, tag_id],
+            ).unwrap();
+        }
+    }
+
     // Execution record operations
     pub fn get_execution_records(&self, todo_id: i64) -> Vec<ExecutionRecord> {
         let conn = self.conn.lock();

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Tag, Popover } from 'antd';
+import { Popover } from 'antd';
 
 const statusConfig: Record<string, { color: string; label: string }> = {
   pending: { color: '#d9d9d9', label: '待执行' },
@@ -51,20 +51,19 @@ export function StatusPicker({ value, onChange, disabled }: StatusPickerProps) {
       onOpenChange={setOpen}
       placement="bottomLeft"
     >
-      <Tag
+      <span
         className="status-picker-trigger"
         style={{
-          backgroundColor: current.color,
-          color: '#fff',
-          border: 'none',
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          opacity: disabled ? 0.6 : 1,
-          padding: '6px 12px',
-          borderRadius: '8px',
-          fontSize: '13px',
           display: 'inline-flex',
           alignItems: 'center',
-          gap: '8px',
+          justifyContent: 'center',
+          width: 28,
+          height: 28,
+          borderRadius: '50%',
+          backgroundColor: current.color,
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: disabled ? 0.6 : 1,
+          border: 'none',
         }}
         onClick={(e) => {
           if (!disabled) {
@@ -72,18 +71,7 @@ export function StatusPicker({ value, onChange, disabled }: StatusPickerProps) {
             setOpen(true);
           }
         }}
-      >
-        <span
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: '50%',
-            backgroundColor: '#fff',
-            opacity: 0.9,
-          }}
-        />
-        {current.label}
-      </Tag>
+      />
     </Popover>
   );
 }

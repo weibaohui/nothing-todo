@@ -82,6 +82,8 @@ pub struct ParsedLogEntry {
 pub struct CreateTodoRequest {
     pub title: String,
     pub description: String,
+    #[serde(default)]
+    pub tag_ids: Vec<i64>,
 }
 
 #[derive(Deserialize)]
@@ -89,6 +91,11 @@ pub struct UpdateTodoRequest {
     pub title: String,
     pub description: String,
     pub status: String,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateTagsRequest {
+    pub tag_ids: Vec<i64>,
 }
 
 #[derive(Deserialize)]

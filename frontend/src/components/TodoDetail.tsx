@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useApp } from '../hooks/useApp';
-import { Button, Empty, Input, message, Popconfirm, Tag, Collapse, Badge } from 'antd';
+import { Button, Empty, Input, Select, message, Popconfirm, Tag, Collapse, Badge } from 'antd';
 import { PlayCircleOutlined, EditOutlined, DeleteOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import * as db from '../utils/database';
 import type { LogEntry, ExecutionSummary } from '../types';
@@ -58,7 +58,8 @@ export function TodoDetail() {
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editStatus, setEditStatus] = useState<string>('pending');
-  const [selectedExecutor] = useState<string>('joinai');
+  const [editTags, setEditTags] = useState<number[]>([]);
+  const [selectedExecutor, setSelectedExecutor] = useState<string>('claudecode');
   const [summary, setSummary] = useState<ExecutionSummary | null>(null);
 
   const [isExecuting, setIsExecuting] = useState(false);
@@ -83,6 +84,7 @@ export function TodoDetail() {
       setEditTitle(selectedTodo.title);
       setEditDescription(selectedTodo.description || '');
       setEditStatus(selectedTodo.status);
+      setEditTags((selectedTodo as any).tag_ids || []);
 
       db.getExecutionRecords(selectedTodo.id).then(recs => {
         dispatch({
@@ -179,9 +181,10 @@ export function TodoDetail() {
   const handleSaveEdit = async () => {
     if (!selectedTodo) return;
     await db.updateTodo(selectedTodo.id, editTitle, editDescription, editStatus);
+    await db.updateTodoTags(selectedTodo.id, editTags);
     dispatch({
       type: 'UPDATE_TODO',
-      payload: { ...selectedTodo, title: editTitle, description: editDescription, status: editStatus as any, updated_at: new Date().toISOString() }
+      payload: { ...selectedTodo, title: editTitle, description: editDescription, status: editStatus as any, updated_at: new Date().toISOString(), tag_ids: editTags } as any
     });
     setIsEditing(false);
     message.success('更新成功');
@@ -219,12 +222,23 @@ export function TodoDetail() {
       <div className="detail-card title-card">
         {isEditing ? (
           <>
-            <Input
-              value={editTitle}
-              onChange={e => setEditTitle(e.target.value)}
-              placeholder="任务标题"
-              className="card-input"
-            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <StatusPicker
+                value={editStatus}
+                onChange={(val) => {
+                  setEditStatus(val);
+                  if (val !== selectedTodo?.status) handleStatusChange(val);
+                }}
+                disabled={isExecuting}
+              />
+              <Input
+                value={editTitle}
+                onChange={e => setEditTitle(e.target.value)}
+                placeholder="任务标题"
+                className="card-input"
+                style={{ flex: 1 }}
+              />
+            </div>
             <TextArea
               value={editDescription}
               onChange={e => setEditDescription(e.target.value)}
@@ -232,10 +246,42 @@ export function TodoDetail() {
               placeholder="输入任务描述..."
               className="card-textarea"
             />
+            {state.tags.length > 0 && (
+              <Select
+                value={editTags[0] || null}
+                onChange={(val) => setEditTags(val ? [val] : [])}
+                style={{ width: '100%' }}
+                placeholder="选择标签"
+                allowClear
+                options={state.tags.map(tag => ({
+                  value: tag.id,
+                  label: (
+                    <span>
+                      <span style={{
+                        display: 'inline-block',
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        backgroundColor: tag.color,
+                        marginRight: 8,
+                      }} />
+                      {tag.name}
+                    </span>
+                  ),
+                }))}
+              />
+            )}
           </>
         ) : (
           <>
-            <h2 className="card-title">{selectedTodo.title}</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <StatusPicker
+                value={selectedTodo.status}
+                onChange={(val) => handleStatusChange(val)}
+                disabled={isExecuting}
+              />
+              <h2 className="card-title" style={{ margin: 0 }}>{selectedTodo.title}</h2>
+            </div>
             {selectedTodo.description && (
               <p className="card-description">{selectedTodo.description}</p>
             )}
@@ -290,21 +336,18 @@ export function TodoDetail() {
         </div>
         <div className="setting-row">
           <span className="setting-label">执行器</span>
-          <Tag className="executor-tag">{selectedExecutor === 'joinai' ? 'JoinAI' : 'Claude'}</Tag>
+          <Select
+            value={selectedExecutor}
+            onChange={(val) => setSelectedExecutor(val)}
+            disabled={isExecuting}
+            className="executor-select"
+            options={[
+              { value: 'claudecode', label: 'Claude' },
+              { value: 'joinai', label: 'JoinAI' },
+            ]}
+          />
         </div>
       </div>
-
-      {/* 状态标签 */}
-      {(isExecuting || executionSuccess !== null || selectedTodo.status === 'running') && (
-        <div className="status-indicator">
-          {isExecuting && <Tag color="blue" className="status-tag">执行中</Tag>}
-          {executionSuccess === true && <Tag color="green" className="status-tag">成功</Tag>}
-          {executionSuccess === false && <Tag color="red" className="status-tag">失败</Tag>}
-          {!isExecuting && executionSuccess === null && selectedTodo.status === 'running' && (
-            <Tag color="orange" className="status-tag">进行中</Tag>
-          )}
-        </div>
-      )}
 
       <div className="detail-content">
         {summary && summary.total_executions > 0 && (
