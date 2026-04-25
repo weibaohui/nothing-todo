@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty, Input, Select, message, Popconfirm, Tag, Collapse, Badge } from 'antd';
 import { PlayCircleOutlined, EditOutlined, DeleteOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import { StatusPicker } from './StatusPicker';
 import * as db from '../utils/database';
 import type { LogEntry, ExecutionSummary } from '../types';
 
@@ -189,6 +190,16 @@ export function TodoDetail() {
     message.info('已停止执行');
   };
 
+  const handleStatusChange = async (newStatus: string) => {
+    if (!selectedTodo) return;
+    await db.updateTodo(selectedTodo.id, selectedTodo.title, selectedTodo.description || '', newStatus);
+    dispatch({
+      type: 'UPDATE_TODO',
+      payload: { ...selectedTodo, status: newStatus as any, updated_at: new Date().toISOString() }
+    });
+    message.success('状态已更新');
+  };
+
   const handleSaveEdit = async () => {
     if (!selectedTodo) return;
     await db.updateTodo(selectedTodo.id, editTitle, editDescription, editStatus);
@@ -283,7 +294,14 @@ export function TodoDetail() {
           <>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
               <div style={{ flex: 1 }}>
-                <h2 className="card-title" style={{ margin: 0 }}>{selectedTodo.title}</h2>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <StatusPicker
+                    value={selectedTodo.status}
+                    onChange={handleStatusChange}
+                    disabled={isExecuting}
+                  />
+                  <h2 className="card-title" style={{ margin: 0 }}>{selectedTodo.title}</h2>
+                </div>
                 {selectedTodo.description && (
                   <p className="card-description">{selectedTodo.description}</p>
                 )}
