@@ -343,20 +343,24 @@ export function TodoDetail() {
                 allowClear
                 options={state.tags.map(tag => ({
                   value: tag.id,
-                  label: (
+                  label: tag.name,
+                }))}
+                optionRender={(option) => {
+                  const tag = state.tags.find(t => t.id === option.value);
+                  return (
                     <span>
                       <span style={{
                         display: 'inline-block',
                         width: 8,
                         height: 8,
                         borderRadius: '50%',
-                        backgroundColor: tag.color,
+                        backgroundColor: tag?.color || '#999',
                         marginRight: 8,
                       }} />
-                      {tag.name}
+                      {option.label}
                     </span>
-                  ),
-                }))}
+                  );
+                }}
               />
             )}
             <div style={{ display: 'flex', gap: 8 }}>

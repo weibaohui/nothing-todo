@@ -88,20 +88,44 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
             placeholder="选择标签（可选）"
             options={state.tags.map(tag => ({
               value: tag.id,
-              label: (
+              label: tag.name,
+            }))}
+            optionRender={(option) => {
+              const tag = state.tags.find(t => t.id === option.value);
+              return (
                 <span>
                   <span style={{
                     display: 'inline-block',
                     width: 8,
                     height: 8,
                     borderRadius: '50%',
-                    backgroundColor: tag.color,
+                    backgroundColor: tag?.color || '#999',
                     marginRight: 8,
                   }} />
-                  {tag.name}
+                  {option.label}
                 </span>
-              ),
-            }))}
+              );
+            }}
+            tagRender={(props) => {
+              const tag = state.tags.find(t => t.id === props.value);
+              return (
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  background: `${tag?.color}18`,
+                  color: tag?.color || '#999',
+                  border: `1px solid ${tag?.color}30`,
+                  borderRadius: 4,
+                  padding: '1px 8px',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  marginRight: 4,
+                }}>
+                  {props.label}
+                </span>
+              );
+            }}
           />
         </div>
       )}

@@ -142,7 +142,7 @@ const customTheme = {
     borderRadius: 12,
     borderRadiusLG: 16,
     borderRadiusSM: 8,
-    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    fontFamily: "'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace",
     fontSize: 14,
     controlHeight: 40,
     lineHeight: 1.5,
