@@ -151,8 +151,8 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal }: To
                 className={`todo-item ${selectedTodoId === todo.id ? 'selected' : ''}`}
                 style={{
                   cursor: 'pointer',
-                  borderLeftColor: primaryTag?.color || 'transparent',
-                  borderLeftWidth: primaryTag ? 4 : 0,
+                  borderLeftColor: primaryTag?.color || '#cbd5e1',
+                  borderLeftWidth: 4,
                   borderLeftStyle: 'solid',
                 }}
                 role="button"
