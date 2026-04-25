@@ -92,7 +92,7 @@ function AppContent() {
             </div>
           )}
           {(!isMobile || selectedPanel === 'detail') && (
-            <div style={{ flex: 1, height: '100%', overflow: 'hidden' }}>
+            <div style={{ flex: 1, height: '100%', overflow: 'auto' }}>
               <TodoDetail />
             </div>
           )}
