@@ -169,7 +169,7 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal }: To
                   <div className="todo-item-main">
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <div
-                        className={`todo-item-title ${isCompleted ? 'completed' : ''}`}
+                        className="todo-item-title"
                         style={{ opacity: isCompleted ? 0.6 : 1 }}
                       >
                         {todo.title}

@@ -275,10 +275,6 @@ body {
   line-height: 1.4;
 }
 
-.todo-item-title.completed {
-  text-decoration: line-through;
-  color: var(--color-text-tertiary);
-}
 
 .todo-item-desc {
   font-size: 13px;
