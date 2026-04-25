@@ -1,48 +1,27 @@
+import axios from 'axios';
 import type { Todo, Tag, ExecutionRecord, ExecutionSummary } from '../types';
 
-const API_BASE = '';
-
-class ApiError extends Error {
-  status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-  }
-}
-
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${url}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new ApiError(res.status, text || `HTTP ${res.status}`);
-  }
-
-  if (res.status === 204 || res.headers.get('content-length') === '0') {
-    return undefined as T;
-  }
-
-  return res.json();
-}
+const api = axios.create({
+  baseURL: '',
+  headers: { 'Content-Type': 'application/json' },
+  transformResponse: [(data) => {
+    if (typeof data === 'string') {
+      try { return JSON.parse(data); } catch { return data; }
+    }
+    return data;
+  }],
+});
 
 // Todo APIs
 
 export async function getAllTodos(): Promise<Todo[]> {
-  return request<Todo[]>('/xyz/todos');
+  const res = await api.get<Todo[]>('/xyz/todos');
+  return res.data;
 }
 
 export async function createTodo(title: string, description: string = '', tagIds: number[] = []): Promise<Todo> {
-  return request<Todo>('/xyz/todos', {
-    method: 'POST',
-    body: JSON.stringify({ title, description, tag_ids: tagIds }),
-  });
+  const res = await api.post<Todo>('/xyz/todos', { title, description, tag_ids: tagIds });
+  return res.data;
 }
 
 export async function updateTodo(
@@ -59,62 +38,54 @@ export async function updateTodo(
   if (scheduler_enabled !== undefined) body.scheduler_enabled = scheduler_enabled;
   if (scheduler_config !== undefined) body.scheduler_config = scheduler_config;
 
-  return request<Todo>(`/xyz/todos/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(body),
-  });
+  const res = await api.put<Todo>(`/xyz/todos/${id}`, body);
+  return res.data;
 }
 
 export async function deleteTodo(id: number): Promise<void> {
-  return request<void>(`/xyz/todos/${id}`, { method: 'DELETE' });
+  await api.delete(`/xyz/todos/${id}`);
 }
 
 export async function forceUpdateTodoStatus(id: number, status: string): Promise<Todo> {
-  return request<Todo>(`/xyz/todos/${id}/force-status`, {
-    method: 'PUT',
-    body: JSON.stringify({ status }),
-  });
+  const res = await api.put<Todo>(`/xyz/todos/${id}/force-status`, { status });
+  return res.data;
 }
 
 export async function updateTodoTags(todoId: number, tagIds: number[]): Promise<void> {
-  return request<void>(`/xyz/todos/${todoId}/tags`, {
-    method: 'PUT',
-    body: JSON.stringify({ tag_ids: tagIds }),
-  });
+  await api.put(`/xyz/todos/${todoId}/tags`, { tag_ids: tagIds });
 }
 
 // Tag APIs
 
 export async function getAllTags(): Promise<Tag[]> {
-  return request<Tag[]>('/xyz/tags');
+  const res = await api.get<Tag[]>('/xyz/tags');
+  return res.data;
 }
 
 export async function createTag(name: string, color: string): Promise<Tag> {
-  return request<Tag>('/xyz/tags', {
-    method: 'POST',
-    body: JSON.stringify({ name, color }),
-  });
+  const res = await api.post<Tag>('/xyz/tags', { name, color });
+  return res.data;
 }
 
 export async function deleteTag(id: number): Promise<void> {
-  return request<void>(`/xyz/tags/${id}`, { method: 'DELETE' });
+  await api.delete(`/xyz/tags/${id}`);
 }
 
 // Execution APIs
 
 export async function getExecutionRecords(todoId: number): Promise<ExecutionRecord[]> {
-  return request<ExecutionRecord[]>(`/xyz/execution-records?todo_id=${todoId}`);
+  const res = await api.get<ExecutionRecord[]>(`/xyz/execution-records`, { params: { todo_id: todoId } });
+  return res.data;
 }
 
 export async function executeTodo(todoId: number, message: string, executor?: string): Promise<{ task_id: string }> {
-  return request<{ task_id: string }>('/xyz/execute', {
-    method: 'POST',
-    body: JSON.stringify({ todo_id: todoId, message, executor }),
-  });
+  const res = await api.post<{ task_id: string }>('/xyz/execute', { todo_id: todoId, message, executor });
+  return res.data;
 }
 
 export async function getExecutionSummary(todoId: number): Promise<ExecutionSummary> {
-  return request<ExecutionSummary>(`/xyz/todos/${todoId}/summary`);
+  const res = await api.get<ExecutionSummary>(`/xyz/todos/${todoId}/summary`);
+  return res.data;
 }
 
 // Scheduler APIs
@@ -124,12 +95,11 @@ export async function updateScheduler(
   scheduler_enabled: boolean,
   scheduler_config: string | null,
 ): Promise<Todo> {
-  return request<Todo>(`/xyz/todos/${id}/scheduler`, {
-    method: 'PUT',
-    body: JSON.stringify({ scheduler_enabled, scheduler_config }),
-  });
+  const res = await api.put<Todo>(`/xyz/todos/${id}/scheduler`, { scheduler_enabled, scheduler_config });
+  return res.data;
 }
 
 export async function getSchedulerTodos(): Promise<Todo[]> {
-  return request<Todo[]>('/xyz/scheduler/todos');
+  const res = await api.get<Todo[]>('/xyz/scheduler/todos');
+  return res.data;
 }
