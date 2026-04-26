@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Modal, Input, Button, Switch, Divider, App } from 'antd';
+import { Modal, Input, Button, Switch, Divider, App, Space, Tag } from 'antd';
 import { ClockCircleOutlined, CheckOutlined } from '@ant-design/icons';
 import * as db from '../utils/database';
 import { EXECUTORS } from '../types';
 import type { Todo } from '../types';
+import parseExpression from 'cron-parser';
 
 interface TodoSettingsModalProps {
   open: boolean;
@@ -12,12 +13,146 @@ interface TodoSettingsModalProps {
   onUpdated: () => void;
 }
 
+// Cron 预设选项
+const CRON_PRESETS = [
+  {
+    label: '每10分钟',
+    value: '0 */10 * * * *',
+    category: '常用'
+  },
+  {
+    label: '每30分钟',
+    value: '0 */30 * * * *',
+    category: '常用'
+  },
+  {
+    label: '每1小时',
+    value: '0 0 * * * *',
+    category: '常用'
+  },
+  {
+    label: '每2小时',
+    value: '0 0 */2 * * *',
+    category: '常用'
+  },
+  {
+    label: '每6小时',
+    value: '0 0 */6 * * *',
+    category: '常用'
+  },
+  {
+    label: '每天0点',
+    value: '0 0 0 * * *',
+    category: '定时'
+  },
+  {
+    label: '每天9:00',
+    value: '0 0 9 * * *',
+    category: '定时'
+  },
+  {
+    label: '每天18:00',
+    value: '0 0 18 * * *',
+    category: '定时'
+  },
+  {
+    label: '工作日9-18点每小时',
+    value: '0 0 9-18 * * 1-5',
+    category: '工作时间'
+  },
+  {
+    label: '工作日10:00',
+    value: '0 0 10 * * 1-5',
+    category: '工作时间'
+  },
+  {
+    label: '工作日14:00',
+    value: '0 0 14 * * 1-5',
+    category: '工作时间'
+  },
+  {
+    label: '22:00-08:00每45分钟',
+    value: '0 */45 22-23,0-8 * * *',
+    category: '下班时间'
+  },
+  {
+    label: '22:00-08:00每小时',
+    value: '0 0 22-23,0-8 * * *',
+    category: '下班时间'
+  },
+];
+
 export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettingsModalProps) {
   const { message } = App.useApp();
   const [executor, setExecutor] = useState<string>('claudecode');
   const [schedulerEnabled, setSchedulerEnabled] = useState(false);
   const [schedulerConfig, setSchedulerConfig] = useState<string>('');
+
+  // Cron 6个字段
+  const [cronSecond, setCronSecond] = useState<string>('');
+  const [cronMinute, setCronMinute] = useState<string>('');
+  const [cronHour, setCronHour] = useState<string>('');
+  const [cronDay, setCronDay] = useState<string>('');
+  const [cronMonth, setCronMonth] = useState<string>('');
+  const [cronWeekday, setCronWeekday] = useState<string>('');
+
   const [loading, setLoading] = useState(false);
+
+  // 解析 cron 表达式到6个字段
+  useEffect(() => {
+    if (schedulerConfig) {
+      const parts = schedulerConfig.split(' ');
+      if (parts.length >= 6) {
+        setCronSecond(parts[0]);
+        setCronMinute(parts[1]);
+        setCronHour(parts[2]);
+        setCronDay(parts[3]);
+        setCronMonth(parts[4]);
+        setCronWeekday(parts[5]);
+      }
+    }
+  }, [schedulerConfig, open]);
+
+  // 当任一字段变化时，更新完整的 cron 表达式
+  const updateSchedulerConfigFromFields = () => {
+    const config = `${cronSecond} ${cronMinute} ${cronHour} ${cronDay} ${cronMonth} ${cronWeekday}`;
+    setSchedulerConfig(config);
+  };
+
+  // 当选择预设时，解析到字段
+  const handlePresetSelect = (presetValue: string) => {
+    setSchedulerConfig(presetValue);
+
+    // 立即解析并更新6个字段
+    const parts = presetValue.split(' ');
+    if (parts.length >= 6) {
+      setCronSecond(parts[0]);
+      setCronMinute(parts[1]);
+      setCronHour(parts[2]);
+      setCronDay(parts[3]);
+      setCronMonth(parts[4]);
+      setCronWeekday(parts[5]);
+    }
+  };
+
+  // 验证 cron 表达式
+  const validateCronExpression = (expr: string): { valid: boolean; error?: string } => {
+    if (!expr) {
+      return { valid: false, error: 'Cron 表达式不能为空' };
+    }
+
+    const parts = expr.split(' ');
+    if (parts.length !== 6) {
+      return { valid: false, error: 'Cron 表达式必须包含6个字段（秒 分 时 日 月 星期）' };
+    }
+
+    try {
+      parseExpression.parse(expr);
+      return { valid: true };
+    } catch (error: any) {
+      return { valid: false, error: `无效的 Cron 表达式: ${error.message}` };
+    }
+  };
 
   useEffect(() => {
     if (todo) {
@@ -29,6 +164,16 @@ export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettin
 
   const handleSave = async () => {
     if (!todo) return;
+
+    // 如果启用了调度，验证 cron 表达式
+    if (schedulerEnabled) {
+      const validation = validateCronExpression(schedulerConfig);
+      if (!validation.valid) {
+        message.error(validation.error);
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       await db.updateTodo(
@@ -165,12 +310,97 @@ export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettin
 
         {schedulerEnabled && (
           <div style={{ marginTop: 12 }}>
-            <Input
-              value={schedulerConfig}
-              onChange={(e) => setSchedulerConfig(e.target.value)}
-              placeholder="Cron 表达式，例如: 0 */10 * * * *"
-              style={{ marginBottom: 8 }}
-            />
+            {/* 预设选项 */}
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6, fontWeight: 500 }}>
+                快捷选择
+              </div>
+              <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                {['常用', '定时', '工作时间', '下班时间'].map(category => {
+                  const presets = CRON_PRESETS.filter(p => p.category === category);
+                  return (
+                    <div key={category}>
+                      <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>
+                        {category}
+                      </div>
+                      <Space wrap size={6}>
+                        {presets.map(preset => (
+                          <Tag
+                            key={preset.value}
+                            color={schedulerConfig === preset.value ? 'blue' : 'default'}
+                            style={{
+                              cursor: 'pointer',
+                              padding: '4px 10px',
+                              fontSize: 12,
+                              borderRadius: 4,
+                              border: schedulerConfig === preset.value ? '2px solid #1677ff' : '1px solid #d9d9d9',
+                              fontWeight: schedulerConfig === preset.value ? 600 : 400,
+                            }}
+                            onClick={() => handlePresetSelect(preset.value)}
+                          >
+                            {preset.label}
+                          </Tag>
+                        ))}
+                      </Space>
+                    </div>
+                  );
+                })}
+              </Space>
+            </div>
+
+            {/* Cron 表达式输入 - 6个独立字段 */}
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6, fontWeight: 500 }}>
+                Cron 表达式配置
+              </div>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))',
+                gap: '8px 12px',
+                background: '#f8fafc',
+                padding: '12px',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0'
+              }}>
+                {[
+                  { label: '秒', value: cronSecond, onChange: setCronSecond, placeholder: '0-59' },
+                  { label: '分', value: cronMinute, onChange: setCronMinute, placeholder: '0-59' },
+                  { label: '时', value: cronHour, onChange: setCronHour, placeholder: '0-23' },
+                  { label: '日', value: cronDay, onChange: setCronDay, placeholder: '1-31' },
+                  { label: '月', value: cronMonth, onChange: setCronMonth, placeholder: '1-12' },
+                  { label: '星期', value: cronWeekday, onChange: setCronWeekday, placeholder: '0-6' },
+                ].map((field, index) => (
+                  <div key={field.label}>
+                    <div style={{
+                      fontSize: 11,
+                      color: 'var(--color-text-tertiary)',
+                      marginBottom: 4,
+                      textAlign: 'center',
+                      fontWeight: 500
+                    }}>
+                      {field.label}
+                    </div>
+                    <Input
+                      value={field.value}
+                      onChange={(e) => {
+                        field.onChange(e.target.value);
+                        setTimeout(updateSchedulerConfigFromFields, 0);
+                      }}
+                      placeholder={field.placeholder}
+                      style={{
+                        fontSize: 12,
+                        textAlign: 'center',
+                        fontFamily: 'monospace',
+                        borderColor: index < 5 ? '#d9d9d9' : '#1677ff',
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 6 }}>
+                提示: * (任意) */n (每n) n-m (范围) n,m,n (多个值，如 1,3,5 表示第1、3、5)
+              </div>
+            </div>
           </div>
         )}
 

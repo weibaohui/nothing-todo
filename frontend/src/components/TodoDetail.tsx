@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty, Input, App, Popconfirm, Tag, Badge, Pagination } from 'antd';
-import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import { TagCheckCardGroup } from './TagCheckCard';
 import { PieChart, PieChartLegend } from './PieChart';
@@ -471,16 +471,25 @@ export function TodoDetail() {
                       </span>
                     )}
                   </div>
-                  <span style={{
-                    fontSize: 11,
-                    padding: '3px 12px',
-                    borderRadius: 12,
-                    backgroundColor: record.status === 'success' ? 'var(--color-success)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-info)',
-                    color: '#fff',
-                    fontWeight: 600,
-                  }}>
-                    {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{
+                      fontSize: 11,
+                      padding: '3px 12px',
+                      borderRadius: 12,
+                      backgroundColor: record.status === 'success' ? 'var(--color-success)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-info)',
+                      color: '#fff',
+                      fontWeight: 600,
+                    }}>
+                      {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
+                    </span>
+                    {record.status === 'running' && currentRunningTask && (
+                      <Popconfirm title="确定强制停止该任务？" onConfirm={handleStopExecution} okText="停止" cancelText="取消">
+                        <Button type="text" danger size="small" icon={<StopOutlined />} style={{ fontSize: 12 }}>
+                          停止
+                        </Button>
+                      </Popconfirm>
+                    )}
+                  </div>
                 </div>
                 {record.command && (
                   <div style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginBottom: 8, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -519,41 +528,54 @@ export function TodoDetail() {
                   </div>
                 )}
 
-                {record.logs && record.logs !== '[]' && (
-                  <details style={{ marginTop: 8 }}>
-                    <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 12, fontWeight: 600 }}>
-                      查看日志 ({JSON.parse(record.logs).length} 条)
-                    </summary>
-                    <div style={{
-                      background: '#1a1a2e',
-                      color: '#e2e8f0',
-                      padding: 8,
-                      borderRadius: 8,
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: 11,
-                      marginTop: 8,
-                      maxHeight: 250,
-                      overflow: 'auto',
-                    }}>
-                      {(() => {
-                        try {
-                          const logs = JSON.parse(record.logs);
-                          return logs.map((log: any, idx: number) => (
+                {(() => {
+                  const isRunning = record.status === 'running';
+                  const liveLogs = isRunning && currentRunningTask ? currentRunningTask.logs : null;
+                  const restLogs: Array<{ timestamp?: string; type?: string; content?: string }> = (() => {
+                    try { return record.logs && record.logs !== '[]' ? JSON.parse(record.logs) : []; }
+                    catch { return []; }
+                  })();
+                  const displayLogs = liveLogs && liveLogs.length > 0 ? liveLogs : restLogs;
+
+                  if (!isRunning && displayLogs.length === 0) return null;
+
+                  return (
+                    <details style={{ marginTop: 8 }} open={isRunning}>
+                      <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span>查看日志 ({displayLogs.length} 条){isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}</span>
+                        <ReloadOutlined
+                          style={{ fontSize: 11 }}
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); loadExecutionRecords(historyPage, historyLimit); }}
+                        />
+                      </summary>
+                      <div style={{
+                        background: '#1a1a2e',
+                        color: '#e2e8f0',
+                        padding: 8,
+                        borderRadius: 8,
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 11,
+                        marginTop: 8,
+                        maxHeight: 250,
+                        overflow: 'auto',
+                      }}>
+                        {displayLogs.length === 0 ? (
+                          <div style={{ color: '#64748b' }}>等待输出...</div>
+                        ) : (
+                          displayLogs.map((log, idx) => (
                             <div key={idx} style={{ marginBottom: 4, display: 'flex', gap: 8 }}>
                               <span style={{ color: '#64748b', flexShrink: 0 }}>{log.timestamp}</span>
-                              <span style={{ color: logTypeColors[log.type] || '#cbd5e1' }}>
-                                [{logTypeLabels[log.type] || log.type}]
+                              <span style={{ color: logTypeColors[log.type || ''] || '#cbd5e1' }}>
+                                [{logTypeLabels[log.type || ''] || log.type}]
                               </span>
                               <span>{log.content}</span>
                             </div>
-                          ));
-                        } catch {
-                          return <div>{record.logs}</div>;
-                        }
-                      })()}
-                    </div>
-                  </details>
-                )}
+                          ))
+                        )}
+                      </div>
+                    </details>
+                  );
+                })()}
               </div>
             ))}
             {historyTotal > historyLimit && (

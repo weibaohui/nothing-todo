@@ -65,7 +65,7 @@ async fn main() {
     let app = handlers::create_app(db, executor_registry, tx, scheduler, task_manager);
 
     info!("===========================================");
-    info!("  Todo Executor Server");
+    info!("  Nothing Todo (ntd)");
     info!("  Open http://0.0.0.0:8088 in your browser");
     info!("===========================================");
 

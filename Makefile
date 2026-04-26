@@ -4,20 +4,23 @@
 setup:
 	@echo "=== Setting up ntd ==="
 	@echo ""
-	@echo "[1/4] Checking Rust toolchain..."
+	@echo "[1/5] Checking Rust toolchain..."
 	@which rustc > /dev/null 2>&1 || (echo "Installing Rust..." && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y)
 	@source $$HOME/.cargo/env 2>/dev/null || true
 	@echo "  Rust: $$(rustc --version 2>/dev/null || echo 'NOT FOUND')"
 	@echo ""
-	@echo "[2/4] Checking Node.js..."
+	@echo "[2/5] Checking Node.js..."
 	@echo "  Node: $$(node --version 2>/dev/null || echo 'NOT FOUND')"
 	@echo "  npm:  $$(npm --version 2>/dev/null || echo 'NOT FOUND')"
 	@echo ""
-	@echo "[3/4] Installing frontend dependencies..."
+	@echo "[3/5] Installing frontend dependencies..."
 	cd frontend && npm install
 	@echo ""
-	@echo "[4/4] Pre-compiling Rust backend (downloads deps)..."
+	@echo "[4/5] Pre-compiling Rust backend (downloads deps)..."
 	cd backend && source $$HOME/.cargo/env 2>/dev/null && cargo fetch
+	@echo ""
+	@echo "[5/5] Installing dev tools (cargo-watch)..."
+	@source $$HOME/.cargo/env 2>/dev/null; which cargo-watch > /dev/null 2>&1 || cargo install cargo-watch
 	@echo ""
 	@echo "[OPT] Installing cross-build tool (cross)..."
 	@source $$HOME/.cargo/env 2>/dev/null; which cross > /dev/null 2>&1 || cargo install cross --locked
@@ -43,9 +46,8 @@ stop:
 		pid=$$(cat ~/.ntd/run.pid); \
 		kill -9 $$pid 2>/dev/null && echo "Killed process $$pid" || echo "Process $$pid not running"; \
 		rm -f ~/.ntd/run.pid; \
-	else \
-		pkill -9 -f "^ntd$$" 2>/dev/null || echo "ntd process not running"; \
 	fi
+	-@pkill -9 -x ntd 2>/dev/null && echo "Killed ntd processes" || true
 	@sleep 1
 
 # Start the ntd binary (after installing)
@@ -61,7 +63,7 @@ restart: stop install
 		kill -9 $$pid 2>/dev/null && echo "Killed process $$pid" || echo "Process $$pid not running"; \
 		rm -f ~/.ntd/run.pid; \
 	fi
-	-@pkill -9 -f "^ntd$$" 2>/dev/null || true
+	-@pkill -9 -x ntd 2>/dev/null || true
 	@sleep 1
 	@rm -f $$HOME/.local/bin/ntd
 	@cd frontend && npm run build
@@ -90,16 +92,10 @@ clean:
 run:
 	./backend/target/release/ntd
 
-# Development mode (both frontend and backend, one-shot)
-dev: kill-port build
-	(cd backend && RUST_LOG=info cargo run) &
-	@echo "Frontend: http://localhost:5173"
-	@echo "Backend:  http://localhost:8088"
-
-# Watch mode - frontend hot reload + backend auto-reload
-watch: kill-port
+# Development mode - frontend hot reload + backend auto-reload
+dev: kill-port
 	(cd frontend && npm run dev) &
-	@(cd backend && RUST_BACKTRACE=1 RUST_LOG=info cargo watch -x run 2>&1 | tee ../backend.log) &
+	(cd backend && RUST_BACKTRACE=1 RUST_LOG=info cargo watch -x run 2>&1 | tee ../backend.log) &
 	@echo "Frontend: http://localhost:5173"
 	@echo "Backend:  http://localhost:8088 (watching for changes...)"
 	@echo "Backend logs: tail -f backend.log"
