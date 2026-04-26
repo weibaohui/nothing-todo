@@ -23,6 +23,18 @@ fn send_event(tx: &broadcast::Sender<ExecEvent>, event: ExecEvent) {
     let _ = tx.send(event);
 }
 
+#[cfg(unix)]
+fn kill_process_group(child_id: u32) {
+    if child_id > 0 {
+        unsafe {
+            libc::kill(-(child_id as i32), libc::SIGKILL);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn kill_process_group(_child_id: u32) {}
+
 /// Run a todo execution. Priority: explicit executor > todo stored executor > default.
 pub async fn run_todo_execution(
     db: Arc<Database>,
@@ -165,12 +177,7 @@ pub async fn run_todo_execution(
             biased;
             Some(()) = cancel_rx.recv() => {
                 // Cancelled: kill the process group to ensure all child processes are terminated
-                #[cfg(unix)]
-                if child_id > 0 {
-                    unsafe {
-                        libc::kill(-(child_id as i32), libc::SIGKILL);
-                    }
-                }
+                kill_process_group(child_id);
 
                 // Also try to kill the direct child
                 let _ = child.kill().await;
@@ -201,12 +208,7 @@ pub async fn run_todo_execution(
                 }
 
                 // Clean up the process group to ensure no grandchild processes are left behind
-                #[cfg(unix)]
-                if child_id > 0 {
-                    unsafe {
-                        libc::kill(-(child_id as i32), libc::SIGKILL);
-                    }
-                }
+                kill_process_group(child_id);
 
                 status
             }
