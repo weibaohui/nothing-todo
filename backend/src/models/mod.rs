@@ -120,6 +120,8 @@ pub struct ExecutionRecord {
     pub trigger_type: String,
     #[serde(default)]
     pub pid: Option<i32>,
+    #[serde(default)]
+    pub task_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

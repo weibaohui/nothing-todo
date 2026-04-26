@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, Query, State},
 };
 use serde::Deserialize;
-use sea_orm::{EntityTrait, ActiveValue, ColumnTrait, QueryFilter};
+use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
 
 use crate::executor_service::run_todo_execution;
 use crate::handlers::{ApiJson, AppError, AppState};
@@ -78,29 +78,18 @@ pub async fn stop_execution_handler(
         return Err(AppError::BadRequest("Execution record is not running".to_string()));
     }
 
-    // 获取 pid 并停止
-    if let Some(pid) = record.pid {
-        tracing::info!("Stopping execution record {} with pid: {}", req.record_id, pid);
+    // 获取 task_id 并通过 TaskManager 取消
+    if let Some(task_id) = &record.task_id {
+        tracing::info!("Stopping execution record {} with task_id: {}", req.record_id, task_id);
 
-        // 更新数据库状态
-        let now = crate::models::utc_timestamp();
-        let am = execution_records::ActiveModel {
-            id: ActiveValue::Unchanged(req.record_id),
-            status: ActiveValue::Set(Some(crate::models::ExecutionStatus::Failed.as_str().to_string())),
-            finished_at: ActiveValue::Set(Some(now)),
-            result: ActiveValue::Set(Some("任务已被手动停止".to_string())),
-            pid: ActiveValue::Set(None),
-            ..Default::default()
-        };
-        state.db.exec_update(am).await;
-
-        // 杀死进程组
-        crate::executor_service::kill_process_group(pid as u32);
+        // 通过 TaskManager 取消任务，这会触发 cancel_rx.recv() 分支
+        // 该分支会：kill_process_group + child.kill + 更新 todo 状态 + 发 Finished 事件
+        state.task_manager.cancel(task_id).await;
 
         tracing::info!("Successfully stopped execution record {}", req.record_id);
         Ok(ApiResponse::ok(()))
     } else {
-        Err(AppError::BadRequest("No pid found for this execution record".to_string()))
+        Err(AppError::BadRequest("No task_id found for this execution record".to_string()))
     }
 }
 

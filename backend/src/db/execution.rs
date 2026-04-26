@@ -52,6 +52,7 @@ impl Database {
                     model: m.model,
                     trigger_type: m.trigger_type.unwrap_or_else(|| "manual".to_string()),
                     pid: m.pid,
+                    task_id: m.task_id,
                 }
             })
             .collect();
@@ -65,6 +66,7 @@ impl Database {
         command: &str,
         executor: &str,
         trigger_type: &str,
+        task_id: &str,
     ) -> i64 {
         let now = crate::models::utc_timestamp();
         let am = execution_records::ActiveModel {
@@ -74,6 +76,7 @@ impl Database {
             trigger_type: ActiveValue::Set(Some(trigger_type.to_string())),
             status: ActiveValue::Set(Some(crate::models::ExecutionStatus::Running.to_string())),
             started_at: ActiveValue::Set(Some(now)),
+            task_id: ActiveValue::Set(Some(task_id.to_string())),
             ..Default::default()
         };
         let inserted = am
@@ -344,6 +347,7 @@ impl Database {
                     model: m.model,
                     trigger_type: m.trigger_type.unwrap_or_else(|| "manual".to_string()),
                     pid: m.pid,
+                    task_id: m.task_id,
                 }
             })
             .collect();
