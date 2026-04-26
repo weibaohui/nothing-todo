@@ -443,20 +443,31 @@ impl Database {
             .await
             .unwrap_or_default();
 
-        for record in running_records {
+        let count = running_records.len();
+        if count > 0 {
             tracing::warn!(
-                "Marking execution record {} for todo {} as failed",
-                record.id,
+                "Marking {} running execution records as failed for todo {}",
+                count,
                 todo_id
             );
-            let am = execution_records::ActiveModel {
-                id: ActiveValue::Unchanged(record.id),
-                status: ActiveValue::Set(Some(crate::models::ExecutionStatus::Failed.as_str().to_string())),
-                finished_at: ActiveValue::Set(Some(crate::models::utc_timestamp())),
-                result: ActiveValue::Set(Some("任务已被手动停止".to_string())),
-                ..Default::default()
-            };
-            self.exec_update(am).await;
+
+            let now = crate::models::utc_timestamp();
+            for record in running_records {
+                let am = execution_records::ActiveModel {
+                    id: ActiveValue::Unchanged(record.id),
+                    status: ActiveValue::Set(Some(crate::models::ExecutionStatus::Failed.as_str().to_string())),
+                    finished_at: ActiveValue::Set(Some(now.clone())),
+                    result: ActiveValue::Set(Some("任务已被手动停止".to_string())),
+                    ..Default::default()
+                };
+                self.exec_update(am).await;
+            }
+
+            tracing::info!(
+                "Successfully marked {} execution records as failed for todo {}",
+                count,
+                todo_id
+            );
         }
     }
 }

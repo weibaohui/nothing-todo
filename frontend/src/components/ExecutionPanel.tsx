@@ -79,6 +79,21 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
     }
   }, [activeTask?.logs, collapsed, activeTask]);
 
+  // Finished tasks auto-remove after 5s
+  useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    Object.entries(runningTasks).forEach(([id, task]) => {
+      if (task.status === 'finished' && task.finishedAt) {
+        const elapsed = Date.now() - new Date(task.finishedAt).getTime();
+        const delay = Math.max(0, 5000 - elapsed);
+        timers.push(setTimeout(() => {
+          dispatch({ type: 'REMOVE_RUNNING_TASK', payload: id });
+        }, delay));
+      }
+    });
+    return () => timers.forEach(clearTimeout);
+  }, [runningTasks, dispatch]);
+
   if (taskIds.length === 0) return null;
 
   return (
@@ -109,11 +124,6 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
                   {task.todoTitle}
                 </span>
                 {task.status === 'running' && <span className="tab-spinner" />}
-                {task.status === 'finished' && (
-                  <span className={`tab-status ${task.success ? 'success' : 'error'}`}>
-                    {task.success ? '✓' : '✗'}
-                  </span>
-                )}
                 {task.status === 'running' && (
                   <button
                     className="tab-stop"
@@ -122,18 +132,6 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
                     title="停止任务"
                   >
                     ■
-                  </button>
-                )}
-                {task.status === 'finished' && (
-                  <button
-                    className="tab-close"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      dispatch({ type: 'REMOVE_RUNNING_TASK', payload: taskId });
-                    }}
-                    aria-label="关闭"
-                  >
-                    ×
                   </button>
                 )}
               </div>
