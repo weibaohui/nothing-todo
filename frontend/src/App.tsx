@@ -21,7 +21,13 @@ function AppContent() {
   const [todoModalOpen, setTodoModalOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [selectedPanel, setSelectedPanel] = useState<'list' | 'detail'>('list');
-  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [panelCollapsed, setPanelCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('execution_panel_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   useExecutionEvents();
 
@@ -140,7 +146,13 @@ function AppContent() {
       />
       <ExecutionPanel
         collapsed={panelCollapsed}
-        onToggleCollapse={() => setPanelCollapsed(!panelCollapsed)}
+        onToggleCollapse={() => {
+          const next = !panelCollapsed;
+          setPanelCollapsed(next);
+          try {
+            localStorage.setItem('execution_panel_collapsed', String(next));
+          } catch {}
+        }}
       />
     </Layout>
   );
