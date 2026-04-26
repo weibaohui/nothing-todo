@@ -202,6 +202,7 @@ pub fn create_app(
         .route("/xyz/dashboard-stats", get(execution::get_dashboard_stats))
         .route("/xyz/execute", post(execution::execute_handler))
         .route("/xyz/execute/stop", post(execution::stop_execution_handler))
+        .route("/xyz/running-todos", get(execution::get_running_todos))
         .route("/xyz/events", get(events_handler))
         .route("/xyz/scheduler/todos", get(scheduler::get_scheduler_todos))
         .route("/assets/{*path}", get(static_handler))

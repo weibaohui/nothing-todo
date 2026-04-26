@@ -181,6 +181,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const tags = await db.getAllTags();
         dispatch({ type: 'SET_TODOS', payload: todos });
         dispatch({ type: 'SET_TAGS', payload: tags });
+
+        // Load running tasks and sync to state
+        try {
+          const runningTodos = await db.getRunningTodos();
+          runningTodos.forEach(todo => {
+            if (todo.task_id && todo.status === 'running') {
+              dispatch({
+                type: 'ADD_RUNNING_TASK',
+                payload: {
+                  taskId: todo.task_id,
+                  todoId: todo.id,
+                  todoTitle: todo.title,
+                  executor: todo.executor || 'claudecode',
+                  logs: [],
+                  status: 'running',
+                  startedAt: new Date().toISOString(),
+                },
+              });
+            }
+          });
+        } catch (error) {
+          console.error('Failed to load running tasks:', error);
+        }
       } catch (error) {
         console.error('Failed to load data:', error);
       } finally {

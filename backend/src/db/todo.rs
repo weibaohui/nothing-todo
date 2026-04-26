@@ -203,6 +203,27 @@ impl Database {
             .collect()
     }
 
+    pub async fn get_running_todos(&self) -> Vec<Todo> {
+        let models = todos::Entity::find()
+            .filter(todos::Column::DeletedAt.is_null())
+            .filter(todos::Column::Status.eq(TodoStatus::Running.to_string()))
+            .filter(todos::Column::TaskId.is_not_null())
+            .all(&self.conn)
+            .await
+            .unwrap_or_default();
+
+        let ids: Vec<i64> = models.iter().map(|m| m.id).collect();
+        let tag_map = self.fetch_tag_ids_for_many(&ids).await;
+
+        models
+            .into_iter()
+            .map(|m| {
+                let tag_ids = tag_map.get(&m.id).cloned().unwrap_or_default();
+                Self::model_to_todo(m, tag_ids)
+            })
+            .collect()
+    }
+
     pub async fn update_todo_status(&self, todo_id: i64, status: TodoStatus) {
         let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {

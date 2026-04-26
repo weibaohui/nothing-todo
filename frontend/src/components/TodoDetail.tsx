@@ -404,7 +404,7 @@ export function TodoDetail() {
           {isExecuting ? (
             <Button
               danger
-              icon={<PlayCircleOutlined />}
+              icon={<StopOutlined />}
               onClick={handleStopExecution}
               block
               className="btn-stop"

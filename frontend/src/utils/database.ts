@@ -125,3 +125,7 @@ export async function updateScheduler(
 export async function getSchedulerTodos(): Promise<Todo[]> {
   return unwrap(await api.get<ApiResp<Todo[]>>('/xyz/scheduler/todos'));
 }
+
+export async function getRunningTodos(): Promise<Todo[]> {
+  return unwrap(await api.get<ApiResp<Todo[]>>('/xyz/running-todos'));
+}
