@@ -100,7 +100,7 @@ impl Database {
             finished_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
-        let _ = am.update(&self.conn).await;
+        self.exec_update(am).await;
     }
 
     pub async fn update_execution_record_with_model(&self, id: i64, model: &str) {
@@ -109,7 +109,7 @@ impl Database {
             model: ActiveValue::Set(Some(model.to_string())),
             ..Default::default()
         };
-        let _ = am.update(&self.conn).await;
+        self.exec_update(am).await;
     }
 
     pub async fn get_execution_summary(&self, todo_id: i64) -> ExecutionSummary {

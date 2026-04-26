@@ -110,7 +110,7 @@ impl Database {
         if let Some(cfg) = scheduler_config {
             am.scheduler_config = ActiveValue::Set(Some(cfg.to_string()));
         }
-        let _ = am.update(&self.conn).await;
+        self.exec_update(am).await;
     }
 
     pub async fn update_todo_executor(&self, id: i64, executor: &str) {
@@ -119,7 +119,7 @@ impl Database {
             executor: ActiveValue::Set(Some(executor.to_string())),
             ..Default::default()
         };
-        let _ = am.update(&self.conn).await;
+        self.exec_update(am).await;
     }
 
     pub async fn update_todo_task_id(&self, id: i64, task_id: Option<&str>) {
@@ -128,7 +128,7 @@ impl Database {
             task_id: ActiveValue::Set(task_id.map(|s| s.to_string())),
             ..Default::default()
         };
-        let _ = am.update(&self.conn).await;
+        self.exec_update(am).await;
     }
 
     pub async fn update_todo_scheduler(&self, id: i64, enabled: bool, config: Option<&str>) {
@@ -138,7 +138,7 @@ impl Database {
             scheduler_config: ActiveValue::Set(config.map(|s| s.to_string())),
             ..Default::default()
         };
-        let _ = am.update(&self.conn).await;
+        self.exec_update(am).await;
     }
 
     pub async fn force_update_todo_status(&self,
@@ -152,7 +152,7 @@ impl Database {
             updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
-        let _ = am.update(&self.conn).await;
+        self.exec_update(am).await;
     }
 
     pub async fn delete_todo(&self, id: i64) {
@@ -162,7 +162,7 @@ impl Database {
             deleted_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
-        let _ = am.update(&self.conn).await;
+        self.exec_update(am).await;
     }
 
     pub async fn get_todo(&self, id: i64) -> Option<Todo> {
@@ -211,7 +211,7 @@ impl Database {
             updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
-        let _ = am.update(&self.conn).await;
+        self.exec_update(am).await;
     }
 
     pub async fn start_todo_execution(&self, todo_id: i64, task_id: &str) {
@@ -223,7 +223,7 @@ impl Database {
             updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
-        let _ = am.update(&self.conn).await;
+        self.exec_update(am).await;
     }
 
     pub async fn finish_todo_execution(&self, todo_id: i64, success: bool) {
@@ -236,6 +236,6 @@ impl Database {
             updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
-        let _ = am.update(&self.conn).await;
+        self.exec_update(am).await;
     }
 }

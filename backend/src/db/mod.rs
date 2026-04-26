@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use chrono::Utc;
 use sea_orm::{
-    ConnectOptions, ConnectionTrait, Database as SeaDatabase, DatabaseConnection, DbBackend,
-    EntityTrait, Statement,
+    ActiveModelBehavior, ActiveModelTrait, ConnectOptions, ConnectionTrait, Database as SeaDatabase,
+    DatabaseConnection, DbBackend, EntityTrait, IntoActiveModel, Statement,
 };
 
 pub mod entity;
@@ -56,6 +56,16 @@ impl Database {
             .execute(Statement::from_string(DbBackend::Sqlite, sql.to_string()))
             .await
             .map(|_| ())
+    }
+
+    pub(super) async fn exec_update<M>(&self, model: M)
+    where
+        M: ActiveModelTrait + ActiveModelBehavior + Send,
+        <<M as ActiveModelTrait>::Entity as EntityTrait>::Model: IntoActiveModel<M>,
+    {
+        if let Err(e) = model.update(&self.conn).await {
+            tracing::error!("Database update failed: {}", e);
+        }
     }
 
     async fn init_tables(&self) -> Result<(), sea_orm::DbErr> {

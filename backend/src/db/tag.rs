@@ -36,7 +36,9 @@ impl Database {
     }
 
     pub async fn delete_tag(&self, id: i64) {
-        let _ = tags::Entity::delete_by_id(id).exec(&self.conn).await;
+        if let Err(e) = tags::Entity::delete_by_id(id).exec(&self.conn).await {
+            tracing::error!("Database delete failed: {}", e);
+        }
     }
 
     pub async fn add_todo_tag(&self, todo_id: i64, tag_id: i64) {
