@@ -19,6 +19,10 @@ fn parse_executor_type(executor: &str) -> ExecutorType {
     }
 }
 
+fn send_event(tx: &broadcast::Sender<ExecEvent>, event: ExecEvent) {
+    let _ = tx.send(event);
+}
+
 /// Run a todo execution. Priority: explicit executor > todo stored executor > default.
 pub async fn run_todo_execution(
     db: Arc<Database>,
@@ -73,10 +77,10 @@ pub async fn run_todo_execution(
     let todo_title = todo.as_ref().map(|t| t.title.clone()).unwrap_or_default();
 
     tokio::spawn(async move {
-        let _ = tx_clone.send(ExecEvent::Started { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone() });
+        send_event(&tx_clone, ExecEvent::Started { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone() });
 
         let entry = ParsedLogEntry::info(format!("Starting {} with message: {}", executor_spawn.executor_type(), message_clone));
-        let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
+        send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
 
         let mut cmd = Command::new(&executable_path);
         cmd.args(&command_args)
@@ -96,8 +100,8 @@ pub async fn run_todo_execution(
             Ok(c) => c,
             Err(e) => {
                 let entry = ParsedLogEntry::error(format!("Failed to spawn executor: {}", e));
-                let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
-                let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), todo_id, success: false, result: None });
+                send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
+                send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, success: false, result: None });
                 db_clone.finish_todo_execution(todo_id, false).await;
                 task_manager_spawn.remove(&task_id).await;
                 return;
@@ -129,7 +133,7 @@ pub async fn run_todo_execution(
                 while let Ok(Some(line)) = reader.next_line().await {
                     if let Some(parsed) = executor_clone.parse_output_line(&line) {
                         logs_for_db.lock().await.push(parsed.clone());
-                        let _ = tx_clone.send(ExecEvent::Output { task_id: tid.clone(), entry: parsed });
+                        send_event(&tx_clone, ExecEvent::Output { task_id: tid.clone(), entry: parsed });
 
                         let logs_json = serde_json::to_string(&*logs_for_db.lock().await).unwrap_or_default();
                         db_clone2.update_execution_record(rid, "running", &logs_json, "", None).await;
@@ -150,7 +154,7 @@ pub async fn run_todo_execution(
                 while let Ok(Some(line)) = reader.next_line().await {
                     let entry = ParsedLogEntry::stderr(line.clone());
                     logs_for_stderr.lock().await.push(entry.clone());
-                    let _ = stderr_tx.send(ExecEvent::Output { task_id: stderr_tid.clone(), entry });
+                    send_event(&stderr_tx, ExecEvent::Output { task_id: stderr_tid.clone(), entry });
                 }
             }))
         } else {
@@ -183,8 +187,8 @@ pub async fn run_todo_execution(
                 db_clone.update_todo_task_id(todo_id, None).await;
 
                 let entry = ParsedLogEntry::error("Execution cancelled by user");
-                let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
-                let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), todo_id, success: false, result: None });
+                send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
+                send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, success: false, result: None });
                 task_manager_spawn.remove(&task_id).await;
                 return;
             }
@@ -229,9 +233,9 @@ pub async fn run_todo_execution(
             if success { "info" } else { "error" },
             format!("Executor finished with exit_code: {}, result: {}", exit_code, result_str),
         );
-        let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
+        send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
 
-        let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), todo_id, success, result: Some(result_str) });
+        send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, success, result: Some(result_str) });
         task_manager_spawn.remove(&task_id).await;
     });
 
