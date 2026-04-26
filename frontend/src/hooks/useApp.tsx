@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
-import { Todo, Tag, ExecutionRecord } from '../types';
+import { Todo, Tag, ExecutionRecord, RunningTask, LogEntry } from '../types';
 import * as db from '../utils/database';
 
 interface AppState {
@@ -9,6 +9,8 @@ interface AppState {
   selectedTagId: number | null;
   executionRecords: Record<number, ExecutionRecord[]>;
   loading: boolean;
+  runningTasks: Record<string, RunningTask>;
+  activeTaskId: string | null;
 }
 
 type Action =
@@ -24,7 +26,12 @@ type Action =
   | { type: 'SET_EXECUTION_RECORDS'; payload: { todoId: number; records: ExecutionRecord[] } }
   | { type: 'ADD_EXECUTION_RECORD'; payload: { todoId: number; record: ExecutionRecord } }
   | { type: 'UPDATE_EXECUTION_RECORD'; payload: { todoId: number; record: ExecutionRecord } }
-  | { type: 'SET_LOADING'; payload: boolean };
+  | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'ADD_RUNNING_TASK'; payload: RunningTask }
+  | { type: 'APPEND_TASK_LOG'; payload: { taskId: string; log: LogEntry } }
+  | { type: 'FINISH_TASK'; payload: { taskId: string; success: boolean; result: string | null } }
+  | { type: 'REMOVE_RUNNING_TASK'; payload: string }
+  | { type: 'SET_ACTIVE_TASK'; payload: string | null };
 
 const initialState: AppState = {
   todos: [],
@@ -33,6 +40,8 @@ const initialState: AppState = {
   selectedTagId: null,
   executionRecords: {},
   loading: true,
+  runningTasks: {},
+  activeTaskId: null,
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -89,6 +98,59 @@ function reducer(state: AppState, action: Action): AppState {
       };
     case 'SET_LOADING':
       return { ...state, loading: action.payload };
+    case 'ADD_RUNNING_TASK': {
+      const task = action.payload;
+      return {
+        ...state,
+        runningTasks: { ...state.runningTasks, [task.taskId]: task },
+        activeTaskId: state.activeTaskId || task.taskId,
+      };
+    }
+    case 'APPEND_TASK_LOG': {
+      const { taskId, log } = action.payload;
+      const task = state.runningTasks[taskId];
+      if (!task) return state;
+      return {
+        ...state,
+        runningTasks: {
+          ...state.runningTasks,
+          [taskId]: { ...task, logs: [...task.logs, log] },
+        },
+      };
+    }
+    case 'FINISH_TASK': {
+      const { taskId, success, result } = action.payload;
+      const task = state.runningTasks[taskId];
+      if (!task) return state;
+      const now = new Date().toISOString();
+      return {
+        ...state,
+        runningTasks: {
+          ...state.runningTasks,
+          [taskId]: {
+            ...task,
+            status: 'finished' as const,
+            success,
+            result,
+            finishedAt: now,
+          },
+        },
+      };
+    }
+    case 'REMOVE_RUNNING_TASK': {
+      const taskId = action.payload;
+      const { [taskId]: _, ...rest } = state.runningTasks;
+      const remainingIds = Object.keys(rest);
+      return {
+        ...state,
+        runningTasks: rest,
+        activeTaskId: state.activeTaskId === taskId
+          ? (remainingIds[0] || null)
+          : state.activeTaskId,
+      };
+    }
+    case 'SET_ACTIVE_TASK':
+      return { ...state, activeTaskId: action.payload };
     default:
       return state;
   }

@@ -1,7 +1,7 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useApp } from '../hooks/useApp';
-import { Button, Empty, Input, App, Popconfirm, Tag, Collapse, Badge } from 'antd';
-import { PlayCircleOutlined, EditOutlined, DeleteOutlined, CloseCircleOutlined, SettingOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { Button, Empty, Input, App, Popconfirm, Tag, Badge } from 'antd';
+import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import { TagCheckCardGroup } from './TagCheckCard';
 import { PieChart, PieChartLegend } from './PieChart';
@@ -9,54 +9,14 @@ import { TodoSettingsModal } from './TodoSettingsModal';
 import * as db from '../utils/database';
 import { formatLocalDateTime } from '../utils/datetime';
 import { getExecutorOption } from '../types';
-import type { LogEntry, ExecutionSummary, Todo } from '../types';
+import type { ExecutionSummary, Todo } from '../types';
 
 const { TextArea } = Input;
-
-interface ExecEvent {
-  type: 'Started' | 'Output' | 'Finished';
-  task_id: string;
-  entry?: LogEntry;
-  success?: boolean;
-  result?: string | null;
-}
-
-const logTypeColors: Record<string, string> = {
-  info: '#60a5fa',
-  text: '#4ade80',
-  tool: '#fbbf24',
-  step_start: '#c084fc',
-  step_finish: '#2dd4bf',
-  stdout: '#cbd5e1',
-  stderr: '#f87171',
-  error: '#ef4444',
-  system: '#94a3b8',
-  assistant: '#a78bfa',
-  user: '#22d3ee',
-  result: '#4ade80',
-  thinking: '#fb923c',
-};
-
-const logTypeLabels: Record<string, string> = {
-  info: 'INFO',
-  text: 'TEXT',
-  tool: 'TOOL',
-  step_start: 'START',
-  step_finish: 'END',
-  stdout: 'OUT',
-  stderr: 'ERR',
-  error: 'ERROR',
-  system: 'SYS',
-  assistant: 'ASST',
-  user: 'USER',
-  result: 'RESULT',
-  thinking: 'THINK',
-};
 
 export function TodoDetail() {
   const { state, dispatch } = useApp();
   const { message } = App.useApp();
-  const { todos, selectedTodoId, executionRecords } = state;
+  const { todos, selectedTodoId, executionRecords, runningTasks } = state;
   const selectedTodo = todos.find(t => t.id === selectedTodoId);
 
   const [isEditing, setIsEditing] = useState(false);
@@ -67,68 +27,21 @@ export function TodoDetail() {
   const [summary, setSummary] = useState<ExecutionSummary | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
-  const [logsMap, setLogsMap] = useState<Map<number, LogEntry[]>>(new Map());
-  const [executionSuccess, setExecutionSuccess] = useState<boolean | null>(null);
-  const [executionResult, setExecutionResult] = useState<string | null>(null);
-
-  const realtimeLogs = selectedTodoId ? logsMap.get(selectedTodoId) || [] : [];
-
-  const wsRef = useRef<WebSocket | null>(null);
-  const logsEndRef = useRef<HTMLDivElement>(null);
-  const isExecutingRef = useRef(isExecuting);
-  const currentTaskIdRef = useRef(currentTaskId);
-  const selectedTodoIdRef = useRef(selectedTodoId);
-
-  // 保持ref与状态同步
-  useEffect(() => {
-    isExecutingRef.current = isExecuting;
-  }, [isExecuting]);
-
-  useEffect(() => {
-    currentTaskIdRef.current = currentTaskId;
-  }, [currentTaskId]);
-
-  useEffect(() => {
-    selectedTodoIdRef.current = selectedTodoId;
-  }, [selectedTodoId]);
-
   const records = selectedTodoId ? executionRecords[selectedTodoId] || [] : [];
 
-  useEffect(() => {
-    if (logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [realtimeLogs]);
+  // Check if current todo is running in the global panel
+  const currentRunningTask = Object.values(runningTasks).find(
+    t => t.todoId === selectedTodoId
+  );
+  const isExecuting = !!currentRunningTask && currentRunningTask.status === 'running';
 
   useEffect(() => {
     if (selectedTodo) {
-      // 先设置编辑相关状态
       setEditTitle(selectedTodo.title);
       setEditPrompt(selectedTodo.prompt || '');
       setEditStatus(selectedTodo.status);
       setEditTags((selectedTodo as any).tag_ids || []);
 
-      // 检查是否有正在执行的任务
-      const hasRunningTask = selectedTodo.task_id && selectedTodo.status === 'running';
-      if (hasRunningTask) {
-        // 如果有正在执行的任务，保持执行状态
-        setCurrentTaskId(selectedTodo.task_id ?? null);
-        setIsExecuting(true);
-      } else {
-        // 否则重置执行状态
-        setIsExecuting(false);
-        setCurrentTaskId(null);
-        // 清空当前todo的日志
-        if (selectedTodoId) {
-          setLogsMap(prev => new Map(prev).set(selectedTodoId, []));
-        }
-        setExecutionSuccess(null);
-        setExecutionResult(null);
-      }
-
-      // 加载数据
       db.getExecutionRecords(selectedTodo.id).then(recs => {
         dispatch({
           type: 'SET_EXECUTION_RECORDS',
@@ -140,162 +53,39 @@ export function TodoDetail() {
         setSummary(sum);
       });
     } else {
-      // 没有选中的todo，重置所有状态
       setIsEditing(false);
-      setIsExecuting(false);
-      setCurrentTaskId(null);
-      setLogsMap(new Map());
-      setExecutionSuccess(null);
-      setExecutionResult(null);
     }
   }, [selectedTodoId, selectedTodo, dispatch]);
-
-  useEffect(() => {
-    // 只在有正在执行的任务时才建立WebSocket连接
-    if (!isExecuting || !currentTaskId || !selectedTodoId) {
-      return;
-    }
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/xyz/events`);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      console.log('WebSocket连接已建立', { currentTaskId, selectedTodoId });
-    };
-
-    ws.onmessage = (event) => {
-      if (event.data === 'Connected') return;
-      try {
-        const data: ExecEvent = JSON.parse(event.data);
-
-        // 只处理当前任务的当前todo的消息
-        if (data.task_id !== currentTaskId) {
-          return;
-        }
-
-        console.log('收到WebSocket消息', { type: data.type, task_id: data.task_id, todoId: selectedTodoId });
-
-        if (data.type === 'Started') {
-          setIsExecuting(true);
-          // 清空当前todo的日志
-          if (selectedTodoId) {
-            setLogsMap(prev => new Map(prev).set(selectedTodoId, []));
-          }
-          setExecutionSuccess(null);
-          setExecutionResult(null);
-      } else if (data.type === 'Output' && data.entry) {
-        // 添加日志到当前todo
-        if (selectedTodoId) {
-          setLogsMap(prev => {
-            const newMap = new Map(prev);
-            const currentLogs = newMap.get(selectedTodoId) || [];
-            newMap.set(selectedTodoId, [...currentLogs, data.entry!]);
-            return newMap;
-          });
-        }
-        } else if (data.type === 'Finished') {
-          setIsExecuting(false);
-          setExecutionSuccess(data.success ?? null);
-          setExecutionResult(data.result ?? null);
-          message.success(data.success ? '执行成功' : '执行失败');
-
-          db.getAllTodos().then(todos => {
-            dispatch({ type: 'SET_TODOS', payload: todos });
-          });
-
-          if (selectedTodoId) {
-            db.getExecutionRecords(selectedTodoId).then(recs => {
-              dispatch({
-                type: 'SET_EXECUTION_RECORDS',
-                payload: { todoId: selectedTodoId, records: recs }
-              });
-            });
-            db.getExecutionSummary(selectedTodoId).then(sum => {
-              setSummary(sum);
-            });
-          }
-        }
-      } catch (e) {
-        console.error('Failed to parse WebSocket message:', e);
-      }
-    };
-
-    ws.onclose = () => {
-      console.log('WebSocket连接已关闭');
-      // 如果任务还在执行中，延迟重连
-      setTimeout(() => {
-        // 使用ref获取最新状态
-        if (isExecutingRef.current && currentTaskIdRef.current && selectedTodoIdRef.current) {
-          // 检查当前连接是否已关闭
-          if (wsRef.current?.readyState !== WebSocket.OPEN) {
-            console.log('尝试重新建立WebSocket连接', {
-              task_id: currentTaskIdRef.current,
-              todoId: selectedTodoIdRef.current
-            });
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const newWs = new WebSocket(`${protocol}//${window.location.host}/xyz/events`);
-            wsRef.current = newWs;
-          }
-        }
-      }, 1000);
-    };
-
-    ws.onerror = (error) => {
-      console.error('WebSocket错误:', error);
-    };
-
-    return () => {
-      console.log('清理WebSocket连接');
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-    };
-  }, [isExecuting, currentTaskId, selectedTodoId, dispatch]);
 
   const handleExecute = async () => {
     if (!selectedTodo) return;
     try {
-      const result = await db.executeTodo(
+      await db.executeTodo(
         selectedTodo.id,
         selectedTodo.prompt || selectedTodo.title,
         selectedTodo.executor || undefined
       );
-      setCurrentTaskId(result.task_id);
-      setIsExecuting(true);
-      // 清空当前todo的日志
-      setLogsMap(prev => new Map(prev).set(selectedTodo.id, []));
-      setExecutionSuccess(null);
-      setExecutionResult(null);
+      message.success('任务已开始执行');
     } catch (error) {
       message.error('执行失败: ' + error);
     }
   };
 
   const handleStopExecution = async () => {
-    if (currentTaskId) {
+    if (currentRunningTask) {
       try {
-        await db.stopExecution(currentTaskId);
+        await db.stopExecution(currentRunningTask.taskId);
         message.info('已发送停止指令');
       } catch (error) {
         message.error('停止失败: ' + error);
       }
-    }
-    setIsExecuting(false);
-    setCurrentTaskId(null);
-    if (selectedTodoId) {
-      setLogsMap(prev => new Map(prev).set(selectedTodoId, []));
     }
   };
 
   const handleStatusChange = async (newStatus: string) => {
     if (!selectedTodo) return;
     const updated = await db.updateTodo(selectedTodo.id, selectedTodo.title, selectedTodo.prompt || '', newStatus);
-    dispatch({
-      type: 'UPDATE_TODO',
-      payload: updated
-    });
+    dispatch({ type: 'UPDATE_TODO', payload: updated });
     message.success('状态已更新');
   };
 
@@ -426,6 +216,15 @@ export function TodoDetail() {
                     </span>
                   )}
                 </div>
+                {/* Running status indicator */}
+                {isExecuting && (
+                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Badge status="processing" />
+                    <span style={{ fontSize: 13, color: 'var(--color-primary)', fontWeight: 500 }}>
+                      正在执行中...（查看底部面板）
+                    </span>
+                  </div>
+                )}
               </div>
               <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                 <Button
@@ -570,7 +369,7 @@ export function TodoDetail() {
           {isExecuting ? (
             <Button
               danger
-              icon={<CloseCircleOutlined />}
+              icon={<PlayCircleOutlined />}
               onClick={handleStopExecution}
               block
               className="btn-stop"
@@ -582,7 +381,6 @@ export function TodoDetail() {
               type="primary"
               icon={<PlayCircleOutlined />}
               onClick={handleExecute}
-              disabled={isExecuting}
               block
               className="btn-execute"
             >
@@ -591,78 +389,6 @@ export function TodoDetail() {
           )}
         </div>
       )}
-
-      {/* Realtime Logs */}
-      <Collapse
-        defaultActiveKey={isExecuting ? ['realtime'] : []}
-        style={{ marginBottom: 12, flexShrink: 0 }}
-        items={[
-          {
-            key: 'realtime',
-            label: (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontWeight: 600 }}>执行过程</span>
-                {isExecuting && <Badge status="processing" text="运行中" />}
-                {!isExecuting && executionSuccess !== null && (
-                  <Badge status={executionSuccess ? 'success' : 'error'} text={executionSuccess ? '已完成' : '已失败'} />
-                )}
-                {!isExecuting && executionSuccess === null && <span style={{ color: 'var(--color-text-tertiary)' }}>暂无执行</span>}
-                {realtimeLogs.length > 0 && <Tag color="var(--color-primary)">{realtimeLogs.length} 条日志</Tag>}
-              </div>
-            ),
-            children: (
-              <>
-                <div className="log-panel" style={{ maxHeight: 400, overflow: 'auto' }}>
-                  {realtimeLogs.length === 0 && !isExecuting ? (
-                    <div style={{ color: 'var(--color-text-tertiary)', textAlign: 'center', padding: 24 }}>
-                      暂无执行日志
-                    </div>
-                  ) : (
-                    <>
-                      {realtimeLogs.map((log, idx) => (
-                        <div key={idx} style={{ padding: '4px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                          <span className="log-timestamp">{log.timestamp}</span>
-                          <span style={{
-                            color: logTypeColors[log.type] || '#cbd5e1',
-                            background: `${logTypeColors[log.type]}20`,
-                            padding: '1px 6px',
-                            borderRadius: 3,
-                            marginRight: 8,
-                            fontSize: 10,
-                            fontWeight: 700,
-                          }}>
-                            {logTypeLabels[log.type] || log.type}
-                          </span>
-                          <span style={{ wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>{log.content}</span>
-                        </div>
-                      ))}
-                      <div ref={logsEndRef} />
-                    </>
-                  )}
-                </div>
-
-                {executionResult !== null && executionResult !== '' && (
-                  <div style={{ marginTop: 12, padding: '0 12px 12px' }}>
-                    <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 6, fontWeight: 600 }}>最终结果</div>
-                    <div style={{
-                      background: executionSuccess ? 'var(--color-success-bg)' : 'var(--color-error-bg)',
-                      border: `1px solid ${executionSuccess ? '#bbf7d0' : '#fecaca'}`,
-                      padding: 12,
-                      borderRadius: 8,
-                      fontSize: 13,
-                      color: 'var(--color-text)',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-all',
-                    }}>
-                      {executionResult}
-                    </div>
-                  </div>
-                )}
-              </>
-            ),
-          },
-        ]}
-      />
 
       {/* Execution History */}
       <div style={{ paddingBottom: 20, flexShrink: 0 }}>
@@ -749,8 +475,8 @@ export function TodoDetail() {
                   }}>
                     {(() => {
                       try {
-                        const logs = JSON.parse(record.logs) as LogEntry[];
-                        return logs.map((log, idx) => (
+                        const logs = JSON.parse(record.logs);
+                        return logs.map((log: any, idx: number) => (
                           <div key={idx} style={{ marginBottom: 4, display: 'flex', gap: 8 }}>
                             <span style={{ color: '#64748b', flexShrink: 0 }}>{log.timestamp}</span>
                             <span style={{ color: logTypeColors[log.type] || '#cbd5e1' }}>
@@ -789,3 +515,35 @@ export function TodoDetail() {
     </div>
   );
 }
+
+const logTypeColors: Record<string, string> = {
+  info: '#60a5fa',
+  text: '#4ade80',
+  tool: '#fbbf24',
+  step_start: '#c084fc',
+  step_finish: '#2dd4bf',
+  stdout: '#cbd5e1',
+  stderr: '#f87171',
+  error: '#ef4444',
+  system: '#94a3b8',
+  assistant: '#a78bfa',
+  user: '#22d3ee',
+  result: '#4ade80',
+  thinking: '#fb923c',
+};
+
+const logTypeLabels: Record<string, string> = {
+  info: 'INFO',
+  text: 'TEXT',
+  tool: 'TOOL',
+  step_start: 'START',
+  step_finish: 'END',
+  stdout: 'OUT',
+  stderr: 'ERR',
+  error: 'ERROR',
+  system: 'SYS',
+  assistant: 'ASST',
+  user: 'USER',
+  result: 'RESULT',
+  thinking: 'THINK',
+};

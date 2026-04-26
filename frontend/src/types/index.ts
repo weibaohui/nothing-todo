@@ -78,6 +78,19 @@ export interface ExecuteResult {
   logs: LogEntry[];
 }
 
+export interface RunningTask {
+  taskId: string;
+  todoId: number;
+  todoTitle: string;
+  executor: string;
+  logs: LogEntry[];
+  status: 'running' | 'finished';
+  success?: boolean;
+  result?: string | null;
+  startedAt: string;
+  finishedAt?: string;
+}
+
 export interface ExecutorOption {
   value: string;
   label: string;

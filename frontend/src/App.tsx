@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react';
 import { ConfigProvider, Layout, Spin, Button, App as AntApp } from 'antd';
 import { CloseOutlined, PlusOutlined } from '@ant-design/icons';
 import { AppProvider, useApp } from './hooks/useApp';
+import { useExecutionEvents } from './hooks/useExecutionEvents';
 import { TodoList } from './components/TodoList';
 import { TodoDetail } from './components/TodoDetail';
+import { ExecutionPanel } from './components/ExecutionPanel';
 import { CreateTagModal } from './components/CreateTagModal';
 import { CreateTodoModal } from './components/CreateTodoModal';
 import zhCN from 'antd/locale/zh_CN';
@@ -19,6 +21,12 @@ function AppContent() {
   const [todoModalOpen, setTodoModalOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [selectedPanel, setSelectedPanel] = useState<'list' | 'detail'>('list');
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
+
+  useExecutionEvents();
+
+  const hasRunningTasks = Object.keys(state.runningTasks).length > 0;
+  const panelHeight = hasRunningTasks ? (panelCollapsed ? 40 : 280) : 0;
 
   useEffect(() => {
     const checkMobile = () => {
@@ -83,9 +91,11 @@ function AppContent() {
             display: 'flex',
             flexDirection: isMobile ? 'column' : 'row',
             padding: isMobile ? 0 : 16,
+            paddingBottom: isMobile ? 0 : 16 + panelHeight,
             gap: isMobile ? 0 : 16,
-            height: '100vh',
+            height: `calc(100vh - ${panelHeight}px)`,
             overflow: 'hidden',
+            transition: 'height 0.3s ease, padding-bottom 0.3s ease',
           }}
         >
           {/* Todo List Panel */}
@@ -127,6 +137,10 @@ function AppContent() {
       <CreateTodoModal
         open={todoModalOpen}
         onClose={() => setTodoModalOpen(false)}
+      />
+      <ExecutionPanel
+        collapsed={panelCollapsed}
+        onToggleCollapse={() => setPanelCollapsed(!panelCollapsed)}
       />
     </Layout>
   );
