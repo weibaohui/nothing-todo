@@ -5,6 +5,11 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::{delete, get, post, put},
 };
+use std::time::Duration;
+use tower_http::compression::CompressionLayer;
+use tower_http::cors::CorsLayer;
+use tower_http::timeout::TimeoutLayer;
+use tower_http::trace::TraceLayer;
 use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -186,5 +191,9 @@ pub fn create_app(
         .route("/xyz/events", get(events_handler))
         .route("/xyz/scheduler/todos", get(scheduler::get_scheduler_todos))
         .route("/assets/{*path}", get(static_handler))
+        .layer(CompressionLayer::new())
+        .layer(CorsLayer::permissive())
+        .layer(TraceLayer::new_for_http())
+        .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(30)))
         .with_state(state)
 }
