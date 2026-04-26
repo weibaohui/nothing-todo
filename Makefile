@@ -2,7 +2,7 @@
 
 # Setup: install all dependencies for frontend and backend
 setup:
-	@echo "=== Setting up aietodo ==="
+	@echo "=== Setting up ntd ==="
 	@echo ""
 	@echo "[1/4] Checking Rust toolchain..."
 	@which rustc > /dev/null 2>&1 || (echo "Installing Rust..." && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y)

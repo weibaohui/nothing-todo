@@ -1,4 +1,4 @@
-# AIETodo 项目综合优化建议
+# ntd 项目综合优化建议
 
 > 基于代码质量、架构设计和性能优化的深入分析
 >
@@ -1213,7 +1213,7 @@ scrape_configs:
 **Grafana 面板示例**：
 ```json
 {
-  "title": "AIETodo Dashboard",
+  "title": "ntd Dashboard",
   "panels": [
     {
       "title": "Request Rate",
@@ -2188,4 +2188,4 @@ criterion = "0.4"
 
 **文档版本**：1.0
 **最后更新**：2026-04-25
-**维护者**：AIETodo Team
+**维护者**：ntd Team
