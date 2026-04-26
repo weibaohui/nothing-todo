@@ -184,7 +184,7 @@ pub async fn update_scheduler(
                 state.db.clone(), state.executor_registry.clone(), state.tx.clone(),
                 id, config.clone(), state.task_manager.clone(),
             ).await {
-                log::error!("Failed to upsert scheduled task for todo {}: {}", id, e);
+                tracing::error!("Failed to upsert scheduled task for todo {}: {}", id, e);
             }
         } else {
             state.scheduler.remove_task_for_todo(id).await;

@@ -1,14 +1,20 @@
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use log::info;
+use tracing::info;
 
 use ntd::{adapters, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager};
 
 #[tokio::main]
 async fn main() {
-    // Initialize logger with default level info
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .format_timestamp_millis()
+    let level = std::env::var("RUST_LOG")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(tracing::Level::INFO);
+
+    tracing_subscriber::fmt()
+        .with_max_level(level)
+        .with_target(true)
+        .with_timer(tracing_subscriber::fmt::time::time())
         .init();
 
     // Get database path from home directory

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 use tokio_cron_scheduler::{Job, JobScheduler};
-use log::info;
+use tracing::{error, info};
 
 use crate::adapters::ExecutorRegistry;
 use crate::db::Database;
@@ -97,7 +97,7 @@ impl TodoScheduler {
                 Ok(id)
             }
             Err(e) => {
-                log::error!("Failed to add job to scheduler: {:?}", e);
+                error!("Failed to add job to scheduler: {:?}", e);
                 Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e))))
             }
         }
@@ -108,7 +108,7 @@ impl TodoScheduler {
         if let Some(job_id) = job_id {
             match self.sched.lock().await.remove(&job_id).await {
                 Ok(_) => info!("Removed scheduled task {} for todo {}", job_id, todo_id),
-                Err(e) => log::error!("Failed to remove scheduled task {} for todo {}: {:?}", job_id, todo_id, e),
+                Err(e) => error!("Failed to remove scheduled task {} for todo {}: {:?}", job_id, todo_id, e),
             }
         }
     }
