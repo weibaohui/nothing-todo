@@ -2,7 +2,8 @@ use std::env;
 use std::sync::{Arc, Mutex};
 use serde::Deserialize;
 
-use super::{get_timestamp, CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
+use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
+use crate::models::utc_timestamp;
 
 pub struct ClaudeCodeExecutor {
     path: String,
@@ -142,7 +143,7 @@ impl CodeExecutor for ClaudeCodeExecutor {
                         *self.model.lock().unwrap() = Some(m.clone());
                     }
                     Some(ParsedLogEntry {
-                        timestamp: get_timestamp(),
+                        timestamp: utc_timestamp(),
                         log_type: "system".to_string(),
                         content: format!("Session init: {:?}", session_id.or(subtype)),
                         usage: None,
@@ -179,7 +180,7 @@ impl CodeExecutor for ClaudeCodeExecutor {
                         None
                     } else {
                         Some(ParsedLogEntry {
-                            timestamp: get_timestamp(),
+                            timestamp: utc_timestamp(),
                             log_type: "assistant".to_string(),
                             content: parts.join("\n"),
                             usage: None,
@@ -198,7 +199,7 @@ impl CodeExecutor for ClaudeCodeExecutor {
                         None
                     } else {
                         Some(ParsedLogEntry {
-                            timestamp: get_timestamp(),
+                            timestamp: utc_timestamp(),
                             log_type: "user".to_string(),
                             content: parts.join("\n"),
                             usage: None,
@@ -220,7 +221,7 @@ impl CodeExecutor for ClaudeCodeExecutor {
                     });
 
                     Some(ParsedLogEntry {
-                        timestamp: get_timestamp(),
+                        timestamp: utc_timestamp(),
                         log_type: if is_error { "error".to_string() } else { "result".to_string() },
                         content: format!("{}{}", err_str, result_str),
                         usage,
@@ -231,7 +232,7 @@ impl CodeExecutor for ClaudeCodeExecutor {
 
         // Fallback: treat as raw text
         Some(ParsedLogEntry {
-            timestamp: get_timestamp(),
+            timestamp: utc_timestamp(),
             log_type: "text".to_string(),
             content: line.to_string(),
             usage: None,

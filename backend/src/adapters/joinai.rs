@@ -2,7 +2,8 @@ use serde::Deserialize;
 use std::env;
 use std::sync::{Arc, Mutex};
 
-use super::{get_timestamp, CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
+use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
+use crate::models::utc_timestamp;
 
 pub struct JoinaiExecutor {
     path: String,
@@ -131,7 +132,7 @@ impl CodeExecutor for JoinaiExecutor {
                 let millis = ts % 1000;
                 format!("{}.{:03}", secs, millis)
             })
-            .unwrap_or_else(get_timestamp);
+            .unwrap_or_else(utc_timestamp);
 
         match event.event_type.as_str() {
             "step_start" => {

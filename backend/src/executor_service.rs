@@ -4,7 +4,8 @@ use tokio::process::Command;
 use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
 
-use crate::adapters::{ExecutorRegistry, get_timestamp};
+use crate::adapters::ExecutorRegistry;
+use crate::models::utc_timestamp;
 use crate::db::Database;
 use crate::handlers::ExecEvent;
 use crate::models::{ParsedLogEntry, ExecutorType};
@@ -76,7 +77,7 @@ pub async fn run_todo_execution(
         let _ = tx_clone.send(ExecEvent::Started { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone() });
 
         let entry = ParsedLogEntry {
-            timestamp: get_timestamp(),
+            timestamp: utc_timestamp(),
             log_type: "info".to_string(),
             content: format!("Starting {} with message: {}", executor_spawn.executor_type(), message_clone),
             usage: None,
@@ -101,7 +102,7 @@ pub async fn run_todo_execution(
             Ok(c) => c,
             Err(e) => {
                 let entry = ParsedLogEntry {
-                    timestamp: get_timestamp(),
+                    timestamp: utc_timestamp(),
                     log_type: "error".to_string(),
                     content: format!("Failed to spawn executor: {}", e),
                     usage: None,
@@ -159,7 +160,7 @@ pub async fn run_todo_execution(
                 let mut reader = BufReader::new(stderr_reader).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
                     let entry = ParsedLogEntry {
-                        timestamp: get_timestamp(),
+                        timestamp: utc_timestamp(),
                         log_type: "stderr".to_string(),
                         content: line.clone(),
                         usage: None,
@@ -198,7 +199,7 @@ pub async fn run_todo_execution(
                 db_clone.update_todo_task_id(todo_id, None).await;
 
                 let entry = ParsedLogEntry {
-                    timestamp: get_timestamp(),
+                    timestamp: utc_timestamp(),
                     log_type: "error".to_string(),
                     content: "Execution cancelled by user".to_string(),
                     usage: None,
@@ -250,7 +251,7 @@ pub async fn run_todo_execution(
         db_clone.finish_todo_execution(todo_id, success).await;
 
         let entry = ParsedLogEntry {
-            timestamp: get_timestamp(),
+            timestamp: utc_timestamp(),
             log_type: if success { "info".to_string() } else { "error".to_string() },
             content: format!("Executor finished with exit_code: {}, result: {}", exit_code, result_str),
             usage: None,

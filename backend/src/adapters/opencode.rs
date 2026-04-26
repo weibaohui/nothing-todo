@@ -2,7 +2,8 @@ use serde::Deserialize;
 use std::env;
 use std::sync::{Arc, Mutex};
 
-use super::{get_timestamp, CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
+use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
+use crate::models::utc_timestamp;
 
 pub struct OpencodeExecutor {
     path: String,
@@ -142,7 +143,7 @@ impl CodeExecutor for OpencodeExecutor {
 
         let timestamp = chrono::DateTime::from_timestamp_millis(event.timestamp as i64)
             .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
-            .unwrap_or_else(get_timestamp);
+            .unwrap_or_else(utc_timestamp);
 
         match event.event_type.as_str() {
             "step_start" => {

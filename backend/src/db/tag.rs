@@ -24,7 +24,7 @@ impl Database {
     }
 
     pub async fn create_tag(&self, name: &str, color: &str) -> i64 {
-        let now = super::now_utc();
+        let now = crate::models::utc_timestamp();
         let am = tags::ActiveModel {
             name: ActiveValue::Set(name.to_string()),
             color: ActiveValue::Set(Some(color.to_string())),

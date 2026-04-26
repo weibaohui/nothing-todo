@@ -250,3 +250,8 @@ pub mod codes {
     pub const BAD_REQUEST: i32 = 40002;
     pub const INTERNAL: i32 = 50001;
 }
+
+/// 返回当前 UTC 时间的 ISO 8601 格式字符串 (2024-01-15T08:30:00.000Z)
+pub fn utc_timestamp() -> String {
+    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
+}

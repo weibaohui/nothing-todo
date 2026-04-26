@@ -68,7 +68,7 @@ impl Database {
     }
 
     pub async fn create_todo(&self, title: &str, prompt: &str) -> i64 {
-        let now = super::now_utc();
+        let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             title: ActiveValue::Set(title.to_string()),
             prompt: ActiveValue::Set(Some(prompt.to_string())),
@@ -92,7 +92,7 @@ impl Database {
         scheduler_enabled: Option<bool>,
         scheduler_config: Option<&str>,
     ) {
-        let now = super::now_utc();
+        let now = crate::models::utc_timestamp();
         let mut am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
             title: ActiveValue::Set(title.to_string()),
@@ -145,7 +145,7 @@ impl Database {
         id: i64,
         status: TodoStatus,
     ) {
-        let now = super::now_utc();
+        let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
             status: ActiveValue::Set(Some(status.to_string())),
@@ -156,7 +156,7 @@ impl Database {
     }
 
     pub async fn delete_todo(&self, id: i64) {
-        let now = super::now_utc();
+        let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
             deleted_at: ActiveValue::Set(Some(now)),
@@ -204,7 +204,7 @@ impl Database {
     }
 
     pub async fn update_todo_status(&self, todo_id: i64, status: TodoStatus) {
-        let now = super::now_utc();
+        let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(todo_id),
             status: ActiveValue::Set(Some(status.to_string())),
@@ -215,7 +215,7 @@ impl Database {
     }
 
     pub async fn start_todo_execution(&self, todo_id: i64, task_id: &str) {
-        let now = super::now_utc();
+        let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(todo_id),
             status: ActiveValue::Set(Some(TodoStatus::Running.to_string())),
@@ -228,7 +228,7 @@ impl Database {
 
     pub async fn finish_todo_execution(&self, todo_id: i64, success: bool) {
         let status = if success { TodoStatus::Completed } else { TodoStatus::Failed };
-        let now = super::now_utc();
+        let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(todo_id),
             status: ActiveValue::Set(Some(status.to_string())),

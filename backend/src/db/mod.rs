@@ -21,12 +21,8 @@ fn compute_next_run(cron_expr: &str) -> Option<String> {
         schedule
             .upcoming(Utc)
             .next()
-            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
     })
-}
-
-fn now_utc() -> String {
-    Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 pub struct Database {

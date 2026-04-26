@@ -65,7 +65,7 @@ impl Database {
         executor: &str,
         trigger_type: &str,
     ) -> i64 {
-        let now = super::now_utc();
+        let now = crate::models::utc_timestamp();
         let am = execution_records::ActiveModel {
             todo_id: ActiveValue::Set(Some(todo_id)),
             command: ActiveValue::Set(Some(command.to_string())),
@@ -83,7 +83,7 @@ impl Database {
     }
 
     pub async fn update_execution_record(&self, id: i64, status: &str, logs: &str, result: &str) {
-        let now = super::now_utc();
+        let now = crate::models::utc_timestamp();
         let am = execution_records::ActiveModel {
             id: ActiveValue::Unchanged(id),
             status: ActiveValue::Set(Some(status.to_string())),
@@ -103,7 +103,7 @@ impl Database {
         result: &str,
         usage: &ExecutionUsage,
     ) {
-        let now = super::now_utc();
+        let now = crate::models::utc_timestamp();
         let usage_json = serde_json::to_string(usage).unwrap_or_default();
         let am = execution_records::ActiveModel {
             id: ActiveValue::Unchanged(id),

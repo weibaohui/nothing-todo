@@ -4,7 +4,7 @@ use axum::{
 };
 
 use crate::handlers::{ApiJson, AppError, AppState};
-use crate::models::{ApiResponse, CreateTodoRequest, Todo, UpdateTagsRequest, UpdateTodoRequest};
+use crate::models::{ApiResponse, CreateTodoRequest, Todo, UpdateTagsRequest, UpdateTodoRequest, utc_timestamp};
 
 pub async fn get_todos(
     State(state): State<AppState>,
@@ -20,7 +20,7 @@ pub async fn create_todo(
     if title.is_empty() {
         return Err(AppError::BadRequest("Title is required".to_string()));
     }
-    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let now = utc_timestamp();
     let prompt = if req.prompt.trim().is_empty() {
         title.to_string()
     } else {

@@ -4,7 +4,7 @@ use axum::{
 };
 
 use crate::handlers::{ApiJson, AppError, AppState};
-use crate::models::{ApiResponse, CreateTagRequest, Tag};
+use crate::models::{ApiResponse, CreateTagRequest, Tag, utc_timestamp};
 
 pub async fn get_tags(
     State(state): State<AppState>,
@@ -20,7 +20,7 @@ pub async fn create_tag(
     if name.is_empty() {
         return Err(AppError::BadRequest("Tag name is required".to_string()));
     }
-    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let now = utc_timestamp();
     let id = state.db.create_tag(name, &req.color).await;
     Ok(Json(ApiResponse::ok(Tag {
         id,
