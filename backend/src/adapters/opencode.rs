@@ -3,7 +3,7 @@ use std::env;
 use std::sync::Arc;
 use parking_lot::Mutex;
 
-use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
+use super::{get_timestamp, CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
 
 pub struct OpencodeExecutor {
     path: String,
@@ -141,9 +141,9 @@ impl CodeExecutor for OpencodeExecutor {
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
         let event: OpencodeEvent = serde_json::from_str(line).ok()?;
 
-        let secs = event.timestamp / 1000;
-        let millis = event.timestamp % 1000;
-        let timestamp = format!("{}.{:03}", secs, millis);
+        let timestamp = chrono::DateTime::from_timestamp_millis(event.timestamp as i64)
+            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+            .unwrap_or_else(get_timestamp);
 
         match event.event_type.as_str() {
             "step_start" => {

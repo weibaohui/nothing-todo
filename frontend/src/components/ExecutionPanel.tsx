@@ -39,6 +39,20 @@ interface ExecutionPanelProps {
   onToggleCollapse: () => void;
 }
 
+function formatShortTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+  } catch {
+    return iso;
+  }
+}
+
 export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelProps) {
   const { state, dispatch } = useApp();
   const { runningTasks, activeTaskId } = state;
@@ -123,7 +137,7 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
             <>
               {activeTask.logs.map((log, idx) => (
                 <div key={idx} className="log-line">
-                  <span className="log-timestamp">{log.timestamp}</span>
+                  <span className="log-timestamp">{formatShortTime(log.timestamp)}</span>
                   <span
                     className="log-type-badge"
                     style={{
