@@ -169,11 +169,16 @@ pub async fn run_todo_execution(
         let stderr_tx = tx.clone();
         let stderr_tid = task_id.clone();
         let logs_for_stderr = logs.clone();
+        let executor_for_stderr = executor_spawn.clone();
         let stderr_task = if let Some(stderr_reader) = stderr_handle {
             Some(tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr_reader).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
-                    let entry = ParsedLogEntry::stderr(line.clone());
+                    let entry = if let Some(parsed) = executor_for_stderr.parse_stderr_line(&line) {
+                        parsed
+                    } else {
+                        ParsedLogEntry::stderr(line.clone())
+                    };
                     logs_for_stderr.lock().await.push(entry.clone());
                     send_event(&stderr_tx, ExecEvent::Output { task_id: stderr_tid.clone(), entry });
                 }

@@ -10,6 +10,7 @@ pub fn parse_executor_type(executor: &str) -> ExecutorType {
         "claudecode" | "claude" => ExecutorType::Claudecode,
         "codebuddy" | "cbc" => ExecutorType::Codebuddy,
         "opencode" => ExecutorType::Opencode,
+        "atomcode" | "atom" => ExecutorType::Atomcode,
         _ => ExecutorType::Joinai,
     }
 }
@@ -25,6 +26,7 @@ pub mod joinai;
 pub mod claude_code;
 pub mod codebuddy;
 pub mod opencode;
+pub mod atomcode;
 
 #[async_trait]
 pub trait CodeExecutor: Send + Sync {
@@ -39,6 +41,11 @@ pub trait CodeExecutor: Send + Sync {
 
     /// 解析输出行，返回解析后的日志条目
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry>;
+
+    /// 解析 stderr 行，返回解析后的日志条目。返回 None 表示作为普通 stderr 处理。
+    fn parse_stderr_line(&self, _line: &str) -> Option<ParsedLogEntry> {
+        None
+    }
 
     /// 是否解析成功（检查退出码）
     fn check_success(&self, exit_code: i32) -> bool {
@@ -114,6 +121,13 @@ mod tests {
     #[test]
     fn test_parse_executor_type_opencode() {
         assert_eq!(parse_executor_type("opencode"), ExecutorType::Opencode);
+    }
+
+    #[test]
+    fn test_parse_executor_type_atomcode() {
+        assert_eq!(parse_executor_type("atomcode"), ExecutorType::Atomcode);
+        assert_eq!(parse_executor_type("atom"), ExecutorType::Atomcode);
+        assert_eq!(parse_executor_type("ATOMCODE"), ExecutorType::Atomcode);
     }
 
     #[test]

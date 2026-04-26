@@ -253,6 +253,7 @@ pub enum ExecutorType {
     Claudecode,
     Codebuddy,
     Opencode,
+    Atomcode,
 }
 
 impl Default for ExecutorType {
@@ -268,6 +269,7 @@ impl ExecutorType {
             ExecutorType::Claudecode => "claudecode",
             ExecutorType::Codebuddy => "codebuddy",
             ExecutorType::Opencode => "opencode",
+            ExecutorType::Atomcode => "atomcode",
         }
     }
 }
@@ -374,6 +376,7 @@ mod tests {
         assert_eq!(ExecutorType::Claudecode.as_str(), "claudecode");
         assert_eq!(ExecutorType::Codebuddy.as_str(), "codebuddy");
         assert_eq!(ExecutorType::Opencode.as_str(), "opencode");
+        assert_eq!(ExecutorType::Atomcode.as_str(), "atomcode");
     }
 
     #[test]

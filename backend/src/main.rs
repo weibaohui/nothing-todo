@@ -41,6 +41,7 @@ async fn main() {
     executor_registry.register(adapters::claude_code::ClaudeCodeExecutor::new());
     executor_registry.register(adapters::codebuddy::CodebuddyExecutor::new());
     executor_registry.register(adapters::opencode::OpencodeExecutor::new());
+    executor_registry.register(adapters::atomcode::AtomcodeExecutor::new());
 
     // List available executors
     let executors = executor_registry.list_executors();

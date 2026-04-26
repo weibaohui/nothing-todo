@@ -110,6 +110,7 @@ export const EXECUTORS: ExecutorOption[] = [
   { value: 'codebuddy',  label: 'CodeBuddy',  color: '#2563eb', icon: '🔵' },
   { value: 'opencode',   label: 'Opencode',   color: '#f59e0b', icon: '🟡' },
   { value: 'joinai',     label: 'JoinAI',     color: '#0d9488', icon: '🟢' },
+  { value: 'atomcode',   label: 'AtomCode',   color: '#dc2626', icon: '🔴' },
 ];
 
 export function getExecutorOption(value: string): ExecutorOption {
