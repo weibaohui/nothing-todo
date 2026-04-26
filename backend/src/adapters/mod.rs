@@ -76,8 +76,3 @@ pub fn get_timestamp() -> String {
     Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
 }
 
-/// 去除 think 标签，只保留最终结论
-pub fn extract_final_answer(content: &str) -> String {
-    let re = regex::Regex::new(r"<think>[\s\S]*?</think>").unwrap();
-    re.replace_all(content, "").trim().to_string()
-}

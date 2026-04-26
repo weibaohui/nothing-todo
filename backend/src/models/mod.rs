@@ -121,14 +121,6 @@ pub struct ExecutionSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LogEntry {
-    pub timestamp: String,
-    #[serde(rename = "type")]
-    pub log_type: String,
-    pub content: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParsedLogEntry {
     pub timestamp: String,
     #[serde(rename = "type")]
