@@ -196,7 +196,7 @@ conn.execute(
     pub fn get_todos(&self) -> Vec<Todo> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, title, prompt, status, created_at, updated_at, executor, scheduler_enabled, scheduler_config, task_id FROM todos WHERE deleted_at IS NULL ORDER BY created_at DESC"
+            "SELECT id, title, prompt, status, created_at, updated_at, executor, scheduler_enabled, scheduler_config, task_id FROM todos WHERE deleted_at IS NULL ORDER BY updated_at DESC"
         ).unwrap();
         let todos: Vec<Todo> = stmt.query_map([], |row| {
             self.row_to_todo(row)
