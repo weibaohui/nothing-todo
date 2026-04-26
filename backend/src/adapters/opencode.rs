@@ -9,6 +9,7 @@ pub struct OpencodeExecutor {
     path: String,
     model: Arc<Mutex<Option<String>>>,
     usage: Arc<Mutex<Option<ExecutionUsage>>>,
+    has_successful_finish: Arc<Mutex<bool>>,
 }
 
 impl OpencodeExecutor {
@@ -19,6 +20,7 @@ impl OpencodeExecutor {
             path,
             model: Arc::new(Mutex::new(None)),
             usage: Arc::new(Mutex::new(None)),
+            has_successful_finish: Arc::new(Mutex::new(false)),
         }
     }
 }
@@ -29,6 +31,7 @@ impl Clone for OpencodeExecutor {
             path: self.path.clone(),
             model: self.model.clone(),
             usage: self.usage.clone(),
+            has_successful_finish: self.has_successful_finish.clone(),
         }
     }
 }
@@ -185,6 +188,10 @@ impl CodeExecutor for OpencodeExecutor {
                 })
             }
             "step_finish" => {
+                // Mark as successfully finished — opencode returns non-zero exit code
+                // even on successful execution, so we track success via the event stream.
+                *self.has_successful_finish.lock().unwrap() = true;
+
                 // Store usage info if available
                 if let Some(part) = &event.part {
                     if let Some(tokens) = &part.tokens {
@@ -232,6 +239,15 @@ impl CodeExecutor for OpencodeExecutor {
 
     fn get_model(&self) -> Option<String> {
         self.model.lock().unwrap().clone()
+    }
+
+    fn check_success(&self, exit_code: i32) -> bool {
+        if exit_code == 0 {
+            return true;
+        }
+        // opencode returns non-zero exit codes (e.g. 144) even on successful execution.
+        // Trust the presence of a step_finish event in the output stream.
+        *self.has_successful_finish.lock().unwrap()
     }
 }
 
@@ -341,6 +357,27 @@ mod tests {
     fn test_get_model_always_none() {
         let executor = OpencodeExecutor::new();
         assert!(executor.get_model().is_none());
+    }
+
+    #[test]
+    fn test_check_success_exit_code_zero() {
+        let executor = OpencodeExecutor::new();
+        assert!(executor.check_success(0));
+    }
+
+    #[test]
+    fn test_check_success_non_zero_without_step_finish() {
+        let executor = OpencodeExecutor::new();
+        assert!(!executor.check_success(144));
+        assert!(!executor.check_success(1));
+    }
+
+    #[test]
+    fn test_check_success_non_zero_with_step_finish() {
+        let executor = OpencodeExecutor::new();
+        let line = r#"{"type":"step_finish","timestamp":1700000000000,"part":{"type":"step_finish","tokens":{"total":100,"input":50,"output":50,"cache":{"read":10,"write":5}},"cost":0.001}}"#;
+        let _ = executor.parse_output_line(line);
+        assert!(executor.check_success(144), "should succeed when step_finish was parsed even with non-zero exit code");
     }
 }
 
