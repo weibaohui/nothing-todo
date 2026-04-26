@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty, Input, App, Popconfirm, Tag, Badge, Pagination } from 'antd';
-import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import { TagCheckCardGroup } from './TagCheckCard';
 import { PieChart, PieChartLegend } from './PieChart';
@@ -10,6 +10,7 @@ import * as db from '../utils/database';
 import { formatLocalDateTime } from '../utils/datetime';
 import { AnimatedNumber } from './AnimatedNumber';
 import { getExecutorOption } from '../types';
+import XMarkdown from '@ant-design/x-markdown';
 import type { ExecutionSummary, Todo } from '../types';
 
 const { TextArea } = Input;
@@ -468,7 +469,22 @@ export function TodoDetail() {
 
                 {record.result !== null && record.result !== '' && (
                   <div className={`history-result ${record.status === 'success' ? 'history-result-success' : 'history-result-failed'}`}>
-                    {record.result}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<CopyOutlined />}
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(record.result || '');
+                            message.success('已复制到剪贴板');
+                          } catch {
+                            message.error('复制失败');
+                          }
+                        }}
+                      />
+                    </div>
+                    <XMarkdown content={record.result} />
                   </div>
                 )}
 
