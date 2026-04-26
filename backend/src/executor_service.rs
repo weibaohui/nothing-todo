@@ -139,7 +139,7 @@ pub async fn run_todo_execution(
                         send_event(&tx_clone, ExecEvent::Output { task_id: tid.clone(), entry: parsed });
 
                         let logs_json = serde_json::to_string(&*logs_for_db.lock().await).unwrap_or_default();
-                        db_clone2.update_execution_record(rid, "running", &logs_json, "", None, None).await;
+                        db_clone2.update_execution_record(rid, crate::models::ExecutionStatus::Running.as_str(), &logs_json, "", None, None).await;
                     }
                 }
             }))
@@ -211,7 +211,7 @@ pub async fn run_todo_execution(
         let all_logs_snapshot = logs_for_result.lock().await.clone();
         let result_str = executor_spawn.get_final_result(&all_logs_snapshot).unwrap_or_default();
 
-        let final_status = if success { "success" } else { "failed" };
+        let final_status = if success { crate::models::ExecutionStatus::Success.as_str() } else { crate::models::ExecutionStatus::Failed.as_str() };
         let logs_json = serde_json::to_string(&all_logs_snapshot).unwrap_or_default();
         let usage = executor_spawn.get_usage(&all_logs_snapshot);
         let model = executor_spawn.get_model();

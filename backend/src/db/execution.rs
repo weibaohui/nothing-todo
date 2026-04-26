@@ -71,7 +71,7 @@ impl Database {
             command: ActiveValue::Set(Some(command.to_string())),
             executor: ActiveValue::Set(Some(executor.to_string())),
             trigger_type: ActiveValue::Set(Some(trigger_type.to_string())),
-            status: ActiveValue::Set(Some("running".to_string())),
+            status: ActiveValue::Set(Some(crate::models::ExecutionStatus::Running.to_string())),
             started_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
@@ -125,9 +125,9 @@ impl Database {
         for r in records {
             total_executions += 1;
             match r.status.as_deref() {
-                Some("success") => success_count += 1,
-                Some("failed") => failed_count += 1,
-                Some("running") => running_count += 1,
+                Some(s) if s == crate::models::ExecutionStatus::Success.as_str() => success_count += 1,
+                Some(s) if s == crate::models::ExecutionStatus::Failed.as_str() => failed_count += 1,
+                Some(s) if s == crate::models::ExecutionStatus::Running.as_str() => running_count += 1,
                 _ => {}
             }
             if let Some(usage_str) = r.usage {
