@@ -24,7 +24,9 @@ pub trait CodeExecutor: Send + Sync {
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry>;
 
     /// 是否解析成功（检查退出码）
-    fn check_success(&self, exit_code: i32) -> bool;
+    fn check_success(&self, exit_code: i32) -> bool {
+        exit_code == 0
+    }
 
     /// 从日志列表中提取最终结果
     fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String>;

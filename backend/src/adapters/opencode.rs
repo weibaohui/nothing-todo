@@ -216,10 +216,6 @@ impl CodeExecutor for OpencodeExecutor {
         }
     }
 
-    fn check_success(&self, exit_code: i32) -> bool {
-        exit_code == 0
-    }
-
     fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
         // 查找最后的 text 类型日志作为结果
         let text_result = logs.iter()

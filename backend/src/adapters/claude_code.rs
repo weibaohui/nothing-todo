@@ -239,10 +239,6 @@ impl CodeExecutor for ClaudeCodeExecutor {
         })
     }
 
-    fn check_success(&self, exit_code: i32) -> bool {
-        exit_code == 0
-    }
-
     fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
         // Claude Code 的结果在 result 类型日志中
         logs.iter()
