@@ -21,7 +21,10 @@
 - **跨平台** — 支持 Windows、macOS、Linux（x86_64 & ARM64）
 
 ---
- 
+![detail](docs/detail.png)
+![dashboard](docs/dashboard.png)
+
+---
 ## 快速开始
 
 ### 前置要求
