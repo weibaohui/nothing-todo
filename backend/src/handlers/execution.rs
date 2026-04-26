@@ -2,12 +2,14 @@ use axum::{
     extract::{Path, Query, State},
 };
 use serde::Deserialize;
+use sea_orm::ActiveValue;
 
 use crate::executor_service::run_todo_execution;
 use crate::handlers::{ApiJson, AppError, AppState};
 use crate::models::{
     ApiResponse, DashboardStats, ExecuteRequest, ExecutionRecordsPage, ExecutionSummary, TodoIdQuery,
 };
+use crate::db::entity::execution_records;
 
 pub async fn get_execution_records(
     State(state): State<AppState>,
@@ -49,40 +51,57 @@ pub async fn execute_handler(
 
 #[derive(Debug, Deserialize)]
 pub struct StopExecutionRequest {
-    pub task_id: String,
+    pub record_id: i64,
 }
 
 pub async fn stop_execution_handler(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<StopExecutionRequest>,
 ) -> Result<ApiResponse<()>, AppError> {
-    let cancelled = state.task_manager.cancel(&req.task_id).await;
+    tracing::info!("Stopping execution record: {}", req.record_id);
 
-    if cancelled {
-        // 成功取消任务
-        return Ok(ApiResponse::ok(()));
+    // 根据 record_id 查询执行记录
+    use crate::db::entity::execution_records;
+    let record = execution_records::Entity::find_by_id(req.record_id)
+        .one(&state.db.conn)
+        .await
+        .map_err(|_| AppError::BadRequest("Failed to query execution record".to_string()))?;
+
+    let record = match record {
+        Some(r) => r,
+        None => return Err(AppError::BadRequest("Execution record not found".to_string())),
+    };
+
+    // 检查记录状态是否为 running
+    if record.status.as_deref() != Some("running") {
+        return Err(AppError::BadRequest("Execution record is not running".to_string()));
     }
 
-    // 任务在TaskManager中找不到，可能是已经完成但todo状态没更新
-    // 查找task_id对应的todo
-    if let Some(todo) = state.db.get_todo_by_task_id(&req.task_id).await {
-        if todo.task_id.as_ref() == Some(&req.task_id) {
-            // todo的task_id匹配，说明这个todo还在运行状态
-            // 更新todo状态为failed，清除task_id
-            state.db.update_todo_status(todo.id, crate::models::TodoStatus::Failed).await;
-            state.db.update_todo_task_id(todo.id, None).await;
+    // 获取 pid 并停止
+    if let Some(pid) = record.pid {
+        let pid: i32 = pid;
+        tracing::info!("Stopping execution record {} with pid: {}", req.record_id, pid);
 
-            // 同时更新对应的执行记录为失败状态
-            state.db.mark_execution_records_as_failed(todo.id).await;
+        // 更新数据库状态
+        let now = crate::models::utc_timestamp();
+        let am = execution_records::ActiveModel {
+            id: sea_orm::ActiveValue::Unchanged(req.record_id),
+            status: sea_orm::ActiveValue::Set(Some(crate::models::ExecutionStatus::Failed.as_str().to_string())),
+            finished_at: sea_orm::ActiveValue::Set(Some(now)),
+            result: sea_orm::ActiveValue::Set(Some("任务已被手动停止".to_string())),
+            pid: sea_orm::ActiveValue::Set(None),
+            ..Default::default()
+        };
+        state.db.exec_update(am).await;
 
-            return Ok(ApiResponse::ok(()));
-        }
+        // 杀死进程组
+        crate::executor_service::kill_process_group(pid as u32);
+
+        tracing::info!("Successfully stopped execution record {}", req.record_id);
+        Ok(ApiResponse::ok(()))
+    } else {
+        Err(AppError::BadRequest("No pid found for this execution record".to_string()))
     }
-
-    // 找不到对应的todo或task_id不匹配，返回错误
-    Err(AppError::BadRequest(
-        "Task not found or already finished".to_string(),
-    ))
 }
 
 pub async fn get_execution_summary(

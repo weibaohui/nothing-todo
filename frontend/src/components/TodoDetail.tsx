@@ -95,14 +95,15 @@ export function TodoDetail() {
     }
   };
 
-  const handleStopExecution = async () => {
-    if (currentRunningTask) {
-      try {
-        await db.stopExecution(currentRunningTask.taskId);
-        message.info('已发送停止指令');
-      } catch (error) {
-        message.error('停止失败: ' + error);
-      }
+  const handleStopExecution = async (recordId: number) => {
+    try {
+      console.log(`Stopping execution record: ${recordId}`);
+      await db.stopExecution(recordId);
+      message.info('已发送停止指令');
+      await loadExecutionRecords(historyPage, historyLimit);
+    } catch (error) {
+      console.error('Failed to stop execution:', error);
+      message.error('停止失败: ' + error);
     }
   };
 
@@ -401,27 +402,15 @@ export function TodoDetail() {
       {/* Action Card */}
       {!isEditing && (
         <div className="detail-card action-card">
-          {isExecuting ? (
-            <Button
-              danger
-              icon={<StopOutlined />}
-              onClick={handleStopExecution}
-              block
-              className="btn-stop"
-            >
-              停止执行
-            </Button>
-          ) : (
-            <Button
-              type="primary"
-              icon={<PlayCircleOutlined />}
-              onClick={handleExecute}
-              block
-              className="btn-execute"
-            >
-              执行任务
-            </Button>
-          )}
+          <Button
+            type="primary"
+            icon={<PlayCircleOutlined />}
+            onClick={handleExecute}
+            block
+            className="btn-execute"
+          >
+            执行任务
+          </Button>
         </div>
       )}
 
@@ -483,21 +472,13 @@ export function TodoDetail() {
                       {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
                     </span>
                     {record.status === 'running' && (() => {
-                      const taskId = currentRunningTask?.taskId || selectedTodo?.task_id;
-                      if (!taskId) return null;
                       return (
                         <Popconfirm
                           title="确定强制停止该任务？"
                           okText="停止"
                           cancelText="取消"
                           onConfirm={async () => {
-                            try {
-                              await db.stopExecution(taskId);
-                              message.success('任务已停止');
-                              await loadExecutionRecords(historyPage, historyLimit);
-                            } catch (error) {
-                              message.error('停止失败: ' + error);
-                            }
+                            await handleStopExecution(record.id);
                           }}
                         >
                           <Button

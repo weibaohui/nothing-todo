@@ -108,8 +108,8 @@ export async function getDashboardStats(): Promise<import('../types').DashboardS
   return unwrap(await api.get<ApiResp<import('../types').DashboardStats>>('/xyz/dashboard-stats'));
 }
 
-export async function stopExecution(taskId: string): Promise<void> {
-  await api.post('/xyz/execute/stop', { task_id: taskId });
+export async function stopExecution(recordId: number): Promise<void> {
+  await api.post('/xyz/execute/stop', { record_id: recordId });
 }
 
 // Scheduler APIs

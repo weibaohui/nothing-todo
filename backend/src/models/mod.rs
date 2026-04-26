@@ -118,6 +118,8 @@ pub struct ExecutionRecord {
     pub model: Option<String>,
     #[serde(default = "default_trigger_type")]
     pub trigger_type: String,
+    #[serde(default)]
+    pub pid: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

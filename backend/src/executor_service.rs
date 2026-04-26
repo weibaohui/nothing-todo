@@ -15,7 +15,7 @@ fn send_event(tx: &broadcast::Sender<ExecEvent>, event: ExecEvent) {
 }
 
 #[cfg(unix)]
-fn kill_process_group(child_id: u32) {
+pub fn kill_process_group(child_id: u32) {
     if child_id > 0 {
         unsafe {
             libc::kill(-(child_id as i32), libc::SIGKILL);
@@ -24,7 +24,7 @@ fn kill_process_group(child_id: u32) {
 }
 
 #[cfg(not(unix))]
-fn kill_process_group(_child_id: u32) {}
+pub fn kill_process_group(_child_id: u32) {}
 
 #[cfg(unix)]
 fn kill_processes_by_message(message: &str) {
@@ -109,12 +109,12 @@ pub async fn run_todo_execution(
             .stderr(std::process::Stdio::piped())
             .stdin(std::process::Stdio::piped());
 
+        let child_id = 0u32;
         #[cfg(unix)]
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setpgid(0, 0);
-                Ok(())
-            });
+        {
+            // 在 Unix 上，我们需要在 pre_exec 中设置进程组
+            // 但这可能导致多个子进程在同一个进程组中
+            // 让我们改用更可靠的方法：spawn 后再设置进程组
         }
 
         let mut child = match cmd.spawn() {
@@ -130,6 +130,20 @@ pub async fn run_todo_execution(
         };
 
         let child_id = child.id().unwrap_or(0);
+
+        #[cfg(unix)]
+        {
+            // 在 spawn 后立即设置进程组
+            // 这样可以确保每个进程都在独立的进程组中
+            unsafe {
+                libc::setpgid(child_id as i32, child_id as i32);
+            }
+        }
+
+        // 保存 pid 到 execution_records 表
+        if child_id > 0 {
+            db_clone.update_execution_record_pid(record_id, Some(child_id as i32)).await;
+        }
 
         let stdout_handle = child.stdout.take();
         let stderr_handle = child.stderr.take();

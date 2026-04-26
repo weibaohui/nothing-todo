@@ -106,6 +106,46 @@ impl Database {
         self.exec_update(am).await;
     }
 
+    /// 更新执行记录的 pid
+    pub async fn update_execution_record_pid(&self, id: i64, pid: Option<i32>) {
+        let am = execution_records::ActiveModel {
+            id: ActiveValue::Unchanged(id),
+            pid: ActiveValue::Set(pid),
+            ..Default::default()
+        };
+        self.exec_update(am).await;
+    }
+
+    /// 根据 pid 获取执行记录
+    pub async fn get_execution_record_by_pid(&self, pid: i32) -> Option<execution_records::Model> {
+        execution_records::Entity::find()
+            .filter(execution_records::Column::Pid.eq(pid))
+            .one(&self.conn)
+            .await
+            .unwrap_or_default()
+    }
+
+    /// 根据 pid 停止执行记录
+    pub async fn stop_execution_by_pid(&self, pid: i32) -> bool {
+        if let Some(record) = self.get_execution_record_by_pid(pid).await {
+            // 只更新这一条执行记录，不影响 todo 的状态
+            let now = crate::models::utc_timestamp();
+            let am = execution_records::ActiveModel {
+                id: ActiveValue::Unchanged(record.id),
+                status: ActiveValue::Set(Some(crate::models::ExecutionStatus::Failed.as_str().to_string())),
+                finished_at: ActiveValue::Set(Some(now)),
+                result: ActiveValue::Set(Some("任务已被手动停止".to_string())),
+                pid: ActiveValue::Set(None),
+                ..Default::default()
+            };
+            self.exec_update(am).await;
+
+            tracing::info!("Stopped execution record {} with pid {}", record.id, pid);
+            return true;
+        }
+        false
+    }
+
     pub async fn get_dashboard_stats(&self) -> crate::models::DashboardStats {
         use std::collections::HashMap;
 
@@ -303,6 +343,7 @@ impl Database {
                     executor: m.executor,
                     model: m.model,
                     trigger_type: m.trigger_type.unwrap_or_else(|| "manual".to_string()),
+                    pid: m.pid,
                 }
             })
             .collect();

@@ -47,6 +47,7 @@ export interface ExecutionRecord {
   executor: string | null;
   model: string | null;
   trigger_type: string;
+  pid: number | null;
 }
 
 export interface ExecutionUsage {
@@ -167,5 +168,5 @@ export const EXECUTORS: ExecutorOption[] = [
 ];
 
 export function getExecutorOption(value: string): ExecutorOption {
-  return EXECUTORS.find(e => e.value === value) || EXECUTORS[0];
+  return EXECUTORS.find(e => e.value === value.toLowerCase()) || EXECUTORS[0];
 }
