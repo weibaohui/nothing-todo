@@ -4,6 +4,7 @@ import { Button, Empty } from 'antd';
 import { PlusOutlined, TagOutlined, ClockCircleOutlined, InboxOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import * as db from '../utils/database';
+import { getExecutorOption } from '../types';
 
 interface TodoListProps {
   onOpenCreateModal: () => void;
@@ -139,6 +140,7 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal }: To
             const todoTags = tags.filter(t => (todo as any).tag_ids?.includes(t.id));
             const primaryTag = todoTags[0];
             const executor = todo.executor || 'claudecode';
+            const executorOpt = getExecutorOption(executor);
             const isCompleted = todo.status === 'completed';
 
             return (
@@ -175,9 +177,14 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal }: To
                         {todo.title}
                       </div>
                       <span
-                        className={`executor-badge ${executor === 'claudecode' ? 'executor-badge-claude' : executor === 'opencode' ? 'executor-badge-opencode' : 'executor-badge-joinai'}`}
+                        className="executor-badge"
+                        style={{
+                          backgroundColor: `${executorOpt.color}12`,
+                          color: executorOpt.color,
+                          border: `1px solid ${executorOpt.color}30`,
+                        }}
                       >
-                        {executor === 'claudecode' ? 'Claude' : executor === 'opencode' ? 'Opencode' : 'JoinAI'}
+                        {executorOpt.icon} {executorOpt.label}
                       </span>
                     </div>
                     {todo.prompt && (
@@ -203,7 +210,7 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal }: To
                         <ClockCircleOutlined
                           style={{
                             fontSize: 12,
-                            color: todo.scheduler_enabled ? 'var(--color-primary)' : 'var(--color-text-tertiary)',
+                            color: todo.scheduler_enabled ? 'var(--color-warning)' : 'var(--color-text-tertiary)',
                             marginLeft: todoTags.length > 0 ? 4 : 0,
                           }}
                         />

@@ -150,6 +150,7 @@ pub struct UpdateSchedulerRequest {
 pub enum ExecutorType {
     Joinai,
     Claudecode,
+    Codebuddy,
     Opencode,
 }
 
@@ -164,6 +165,7 @@ impl ExecutorType {
         match self {
             ExecutorType::Joinai => "joinai",
             ExecutorType::Claudecode => "claudecode",
+            ExecutorType::Codebuddy => "codebuddy",
             ExecutorType::Opencode => "opencode",
         }
     }

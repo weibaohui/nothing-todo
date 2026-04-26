@@ -9,10 +9,12 @@ use crate::adapters::{ExecutorRegistry, get_timestamp};
 use crate::db::Database;
 use crate::handlers::ExecEvent;
 use crate::models::{ParsedLogEntry, ExecutorType};
+use crate::task_manager::TaskManager;
 
 fn parse_executor_type(executor: &str) -> ExecutorType {
     match executor.to_lowercase().as_str() {
         "claudecode" | "claude" => ExecutorType::Claudecode,
+        "codebuddy" | "cbc" => ExecutorType::Codebuddy,
         "opencode" => ExecutorType::Opencode,
         _ => ExecutorType::Joinai,
     }
@@ -27,8 +29,10 @@ pub async fn run_todo_execution(
     message: String,
     req_executor: Option<String>,
     trigger_type: &str,
+    task_manager: Arc<TaskManager>,
 ) -> String {
     let task_id = Uuid::new_v4().to_string();
+    let mut cancel_rx = task_manager.register(task_id.clone());
 
     // Get todo to read stored executor
     let todo = db.get_todo(todo_id);
@@ -66,6 +70,7 @@ pub async fn run_todo_execution(
     let tx_clone = tx.clone();
     let executor_spawn = executor.clone();
     let message_clone = message.clone();
+    let task_manager_spawn = task_manager.clone();
 
     tokio::spawn(async move {
         let _ = tx_clone.send(ExecEvent::Started { task_id: task_id.clone() });
@@ -78,13 +83,21 @@ pub async fn run_todo_execution(
         };
         let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
 
-        let mut child = match Command::new(&executable_path)
-            .args(&command_args)
+        let mut cmd = Command::new(&executable_path);
+        cmd.args(&command_args)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-        {
+            .stdin(std::process::Stdio::piped());
+
+        #[cfg(unix)]
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setpgid(0, 0);
+                Ok(())
+            });
+        }
+
+        let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
                 let entry = ParsedLogEntry {
@@ -95,9 +108,14 @@ pub async fn run_todo_execution(
                 };
                 let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
                 let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), success: false, result: None });
+                db_clone.update_todo_status(todo_id, "failed");
+                db_clone.update_todo_task_id(todo_id, None);
+                task_manager_spawn.remove(&task_id);
                 return;
             }
         };
+
+        let child_id = child.id().unwrap_or(0);
 
         let stdout_handle = child.stdout.take();
         let stderr_handle = child.stderr.take();
@@ -109,14 +127,15 @@ pub async fn run_todo_execution(
         let executor_for_parse = executor_spawn.clone();
 
         // Process stdout
-        if let Some(stdout_reader) = stdout_handle {
+        let stdout_task = if let Some(stdout_reader) = stdout_handle {
             let tx_clone = tx.clone();
             let tid = task_id.clone();
             let db_clone2 = db_clone.clone();
             let rid = record_id;
             let executor_clone = executor_for_parse.clone();
+            let logs_for_db = logs_for_db.clone();
 
-            tokio::spawn(async move {
+            Some(tokio::spawn(async move {
                 let mut reader = BufReader::new(stdout_reader).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
                     if let Some(parsed) = executor_clone.parse_output_line(&line) {
@@ -127,8 +146,10 @@ pub async fn run_todo_execution(
                         db_clone2.update_execution_record(rid, "running", &logs_json, "");
                     }
                 }
-            });
-        }
+            }))
+        } else {
+            None
+        };
 
         // Capture stderr
         let stderr_tx = tx.clone();
@@ -152,11 +173,61 @@ pub async fn run_todo_execution(
             None
         };
 
-        let status = child.wait().await;
+        let status = tokio::select! {
+            biased;
+            Some(()) = cancel_rx.recv() => {
+                // Cancelled: kill the process group to ensure all child processes are terminated
+                #[cfg(unix)]
+                if child_id > 0 {
+                    unsafe {
+                        libc::kill(-(child_id as i32), libc::SIGKILL);
+                    }
+                }
 
-        if let Some(handle) = stderr_task {
-            let _ = handle.await;
-        }
+                // Also try to kill the direct child
+                let _ = child.kill().await;
+                let _status = child.wait().await;
+
+                if let Some(handle) = stdout_task {
+                    let _ = handle.await;
+                }
+                if let Some(handle) = stderr_task {
+                    let _ = handle.await;
+                }
+
+                db_clone.update_todo_status(todo_id, "cancelled");
+                db_clone.update_todo_task_id(todo_id, None);
+
+                let entry = ParsedLogEntry {
+                    timestamp: get_timestamp(),
+                    log_type: "error".to_string(),
+                    content: "Execution cancelled by user".to_string(),
+                    usage: None,
+                };
+                let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
+                let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), success: false, result: None });
+                task_manager_spawn.remove(&task_id);
+                return;
+            }
+            status = child.wait() => {
+                if let Some(handle) = stdout_task {
+                    let _ = handle.await;
+                }
+                if let Some(handle) = stderr_task {
+                    let _ = handle.await;
+                }
+
+                // Clean up the process group to ensure no grandchild processes are left behind
+                #[cfg(unix)]
+                if child_id > 0 {
+                    unsafe {
+                        libc::kill(-(child_id as i32), libc::SIGKILL);
+                    }
+                }
+
+                status
+            }
+        };
 
         let exit_code = status.as_ref().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
         let success = executor_spawn.check_success(exit_code);
@@ -189,6 +260,7 @@ pub async fn run_todo_execution(
         let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
 
         let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), success, result: Some(result_str) });
+        task_manager_spawn.remove(&task_id);
     });
 
     task_id_return

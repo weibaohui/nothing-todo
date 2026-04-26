@@ -1,20 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Modal, Select, Input, Button, Switch, Divider, Tag, App } from 'antd';
-import { ClockCircleOutlined } from '@ant-design/icons';
+import { Modal, Input, Button, Switch, Divider, App } from 'antd';
+import { ClockCircleOutlined, CheckOutlined } from '@ant-design/icons';
 import * as db from '../utils/database';
+import { EXECUTORS } from '../types';
 import type { Todo } from '../types';
-
-const cronPresets = [
-  { label: '每分钟', value: '0 * * * * *' },
-  { label: '每5分钟', value: '0 */5 * * * *' },
-  { label: '每10分钟', value: '0 */10 * * * *' },
-  { label: '每30分钟', value: '0 */30 * * * *' },
-  { label: '每小时', value: '0 0 * * * *' },
-  { label: '每天早8点', value: '0 0 8 * * *' },
-  { label: '每天午夜', value: '0 0 0 * * *' },
-  { label: '每周一8点', value: '0 0 8 * * 1' },
-  { label: '自定义', value: 'custom' },
-];
 
 interface TodoSettingsModalProps {
   open: boolean;
@@ -28,7 +17,6 @@ export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettin
   const [executor, setExecutor] = useState<string>('claudecode');
   const [schedulerEnabled, setSchedulerEnabled] = useState(false);
   const [schedulerConfig, setSchedulerConfig] = useState<string>('');
-  const [cronPreset, setCronPreset] = useState<string>('custom');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -36,23 +24,13 @@ export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettin
       setExecutor(todo.executor || 'claudecode');
       setSchedulerEnabled(todo.scheduler_enabled || false);
       setSchedulerConfig(todo.scheduler_config || '');
-      const matched = cronPresets.find((p) => p.value === todo.scheduler_config);
-      setCronPreset(matched ? matched.value : 'custom');
     }
   }, [todo, open]);
-
-  const handleCronPresetChange = (value: string) => {
-    setCronPreset(value);
-    if (value !== 'custom') {
-      setSchedulerConfig(value);
-    }
-  };
 
   const handleSave = async () => {
     if (!todo) return;
     setLoading(true);
     try {
-      // Update executor via updateTodo API
       await db.updateTodo(
         todo.id,
         todo.title,
@@ -63,7 +41,6 @@ export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettin
         schedulerConfig || null,
       );
 
-      // Update scheduler via dedicated API
       await db.updateScheduler(todo.id, schedulerEnabled, schedulerConfig || null);
 
       message.success('设置已保存');
@@ -76,9 +53,6 @@ export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettin
     }
   };
 
-  const executorLabel = executor === 'claudecode' ? 'Claude' : executor === 'opencode' ? 'Opencode' : 'JoinAI';
-  const executorColor = executor === 'claudecode' ? '#7c3aed' : executor === 'opencode' ? '#f59e0b' : '#0d9488';
-
   return (
     <Modal
       title="任务设置"
@@ -89,23 +63,76 @@ export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettin
         <Button key="save" type="primary" loading={loading} onClick={handleSave}>保存</Button>,
       ]}
     >
-      {/* Executor */}
+      {/* Executor Selection */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ marginBottom: 8, fontWeight: 600, fontSize: 14 }}>执行器</div>
-        <Select
-          value={executor}
-          onChange={setExecutor}
-          style={{ width: '100%' }}
-          options={[
-            { value: 'claudecode', label: 'Claude' },
-            { value: 'joinai', label: 'JoinAI' },
-            { value: 'opencode', label: 'Opencode' },
-          ]}
-        />
-        <div style={{ marginTop: 8 }}>
-          <Tag color={executorColor} style={{ fontWeight: 600 }}>
-            {executorLabel}
-          </Tag>
+        <div style={{ marginBottom: 10, fontWeight: 600, fontSize: 14 }}>执行器</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+          {EXECUTORS.map((opt) => {
+            const selected = executor === opt.value;
+            return (
+              <div
+                key={opt.value}
+                onClick={() => setExecutor(opt.value)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setExecutor(opt.value);
+                  }
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '10px 14px',
+                  borderRadius: 10,
+                  border: `2px solid ${selected ? opt.color : '#e2e8f0'}`,
+                  background: selected ? `${opt.color}10` : '#fff',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  flex: '1 1 calc(50% - 10px)',
+                  minWidth: 120,
+                }}
+                onMouseEnter={(e) => {
+                  if (!selected) {
+                    (e.currentTarget as HTMLDivElement).style.borderColor = `${opt.color}60`;
+                    (e.currentTarget as HTMLDivElement).style.background = `${opt.color}08`;
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!selected) {
+                    (e.currentTarget as HTMLDivElement).style.borderColor = '#e2e8f0';
+                    (e.currentTarget as HTMLDivElement).style.background = '#fff';
+                  }
+                }}
+              >
+                <span style={{ fontSize: 16, lineHeight: 1 }}>{opt.icon}</span>
+                <span style={{
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: selected ? opt.color : '#0f172a',
+                  flex: 1,
+                }}>
+                  {opt.label}
+                </span>
+                {selected && (
+                  <span style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: '50%',
+                    backgroundColor: opt.color,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}>
+                    <CheckOutlined style={{ fontSize: 10, color: '#fff' }} />
+                  </span>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -131,7 +158,6 @@ export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettin
               setSchedulerEnabled(checked);
               if (checked && !schedulerConfig) {
                 setSchedulerConfig('0 */10 * * * *');
-                setCronPreset('0 */10 * * * *');
               }
             }}
           />
@@ -139,21 +165,12 @@ export function TodoSettingsModal({ open, todo, onClose, onUpdated }: TodoSettin
 
         {schedulerEnabled && (
           <div style={{ marginTop: 12 }}>
-            <Select
-              value={cronPreset}
-              onChange={handleCronPresetChange}
-              style={{ width: '100%', marginBottom: 8 }}
-              placeholder="选择预设或自定义"
-              options={cronPresets}
+            <Input
+              value={schedulerConfig}
+              onChange={(e) => setSchedulerConfig(e.target.value)}
+              placeholder="Cron 表达式，例如: 0 */10 * * * *"
+              style={{ marginBottom: 8 }}
             />
-            {cronPreset === 'custom' && (
-              <Input
-                value={schedulerConfig}
-                onChange={(e) => setSchedulerConfig(e.target.value)}
-                placeholder="Cron 表达式，例如: 0 */10 * * * *"
-                style={{ marginBottom: 8 }}
-              />
-            )}
           </div>
         )}
 

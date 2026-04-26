@@ -34,8 +34,8 @@ impl Database {
                 title TEXT NOT NULL,
                 prompt TEXT DEFAULT '',
                 status TEXT DEFAULT 'pending',
-                created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
-                updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                created_at TEXT,
+                updated_at TEXT,
                 deleted_at TEXT
             )",
             [],
@@ -46,7 +46,7 @@ impl Database {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
                 color TEXT DEFAULT '#1890ff',
-                created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+                created_at TEXT
             )",
             [],
         )?;
@@ -78,8 +78,40 @@ impl Database {
             [],
         ).ok();
 
+conn.execute(
+            "ALTER TABLE todos ADD COLUMN model TEXT",
+            [],
+        ).ok();
+
         conn.execute(
             "ALTER TABLE todos ADD COLUMN task_id TEXT",
+            [],
+        ).ok();
+
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS set_todos_created_at_utc AFTER INSERT ON todos
+             WHEN new.created_at IS NULL OR new.created_at = ''
+             BEGIN
+                 UPDATE todos SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+             END",
+            [],
+        ).ok();
+
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS set_todos_updated_at_utc BEFORE UPDATE ON todos
+             WHEN new.updated_at IS NULL OR new.updated_at = ''
+             BEGIN
+                 SELECT raise(IGNORE);
+             END",
+            [],
+        ).ok();
+
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS set_tags_created_at_utc AFTER INSERT ON tags
+             WHEN new.created_at IS NULL OR new.created_at = ''
+             BEGIN
+                 UPDATE tags SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+             END",
             [],
         ).ok();
 
@@ -193,7 +225,7 @@ impl Database {
         let conn = self.conn.lock();
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         conn.execute(
-            "INSERT INTO todos (title, prompt, created_at, updated_at, executor) VALUES (?1, ?2, ?3, ?3, 'claudecode')",
+            "INSERT INTO todos (title, prompt, created_at, updated_at, executor, status) VALUES (?1, ?2, ?3, ?3, 'claudecode', 'pending')",
             params![title, prompt, now],
         ).unwrap();
         conn.last_insert_rowid()

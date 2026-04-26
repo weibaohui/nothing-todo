@@ -304,25 +304,6 @@ body {
   border-radius: 12px;
   font-weight: 600;
   letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-
-.executor-badge-claude {
-  background: #7c3aed12;
-  color: #7c3aed;
-  border: 1px solid #7c3aed30;
-}
-
-.executor-badge-joinai {
-  background: #0d948812;
-  color: #0d9488;
-  border: 1px solid #0d948830;
-}
-
-.executor-badge-opencode {
-  background: #f59e0b12;
-  color: #f59e0b;
-  border: 1px solid #f59e0b30;
 }
 
 /* Status Container */

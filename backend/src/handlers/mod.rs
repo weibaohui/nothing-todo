@@ -4,7 +4,7 @@ use axum::{
     response::{Html, IntoResponse, Response, Json},
     extract::{State, Path, Query, WebSocketUpgrade},
 };
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -19,6 +19,7 @@ use crate::models::{
     Todo, Tag, ExecutionRecord, ExecutionSummary, ParsedLogEntry,
 };
 use crate::scheduler::TodoScheduler;
+use crate::task_manager::TaskManager;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -26,6 +27,7 @@ pub struct AppState {
     pub executor_registry: Arc<ExecutorRegistry>,
     pub tx: broadcast::Sender<ExecEvent>,
     pub scheduler: Arc<TodoScheduler>,
+    pub task_manager: Arc<TaskManager>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -137,9 +139,28 @@ pub async fn execute_handler(
         state.tx.clone(),
         req.todo_id, req.message, req.executor,
         "manual",
+        state.task_manager.clone(),
     ).await;
 
     Json(ApiResponse::ok(serde_json::json!({ "task_id": task_id })))
+}
+
+// Stop execution handler
+#[derive(Debug, Deserialize)]
+pub struct StopExecutionRequest {
+    pub task_id: String,
+}
+
+pub async fn stop_execution_handler(
+    State(state): State<AppState>,
+    Json(req): Json<StopExecutionRequest>,
+) -> Json<ApiResponse<()>> {
+    let cancelled = state.task_manager.cancel(&req.task_id);
+    if cancelled {
+        Json(ApiResponse::ok(()))
+    } else {
+        Json(ApiResponse::err(codes::NOT_FOUND, "Task not found or already finished"))
+    }
 }
 
 // Scheduler handlers
@@ -161,7 +182,7 @@ pub async fn update_scheduler(
         if let Some(ref config) = req.scheduler_config {
             match state.scheduler.add_task(
                 state.db.clone(), state.executor_registry.clone(), state.tx.clone(),
-                id, config.clone(),
+                id, config.clone(), state.task_manager.clone(),
             ).await {
                 Ok(uuid) => Some(uuid.to_string()),
                 Err(e) => {
@@ -264,8 +285,8 @@ pub async fn static_handler(Path(path): Path<String>) -> Response {
 }
 
 // Build router
-pub fn create_app(db: Arc<Database>, executor_registry: Arc<ExecutorRegistry>, tx: broadcast::Sender<ExecEvent>, scheduler: Arc<TodoScheduler>) -> Router {
-    let state = AppState { db, executor_registry, tx, scheduler };
+pub fn create_app(db: Arc<Database>, executor_registry: Arc<ExecutorRegistry>, tx: broadcast::Sender<ExecEvent>, scheduler: Arc<TodoScheduler>, task_manager: Arc<TaskManager>) -> Router {
+    let state = AppState { db, executor_registry, tx, scheduler, task_manager };
 
     Router::new()
         .route("/", get(index_handler))
@@ -282,6 +303,7 @@ pub fn create_app(db: Arc<Database>, executor_registry: Arc<ExecutorRegistry>, t
         .route("/xyz/tags/{id}", delete(delete_tag))
         .route("/xyz/execution-records", get(get_execution_records))
         .route("/xyz/execute", post(execute_handler))
+        .route("/xyz/execute/stop", post(stop_execution_handler))
         .route("/xyz/events", get(events_handler))
         .route("/xyz/scheduler/todos", get(get_scheduler_todos))
         .route("/assets/{*path}", get(static_handler))

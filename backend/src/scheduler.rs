@@ -7,6 +7,7 @@ use crate::adapters::ExecutorRegistry;
 use crate::db::Database;
 use crate::executor_service::run_todo_execution;
 use crate::handlers::ExecEvent;
+use crate::task_manager::TaskManager;
 
 pub struct TodoScheduler {
     sched: Mutex<JobScheduler>,
@@ -23,6 +24,7 @@ impl TodoScheduler {
         db: Arc<Database>,
         executor_registry: Arc<ExecutorRegistry>,
         tx: broadcast::Sender<ExecEvent>,
+        task_manager: Arc<TaskManager>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let todos = db.get_scheduler_todos();
 
@@ -36,6 +38,7 @@ impl TodoScheduler {
                         tx.clone(),
                         todo.id,
                         config.clone(),
+                        task_manager.clone(),
                     ).await?;
                 }
             }
@@ -51,23 +54,26 @@ impl TodoScheduler {
         tx: broadcast::Sender<ExecEvent>,
         todo_id: i64,
         cron_expr: String,
+        task_manager: Arc<TaskManager>,
     ) -> Result<uuid::Uuid, Box<dyn std::error::Error>> {
         let db_clone = db.clone();
         let registry_clone = executor_registry.clone();
         let tx_clone = tx.clone();
+        let tm_clone = task_manager.clone();
 
         info!("Creating job for todo {} with cron: {}", todo_id, cron_expr);
         let job = Job::new_async(&cron_expr, move |_uuid, _l| {
             let db = db_clone.clone();
             let registry = registry_clone.clone();
             let tx = tx_clone.clone();
+            let tm = tm_clone.clone();
 
             Box::pin(async move {
                 if let Some(todo) = db.get_todo(todo_id) {
                     let message = if todo.prompt.is_empty() { todo.title.clone() } else { todo.prompt.clone() };
                     let executor = todo.executor.clone();
                     info!("Scheduled execution triggered for todo {}: {}", todo_id, message);
-                    run_todo_execution(db, registry, tx, todo_id, message, executor, "cron").await;
+                    run_todo_execution(db, registry, tx, todo_id, message, executor, "cron", tm).await;
                 }
             })
         })?;

@@ -101,6 +101,10 @@ export async function getExecutionSummary(todoId: number): Promise<ExecutionSumm
   return unwrap(await api.get<ApiResp<ExecutionSummary>>(`/xyz/todos/${todoId}/summary`));
 }
 
+export async function stopExecution(taskId: string): Promise<void> {
+  await api.post('/xyz/execute/stop', { task_id: taskId });
+}
+
 // Scheduler APIs
 
 export async function updateScheduler(

@@ -4,6 +4,7 @@ pub mod executor_service;
 pub mod handlers;
 pub mod models;
 pub mod scheduler;
+pub mod task_manager;
 
 use rust_embed::RustEmbed;
 

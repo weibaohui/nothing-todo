@@ -77,3 +77,21 @@ export interface ExecuteResult {
   stderr: string;
   logs: LogEntry[];
 }
+
+export interface ExecutorOption {
+  value: string;
+  label: string;
+  color: string;
+  icon: string;
+}
+
+export const EXECUTORS: ExecutorOption[] = [
+  { value: 'claudecode', label: 'Claude',     color: '#7c3aed', icon: '🟣' },
+  { value: 'codebuddy',  label: 'CodeBuddy',  color: '#2563eb', icon: '🔵' },
+  { value: 'opencode',   label: 'Opencode',   color: '#f59e0b', icon: '🟡' },
+  { value: 'joinai',     label: 'JoinAI',     color: '#0d9488', icon: '🟢' },
+];
+
+export function getExecutorOption(value: string): ExecutorOption {
+  return EXECUTORS.find(e => e.value === value) || EXECUTORS[0];
+}

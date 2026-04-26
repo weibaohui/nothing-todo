@@ -8,6 +8,7 @@ import { PieChart, PieChartLegend } from './PieChart';
 import { TodoSettingsModal } from './TodoSettingsModal';
 import * as db from '../utils/database';
 import { formatLocalDateTime } from '../utils/datetime';
+import { getExecutorOption } from '../types';
 import type { LogEntry, ExecutionSummary, Todo } from '../types';
 
 const { TextArea } = Input;
@@ -272,13 +273,20 @@ export function TodoDetail() {
     }
   };
 
-  const handleStopExecution = () => {
+  const handleStopExecution = async () => {
+    if (currentTaskId) {
+      try {
+        await db.stopExecution(currentTaskId);
+        message.info('已发送停止指令');
+      } catch (error) {
+        message.error('停止失败: ' + error);
+      }
+    }
     setIsExecuting(false);
     setCurrentTaskId(null);
     if (selectedTodoId) {
       setLogsMap(prev => new Map(prev).set(selectedTodoId, []));
     }
-    message.info('已停止执行');
   };
 
   const handleStatusChange = async (newStatus: string) => {
@@ -340,8 +348,7 @@ export function TodoDetail() {
   }
 
   const executor = selectedTodo.executor || 'claudecode';
-  const executorLabel = executor === 'claudecode' ? 'Claude' : executor === 'opencode' ? 'Opencode' : 'JoinAI';
-  const executorColor = executor === 'claudecode' ? '#7c3aed' : executor === 'opencode' ? '#f59e0b' : '#0d9488';
+  const executorOpt = getExecutorOption(executor);
 
   return (
     <div className="detail-panel">
@@ -396,8 +403,8 @@ export function TodoDetail() {
                 )}
                 {/* Info tags: executor + scheduler */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                  <Tag color={executorColor} style={{ fontWeight: 600 }}>
-                    {executorLabel}
+                  <Tag color={executorOpt.color} style={{ fontWeight: 600 }}>
+                    {executorOpt.icon} {executorOpt.label}
                   </Tag>
                   {selectedTodo.scheduler_enabled ? (
                     <Tag color="var(--color-primary)" style={{ fontWeight: 600 }}>
@@ -673,11 +680,14 @@ export function TodoDetail() {
                   <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
                     {formatLocalDateTime(record.started_at)}
                   </span>
-                  {record.executor && (
-                    <Tag color={record.executor === 'claudecode' ? '#7c3aed' : record.executor === 'opencode' ? '#f59e0b' : '#0d9488'} style={{ fontWeight: 600 }}>
-                      {record.executor === 'claudecode' ? 'Claude' : record.executor === 'opencode' ? 'Opencode' : 'JoinAI'}
-                    </Tag>
-                  )}
+                  {record.executor && (() => {
+                    const recOpt = getExecutorOption(record.executor);
+                    return (
+                      <Tag color={recOpt.color} style={{ fontWeight: 600 }}>
+                        {recOpt.icon} {recOpt.label}
+                      </Tag>
+                    );
+                  })()}
                   {record.model && <Tag color="#3b82f6">{record.model}</Tag>}
                   <Tag color={record.trigger_type === 'cron' ? '#8b5cf6' : '#6b7280'} style={{ fontSize: 10 }}>
                     {record.trigger_type === 'cron' ? 'Cron' : '手动'}
