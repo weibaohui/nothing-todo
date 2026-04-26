@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{broadcast, Mutex};
-use aitodo::{adapters, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager};
+use ntd::{adapters, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager};
 
 /// Tests must run serially because multiple concurrent opencode processes
 /// compete for resources and can cause timeouts.

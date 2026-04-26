@@ -671,7 +671,7 @@ impl Config {
     }
 
     pub fn from_env() -> Result<Self, envy::Error> {
-        envy::prefixed("AITODO_")
+        envy::prefixed("NTD_")
             .from_env()
     }
 
@@ -690,7 +690,7 @@ impl Default for Config {
                 port: 3000,
             },
             database: DatabaseConfig {
-                url: "aitodo.db".to_string(),
+                url: "ntd.db".to_string(),
                 pool_size: 10,
             },
             logging: LoggingConfig {
@@ -757,7 +757,7 @@ host = "127.0.0.1"
 port = 3000
 
 [database]
-url = "aitodo.db"
+url = "ntd.db"
 pool_size = 10
 
 [logging]
@@ -772,11 +772,11 @@ opencode_path = "/path/to/opencode"
 
 **环境变量示例**：
 ```bash
-export AITODO_SERVER_HOST=0.0.0.0
-export AITODO_SERVER_PORT=8080
-export AITODO_DATABASE_URL=/var/lib/aitodo/aitodo.db
-export AITODO_DATABASE_POOL_SIZE=20
-export AITODO_LOGGING_LEVEL=debug
+export NTD_SERVER_HOST=0.0.0.0
+export NTD_SERVER_PORT=8080
+export NTD_DATABASE_URL=/var/lib/ntd/ntd.db
+export NTD_DATABASE_POOL_SIZE=20
+export NTD_LOGGING_LEVEL=debug
 ```
 
 **实施步骤**：
@@ -1204,7 +1204,7 @@ fn init_logging(config: &LoggingConfig) {
 ```yaml
 # prometheus.yml
 scrape_configs:
-  - job_name: 'aitodo'
+  - job_name: 'ntd'
     static_configs:
       - targets: ['localhost:3000']
     scrape_interval: 15s

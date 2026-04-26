@@ -28,44 +28,44 @@ setup:
 # Install the built binary to ~/.local/bin
 install: stop build
 	@mkdir -p $$HOME/.local/bin
-	@rm -f $$HOME/.local/bin/aitodo
-	@cp backend/target/release/aitodo $$HOME/.local/bin/
-	@echo "Installed to $$HOME/.local/bin/aitodo"
+	@rm -f $$HOME/.local/bin/ntd
+	@cp backend/target/release/ntd $$HOME/.local/bin/
+	@echo "Installed to $$HOME/.local/bin/ntd"
 	@echo "Make sure $$HOME/.local/bin is in your PATH"
 
-# Stop the aitodo binary
+# Stop the ntd binary
 stop:
-	-@if [ -f ~/.aitodo/run.pid ]; then \
-		pid=$$(cat ~/.aitodo/run.pid); \
+	-@if [ -f ~/.ntd/run.pid ]; then \
+		pid=$$(cat ~/.ntd/run.pid); \
 		kill -9 $$pid 2>/dev/null && echo "Killed process $$pid" || echo "Process $$pid not running"; \
-		rm -f ~/.aitodo/run.pid; \
+		rm -f ~/.ntd/run.pid; \
 	else \
-		pkill -9 -f "^aitodo$$" 2>/dev/null || echo "aitodo process not running"; \
+		pkill -9 -f "^ntd$$" 2>/dev/null || echo "ntd process not running"; \
 	fi
 	@sleep 1
 
-# Start the aitodo binary (after installing)
+# Start the ntd binary (after installing)
 start: install
-	@mkdir -p $$HOME/.aitodo
-	@( $$HOME/.local/bin/aitodo >> $$HOME/.aitodo/run.log 2>&1 & echo $$! > $$HOME/.aitodo/run.pid )
-	@echo "aitodo started (PID: $$(cat $$HOME/.aitodo/run.pid)), logs: ~/.aitodo/run.log"
+	@mkdir -p $$HOME/.ntd
+	@( $$HOME/.local/bin/ntd >> $$HOME/.ntd/run.log 2>&1 & echo $$! > $$HOME/.ntd/run.pid )
+	@echo "ntd started (PID: $$(cat $$HOME/.ntd/run.pid)), logs: ~/.ntd/run.log"
 
 # Restart: clean install and start fresh
 restart:
-	-@if [ -f ~/.aitodo/run.pid ]; then \
-		pid=$$(cat ~/.aitodo/run.pid); \
+	-@if [ -f ~/.ntd/run.pid ]; then \
+		pid=$$(cat ~/.ntd/run.pid); \
 		kill -9 $$pid 2>/dev/null && echo "Killed process $$pid" || echo "Process $$pid not running"; \
-		rm -f ~/.aitodo/run.pid; \
+		rm -f ~/.ntd/run.pid; \
 	fi
-	-@pkill -9 -f "^aitodo$$" 2>/dev/null || true
+	-@pkill -9 -f "^ntd$$" 2>/dev/null || true
 	@sleep 1
-	@rm -f $$HOME/.local/bin/aitodo
+	@rm -f $$HOME/.local/bin/ntd
 	@cd frontend && npm run build
 	@cd backend && cargo build --release
 	@mkdir -p $$HOME/.local/bin
-	@cp backend/target/release/aitodo $$HOME/.local/bin/
-	@( $$HOME/.local/bin/aitodo >> $$HOME/.aitodo/run.log 2>&1 & echo $$! > $$HOME/.aitodo/run.pid )
-	@echo "aitodo rebuilt and started (PID: $$(cat $$HOME/.aitodo/run.pid))"
+	@cp backend/target/release/ntd $$HOME/.local/bin/
+	@( $$HOME/.local/bin/ntd >> $$HOME/.ntd/run.log 2>&1 & echo $$! > $$HOME/.ntd/run.pid )
+	@echo "ntd rebuilt and started (PID: $$(cat $$HOME/.ntd/run.pid))"
 
 # Kill processes on ports used by dev servers
 kill-port:
@@ -84,7 +84,7 @@ clean:
 
 # Run the server (after build)
 run:
-	./backend/target/release/aitodo
+	./backend/target/release/ntd
 
 # Development mode (both frontend and backend, one-shot)
 dev: kill-port build

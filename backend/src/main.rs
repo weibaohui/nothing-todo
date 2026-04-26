@@ -2,7 +2,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use log::info;
 
-use aitodo::{adapters, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager};
+use ntd::{adapters, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager};
 
 #[tokio::main]
 async fn main() {
@@ -14,7 +14,7 @@ async fn main() {
     // Get database path from home directory
     let db_path = dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".aitodo")
+        .join(".ntd")
         .join("data.db");
 
     // Ensure the directory exists

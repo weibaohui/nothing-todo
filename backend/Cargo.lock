@@ -33,32 +33,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aitodo"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "axum",
- "cargo-watch",
- "chrono",
- "cron",
- "dirs 5.0.1",
- "env_logger",
- "libc",
- "log",
- "parking_lot",
- "regex",
- "reqwest",
- "rusqlite",
- "rust-embed",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-cron-scheduler",
- "uuid",
-]
-
-[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1873,6 +1847,32 @@ dependencies = [
  "serde",
  "tauri-winrt-notification",
  "zbus",
+]
+
+[[package]]
+name = "ntd"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "cargo-watch",
+ "chrono",
+ "cron",
+ "dirs 5.0.1",
+ "env_logger",
+ "libc",
+ "log",
+ "parking_lot",
+ "regex",
+ "reqwest",
+ "rusqlite",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-cron-scheduler",
+ "uuid",
 ]
 
 [[package]]
