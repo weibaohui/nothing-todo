@@ -40,16 +40,16 @@ pub enum ExecEvent {
 
 // Todo handlers
 pub async fn get_todos(State(state): State<AppState>) -> Json<ApiResponse<Vec<Todo>>> {
-    Json(ApiResponse::ok(state.db.get_todos()))
+    Json(ApiResponse::ok(state.db.get_todos().await))
 }
 
 pub async fn create_todo(State(state): State<AppState>, Json(req): Json<CreateTodoRequest>) -> Json<ApiResponse<Todo>> {
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let prompt = if req.prompt.is_empty() { req.title.clone() } else { req.prompt.clone() };
-    let id = state.db.create_todo(&req.title, &prompt);
+    let id = state.db.create_todo(&req.title, &prompt).await;
 
     for tag_id in &req.tag_ids {
-        state.db.add_todo_tag(id, *tag_id);
+        state.db.add_todo_tag(id, *tag_id).await;
     }
 
     Json(ApiResponse::ok(Todo {
@@ -77,9 +77,9 @@ pub async fn update_todo(
     state.db.update_todo_full(
         id, &req.title, &prompt, &req.status,
         req.executor.as_deref(), req.scheduler_enabled, req.scheduler_config.as_deref(),
-    );
+    ).await;
 
-    match state.db.get_todo(id) {
+    match state.db.get_todo(id).await {
         Some(todo) => Json(ApiResponse::ok(todo)),
         None => Json(ApiResponse::err(codes::NOT_FOUND, "Todo not found")),
     }
@@ -90,23 +90,23 @@ pub async fn update_todo_tags(
     Path(id): Path<i64>,
     Json(req): Json<UpdateTagsRequest>,
 ) -> Json<ApiResponse<()>> {
-    state.db.set_todo_tags(id, &req.tag_ids);
+    state.db.set_todo_tags(id, &req.tag_ids).await;
     Json(ApiResponse::ok(()))
 }
 
 pub async fn delete_todo(State(state): State<AppState>, Path(id): Path<i64>) -> Json<ApiResponse<()>> {
-    state.db.delete_todo(id);
+    state.db.delete_todo(id).await;
     Json(ApiResponse::ok(()))
 }
 
 // Tag handlers
 pub async fn get_tags(State(state): State<AppState>) -> Json<ApiResponse<Vec<Tag>>> {
-    Json(ApiResponse::ok(state.db.get_tags()))
+    Json(ApiResponse::ok(state.db.get_tags().await))
 }
 
 pub async fn create_tag(State(state): State<AppState>, Json(req): Json<CreateTagRequest>) -> Json<ApiResponse<Tag>> {
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    let id = state.db.create_tag(&req.name, &req.color);
+    let id = state.db.create_tag(&req.name, &req.color).await;
     Json(ApiResponse::ok(Tag {
         id,
         name: req.name,
@@ -116,7 +116,7 @@ pub async fn create_tag(State(state): State<AppState>, Json(req): Json<CreateTag
 }
 
 pub async fn delete_tag(State(state): State<AppState>, Path(id): Path<i64>) -> Json<ApiResponse<()>> {
-    state.db.delete_tag(id);
+    state.db.delete_tag(id).await;
     Json(ApiResponse::ok(()))
 }
 
@@ -128,7 +128,7 @@ pub async fn get_execution_records(
     let page = query.page.unwrap_or(1).max(1);
     let limit = query.limit.unwrap_or(10).max(1).min(100);
     let offset = (page - 1) * limit;
-    let (records, total) = state.db.get_execution_records(query.todo_id, limit, offset);
+    let (records, total) = state.db.get_execution_records(query.todo_id, limit, offset).await;
     Json(ApiResponse::ok(ExecutionRecordsPage {
         records,
         total,
@@ -193,16 +193,16 @@ pub async fn update_scheduler(
         state.scheduler.remove_task_for_todo(id).await;
     }
 
-    state.db.update_todo_scheduler(id, req.scheduler_enabled, req.scheduler_config.as_deref());
+    state.db.update_todo_scheduler(id, req.scheduler_enabled, req.scheduler_config.as_deref()).await;
 
-    match state.db.get_todo(id) {
+    match state.db.get_todo(id).await {
         Some(todo) => Json(ApiResponse::ok(todo)),
         None => Json(ApiResponse::err(codes::NOT_FOUND, "Todo not found")),
     }
 }
 
 pub async fn get_scheduler_todos(State(state): State<AppState>) -> Json<ApiResponse<Vec<Todo>>> {
-    Json(ApiResponse::ok(state.db.get_scheduler_todos()))
+    Json(ApiResponse::ok(state.db.get_scheduler_todos().await))
 }
 
 // Force update todo status (for recovering from crashed executions)
@@ -211,8 +211,8 @@ pub async fn force_update_todo_status(
     Path(id): Path<i64>,
     Json(req): Json<UpdateTodoRequest>,
 ) -> Json<ApiResponse<Todo>> {
-    state.db.force_update_todo_status(id, &req.status);
-    match state.db.get_todo(id) {
+    state.db.force_update_todo_status(id, &req.status).await;
+    match state.db.get_todo(id).await {
         Some(todo) => Json(ApiResponse::ok(todo)),
         None => Json(ApiResponse::err(codes::NOT_FOUND, "Todo not found")),
     }
@@ -222,7 +222,7 @@ pub async fn get_execution_summary(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Json<ApiResponse<ExecutionSummary>> {
-    Json(ApiResponse::ok(state.db.get_execution_summary(id)))
+    Json(ApiResponse::ok(state.db.get_execution_summary(id).await))
 }
 
 // WebSocket handler

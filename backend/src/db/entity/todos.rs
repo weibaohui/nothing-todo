@@ -1,0 +1,34 @@
+use sea_orm::entity::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
+#[sea_orm(table_name = "todos")]
+pub struct Model {
+    #[sea_orm(primary_key)]
+    pub id: i64,
+    pub title: String,
+    pub prompt: Option<String>,
+    pub status: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub deleted_at: Option<String>,
+    pub executor: Option<String>,
+    pub scheduler_enabled: Option<i32>,
+    pub scheduler_config: Option<String>,
+    pub task_id: Option<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {
+    #[sea_orm(has_many = "super::execution_records::Entity")]
+    ExecutionRecords,
+}
+
+impl Related<super::execution_records::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::ExecutionRecords.def()
+    }
+}
+
+impl ActiveModelBehavior for ActiveModel {}

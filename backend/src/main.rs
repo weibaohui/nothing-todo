@@ -24,7 +24,9 @@ async fn main() {
 
     // Initialize database
     let db = Arc::new(
-        db::Database::new(db_path.to_str().unwrap()).expect("Failed to open database")
+        db::Database::new(db_path.to_str().unwrap())
+            .await
+            .expect("Failed to open database")
     );
 
     // Initialize executor registry with adapters

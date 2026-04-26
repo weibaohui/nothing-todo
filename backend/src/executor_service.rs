@@ -35,7 +35,7 @@ pub async fn run_todo_execution(
     let mut cancel_rx = task_manager.register(task_id.clone());
 
     // Get todo to read stored executor
-    let todo = db.get_todo(todo_id);
+    let todo = db.get_todo(todo_id).await;
     let todo_executor = todo.as_ref().and_then(|t| t.executor.clone());
 
     // Determine which executor to use
@@ -55,14 +55,14 @@ pub async fn run_todo_execution(
 
     // Update todo's executor to the one being used
     let executor_str = executor.executor_type().to_string();
-    db.update_todo_executor(todo_id, &executor_str);
+    db.update_todo_executor(todo_id, &executor_str).await;
 
     // Create execution record
     let command = format!("{} {}", executable_path, command_args.join(" "));
-    let record_id = db.create_execution_record(todo_id, &command, &executor_str, trigger_type);
+    let record_id = db.create_execution_record(todo_id, &command, &executor_str, trigger_type).await;
 
     // Update todo status to running and associate with task
-    db.start_todo_execution(todo_id, &task_id);
+    db.start_todo_execution(todo_id, &task_id).await;
 
     let task_id_return = task_id.clone();
     let db_clone = db.clone();
@@ -109,7 +109,7 @@ pub async fn run_todo_execution(
                 };
                 let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
                 let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), todo_id, success: false, result: None });
-                db_clone.finish_todo_execution(todo_id, false);
+                db_clone.finish_todo_execution(todo_id, false).await;
                 task_manager_spawn.remove(&task_id);
                 return;
             }
@@ -143,7 +143,7 @@ pub async fn run_todo_execution(
                         let _ = tx_clone.send(ExecEvent::Output { task_id: tid.clone(), entry: parsed });
 
                         let logs_json = serde_json::to_string(&*logs_for_db.lock()).unwrap_or_default();
-                        db_clone2.update_execution_record(rid, "running", &logs_json, "");
+                        db_clone2.update_execution_record(rid, "running", &logs_json, "").await;
                     }
                 }
             }))
@@ -195,8 +195,8 @@ pub async fn run_todo_execution(
                     let _ = handle.await;
                 }
 
-                db_clone.update_todo_status(todo_id, "cancelled");
-                db_clone.update_todo_task_id(todo_id, None);
+                db_clone.update_todo_status(todo_id, "cancelled").await;
+                db_clone.update_todo_task_id(todo_id, None).await;
 
                 let entry = ParsedLogEntry {
                     timestamp: get_timestamp(),
@@ -239,16 +239,16 @@ pub async fn run_todo_execution(
         let logs_json = serde_json::to_string(&all_logs_snapshot).unwrap_or_default();
         let usage = executor_spawn.get_usage(&all_logs_snapshot);
         if let Some(u) = usage {
-            db_clone.update_execution_record_with_usage(record_id, final_status, &logs_json, &result_str, &u);
+            db_clone.update_execution_record_with_usage(record_id, final_status, &logs_json, &result_str, &u).await;
         } else {
-            db_clone.update_execution_record(record_id, final_status, &logs_json, &result_str);
+            db_clone.update_execution_record(record_id, final_status, &logs_json, &result_str).await;
         }
 
         if let Some(model) = executor_spawn.get_model() {
-            db_clone.update_execution_record_with_model(record_id, &model);
+            db_clone.update_execution_record_with_model(record_id, &model).await;
         }
 
-        db_clone.finish_todo_execution(todo_id, success);
+        db_clone.finish_todo_execution(todo_id, success).await;
 
         let entry = ParsedLogEntry {
             timestamp: get_timestamp(),

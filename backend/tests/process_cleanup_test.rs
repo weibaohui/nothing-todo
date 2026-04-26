@@ -16,7 +16,7 @@ struct TestServer {
 async fn start_test_server() -> TestServer {
     let temp_dir = tempfile::tempdir().unwrap();
     let db_path = temp_dir.path().join("test.db");
-    let db = Arc::new(db::Database::new(db_path.to_str().unwrap()).unwrap());
+    let db = Arc::new(db::Database::new(db_path.to_str().unwrap()).await.unwrap());
 
     let executor_registry = Arc::new(adapters::ExecutorRegistry::new());
     executor_registry.register(adapters::joinai::JoinaiExecutor::new());
