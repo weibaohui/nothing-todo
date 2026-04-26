@@ -2113,7 +2113,6 @@ dependencies = [
  "dirs 5.0.1",
  "libc",
  "libsqlite3-sys",
- "parking_lot",
  "regex",
  "reqwest",
  "rust-embed",

@@ -1,6 +1,5 @@
 use std::env;
-use std::sync::Arc;
-use parking_lot::Mutex;
+use std::sync::{Arc, Mutex};
 use serde::Deserialize;
 
 use super::{get_timestamp, CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
@@ -140,7 +139,7 @@ impl CodeExecutor for ClaudeCodeExecutor {
                 ClaudeMessage::System { subtype, session_id, model } => {
                     // Store model if found
                     if let Some(m) = model {
-                        *self.model.lock() = Some(m.clone());
+                        *self.model.lock().unwrap() = Some(m.clone());
                     }
                     Some(ParsedLogEntry {
                         timestamp: get_timestamp(),
@@ -257,6 +256,6 @@ impl CodeExecutor for ClaudeCodeExecutor {
     }
 
     fn get_model(&self) -> Option<String> {
-        self.model.lock().clone()
+        self.model.lock().unwrap().clone()
     }
 }

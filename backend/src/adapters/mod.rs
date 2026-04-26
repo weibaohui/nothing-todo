@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::Arc;
-use parking_lot::Mutex;
+use std::sync::{Arc, RwLock};
 
 use crate::models::{ExecutorType, ParsedLogEntry, ExecutionUsage};
 
@@ -37,23 +36,23 @@ pub trait CodeExecutor: Send + Sync {
 
 /// 代码执行器注册表
 pub struct ExecutorRegistry {
-    executors: Arc<Mutex<HashMap<ExecutorType, Arc<dyn CodeExecutor>>>>,
+    executors: Arc<RwLock<HashMap<ExecutorType, Arc<dyn CodeExecutor>>>>,
 }
 
 impl ExecutorRegistry {
     pub fn new() -> Self {
         Self {
-            executors: Arc::new(Mutex::new(HashMap::new())),
+            executors: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
     pub fn register<E: CodeExecutor + 'static>(&self, executor: E) {
         let executor_type = executor.executor_type();
-        self.executors.lock().insert(executor_type, Arc::new(executor));
+        self.executors.write().unwrap().insert(executor_type, Arc::new(executor));
     }
 
     pub fn get(&self, executor_type: ExecutorType) -> Option<Arc<dyn CodeExecutor>> {
-        self.executors.lock().get(&executor_type).cloned()
+        self.executors.read().unwrap().get(&executor_type).cloned()
     }
 
     pub fn get_default(&self) -> Option<Arc<dyn CodeExecutor>> {
@@ -61,7 +60,7 @@ impl ExecutorRegistry {
     }
 
     pub fn list_executors(&self) -> Vec<ExecutorType> {
-        self.executors.lock().keys().copied().collect()
+        self.executors.read().unwrap().keys().copied().collect()
     }
 }
 

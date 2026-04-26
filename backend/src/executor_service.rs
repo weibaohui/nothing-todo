@@ -1,8 +1,7 @@
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use parking_lot::Mutex;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
 
 use crate::adapters::{ExecutorRegistry, get_timestamp};
@@ -32,7 +31,7 @@ pub async fn run_todo_execution(
     task_manager: Arc<TaskManager>,
 ) -> String {
     let task_id = Uuid::new_v4().to_string();
-    let mut cancel_rx = task_manager.register(task_id.clone());
+    let mut cancel_rx = task_manager.register(task_id.clone()).await;
 
     // Get todo to read stored executor
     let todo = db.get_todo(todo_id).await;
@@ -110,7 +109,7 @@ pub async fn run_todo_execution(
                 let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
                 let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), todo_id, success: false, result: None });
                 db_clone.finish_todo_execution(todo_id, false).await;
-                task_manager_spawn.remove(&task_id);
+                task_manager_spawn.remove(&task_id).await;
                 return;
             }
         };
@@ -139,10 +138,10 @@ pub async fn run_todo_execution(
                 let mut reader = BufReader::new(stdout_reader).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
                     if let Some(parsed) = executor_clone.parse_output_line(&line) {
-                        logs_for_db.lock().push(parsed.clone());
+                        logs_for_db.lock().await.push(parsed.clone());
                         let _ = tx_clone.send(ExecEvent::Output { task_id: tid.clone(), entry: parsed });
 
-                        let logs_json = serde_json::to_string(&*logs_for_db.lock()).unwrap_or_default();
+                        let logs_json = serde_json::to_string(&*logs_for_db.lock().await).unwrap_or_default();
                         db_clone2.update_execution_record(rid, "running", &logs_json, "").await;
                     }
                 }
@@ -165,7 +164,7 @@ pub async fn run_todo_execution(
                         content: line.clone(),
                         usage: None,
                     };
-                    logs_for_stderr.lock().push(entry.clone());
+                    logs_for_stderr.lock().await.push(entry.clone());
                     let _ = stderr_tx.send(ExecEvent::Output { task_id: stderr_tid.clone(), entry });
                 }
             }))
@@ -206,7 +205,7 @@ pub async fn run_todo_execution(
                 };
                 let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
                 let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), todo_id, success: false, result: None });
-                task_manager_spawn.remove(&task_id);
+                task_manager_spawn.remove(&task_id).await;
                 return;
             }
             status = child.wait() => {
@@ -232,7 +231,7 @@ pub async fn run_todo_execution(
         let exit_code = status.as_ref().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
         let success = executor_spawn.check_success(exit_code);
 
-        let all_logs_snapshot = logs_for_result.lock().clone();
+        let all_logs_snapshot = logs_for_result.lock().await.clone();
         let result_str = executor_spawn.get_final_result(&all_logs_snapshot).unwrap_or_default();
 
         let final_status = if success { "success" } else { "failed" };
@@ -259,7 +258,7 @@ pub async fn run_todo_execution(
         let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
 
         let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), todo_id, success, result: Some(result_str) });
-        task_manager_spawn.remove(&task_id);
+        task_manager_spawn.remove(&task_id).await;
     });
 
     task_id_return

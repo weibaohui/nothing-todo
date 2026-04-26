@@ -1,7 +1,6 @@
 use serde::Deserialize;
 use std::env;
-use std::sync::Arc;
-use parking_lot::Mutex;
+use std::sync::{Arc, Mutex};
 
 use super::{get_timestamp, CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
 
@@ -190,7 +189,7 @@ impl CodeExecutor for JoinaiExecutor {
                             total_cost_usd: part.cost,
                             duration_ms: None,
                         };
-                        *self.usage.lock() = Some(usage);
+                        *self.usage.lock().unwrap() = Some(usage);
                     }
                 }
                 Some(ParsedLogEntry {
@@ -225,7 +224,7 @@ impl CodeExecutor for JoinaiExecutor {
     }
 
     fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
-        self.usage.lock().clone()
+        self.usage.lock().unwrap().clone()
     }
 
     fn get_model(&self) -> Option<String> {

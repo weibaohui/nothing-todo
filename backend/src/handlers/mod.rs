@@ -164,7 +164,7 @@ pub async fn stop_execution_handler(
     State(state): State<AppState>,
     Json(req): Json<StopExecutionRequest>,
 ) -> Json<ApiResponse<()>> {
-    let cancelled = state.task_manager.cancel(&req.task_id);
+    let cancelled = state.task_manager.cancel(&req.task_id).await;
     if cancelled {
         Json(ApiResponse::ok(()))
     } else {

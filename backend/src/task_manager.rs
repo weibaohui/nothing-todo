@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 
 pub struct TaskManager {
@@ -13,14 +13,14 @@ impl TaskManager {
         }
     }
 
-    pub fn register(&self, task_id: String) -> mpsc::UnboundedReceiver<()> {
+    pub async fn register(&self, task_id: String) -> mpsc::UnboundedReceiver<()> {
         let (tx, rx) = mpsc::unbounded_channel();
-        self.tasks.lock().insert(task_id, tx);
+        self.tasks.lock().await.insert(task_id, tx);
         rx
     }
 
-    pub fn cancel(&self, task_id: &str) -> bool {
-        if let Some(tx) = self.tasks.lock().remove(task_id) {
+    pub async fn cancel(&self, task_id: &str) -> bool {
+        if let Some(tx) = self.tasks.lock().await.remove(task_id) {
             let _ = tx.send(());
             true
         } else {
@@ -28,7 +28,7 @@ impl TaskManager {
         }
     }
 
-    pub fn remove(&self, task_id: &str) {
-        self.tasks.lock().remove(task_id);
+    pub async fn remove(&self, task_id: &str) {
+        self.tasks.lock().await.remove(task_id);
     }
 }
