@@ -239,6 +239,63 @@ pub struct ExecutionRecordsPage {
     pub limit: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutorCount {
+    pub executor: String,
+    pub count: i64,
+    pub execution_count: i64,
+    pub success_count: i64,
+    pub failed_count: i64,
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+    pub total_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TagCount {
+    pub tag_id: i64,
+    pub tag_name: String,
+    pub tag_color: String,
+    pub count: i64,
+    pub execution_count: i64,
+    pub success_count: i64,
+    pub failed_count: i64,
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+    pub total_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DailyExecution {
+    pub date: String,
+    pub success: i64,
+    pub failed: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardStats {
+    pub total_todos: i64,
+    pub pending_todos: i64,
+    pub running_todos: i64,
+    pub completed_todos: i64,
+    pub failed_todos: i64,
+    pub total_tags: i64,
+    pub scheduled_todos: i64,
+    pub total_executions: i64,
+    pub success_executions: i64,
+    pub failed_executions: i64,
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+    pub total_cache_read_tokens: u64,
+    pub total_cache_creation_tokens: u64,
+    pub total_cost_usd: f64,
+    pub avg_duration_ms: u64,
+    pub executor_distribution: Vec<ExecutorCount>,
+    pub tag_distribution: Vec<TagCount>,
+    pub daily_executions: Vec<DailyExecution>,
+    pub recent_executions: Vec<ExecutionRecord>,
+}
+
 #[derive(Deserialize)]
 pub struct UpdateSchedulerRequest {
     pub scheduler_enabled: bool,

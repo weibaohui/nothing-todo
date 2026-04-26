@@ -1,4 +1,4 @@
-.PHONY: setup build clean run dev watch kill-port install start stop
+.PHONY: setup build clean run dev watch kill-port install start stop cross-build cross-list
 
 # Setup: install all dependencies for frontend and backend
 setup:
@@ -19,14 +19,18 @@ setup:
 	@echo "[4/4] Pre-compiling Rust backend (downloads deps)..."
 	cd backend && source $$HOME/.cargo/env 2>/dev/null && cargo fetch
 	@echo ""
+	@echo "[OPT] Installing cross-build tool (cross)..."
+	@source $$HOME/.cargo/env 2>/dev/null; which cross > /dev/null 2>&1 || cargo install cross --locked
+	@echo ""
 	@echo "=== Setup complete! ==="
-	@echo "Run 'make dev'    to start development (frontend + backend)"
-	@echo "Run 'make watch'  to start with hot reload"
-	@echo "Run 'make build'  to build for production"
-	@echo "Run 'make install' to build and install binary to ~/.local/bin"
+	@echo "Run 'make dev'       to start development (frontend + backend)"
+	@echo "Run 'make watch'     to start with hot reload"
+	@echo "Run 'make build'     to build for production"
+	@echo "Run 'make cross-build' to build for win/mac/linux x86+arm"
+	@echo "Run 'make install'   to build and install binary to ~/.local/bin"
 
 # Install the built binary to ~/.local/bin
-install: stop build
+install:  build
 	@mkdir -p $$HOME/.local/bin
 	@rm -f $$HOME/.local/bin/ntd
 	@cp backend/target/release/ntd $$HOME/.local/bin/
@@ -51,7 +55,7 @@ start: install
 	@echo "ntd started (PID: $$(cat $$HOME/.ntd/run.pid)), logs: ~/.ntd/run.log"
 
 # Restart: clean install and start fresh
-restart:
+restart: stop install
 	-@if [ -f ~/.ntd/run.pid ]; then \
 		pid=$$(cat ~/.ntd/run.pid); \
 		kill -9 $$pid 2>/dev/null && echo "Killed process $$pid" || echo "Process $$pid not running"; \
@@ -101,3 +105,45 @@ watch: kill-port
 	@echo "Backend logs: tail -f backend.log"
 	@echo ""
 	@echo "Press Ctrl+C to stop"
+
+# Cross-build for Windows (x86_64 + i686), macOS (x86_64 + aarch64), Linux (x86_64 + aarch64)
+cross-build:
+	@echo "=== Cross-building ntd for win/mac/linux x86+arm ==="
+	@mkdir -p backend/target/cross
+	@echo ""
+	@echo "[1/6] Building: x86_64-pc-windows-gnu"
+	@cross build --release --bin ntd --target x86_64-pc-windows-gnu -p ntd
+	@mv backend/target/x86_64-pc-windows-gnu/release/ntd.exe backend/target/cross/ntd-x86_64-pc-windows-gnu.exe
+	@echo ""
+	@echo "[2/6] Building: i686-pc-windows-gnu"
+	@cross build --release --bin ntd --target i686-pc-windows-gnu -p ntd
+	@mv backend/target/i686-pc-windows-gnu/release/ntd.exe backend/target/cross/ntd-i686-pc-windows-gnu.exe
+	@echo ""
+	@echo "[3/6] Building: x86_64-apple-darwin"
+	@cross build --release --bin ntd --target x86_64-apple-darwin -p ntd
+	@mv backend/target/x86_64-apple-darwin/release/ntd backend/target/cross/ntd-x86_64-apple-darwin
+	@echo ""
+	@echo "[4/6] Building: aarch64-apple-darwin"
+	@cross build --release --bin ntd --target aarch64-apple-darwin -p ntd
+	@mv backend/target/aarch64-apple-darwin/release/ntd backend/target/cross/ntd-aarch64-apple-darwin
+	@echo ""
+	@echo "[5/6] Building: x86_64-unknown-linux-gnu"
+	@cross build --release --bin ntd --target x86_64-unknown-linux-gnu -p ntd
+	@mv backend/target/x86_64-unknown-linux-gnu/release/ntd backend/target/cross/ntd-x86_64-unknown-linux-gnu
+	@echo ""
+	@echo "[6/6] Building: aarch64-unknown-linux-gnu"
+	@cross build --release --bin ntd --target aarch64-unknown-linux-gnu -p ntd
+	@mv backend/target/aarch64-unknown-linux-gnu/release/ntd backend/target/cross/ntd-aarch64-unknown-linux-gnu
+	@echo ""
+	@echo "=== Cross-build complete ==="
+	@ls -lh backend/target/cross/
+
+# List cross-build targets
+cross-list:
+	@echo "Cross-build targets:"
+	@echo "  Windows:  x86_64-pc-windows-gnu, i686-pc-windows-gnu"
+	@echo "  macOS:    x86_64-apple-darwin, aarch64-apple-darwin"
+	@echo "  Linux:    x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu"
+	@echo ""
+	@echo "Built binaries: backend/target/cross/"
+

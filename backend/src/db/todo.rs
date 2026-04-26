@@ -31,7 +31,7 @@ impl Database {
         }
     }
 
-    async fn fetch_tag_ids_for_many(&self, todo_ids: &[i64]) -> std::collections::HashMap<i64, Vec<i64>> {
+    pub(crate) async fn fetch_tag_ids_for_many(&self, todo_ids: &[i64]) -> std::collections::HashMap<i64, Vec<i64>> {
         if todo_ids.is_empty() {
             return std::collections::HashMap::new();
         }

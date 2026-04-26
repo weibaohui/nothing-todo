@@ -105,6 +105,233 @@ impl Database {
         self.exec_update(am).await;
     }
 
+    pub async fn get_dashboard_stats(&self) -> crate::models::DashboardStats {
+        use std::collections::HashMap;
+
+        let todos = self.get_todos().await;
+        let total_todos = todos.len() as i64;
+        let pending_todos = todos.iter().filter(|t| t.status == crate::models::TodoStatus::Pending).count() as i64;
+        let running_todos = todos.iter().filter(|t| t.status == crate::models::TodoStatus::Running).count() as i64;
+        let completed_todos = todos.iter().filter(|t| t.status == crate::models::TodoStatus::Completed).count() as i64;
+        let failed_todos = todos.iter().filter(|t| t.status == crate::models::TodoStatus::Failed).count() as i64;
+        let scheduled_todos = todos.iter().filter(|t| t.scheduler_enabled && t.scheduler_config.is_some()).count() as i64;
+
+        let tags = self.get_tags().await;
+        let total_tags = tags.len() as i64;
+
+        let todo_ids: Vec<i64> = todos.iter().map(|t| t.id).collect();
+        let tag_map = self.fetch_tag_ids_for_many(&todo_ids).await;
+
+        // Build executor and tag stat templates from todos
+        let mut executor_stats: HashMap<String, crate::models::ExecutorCount> = HashMap::new();
+        for t in &todos {
+            let exec = t.executor.as_deref().unwrap_or("claudecode");
+            executor_stats.entry(exec.to_string()).or_insert_with(|| crate::models::ExecutorCount {
+                executor: exec.to_string(),
+                count: 0,
+                execution_count: 0,
+                success_count: 0,
+                failed_count: 0,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                total_cost_usd: 0.0,
+            }).count += 1;
+        }
+
+        let mut tag_stats: HashMap<i64, crate::models::TagCount> = HashMap::new();
+        for t in &tags {
+            tag_stats.insert(t.id, crate::models::TagCount {
+                tag_id: t.id,
+                tag_name: t.name.clone(),
+                tag_color: t.color.clone(),
+                count: 0,
+                execution_count: 0,
+                success_count: 0,
+                failed_count: 0,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                total_cost_usd: 0.0,
+            });
+        }
+        for (_, tids) in &tag_map {
+            for tid in tids {
+                if let Some(stat) = tag_stats.get_mut(tid) {
+                    stat.count += 1;
+                }
+            }
+        }
+
+        let all_records = execution_records::Entity::find()
+            .order_by_desc(execution_records::Column::StartedAt)
+            .all(&self.conn)
+            .await
+            .unwrap_or_default();
+
+        let mut total_executions = 0i64;
+        let mut success_executions = 0i64;
+        let mut failed_executions = 0i64;
+        let mut total_input_tokens = 0u64;
+        let mut total_output_tokens = 0u64;
+        let mut total_cache_read_tokens = 0u64;
+        let mut total_cache_creation_tokens = 0u64;
+        let mut total_cost = 0.0f64;
+        let mut total_duration: u64 = 0;
+        let mut duration_count: u64 = 0;
+        let mut daily_map: HashMap<String, (i64, i64)> = HashMap::new();
+
+        for r in &all_records {
+            total_executions += 1;
+            let rec_status = r.status.as_deref();
+            match rec_status {
+                Some("success") => success_executions += 1,
+                Some("failed") => failed_executions += 1,
+                _ => {}
+            }
+
+            if let Some(usage_str) = &r.usage {
+                if let Ok(usage) = serde_json::from_str::<crate::models::ExecutionUsage>(usage_str) {
+                    total_input_tokens += usage.input_tokens;
+                    total_output_tokens += usage.output_tokens;
+                    total_cache_read_tokens += usage.cache_read_input_tokens.unwrap_or(0);
+                    total_cache_creation_tokens += usage.cache_creation_input_tokens.unwrap_or(0);
+                    if let Some(cost) = usage.total_cost_usd {
+                        total_cost += cost;
+                    }
+                    if let Some(dur) = usage.duration_ms {
+                        total_duration += dur;
+                        duration_count += 1;
+                    }
+                }
+            }
+
+            // Aggregate by executor
+            if let Some(exec) = &r.executor {
+                if let Some(stat) = executor_stats.get_mut(exec) {
+                    stat.execution_count += 1;
+                    match rec_status {
+                        Some("success") => stat.success_count += 1,
+                        Some("failed") => stat.failed_count += 1,
+                        _ => {}
+                    }
+                    if let Some(usage_str) = &r.usage {
+                        if let Ok(usage) = serde_json::from_str::<crate::models::ExecutionUsage>(usage_str) {
+                            stat.total_input_tokens += usage.input_tokens;
+                            stat.total_output_tokens += usage.output_tokens;
+                            if let Some(cost) = usage.total_cost_usd {
+                                stat.total_cost_usd += cost;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Aggregate by tag
+            let rec_todo_id = r.todo_id.unwrap_or(0);
+            if let Some(tids) = tag_map.get(&rec_todo_id) {
+                for tid in tids {
+                    if let Some(stat) = tag_stats.get_mut(tid) {
+                        stat.execution_count += 1;
+                        match rec_status {
+                            Some("success") => stat.success_count += 1,
+                            Some("failed") => stat.failed_count += 1,
+                            _ => {}
+                        }
+                        if let Some(usage_str) = &r.usage {
+                            if let Ok(usage) = serde_json::from_str::<crate::models::ExecutionUsage>(usage_str) {
+                                stat.total_input_tokens += usage.input_tokens;
+                                stat.total_output_tokens += usage.output_tokens;
+                                if let Some(cost) = usage.total_cost_usd {
+                                    stat.total_cost_usd += cost;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let Some(date) = r.started_at.as_deref() {
+                if date.len() >= 10 {
+                    let day = date[..10].to_string();
+                    let entry = daily_map.entry(day).or_insert((0, 0));
+                    match rec_status {
+                        Some("success") => entry.0 += 1,
+                        Some("failed") => entry.1 += 1,
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        let mut executor_distribution: Vec<crate::models::ExecutorCount> = executor_stats
+            .into_values()
+            .filter(|s| s.count > 0)
+            .collect();
+        executor_distribution.sort_by(|a, b| b.execution_count.cmp(&a.execution_count));
+
+        let mut tag_distribution: Vec<crate::models::TagCount> = tag_stats
+            .into_values()
+            .filter(|s| s.count > 0)
+            .collect();
+        tag_distribution.sort_by(|a, b| b.execution_count.cmp(&a.execution_count));
+
+        let mut daily_executions: Vec<crate::models::DailyExecution> = daily_map.into_iter()
+            .map(|(date, (success, failed))| crate::models::DailyExecution { date, success, failed })
+            .collect();
+        daily_executions.sort_by(|a, b| a.date.cmp(&b.date));
+        if daily_executions.len() > 30 {
+            daily_executions = daily_executions.into_iter().rev().take(30).collect();
+            daily_executions.reverse();
+        }
+
+        let recent_executions: Vec<crate::models::ExecutionRecord> = all_records.into_iter()
+            .take(10)
+            .map(|m| {
+                let usage = m.usage.as_deref().and_then(|u| serde_json::from_str(u).ok());
+                crate::models::ExecutionRecord {
+                    id: m.id,
+                    todo_id: m.todo_id.unwrap_or(0),
+                    status: m.status.unwrap_or_default(),
+                    command: m.command.unwrap_or_default(),
+                    stdout: m.stdout.unwrap_or_default(),
+                    stderr: m.stderr.unwrap_or_default(),
+                    logs: m.logs.unwrap_or_default(),
+                    result: m.result,
+                    started_at: m.started_at.unwrap_or_default(),
+                    finished_at: m.finished_at,
+                    usage,
+                    executor: m.executor,
+                    model: m.model,
+                    trigger_type: m.trigger_type.unwrap_or_else(|| "manual".to_string()),
+                }
+            })
+            .collect();
+
+        let avg_duration_ms = if duration_count > 0 { total_duration / duration_count } else { 0 };
+
+        crate::models::DashboardStats {
+            total_todos,
+            pending_todos,
+            running_todos,
+            completed_todos,
+            failed_todos,
+            total_tags,
+            scheduled_todos,
+            total_executions,
+            success_executions,
+            failed_executions,
+            total_input_tokens,
+            total_output_tokens,
+            total_cache_read_tokens,
+            total_cache_creation_tokens,
+            total_cost_usd: total_cost,
+            avg_duration_ms,
+            executor_distribution,
+            tag_distribution,
+            daily_executions,
+            recent_executions,
+        }
+    }
+
     pub async fn get_execution_summary(&self, todo_id: i64) -> ExecutionSummary {
         let records = execution_records::Entity::find()
             .filter(execution_records::Column::TodoId.eq(todo_id))

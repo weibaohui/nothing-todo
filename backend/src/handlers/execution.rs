@@ -6,7 +6,7 @@ use serde::Deserialize;
 use crate::executor_service::run_todo_execution;
 use crate::handlers::{ApiJson, AppError, AppState};
 use crate::models::{
-    ApiResponse, ExecuteRequest, ExecutionRecordsPage, ExecutionSummary, TodoIdQuery,
+    ApiResponse, DashboardStats, ExecuteRequest, ExecutionRecordsPage, ExecutionSummary, TodoIdQuery,
 };
 
 pub async fn get_execution_records(
@@ -72,5 +72,13 @@ pub async fn get_execution_summary(
 ) -> Result<ApiResponse<ExecutionSummary>, AppError> {
     Ok(ApiResponse::ok(
         state.db.get_execution_summary(id).await,
+    ))
+}
+
+pub async fn get_dashboard_stats(
+    State(state): State<AppState>,
+) -> Result<ApiResponse<DashboardStats>, AppError> {
+    Ok(ApiResponse::ok(
+        state.db.get_dashboard_stats().await,
     ))
 }

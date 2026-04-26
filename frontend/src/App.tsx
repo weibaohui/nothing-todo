@@ -5,6 +5,7 @@ import { AppProvider, useApp } from './hooks/useApp';
 import { useExecutionEvents } from './hooks/useExecutionEvents';
 import { TodoList } from './components/TodoList';
 import { TodoDetail } from './components/TodoDetail';
+import { Dashboard } from './components/Dashboard';
 import { ExecutionPanel } from './components/ExecutionPanel';
 import { CreateTagModal } from './components/CreateTagModal';
 import { CreateTodoModal } from './components/CreateTodoModal';
@@ -131,7 +132,7 @@ function AppContent() {
               display: !isMobile || selectedPanel === 'detail' ? 'block' : 'none',
             }}
           >
-            <TodoDetail />
+            {state.selectedTodoId ? <TodoDetail /> : <Dashboard />}
           </div>
         </Content>
       </Layout>

@@ -71,6 +71,59 @@ export interface ExecutionSummary {
   total_cost_usd: number | null;
 }
 
+export interface ExecutorCount {
+  executor: string;
+  count: number;
+  execution_count: number;
+  success_count: number;
+  failed_count: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cost_usd: number;
+}
+
+export interface TagCount {
+  tag_id: number;
+  tag_name: string;
+  tag_color: string;
+  count: number;
+  execution_count: number;
+  success_count: number;
+  failed_count: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cost_usd: number;
+}
+
+export interface DailyExecution {
+  date: string;
+  success: number;
+  failed: number;
+}
+
+export interface DashboardStats {
+  total_todos: number;
+  pending_todos: number;
+  running_todos: number;
+  completed_todos: number;
+  failed_todos: number;
+  total_tags: number;
+  scheduled_todos: number;
+  total_executions: number;
+  success_executions: number;
+  failed_executions: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cache_read_tokens: number;
+  total_cache_creation_tokens: number;
+  total_cost_usd: number;
+  avg_duration_ms: number;
+  executor_distribution: ExecutorCount[];
+  tag_distribution: TagCount[];
+  daily_executions: DailyExecution[];
+  recent_executions: ExecutionRecord[];
+}
+
 export interface ExecutionRecordsPage {
   records: ExecutionRecord[];
   total: number;
