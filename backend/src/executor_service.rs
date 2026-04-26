@@ -26,6 +26,24 @@ fn kill_process_group(child_id: u32) {
 #[cfg(not(unix))]
 fn kill_process_group(_child_id: u32) {}
 
+#[cfg(unix)]
+fn kill_processes_by_message(message: &str) {
+    let output = std::process::Command::new("pkill")
+        .args(["-f", &format!("opencode run.*{}", message)])
+        .output();
+
+    if let Ok(output) = output {
+        if output.status.success() {
+            let _ = std::process::Command::new("pkill")
+                .args(["-9", "-f", &format!("opencode run.*{}", message)])
+                .output();
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn kill_processes_by_message(_message: &str) {}
+
 /// Run a todo execution. Priority: explicit executor > todo stored executor > default.
 pub async fn run_todo_execution(
     db: Arc<Database>,
@@ -200,6 +218,9 @@ pub async fn run_todo_execution(
 
                 // Clean up the process group to ensure no grandchild processes are left behind
                 kill_process_group(child_id);
+
+                // Also kill any orphaned child processes spawned by the executor
+                kill_processes_by_message(&message_clone);
 
                 status
             }
