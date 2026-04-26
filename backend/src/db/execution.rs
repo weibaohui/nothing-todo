@@ -51,6 +51,7 @@ impl Database {
                     executor: m.executor,
                     model: m.model,
                     trigger_type: m.trigger_type.unwrap_or_else(|| "manual".to_string()),
+                    pid: m.pid,
                 }
             })
             .collect();

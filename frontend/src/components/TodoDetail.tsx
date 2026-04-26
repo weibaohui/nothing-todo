@@ -486,16 +486,35 @@ export function TodoDetail() {
                       const taskId = currentRunningTask?.taskId || selectedTodo?.task_id;
                       if (!taskId) return null;
                       return (
-                        <Popconfirm title="确定强制停止该任务？" onConfirm={async () => {
-                          try {
-                            await db.stopExecution(taskId);
-                            message.info('已发送停止指令');
-                          } catch (error) {
-                            message.error('停止失败: ' + error);
-                          }
-                        }} okText="停止" cancelText="取消">
-                          <Button type="text" danger size="small" icon={<StopOutlined />} style={{ fontSize: 12 }}>
-                            停止
+                        <Popconfirm
+                          title="确定强制停止该任务？"
+                          okText="停止"
+                          cancelText="取消"
+                          onConfirm={async () => {
+                            try {
+                              await db.stopExecution(taskId);
+                              message.success('任务已停止');
+                              await loadExecutionRecords(historyPage, historyLimit);
+                            } catch (error) {
+                              message.error('停止失败: ' + error);
+                            }
+                          }}
+                        >
+                          <Button
+                            type="primary"
+                            danger
+                            size="middle"
+                            icon={<StopOutlined />}
+                            style={{
+                              fontSize: 14,
+                              fontWeight: 600,
+                              height: '32px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                            }}
+                          >
+                            停止任务
                           </Button>
                         </Popconfirm>
                       );

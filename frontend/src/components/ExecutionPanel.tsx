@@ -1,7 +1,6 @@
 import { useRef, useEffect } from 'react';
 import { useApp } from '../hooks/useApp';
 import { getExecutorOption } from '../types';
-import * as db from '../utils/database';
 
 const logTypeColors: Record<string, string> = {
   info: '#60a5fa',
@@ -62,17 +61,6 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
   const taskIds = Object.keys(runningTasks);
   const activeTask = activeTaskId ? runningTasks[activeTaskId] : null;
 
-  // 停止任务
-  const handleStopTask = async (taskId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    try {
-      await db.stopExecution(taskId);
-      // 任务停止后，会在3秒后自动从runningTasks中移除
-    } catch (error) {
-      console.error('停止任务失败:', error);
-    }
-  };
-
   useEffect(() => {
     if (logsEndRef.current && !collapsed && activeTask) {
       logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -109,7 +97,10 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
               <div
                 key={taskId}
                 className={`execution-tab ${isActive ? 'active' : ''} ${task.status}`}
-                onClick={() => dispatch({ type: 'SET_ACTIVE_TASK', payload: taskId })}
+                onClick={() => {
+                  dispatch({ type: 'SET_ACTIVE_TASK', payload: taskId });
+                  if (collapsed) onToggleCollapse();
+                }}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => {
@@ -124,16 +115,6 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
                   {task.todoTitle}
                 </span>
                 {task.status === 'running' && <span className="tab-spinner" />}
-                {task.status === 'running' && (
-                  <button
-                    className="tab-stop"
-                    onClick={(e) => handleStopTask(taskId, e)}
-                    aria-label="停止任务"
-                    title="停止任务"
-                  >
-                    ■
-                  </button>
-                )}
               </div>
             );
           })}

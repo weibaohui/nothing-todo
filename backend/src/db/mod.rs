@@ -123,10 +123,17 @@ impl Database {
                 started_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
                 finished_at TEXT,
                 trigger_type TEXT DEFAULT 'manual',
+                pid INTEGER,
                 FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE
             )",
         )
         .await?;
+
+        // 添加 pid 字段的迁移（向后兼容）
+        self.exec(
+            "ALTER TABLE execution_records ADD COLUMN pid INTEGER"
+        )
+        .await.ok(); // 忽略错误，因为字段可能已存在
 
         // Trigger: fill created_at with UTC time on INSERT if not set
         self.exec(

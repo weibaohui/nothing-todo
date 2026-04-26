@@ -19,6 +19,7 @@ pub struct Model {
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
     pub trigger_type: Option<String>,
+    pub pid: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
