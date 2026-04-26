@@ -433,4 +433,30 @@ impl Database {
             }
         }
     }
+
+    /// 标记指定todo的所有running状态执行记录为failed
+    pub async fn mark_execution_records_as_failed(&self, todo_id: i64) {
+        let running_records = execution_records::Entity::find()
+            .filter(execution_records::Column::TodoId.eq(todo_id))
+            .filter(execution_records::Column::Status.eq(crate::models::ExecutionStatus::Running.as_str()))
+            .all(&self.conn)
+            .await
+            .unwrap_or_default();
+
+        for record in running_records {
+            tracing::warn!(
+                "Marking execution record {} for todo {} as failed",
+                record.id,
+                todo_id
+            );
+            let am = execution_records::ActiveModel {
+                id: ActiveValue::Unchanged(record.id),
+                status: ActiveValue::Set(Some(crate::models::ExecutionStatus::Failed.as_str().to_string())),
+                finished_at: ActiveValue::Set(Some(crate::models::utc_timestamp())),
+                result: ActiveValue::Set(Some("任务已被手动停止".to_string())),
+                ..Default::default()
+            };
+            self.exec_update(am).await;
+        }
+    }
 }

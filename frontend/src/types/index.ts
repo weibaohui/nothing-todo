@@ -1,5 +1,3 @@
-import type React from 'react';
-
 export interface Todo {
   id: number;
   title: string;
@@ -157,15 +155,15 @@ export interface ExecutorOption {
   value: string;
   label: string;
   color: string;
-  icon: React.ReactNode;
+  icon: string;
 }
 
 export const EXECUTORS: ExecutorOption[] = [
-  { value: 'claudecode', label: 'Claude',     color: '#7c3aed', icon: <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: '50%', backgroundColor: '#7c3aed' }} /> },
-  { value: 'codebuddy',  label: 'CodeBuddy',  color: '#2563eb', icon: <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: '50%', backgroundColor: '#2563eb' }} /> },
-  { value: 'opencode',   label: 'Opencode',   color: '#f59e0b', icon: <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: '50%', backgroundColor: '#f59e0b' }} /> },
-  { value: 'joinai',     label: 'JoinAI',     color: '#0d9488', icon: <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: '50%', backgroundColor: '#0d9488' }} /> },
-  { value: 'atomcode',   label: 'AtomCode',   color: '#dc2626', icon: <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: '50%', backgroundColor: '#dc2626' }} /> },
+  { value: 'claudecode', label: 'Claude',     color: '#7c3aed', icon: '🟣' },
+  { value: 'codebuddy',  label: 'CodeBuddy',  color: '#2563eb', icon: '🔵' },
+  { value: 'opencode',   label: 'Opencode',   color: '#f59e0b', icon: '🟡' },
+  { value: 'joinai',     label: 'JoinAI',     color: '#0d9488', icon: '🟢' },
+  { value: 'atomcode',   label: 'AtomCode',   color: '#dc2626', icon: '🔴' },
 ];
 
 export function getExecutorOption(value: string): ExecutorOption {

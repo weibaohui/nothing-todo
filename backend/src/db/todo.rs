@@ -259,4 +259,18 @@ impl Database {
         };
         self.exec_update(am).await;
     }
+
+    /// 根据task_id查找对应的todo
+    pub async fn get_todo_by_task_id(&self, task_id: &str) -> Option<Todo> {
+        let model = todos::Entity::find()
+            .filter(todos::Column::TaskId.eq(task_id))
+            .filter(todos::Column::DeletedAt.is_null())
+            .one(&self.conn)
+            .await
+            .unwrap_or(None)?;
+
+        let tag_map = self.fetch_tag_ids_for_many(&[model.id]).await;
+        let tag_ids = tag_map.get(&model.id).cloned().unwrap_or_default();
+        Some(Self::model_to_todo(model, tag_ids))
+    }
 }

@@ -57,13 +57,32 @@ pub async fn stop_execution_handler(
     ApiJson(req): ApiJson<StopExecutionRequest>,
 ) -> Result<ApiResponse<()>, AppError> {
     let cancelled = state.task_manager.cancel(&req.task_id).await;
+
     if cancelled {
-        Ok(ApiResponse::ok(()))
-    } else {
-        Err(AppError::BadRequest(
-            "Task not found or already finished".to_string(),
-        ))
+        // 成功取消任务
+        return Ok(ApiResponse::ok(()));
     }
+
+    // 任务在TaskManager中找不到，可能是已经完成但todo状态没更新
+    // 查找task_id对应的todo
+    if let Some(todo) = state.db.get_todo_by_task_id(&req.task_id).await {
+        if todo.task_id.as_ref() == Some(&req.task_id) {
+            // todo的task_id匹配，说明这个todo还在运行状态
+            // 更新todo状态为failed，清除task_id
+            state.db.update_todo_status(todo.id, crate::models::TodoStatus::Failed).await;
+            state.db.update_todo_task_id(todo.id, None).await;
+
+            // 同时更新对应的执行记录为失败状态
+            state.db.mark_execution_records_as_failed(todo.id).await;
+
+            return Ok(ApiResponse::ok(()));
+        }
+    }
+
+    // 找不到对应的todo或task_id不匹配，返回错误
+    Err(AppError::BadRequest(
+        "Task not found or already finished".to_string(),
+    ))
 }
 
 pub async fn get_execution_summary(
