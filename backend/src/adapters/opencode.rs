@@ -11,12 +11,6 @@ pub struct OpencodeExecutor {
     usage: Arc<Mutex<Option<ExecutionUsage>>>,
 }
 
-fn strip_think_tags(content: &str) -> String {
-    use regex::Regex;
-    let re = Regex::new(r"<think>[\s\S]*?</think>").unwrap();
-    re.replace_all(content, "").trim().to_string()
-}
-
 impl OpencodeExecutor {
     pub fn new() -> Self {
         let path = env::var("OPENCODE_PATH")
@@ -221,7 +215,7 @@ impl CodeExecutor for OpencodeExecutor {
         let text_result = logs.iter()
             .rev()
             .find(|l| l.log_type == "text")
-            .map(|l| strip_think_tags(&l.content));
+            .map(|l| super::strip_think_tags(&l.content));
 
         // 如果没有 text，尝试 stderr
         let fallback = logs.iter()

@@ -4,6 +4,13 @@ use std::sync::{Arc, RwLock};
 
 use crate::models::{ExecutorType, ParsedLogEntry, ExecutionUsage};
 
+/// Strip `<think>...</think>` tags from content.
+pub fn strip_think_tags(content: &str) -> String {
+    use regex::Regex;
+    let re = Regex::new(r"<think>[\s\S]*?</think>").unwrap();
+    re.replace_all(content, "").trim().to_string()
+}
+
 pub mod joinai;
 pub mod claude_code;
 pub mod codebuddy;
