@@ -183,15 +183,20 @@ impl Database {
         }
     }
 
-    async fn fetch_tag_ids_for(&self, todo_id: i64) -> Vec<i64> {
+    async fn fetch_tag_ids_for_many(&self, todo_ids: &[i64]) -> std::collections::HashMap<i64, Vec<i64>> {
+        if todo_ids.is_empty() {
+            return std::collections::HashMap::new();
+        }
         todo_tags::Entity::find()
-            .filter(todo_tags::Column::TodoId.eq(todo_id))
+            .filter(todo_tags::Column::TodoId.is_in(todo_ids.to_vec()))
             .all(&self.conn)
             .await
             .unwrap_or_default()
             .into_iter()
-            .map(|t| t.tag_id)
-            .collect()
+            .fold(std::collections::HashMap::new(), |mut map, t| {
+                map.entry(t.todo_id).or_default().push(t.tag_id);
+                map
+            })
     }
 
     // ===== Todo operations =====
@@ -204,12 +209,16 @@ impl Database {
             .await
             .unwrap_or_default();
 
-        let mut result = Vec::with_capacity(models.len());
-        for m in models {
-            let tag_ids = self.fetch_tag_ids_for(m.id).await;
-            result.push(Self::model_to_todo(m, tag_ids));
-        }
-        result
+        let ids: Vec<i64> = models.iter().map(|m| m.id).collect();
+        let tag_map = self.fetch_tag_ids_for_many(&ids).await;
+
+        models
+            .into_iter()
+            .map(|m| {
+                let tag_ids = tag_map.get(&m.id).cloned().unwrap_or_default();
+                Self::model_to_todo(m, tag_ids)
+            })
+            .collect()
     }
 
     pub async fn create_todo(&self, title: &str, prompt: &str) -> i64 {
@@ -314,7 +323,14 @@ impl Database {
             .await
             .ok()
             .flatten()?;
-        let tag_ids = self.fetch_tag_ids_for(id).await;
+        let tag_ids = todo_tags::Entity::find()
+            .filter(todo_tags::Column::TodoId.eq(id))
+            .all(&self.conn)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| t.tag_id)
+            .collect();
         Some(Self::model_to_todo(model, tag_ids))
     }
 
@@ -326,12 +342,16 @@ impl Database {
             .await
             .unwrap_or_default();
 
-        let mut result = Vec::with_capacity(models.len());
-        for m in models {
-            let tag_ids = self.fetch_tag_ids_for(m.id).await;
-            result.push(Self::model_to_todo(m, tag_ids));
-        }
-        result
+        let ids: Vec<i64> = models.iter().map(|m| m.id).collect();
+        let tag_map = self.fetch_tag_ids_for_many(&ids).await;
+
+        models
+            .into_iter()
+            .map(|m| {
+                let tag_ids = tag_map.get(&m.id).cloned().unwrap_or_default();
+                Self::model_to_todo(m, tag_ids)
+            })
+            .collect()
     }
 
     // ===== Tag operations =====
