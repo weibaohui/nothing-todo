@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 use tokio_cron_scheduler::{Job, JobScheduler};
@@ -11,12 +12,16 @@ use crate::task_manager::TaskManager;
 
 pub struct TodoScheduler {
     sched: Mutex<JobScheduler>,
+    job_map: Mutex<HashMap<i64, uuid::Uuid>>,
 }
 
 impl TodoScheduler {
     pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let sched = JobScheduler::new().await?;
-        Ok(Self { sched: Mutex::new(sched) })
+        Ok(Self {
+            sched: Mutex::new(sched),
+            job_map: Mutex::new(HashMap::new()),
+        })
     }
 
     pub async fn load_from_db(
@@ -32,7 +37,7 @@ impl TodoScheduler {
             if let Some(ref config) = todo.scheduler_config {
                 if todo.scheduler_enabled {
                     info!("Loading scheduled task for todo {} with cron: {}", todo.id, config);
-                    self.add_task(
+                    self.upsert_task(
                         db.clone(),
                         executor_registry.clone(),
                         tx.clone(),
@@ -47,7 +52,7 @@ impl TodoScheduler {
         Ok(())
     }
 
-    pub async fn add_task(
+    pub async fn upsert_task(
         &self,
         db: Arc<Database>,
         executor_registry: Arc<ExecutorRegistry>,
@@ -56,6 +61,8 @@ impl TodoScheduler {
         cron_expr: String,
         task_manager: Arc<TaskManager>,
     ) -> Result<uuid::Uuid, Box<dyn std::error::Error>> {
+        self.remove_task_for_todo(todo_id).await;
+
         let db_clone = db.clone();
         let registry_clone = executor_registry.clone();
         let tx_clone = tx.clone();
@@ -84,6 +91,8 @@ impl TodoScheduler {
         info!("Scheduler inited: {}", sched.inited().await);
         match sched.add(job).await {
             Ok(id) => {
+                drop(sched);
+                self.job_map.lock().await.insert(todo_id, id);
                 info!("Added scheduled task {} for todo {} with cron: {}", id, todo_id, cron_expr);
                 Ok(id)
             }
@@ -94,13 +103,14 @@ impl TodoScheduler {
         }
     }
 
-    pub async fn remove_task(
-        &self,
-        job_id: uuid::Uuid,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.sched.lock().await.remove(&job_id).await?;
-        info!("Removed scheduled task {}", job_id);
-        Ok(())
+    pub async fn remove_task_for_todo(&self, todo_id: i64) {
+        let job_id = self.job_map.lock().await.remove(&todo_id);
+        if let Some(job_id) = job_id {
+            match self.sched.lock().await.remove(&job_id).await {
+                Ok(_) => info!("Removed scheduled task {} for todo {}", job_id, todo_id),
+                Err(e) => log::error!("Failed to remove scheduled task {} for todo {}: {:?}", job_id, todo_id, e),
+            }
+        }
     }
 
     pub async fn start(&self) -> Result<(), Box<dyn std::error::Error>> {

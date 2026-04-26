@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Todo, Tag, ExecutionRecord, ExecutionSummary } from '../types';
+import type { Todo, Tag, ExecutionSummary, ExecutionRecordsPage } from '../types';
 
 interface ApiResp<T> {
   code: number;
@@ -89,8 +89,11 @@ export async function deleteTag(id: number): Promise<void> {
 
 // Execution APIs
 
-export async function getExecutionRecords(todoId: number): Promise<ExecutionRecord[]> {
-  return unwrap(await api.get<ApiResp<ExecutionRecord[]>>(`/xyz/execution-records`, { params: { todo_id: todoId } }));
+export async function getExecutionRecords(todoId: number, page?: number, limit?: number): Promise<ExecutionRecordsPage> {
+  const params: Record<string, unknown> = { todo_id: todoId };
+  if (page !== undefined) params.page = page;
+  if (limit !== undefined) params.limit = limit;
+  return unwrap(await api.get<ApiResp<ExecutionRecordsPage>>(`/xyz/execution-records`, { params }));
 }
 
 export async function executeTodo(todoId: number, message: string, executor?: string): Promise<{ task_id: string }> {

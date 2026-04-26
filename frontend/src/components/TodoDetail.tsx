@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../hooks/useApp';
-import { Button, Empty, Input, App, Popconfirm, Tag, Badge } from 'antd';
-import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { Button, Empty, Input, App, Popconfirm, Tag, Badge, Pagination } from 'antd';
+import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import { TagCheckCardGroup } from './TagCheckCard';
 import { PieChart, PieChartLegend } from './PieChart';
@@ -27,6 +27,11 @@ export function TodoDetail() {
   const [summary, setSummary] = useState<ExecutionSummary | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  // Execution history pagination state
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyLimit, setHistoryLimit] = useState(5);
+  const [historyTotal, setHistoryTotal] = useState(0);
+
   const records = selectedTodoId ? executionRecords[selectedTodoId] || [] : [];
 
   // Check if current todo is running in the global panel
@@ -35,19 +40,27 @@ export function TodoDetail() {
   );
   const isExecuting = !!currentRunningTask && currentRunningTask.status === 'running';
 
+  const loadExecutionRecords = async (page = 1, limit = historyLimit) => {
+    if (!selectedTodo) return;
+    const pageData = await db.getExecutionRecords(selectedTodo.id, page, limit);
+    dispatch({
+      type: 'SET_EXECUTION_RECORDS',
+      payload: { todoId: selectedTodo.id, records: pageData.records }
+    });
+    setHistoryPage(pageData.page);
+    setHistoryLimit(pageData.limit);
+    setHistoryTotal(pageData.total);
+  };
+
   useEffect(() => {
     if (selectedTodo) {
       setEditTitle(selectedTodo.title);
       setEditPrompt(selectedTodo.prompt || '');
       setEditStatus(selectedTodo.status);
       setEditTags((selectedTodo as any).tag_ids || []);
+      setHistoryPage(1);
 
-      db.getExecutionRecords(selectedTodo.id).then(recs => {
-        dispatch({
-          type: 'SET_EXECUTION_RECORDS',
-          payload: { todoId: selectedTodo.id, records: recs }
-        });
-      });
+      loadExecutionRecords(1, historyLimit);
 
       db.getExecutionSummary(selectedTodo.id).then(sum => {
         setSummary(sum);
@@ -55,6 +68,7 @@ export function TodoDetail() {
     } else {
       setIsEditing(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTodoId, selectedTodo, dispatch]);
 
   const handleExecute = async () => {
@@ -392,108 +406,141 @@ export function TodoDetail() {
 
       {/* Execution History */}
       <div style={{ paddingBottom: 20, flexShrink: 0 }}>
-        <h4 style={{ marginBottom: 12, fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>执行历史</h4>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>执行历史</h4>
+          <Button
+            type="text"
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={() => loadExecutionRecords(historyPage, historyLimit)}
+            loading={isExecuting}
+          >
+            刷新
+          </Button>
+        </div>
         {records.length === 0 ? (
           <Empty description="暂无执行记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
         ) : (
-          records.map(record => (
-            <div
-              key={record.id}
-              className={`history-card history-card-${record.status}`}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                    {formatLocalDateTime(record.started_at)}
-                  </span>
-                  {record.executor && (() => {
-                    const recOpt = getExecutorOption(record.executor);
-                    return (
-                      <Tag color={recOpt.color} style={{ fontWeight: 600 }}>
-                        {recOpt.icon} {recOpt.label}
-                      </Tag>
-                    );
-                  })()}
-                  {record.model && <Tag color="#3b82f6">{record.model}</Tag>}
-                  <Tag color={record.trigger_type === 'cron' ? '#8b5cf6' : '#6b7280'} style={{ fontSize: 10 }}>
-                    {record.trigger_type === 'cron' ? 'Cron' : '手动'}
-                  </Tag>
-                  {record.usage?.duration_ms && (
-                    <span style={{ fontSize: 11, color: 'var(--color-success)', fontWeight: 600 }}>
-                      {(record.usage.duration_ms / 1000).toFixed(2)}s
+          <>
+            {records.map(record => (
+              <div
+                key={record.id}
+                className={`history-card history-card-${record.status}`}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                      {formatLocalDateTime(record.started_at)}
                     </span>
-                  )}
-                </div>
-                <span style={{
-                  fontSize: 11,
-                  padding: '3px 12px',
-                  borderRadius: 12,
-                  backgroundColor: record.status === 'success' ? 'var(--color-success)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-info)',
-                  color: '#fff',
-                  fontWeight: 600,
-                }}>
-                  {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
-                </span>
-              </div>
-              {record.command && (
-                <div style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginBottom: 8, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {record.command}
-                </div>
-              )}
-
-              {record.result !== null && record.result !== '' && (
-                <div className={`history-result ${record.status === 'success' ? 'history-result-success' : 'history-result-failed'}`}>
-                  {record.result}
-                </div>
-              )}
-
-              {record.usage && (
-                <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                  <span>Input: {record.usage.input_tokens.toLocaleString()}</span>
-                  <span>Output: {record.usage.output_tokens.toLocaleString()}</span>
-                  {record.usage.total_cost_usd !== null && (
-                    <span style={{ color: 'var(--color-warning)', fontWeight: 600 }}>${record.usage.total_cost_usd.toFixed(6)}</span>
-                  )}
-                </div>
-              )}
-
-              {record.logs && record.logs !== '[]' && (
-                <details style={{ marginTop: 8 }}>
-                  <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 12, fontWeight: 600 }}>
-                    查看日志 ({JSON.parse(record.logs).length} 条)
-                  </summary>
-                  <div style={{
-                    background: '#1a1a2e',
-                    color: '#e2e8f0',
-                    padding: 8,
-                    borderRadius: 8,
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 11,
-                    marginTop: 8,
-                    maxHeight: 250,
-                    overflow: 'auto',
-                  }}>
-                    {(() => {
-                      try {
-                        const logs = JSON.parse(record.logs);
-                        return logs.map((log: any, idx: number) => (
-                          <div key={idx} style={{ marginBottom: 4, display: 'flex', gap: 8 }}>
-                            <span style={{ color: '#64748b', flexShrink: 0 }}>{log.timestamp}</span>
-                            <span style={{ color: logTypeColors[log.type] || '#cbd5e1' }}>
-                              [{logTypeLabels[log.type] || log.type}]
-                            </span>
-                            <span>{log.content}</span>
-                          </div>
-                        ));
-                      } catch {
-                        return <div>{record.logs}</div>;
-                      }
+                    {record.executor && (() => {
+                      const recOpt = getExecutorOption(record.executor);
+                      return (
+                        <Tag color={recOpt.color} style={{ fontWeight: 600 }}>
+                          {recOpt.icon} {recOpt.label}
+                        </Tag>
+                      );
                     })()}
+                    {record.model && <Tag color="#3b82f6">{record.model}</Tag>}
+                    <Tag color={record.trigger_type === 'cron' ? '#8b5cf6' : '#6b7280'} style={{ fontSize: 10 }}>
+                      {record.trigger_type === 'cron' ? 'Cron' : '手动'}
+                    </Tag>
+                    {record.usage?.duration_ms && (
+                      <span style={{ fontSize: 11, color: 'var(--color-success)', fontWeight: 600 }}>
+                        {(record.usage.duration_ms / 1000).toFixed(2)}s
+                      </span>
+                    )}
                   </div>
-                </details>
-              )}
-            </div>
-          ))
+                  <span style={{
+                    fontSize: 11,
+                    padding: '3px 12px',
+                    borderRadius: 12,
+                    backgroundColor: record.status === 'success' ? 'var(--color-success)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-info)',
+                    color: '#fff',
+                    fontWeight: 600,
+                  }}>
+                    {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
+                  </span>
+                </div>
+                {record.command && (
+                  <div style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginBottom: 8, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {record.command}
+                  </div>
+                )}
+
+                {record.result !== null && record.result !== '' && (
+                  <div className={`history-result ${record.status === 'success' ? 'history-result-success' : 'history-result-failed'}`}>
+                    {record.result}
+                  </div>
+                )}
+
+                {record.usage && (
+                  <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    <span>Input: {record.usage.input_tokens.toLocaleString()}</span>
+                    <span>Output: {record.usage.output_tokens.toLocaleString()}</span>
+                    {record.usage.total_cost_usd !== null && (
+                      <span style={{ color: 'var(--color-warning)', fontWeight: 600 }}>${record.usage.total_cost_usd.toFixed(6)}</span>
+                    )}
+                  </div>
+                )}
+
+                {record.logs && record.logs !== '[]' && (
+                  <details style={{ marginTop: 8 }}>
+                    <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 12, fontWeight: 600 }}>
+                      查看日志 ({JSON.parse(record.logs).length} 条)
+                    </summary>
+                    <div style={{
+                      background: '#1a1a2e',
+                      color: '#e2e8f0',
+                      padding: 8,
+                      borderRadius: 8,
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 11,
+                      marginTop: 8,
+                      maxHeight: 250,
+                      overflow: 'auto',
+                    }}>
+                      {(() => {
+                        try {
+                          const logs = JSON.parse(record.logs);
+                          return logs.map((log: any, idx: number) => (
+                            <div key={idx} style={{ marginBottom: 4, display: 'flex', gap: 8 }}>
+                              <span style={{ color: '#64748b', flexShrink: 0 }}>{log.timestamp}</span>
+                              <span style={{ color: logTypeColors[log.type] || '#cbd5e1' }}>
+                                [{logTypeLabels[log.type] || log.type}]
+                              </span>
+                              <span>{log.content}</span>
+                            </div>
+                          ));
+                        } catch {
+                          return <div>{record.logs}</div>;
+                        }
+                      })()}
+                    </div>
+                  </details>
+                )}
+              </div>
+            ))}
+            {historyTotal > historyLimit && (
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
+                <Pagination
+                  current={historyPage}
+                  pageSize={historyLimit}
+                  total={historyTotal}
+                  onChange={(page, pageSize) => {
+                    if (pageSize !== historyLimit) {
+                      setHistoryLimit(pageSize);
+                      loadExecutionRecords(1, pageSize);
+                    } else {
+                      loadExecutionRecords(page, historyLimit);
+                    }
+                  }}
+                  size="small"
+                  showSizeChanger
+                  pageSizeOptions={['5', '10', '20']}
+                />
+              </div>
+            )}
+          </>
         )}
       </div>
 

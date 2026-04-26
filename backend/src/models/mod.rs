@@ -136,6 +136,18 @@ pub struct ExecuteRequest {
 #[derive(Deserialize)]
 pub struct TodoIdQuery {
     pub todo_id: i64,
+    #[serde(default)]
+    pub page: Option<i64>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionRecordsPage {
+    pub records: Vec<ExecutionRecord>,
+    pub total: i64,
+    pub page: i64,
+    pub limit: i64,
 }
 
 #[derive(Deserialize)]

@@ -288,12 +288,12 @@ conn.execute(
         ).unwrap();
     }
 
-    pub fn update_todo_scheduler(&self, id: i64, enabled: bool, config: Option<&str>, task_id: Option<&str>) {
+    pub fn update_todo_scheduler(&self, id: i64, enabled: bool, config: Option<&str>) {
         let conn = self.conn.lock();
         let enabled_val = if enabled { 1 } else { 0 };
         conn.execute(
-            "UPDATE todos SET scheduler_enabled = ?1, scheduler_config = ?2, task_id = ?3 WHERE id = ?4",
-            params![enabled_val, config, task_id, id],
+            "UPDATE todos SET scheduler_enabled = ?1, scheduler_config = ?2 WHERE id = ?3",
+            params![enabled_val, config, id],
         ).unwrap();
     }
 
@@ -414,13 +414,20 @@ conn.execute(
     }
 
     // Execution record operations
-    pub fn get_execution_records(&self, todo_id: i64) -> Vec<ExecutionRecord> {
+    pub fn get_execution_records(&self, todo_id: i64, limit: i64, offset: i64) -> (Vec<ExecutionRecord>, i64) {
         let conn = self.conn.lock();
+
+        let total: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM execution_records WHERE todo_id = ?1",
+            params![todo_id],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
         let mut stmt = conn.prepare(
             "SELECT id, todo_id, status, command, stdout, stderr, logs, result, started_at, finished_at, usage, executor, model, trigger_type
-             FROM execution_records WHERE todo_id = ?1 ORDER BY started_at DESC"
+             FROM execution_records WHERE todo_id = ?1 ORDER BY started_at DESC LIMIT ?2 OFFSET ?3"
         ).unwrap();
-        stmt.query_map(params![todo_id], |row| {
+        let records = stmt.query_map(params![todo_id, limit, offset], |row| {
             let usage_str: Option<String> = row.get(10)?;
             let usage = usage_str.and_then(|u| serde_json::from_str(&u).ok());
             let executor: Option<String> = row.get(11)?;
@@ -442,7 +449,9 @@ conn.execute(
                 model,
                 trigger_type: trigger_type.unwrap_or_else(|| "manual".to_string()),
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        }).unwrap().filter_map(|r| r.ok()).collect();
+
+        (records, total)
     }
 
     pub fn create_execution_record(&self, todo_id: i64, command: &str, executor: &str, trigger_type: &str) -> i64 {

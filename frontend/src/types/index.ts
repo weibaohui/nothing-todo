@@ -71,6 +71,13 @@ export interface ExecutionSummary {
   total_cost_usd: number | null;
 }
 
+export interface ExecutionRecordsPage {
+  records: ExecutionRecord[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export interface ExecuteResult {
   success: boolean;
   stdout: string;

@@ -15,8 +15,8 @@ use crate::executor_service::run_todo_execution;
 use crate::models::{
     ApiResponse, codes,
     CreateTodoRequest, UpdateTodoRequest, UpdateTagsRequest, CreateTagRequest, ExecuteRequest, TodoIdQuery,
-    UpdateSchedulerRequest,
-    Todo, Tag, ExecutionRecord, ExecutionSummary, ParsedLogEntry,
+    UpdateSchedulerRequest, ExecutionRecordsPage,
+    Todo, Tag, ExecutionSummary, ParsedLogEntry,
 };
 use crate::scheduler::TodoScheduler;
 use crate::task_manager::TaskManager;
@@ -124,8 +124,17 @@ pub async fn delete_tag(State(state): State<AppState>, Path(id): Path<i64>) -> J
 pub async fn get_execution_records(
     State(state): State<AppState>,
     Query(query): Query<TodoIdQuery>,
-) -> Json<ApiResponse<Vec<ExecutionRecord>>> {
-    Json(ApiResponse::ok(state.db.get_execution_records(query.todo_id)))
+) -> Json<ApiResponse<ExecutionRecordsPage>> {
+    let page = query.page.unwrap_or(1).max(1);
+    let limit = query.limit.unwrap_or(10).max(1).min(100);
+    let offset = (page - 1) * limit;
+    let (records, total) = state.db.get_execution_records(query.todo_id, limit, offset);
+    Json(ApiResponse::ok(ExecutionRecordsPage {
+        records,
+        total,
+        page,
+        limit,
+    }))
 }
 
 // Execute handler
@@ -169,35 +178,22 @@ pub async fn update_scheduler(
     Path(id): Path<i64>,
     Json(req): Json<UpdateSchedulerRequest>,
 ) -> Json<ApiResponse<Todo>> {
-    let todo = state.db.get_todo(id);
-    let old_task_id = todo.as_ref().and_then(|t| t.task_id.clone());
-
-    if let Some(ref task_id_str) = old_task_id {
-        if let Ok(uuid) = uuid::Uuid::parse_str(task_id_str) {
-            let _ = state.scheduler.remove_task(uuid).await;
-        }
-    }
-
-    let new_task_id = if req.scheduler_enabled {
+    if req.scheduler_enabled {
         if let Some(ref config) = req.scheduler_config {
-            match state.scheduler.add_task(
+            if let Err(e) = state.scheduler.upsert_task(
                 state.db.clone(), state.executor_registry.clone(), state.tx.clone(),
                 id, config.clone(), state.task_manager.clone(),
             ).await {
-                Ok(uuid) => Some(uuid.to_string()),
-                Err(e) => {
-                    log::error!("Failed to add scheduled task for todo {}: {}", id, e);
-                    None
-                }
+                log::error!("Failed to upsert scheduled task for todo {}: {}", id, e);
             }
         } else {
-            None
+            state.scheduler.remove_task_for_todo(id).await;
         }
     } else {
-        None
-    };
+        state.scheduler.remove_task_for_todo(id).await;
+    }
 
-    state.db.update_todo_scheduler(id, req.scheduler_enabled, req.scheduler_config.as_deref(), new_task_id.as_deref());
+    state.db.update_todo_scheduler(id, req.scheduler_enabled, req.scheduler_config.as_deref());
 
     match state.db.get_todo(id) {
         Some(todo) => Json(ApiResponse::ok(todo)),
