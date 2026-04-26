@@ -132,7 +132,7 @@ pub async fn run_todo_execution(
                         let _ = tx_clone.send(ExecEvent::Output { task_id: tid.clone(), entry: parsed });
 
                         let logs_json = serde_json::to_string(&*logs_for_db.lock().await).unwrap_or_default();
-                        db_clone2.update_execution_record(rid, "running", &logs_json, "").await;
+                        db_clone2.update_execution_record(rid, "running", &logs_json, "", None).await;
                     }
                 }
             }))
@@ -217,11 +217,7 @@ pub async fn run_todo_execution(
         let final_status = if success { "success" } else { "failed" };
         let logs_json = serde_json::to_string(&all_logs_snapshot).unwrap_or_default();
         let usage = executor_spawn.get_usage(&all_logs_snapshot);
-        if let Some(u) = usage {
-            db_clone.update_execution_record_with_usage(record_id, final_status, &logs_json, &result_str, &u).await;
-        } else {
-            db_clone.update_execution_record(record_id, final_status, &logs_json, &result_str).await;
-        }
+        db_clone.update_execution_record(record_id, final_status, &logs_json, &result_str, usage.as_ref()).await;
 
         if let Some(model) = executor_spawn.get_model() {
             db_clone.update_execution_record_with_model(record_id, &model).await;

@@ -82,35 +82,21 @@ impl Database {
         inserted.id
     }
 
-    pub async fn update_execution_record(&self, id: i64, status: &str, logs: &str, result: &str) {
-        let now = crate::models::utc_timestamp();
-        let am = execution_records::ActiveModel {
-            id: ActiveValue::Unchanged(id),
-            status: ActiveValue::Set(Some(status.to_string())),
-            logs: ActiveValue::Set(Some(logs.to_string())),
-            result: ActiveValue::Set(Some(result.to_string())),
-            finished_at: ActiveValue::Set(Some(now)),
-            ..Default::default()
-        };
-        let _ = am.update(&self.conn).await;
-    }
-
-    pub async fn update_execution_record_with_usage(
+    pub async fn update_execution_record(
         &self,
         id: i64,
         status: &str,
         logs: &str,
         result: &str,
-        usage: &ExecutionUsage,
+        usage: Option<&ExecutionUsage>,
     ) {
         let now = crate::models::utc_timestamp();
-        let usage_json = serde_json::to_string(usage).unwrap_or_default();
         let am = execution_records::ActiveModel {
             id: ActiveValue::Unchanged(id),
             status: ActiveValue::Set(Some(status.to_string())),
             logs: ActiveValue::Set(Some(logs.to_string())),
             result: ActiveValue::Set(Some(result.to_string())),
-            usage: ActiveValue::Set(Some(usage_json)),
+            usage: ActiveValue::Set(usage.map(|u| serde_json::to_string(u).unwrap_or_default())),
             finished_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
