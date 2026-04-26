@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Card, Table, Badge, Tag, Empty, Spin, Masonry, App } from 'antd';
+import { Card, Table, Badge, Tag, Empty, Spin, Masonry, App, Button } from 'antd';
 import {
+  ArrowLeftOutlined,
   FileTextOutlined,
   PlayCircleOutlined,
   CheckCircleOutlined,
@@ -151,7 +152,11 @@ function RichBarItem({
 }
 
 
-export function Dashboard() {
+interface DashboardProps {
+  onBack?: () => void;
+}
+
+export function Dashboard({ onBack }: DashboardProps) {
   const { state } = useApp();
   const { message } = App.useApp();
   const { todos, tags, runningTasks } = state;
@@ -560,6 +565,16 @@ export function Dashboard() {
 
   return (
     <div style={{ height: '100%', overflow: 'auto', padding: '16px 20px', background: 'var(--color-bg-layout)' }}>
+      {onBack && (
+        <Button
+          type="text"
+          icon={<ArrowLeftOutlined />}
+          onClick={onBack}
+          style={{ marginBottom: 12, marginLeft: -4 }}
+        >
+          返回任务列表
+        </Button>
+      )}
       <Masonry
         columns={{ xs: 1, sm: 1, md: 2, lg: 2, xl: 3 }}
         gutter={[16, 16]}

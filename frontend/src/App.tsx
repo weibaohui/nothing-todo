@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { ConfigProvider, Layout, Spin, Button, App as AntApp } from 'antd';
-import { CloseOutlined, PlusOutlined } from '@ant-design/icons';
+import { ConfigProvider, Layout, Spin, App as AntApp } from 'antd';
+import { PlusOutlined } from '@ant-design/icons';
 import { AppProvider, useApp } from './hooks/useApp';
 import { useExecutionEvents } from './hooks/useExecutionEvents';
 import { TodoList } from './components/TodoList';
@@ -17,7 +17,7 @@ const { Content } = Layout;
 const MOBILE_BREAKPOINT = 768;
 
 function AppContent() {
-  const { state } = useApp();
+  const { state, clearSelection } = useApp();
   const [tagModalOpen, setTagModalOpen] = useState(false);
   const [todoModalOpen, setTodoModalOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -58,29 +58,13 @@ function AppContent() {
     }
   };
 
-  const renderMobileHeader = () => (
-    <div className="mobile-header">
-      <span className="mobile-title">
-        {selectedPanel === 'list' ? '任务列表' : state.todos.find(t => t.id === state.selectedTodoId)?.title || '详情'}
-      </span>
-      {selectedPanel === 'detail' && (
-        <Button
-          type="text"
-          icon={<CloseOutlined style={{ fontSize: 20 }} />}
-          onClick={() => {
-            setSelectedPanel('list');
-          }}
-          className="icon-btn"
-          aria-label="返回列表"
-        />
-      )}
-    </div>
-  );
+  const handleShowDashboard = () => {
+    clearSelection();
+    setSelectedPanel('detail');
+  };
 
   return (
     <Layout style={{ height: '100vh' }}>
-      {isMobile && renderMobileHeader()}
-
       {/* Mobile FAB */}
       {isMobile && selectedPanel === 'list' && (
         <button
@@ -119,6 +103,7 @@ function AppContent() {
               onOpenCreateModal={() => setTodoModalOpen(true)}
               onSelectTodo={handleSelectTodo}
               onOpenTagModal={() => setTagModalOpen(true)}
+              onShowDashboard={handleShowDashboard}
             />
           </div>
 
@@ -132,7 +117,14 @@ function AppContent() {
               display: !isMobile || selectedPanel === 'detail' ? 'block' : 'none',
             }}
           >
-            {state.selectedTodoId ? <TodoDetail /> : <Dashboard />}
+                      {state.selectedTodoId ? (
+              <TodoDetail />
+            ) : (
+              <Dashboard onBack={isMobile ? () => {
+                clearSelection();
+                setSelectedPanel('list');
+              } : undefined} />
+            )}
           </div>
         </Content>
       </Layout>

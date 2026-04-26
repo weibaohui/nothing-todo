@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty, Input, App, Popconfirm, Tag, Badge, Pagination } from 'antd';
-import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import { TagCheckCardGroup } from './TagCheckCard';
 import { PieChart, PieChartLegend } from './PieChart';
@@ -19,7 +19,15 @@ export function TodoDetail() {
   const { state, dispatch } = useApp();
   const { message } = App.useApp();
   const { todos, selectedTodoId, executionRecords, runningTasks } = state;
+  const [isMobile, setIsMobile] = useState(false);
   const selectedTodo = todos.find(t => t.id === selectedTodoId);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
@@ -158,6 +166,19 @@ export function TodoDetail() {
 
   return (
     <div className="detail-panel">
+      {/* Mobile Back Button */}
+      {isMobile && (
+        <Button
+          type="text"
+          icon={<ArrowLeftOutlined />}
+          onClick={() => {
+            dispatch({ type: 'SELECT_TODO', payload: null });
+          }}
+          style={{ marginBottom: 8, marginLeft: -4 }}
+        >
+          返回
+        </Button>
+      )}
       {/* Title Card */}
       <div className="detail-card title-card">
         {isEditing ? (

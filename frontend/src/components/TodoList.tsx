@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty } from 'antd';
-import { PlusOutlined, TagOutlined, ClockCircleOutlined, InboxOutlined } from '@ant-design/icons';
+import { PlusOutlined, TagOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import * as db from '../utils/database';
 import { getExecutorOption } from '../types';
@@ -11,6 +11,7 @@ interface TodoListProps {
   onOpenCreateModal: () => void;
   onSelectTodo?: (todoId: string | number) => void;
   onOpenTagModal?: () => void;
+  onShowDashboard?: () => void;
 }
 
 function SkeletonRow() {
@@ -27,7 +28,7 @@ function SkeletonList() {
   );
 }
 
-export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal }: TodoListProps) {
+export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal, onShowDashboard }: TodoListProps) {
   const { state, dispatch } = useApp();
   const { todos, selectedTodoId, selectedTagId, tags } = state;
   const [isMobile, setIsMobile] = useState(false);
@@ -71,6 +72,14 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal }: To
           </span>
         </h3>
         <div className="header-actions">
+          <Button
+            type="text"
+            size="small"
+            icon={<DashboardOutlined />}
+            onClick={onShowDashboard}
+            className="tag-btn"
+            aria-label="查看仪表盘"
+          />
           <Button
             type="text"
             size="small"

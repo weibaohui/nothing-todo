@@ -202,5 +202,11 @@ export function useApp() {
   if (!context) {
     throw new Error('useApp must be used within AppProvider');
   }
-  return context;
+  
+  const clearSelection = () => {
+    context.dispatch({ type: 'SELECT_TODO', payload: null });
+    context.dispatch({ type: 'SELECT_TAG', payload: null });
+  };
+  
+  return { ...context, clearSelection };
 }
