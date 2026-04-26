@@ -35,6 +35,9 @@ async fn main() {
             .expect("Failed to open database")
     );
 
+    // 清理孤儿执行记录（程序崩溃后状态为running但没有task_id的记录）
+    db.cleanup_orphan_execution_records().await;
+
     // Initialize executor registry with adapters
     let executor_registry = Arc::new(adapters::ExecutorRegistry::new());
     executor_registry.register(adapters::joinai::JoinaiExecutor::new());

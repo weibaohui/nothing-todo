@@ -383,4 +383,54 @@ impl Database {
             total_cost_usd: if total_cost > 0.0 { Some(total_cost) } else { None },
         }
     }
+
+    /// 清理孤儿执行记录：状态为running但todo没有对应task_id的记录
+    /// 程序崩溃后，执行记录可能保持running状态，需要修复
+    pub async fn cleanup_orphan_execution_records(&self) {
+        // 查找所有状态为running的执行记录
+        let running_records = execution_records::Entity::find()
+            .filter(execution_records::Column::Status.eq(crate::models::ExecutionStatus::Running.as_str()))
+            .all(&self.conn)
+            .await
+            .unwrap_or_default();
+
+        for record in running_records {
+            // 检查对应的todo是否有task_id
+            if let Some(todo) = self.get_todo(record.todo_id.unwrap_or(0)).await {
+                if todo.task_id.is_none() {
+                    // todo没有task_id，说明这个执行记录是孤儿的，标记为失败
+                    tracing::warn!(
+                        "Found orphan execution record {} for todo {}, marking as failed",
+                        record.id,
+                        record.todo_id.unwrap_or(0)
+                    );
+                    let now = crate::models::utc_timestamp();
+                    let am = execution_records::ActiveModel {
+                        id: ActiveValue::Unchanged(record.id),
+                        status: ActiveValue::Set(Some(crate::models::ExecutionStatus::Failed.as_str().to_string())),
+                        finished_at: ActiveValue::Set(Some(now)),
+                        result: ActiveValue::Set(Some("程序崩溃，任务被中断".to_string())),
+                        ..Default::default()
+                    };
+                    self.exec_update(am).await;
+                }
+            } else {
+                // todo不存在，直接标记执行记录为失败
+                tracing::warn!(
+                    "Found orphan execution record {} for non-existent todo {}, marking as failed",
+                    record.id,
+                    record.todo_id.unwrap_or(0)
+                );
+                let now = crate::models::utc_timestamp();
+                let am = execution_records::ActiveModel {
+                    id: ActiveValue::Unchanged(record.id),
+                    status: ActiveValue::Set(Some(crate::models::ExecutionStatus::Failed.as_str().to_string())),
+                    finished_at: ActiveValue::Set(Some(now)),
+                    result: ActiveValue::Set(Some("任务已被删除".to_string())),
+                    ..Default::default()
+                };
+                self.exec_update(am).await;
+            }
+        }
+    }
 }

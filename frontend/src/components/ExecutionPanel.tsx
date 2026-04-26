@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react';
 import { useApp } from '../hooks/useApp';
 import { getExecutorOption } from '../types';
+import * as db from '../utils/database';
 
 const logTypeColors: Record<string, string> = {
   info: '#60a5fa',
@@ -61,6 +62,17 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
   const taskIds = Object.keys(runningTasks);
   const activeTask = activeTaskId ? runningTasks[activeTaskId] : null;
 
+  // 停止任务
+  const handleStopTask = async (taskId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await db.stopExecution(taskId);
+      // 任务停止后，会在3秒后自动从runningTasks中移除
+    } catch (error) {
+      console.error('停止任务失败:', error);
+    }
+  };
+
   useEffect(() => {
     if (logsEndRef.current && !collapsed && activeTask) {
       logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -102,16 +114,28 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
                     {task.success ? '✓' : '✗'}
                   </span>
                 )}
-                <button
-                  className="tab-close"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    dispatch({ type: 'REMOVE_RUNNING_TASK', payload: taskId });
-                  }}
-                  aria-label="关闭"
-                >
-                  ×
-                </button>
+                {task.status === 'running' && (
+                  <button
+                    className="tab-stop"
+                    onClick={(e) => handleStopTask(taskId, e)}
+                    aria-label="停止任务"
+                    title="停止任务"
+                  >
+                    ■
+                  </button>
+                )}
+                {task.status === 'finished' && (
+                  <button
+                    className="tab-close"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      dispatch({ type: 'REMOVE_RUNNING_TASK', payload: taskId });
+                    }}
+                    aria-label="关闭"
+                  >
+                    ×
+                  </button>
+                )}
               </div>
             );
           })}
