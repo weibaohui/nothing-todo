@@ -5,6 +5,7 @@ import { PlusOutlined, TagOutlined, ClockCircleOutlined, InboxOutlined } from '@
 import { StatusPicker } from './StatusPicker';
 import * as db from '../utils/database';
 import { getExecutorOption } from '../types';
+import { formatRelativeTime, formatLocalDateTime } from '../utils/datetime';
 
 interface TodoListProps {
   onOpenCreateModal: () => void;
@@ -192,29 +193,42 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal }: To
                         {todo.prompt.length > 60 ? todo.prompt.substring(0, 60) + '...' : todo.prompt}
                       </div>
                     )}
-                    <div className="todo-item-tags">
-                      {todoTags.map(t => (
-                        <span
-                          key={t.id}
-                          className="todo-tag-badge"
-                          style={{
-                            backgroundColor: t.color + '18',
-                            color: t.color,
-                            border: `1px solid ${t.color}30`,
-                          }}
-                        >
-                          {t.name}
-                        </span>
-                      ))}
-                      {todo.scheduler_config && (
-                        <ClockCircleOutlined
-                          style={{
-                            fontSize: 12,
-                            color: todo.scheduler_enabled ? 'var(--color-warning)' : 'var(--color-text-tertiary)',
-                            marginLeft: todoTags.length > 0 ? 4 : 0,
-                          }}
-                        />
-                      )}
+                    <div className="todo-item-tags" style={{ justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                        {todoTags.map(t => (
+                          <span
+                            key={t.id}
+                            className="todo-tag-badge"
+                            style={{
+                              backgroundColor: t.color + '18',
+                              color: t.color,
+                              border: `1px solid ${t.color}30`,
+                            }}
+                          >
+                            {t.name}
+                          </span>
+                        ))}
+                        {todo.scheduler_config && (
+                          <ClockCircleOutlined
+                            style={{
+                              fontSize: 12,
+                              color: todo.scheduler_enabled ? 'var(--color-warning)' : 'var(--color-text-tertiary)',
+                              marginLeft: todoTags.length > 0 ? 4 : 0,
+                            }}
+                          />
+                        )}
+                      </div>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: 'var(--color-text-quaternary)',
+                          flexShrink: 0,
+                          marginLeft: 8,
+                        }}
+                        title={formatLocalDateTime(todo.updated_at)}
+                      >
+                        {formatRelativeTime(todo.updated_at)}
+                      </span>
                     </div>
                   </div>
                   <div
