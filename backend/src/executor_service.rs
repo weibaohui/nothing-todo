@@ -72,8 +72,10 @@ pub async fn run_todo_execution(
     let message_clone = message.clone();
     let task_manager_spawn = task_manager.clone();
 
+    let todo_title = todo.as_ref().map(|t| t.title.clone()).unwrap_or_default();
+
     tokio::spawn(async move {
-        let _ = tx_clone.send(ExecEvent::Started { task_id: task_id.clone() });
+        let _ = tx_clone.send(ExecEvent::Started { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone() });
 
         let entry = ParsedLogEntry {
             timestamp: get_timestamp(),

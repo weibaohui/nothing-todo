@@ -33,7 +33,7 @@ pub struct AppState {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
 pub enum ExecEvent {
-    Started { task_id: String },
+    Started { task_id: String, todo_id: i64, todo_title: String },
     Output { task_id: String, entry: ParsedLogEntry },
     Finished { task_id: String, success: bool, result: Option<String> },
 }
