@@ -234,3 +234,113 @@ impl CodeExecutor for OpencodeExecutor {
         self.model.lock().unwrap().clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::ParsedLogEntry;
+
+    #[test]
+    fn test_parse_output_line_step_start() {
+        let executor = OpencodeExecutor::new();
+        let line = r#"{"type":"step_start","timestamp":1700000000000}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "step_start");
+        assert_eq!(entry.content, "Step started");
+    }
+
+    #[test]
+    fn test_parse_output_line_tool_use_bash() {
+        let executor = OpencodeExecutor::new();
+        let line = r#"{"type":"tool_use","timestamp":1700000000000,"part":{"type":"tool_use","tool":"bash","state":{"status":"success","input":{"description":"list files"},"output":"file.txt"}}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "tool");
+        assert!(entry.content.contains("success"), "content should contain status: {}", entry.content);
+        assert!(entry.content.contains("list files"), "content should contain description: {}", entry.content);
+        assert!(entry.content.contains("file.txt"), "content should contain output: {}", entry.content);
+    }
+
+    #[test]
+    fn test_parse_output_line_text() {
+        let executor = OpencodeExecutor::new();
+        let line = r#"{"type":"text","timestamp":1700000000000,"part":{"type":"text","text":"hello world"}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "text");
+        assert_eq!(entry.content, "hello world");
+    }
+
+    #[test]
+    fn test_parse_output_line_step_finish_stores_usage() {
+        let executor = OpencodeExecutor::new();
+        let line = r#"{"type":"step_finish","timestamp":1700000000000,"part":{"type":"step_finish","tokens":{"total":100,"input":50,"output":50,"cache":{"read":10,"write":5}},"cost":0.001}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "step_finish");
+        assert_eq!(entry.content, "Step finished");
+
+        let usage = executor.get_usage(&[]).unwrap();
+        assert_eq!(usage.input_tokens, 50);
+        assert_eq!(usage.output_tokens, 50);
+        assert_eq!(usage.cache_read_input_tokens, Some(10));
+        assert_eq!(usage.cache_creation_input_tokens, Some(5));
+        assert_eq!(usage.total_cost_usd, Some(0.001));
+    }
+
+    #[test]
+    fn test_parse_output_line_unknown_type() {
+        let executor = OpencodeExecutor::new();
+        let line = r#"{"type":"unknown","timestamp":1700000000000}"#;
+        assert!(executor.parse_output_line(line).is_none());
+    }
+
+    #[test]
+    fn test_parse_output_line_invalid_json() {
+        let executor = OpencodeExecutor::new();
+        let line = "not json";
+        assert!(executor.parse_output_line(line).is_none());
+    }
+
+    #[test]
+    fn test_parse_output_line_empty_text() {
+        let executor = OpencodeExecutor::new();
+        let line = r#"{"type":"text","timestamp":1700000000000,"part":{"type":"text","text":""}}"#;
+        assert!(executor.parse_output_line(line).is_none());
+    }
+
+    #[test]
+    fn test_get_final_result_with_text() {
+        let executor = OpencodeExecutor::new();
+        let logs = vec![
+            ParsedLogEntry::new("text", "  hello world  "),
+        ];
+        assert_eq!(executor.get_final_result(&logs), Some("hello world".to_string()));
+    }
+
+    #[test]
+    fn test_get_final_result_fallback_to_stderr() {
+        let executor = OpencodeExecutor::new();
+        let logs = vec![
+            ParsedLogEntry::new("stderr", "error output"),
+        ];
+        assert_eq!(executor.get_final_result(&logs), Some("error output".to_string()));
+    }
+
+    #[test]
+    fn test_get_final_result_empty_logs() {
+        let executor = OpencodeExecutor::new();
+        let logs: Vec<ParsedLogEntry> = vec![];
+        assert!(executor.get_final_result(&logs).is_none());
+    }
+
+    #[test]
+    fn test_get_usage_before_step_finish() {
+        let executor = OpencodeExecutor::new();
+        assert!(executor.get_usage(&[]).is_none());
+    }
+
+    #[test]
+    fn test_get_model_always_none() {
+        let executor = OpencodeExecutor::new();
+        assert!(executor.get_model().is_none());
+    }
+}
+

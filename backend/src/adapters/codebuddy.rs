@@ -242,3 +242,123 @@ impl CodeExecutor for CodebuddyExecutor {
         self.model.lock().unwrap().clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::ParsedLogEntry;
+
+    #[test]
+    fn test_parse_output_line_system() {
+        let executor = CodebuddyExecutor::new();
+        let line = r#"{"type":"system","model":"claude-3-5-sonnet"}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "system");
+        assert!(entry.content.contains("Session init"));
+        assert_eq!(executor.get_model(), Some("claude-3-5-sonnet".to_string()));
+    }
+
+    #[test]
+    fn test_parse_output_line_assistant_text() {
+        let executor = CodebuddyExecutor::new();
+        let line = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "assistant");
+        assert_eq!(entry.content, "hello");
+    }
+
+    #[test]
+    fn test_parse_output_line_assistant_thinking() {
+        let executor = CodebuddyExecutor::new();
+        let line = r#"{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"thinking..."}]}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "assistant");
+        assert!(entry.content.starts_with("[thinking]"));
+        assert!(entry.content.contains("thinking..."));
+    }
+
+    #[test]
+    fn test_parse_output_line_user_tool_result() {
+        let executor = CodebuddyExecutor::new();
+        let line = r#"{"type":"user","message":{"content":[{"type":"tool_result","content":"result","is_error":false}]}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "user");
+        assert_eq!(entry.content, "result");
+    }
+
+    #[test]
+    fn test_parse_output_line_result_success() {
+        let executor = CodebuddyExecutor::new();
+        let line = r#"{"type":"result","result":"final","is_error":false,"duration_ms":100,"total_cost_usd":0.001,"usage":{"input_tokens":10,"output_tokens":20}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "result");
+        assert_eq!(entry.content, "final");
+        assert!(entry.usage.is_some());
+        let usage = entry.usage.unwrap();
+        assert_eq!(usage.input_tokens, 10);
+        assert_eq!(usage.output_tokens, 20);
+        assert_eq!(usage.duration_ms, Some(100));
+        assert_eq!(usage.total_cost_usd, Some(0.001));
+    }
+
+    #[test]
+    fn test_parse_output_line_result_error() {
+        let executor = CodebuddyExecutor::new();
+        let line = r#"{"type":"result","result":"error","is_error":true}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "error");
+        assert_eq!(entry.content, "[error] error");
+    }
+
+    #[test]
+    fn test_parse_output_line_empty_line() {
+        let executor = CodebuddyExecutor::new();
+        let line = "";
+        assert!(executor.parse_output_line(line).is_none());
+    }
+
+    #[test]
+    fn test_parse_output_line_raw_text_fallback() {
+        let executor = CodebuddyExecutor::new();
+        let line = "just text";
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "text");
+        assert_eq!(entry.content, "just text");
+    }
+
+    #[test]
+    fn test_get_usage_after_result() {
+        let executor = CodebuddyExecutor::new();
+        let logs = vec![
+            ParsedLogEntry {
+                timestamp: utc_timestamp(),
+                log_type: "result".to_string(),
+                content: "final".to_string(),
+                usage: Some(ExecutionUsage {
+                    input_tokens: 10,
+                    output_tokens: 20,
+                    cache_read_input_tokens: None,
+                    cache_creation_input_tokens: None,
+                    total_cost_usd: Some(0.001),
+                    duration_ms: Some(100),
+                }),
+            },
+        ];
+        let usage = executor.get_usage(&logs).unwrap();
+        assert_eq!(usage.input_tokens, 10);
+        assert_eq!(usage.output_tokens, 20);
+    }
+
+    #[test]
+    fn test_get_usage_no_result() {
+        let executor = CodebuddyExecutor::new();
+        let logs: Vec<ParsedLogEntry> = vec![];
+        assert!(executor.get_usage(&logs).is_none());
+    }
+
+    #[test]
+    fn test_get_model_before_system() {
+        let executor = CodebuddyExecutor::new();
+        assert!(executor.get_model().is_none());
+    }
+}

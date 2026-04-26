@@ -94,3 +94,147 @@ impl Default for ExecutorRegistry {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{ParsedLogEntry, ExecutionUsage};
+
+    #[test]
+    fn test_parse_executor_type_claudecode() {
+        assert_eq!(parse_executor_type("claudecode"), ExecutorType::Claudecode);
+        assert_eq!(parse_executor_type("claude"), ExecutorType::Claudecode);
+    }
+
+    #[test]
+    fn test_parse_executor_type_codebuddy() {
+        assert_eq!(parse_executor_type("codebuddy"), ExecutorType::Codebuddy);
+        assert_eq!(parse_executor_type("cbc"), ExecutorType::Codebuddy);
+    }
+
+    #[test]
+    fn test_parse_executor_type_opencode() {
+        assert_eq!(parse_executor_type("opencode"), ExecutorType::Opencode);
+    }
+
+    #[test]
+    fn test_parse_executor_type_joinai_default() {
+        assert_eq!(parse_executor_type("joinai"), ExecutorType::Joinai);
+        assert_eq!(parse_executor_type("unknown"), ExecutorType::Joinai);
+        assert_eq!(parse_executor_type(""), ExecutorType::Joinai);
+    }
+
+    #[test]
+    fn test_parse_executor_type_case_insensitive() {
+        assert_eq!(parse_executor_type("Claude"), ExecutorType::Claudecode);
+        assert_eq!(parse_executor_type("CLAUDE"), ExecutorType::Claudecode);
+        assert_eq!(parse_executor_type("CodeBuddy"), ExecutorType::Codebuddy);
+    }
+
+    #[test]
+    fn test_strip_think_tags_basic() {
+        assert_eq!(strip_think_tags("<think>x</think>hello"), "hello");
+    }
+
+    #[test]
+    fn test_strip_think_tags_multiline() {
+        let input = "<think>\nline1\nline2\n</think>result";
+        assert_eq!(strip_think_tags(input), "result");
+    }
+
+    #[test]
+    fn test_strip_think_tags_no_tags() {
+        assert_eq!(strip_think_tags("hello world"), "hello world");
+    }
+
+    #[test]
+    fn test_strip_think_tags_multiple() {
+        assert_eq!(strip_think_tags("<think>a</think><think>b</think>c"), "c");
+    }
+
+    #[test]
+    fn test_executor_registry_new_empty() {
+        let reg = ExecutorRegistry::new();
+        assert!(reg.list_executors().is_empty());
+    }
+
+    #[test]
+    fn test_executor_registry_register_and_get() {
+        let reg = ExecutorRegistry::new();
+        reg.register(joinai::JoinaiExecutor::new());
+        assert!(reg.get(ExecutorType::Joinai).is_some());
+    }
+
+    #[test]
+    fn test_executor_registry_get_default() {
+        let reg = ExecutorRegistry::new();
+        reg.register(claude_code::ClaudeCodeExecutor::new());
+        assert!(reg.get_default().is_some());
+    }
+
+    #[test]
+    fn test_executor_registry_get_default_when_empty() {
+        let reg = ExecutorRegistry::new();
+        assert!(reg.get_default().is_none());
+    }
+
+    #[test]
+    fn test_executor_registry_list_executors() {
+        let reg = ExecutorRegistry::new();
+        reg.register(joinai::JoinaiExecutor::new());
+        reg.register(claude_code::ClaudeCodeExecutor::new());
+        let list = reg.list_executors();
+        assert_eq!(list.len(), 2);
+        assert!(list.contains(&ExecutorType::Joinai));
+        assert!(list.contains(&ExecutorType::Claudecode));
+    }
+
+    // 使用一个最小的 mock 实现来测试 trait 默认方法
+    struct MockExecutor;
+
+    #[async_trait]
+    impl CodeExecutor for MockExecutor {
+        fn executor_type(&self) -> ExecutorType { ExecutorType::Joinai }
+        fn executable_path(&self) -> &str { "mock" }
+        fn command_args(&self, _message: &str) -> Vec<String> { vec![] }
+        fn parse_output_line(&self, _line: &str) -> Option<ParsedLogEntry> { None }
+        fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> { None }
+        fn get_model(&self) -> Option<String> { None }
+    }
+
+    #[test]
+    fn test_code_executor_default_check_success() {
+        let exec = MockExecutor;
+        assert!(exec.check_success(0));
+        assert!(!exec.check_success(1));
+        assert!(!exec.check_success(-1));
+    }
+
+    #[test]
+    fn test_code_executor_default_get_final_result() {
+        let exec = MockExecutor;
+        let logs = vec![
+            ParsedLogEntry::new("info", "start"),
+            ParsedLogEntry::new("text", "partial"),
+            ParsedLogEntry::new("result", "final answer"),
+        ];
+        assert_eq!(exec.get_final_result(&logs), Some("final answer".to_string()));
+    }
+
+    #[test]
+    fn test_code_executor_default_get_final_result_fallback_to_text() {
+        let exec = MockExecutor;
+        let logs = vec![
+            ParsedLogEntry::new("info", "start"),
+            ParsedLogEntry::new("text", "only text"),
+        ];
+        assert_eq!(exec.get_final_result(&logs), Some("only text".to_string()));
+    }
+
+    #[test]
+    fn test_code_executor_default_get_final_result_no_match() {
+        let exec = MockExecutor;
+        let logs = vec![ParsedLogEntry::new("info", "start")];
+        assert_eq!(exec.get_final_result(&logs), None);
+    }
+}
+
