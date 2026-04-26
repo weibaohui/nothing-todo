@@ -26,6 +26,7 @@ type Action =
   | { type: 'SET_EXECUTION_RECORDS'; payload: { todoId: number; records: ExecutionRecord[] } }
   | { type: 'ADD_EXECUTION_RECORD'; payload: { todoId: number; record: ExecutionRecord } }
   | { type: 'UPDATE_EXECUTION_RECORD'; payload: { todoId: number; record: ExecutionRecord } }
+  | { type: 'UPDATE_TODO_STATUS'; payload: { id: number; status: string } }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'ADD_RUNNING_TASK'; payload: RunningTask }
   | { type: 'APPEND_TASK_LOG'; payload: { taskId: string; log: LogEntry } }
@@ -95,6 +96,15 @@ function reducer(state: AppState, action: Action): AppState {
             r => r.id === action.payload.record.id ? action.payload.record : r
           ),
         },
+      };
+    case 'UPDATE_TODO_STATUS':
+      return {
+        ...state,
+        todos: state.todos.map(t =>
+          t.id === action.payload.id
+            ? { ...t, status: action.payload.status as Todo['status'], updated_at: new Date().toISOString() }
+            : t
+        ),
       };
     case 'SET_LOADING':
       return { ...state, loading: action.payload };

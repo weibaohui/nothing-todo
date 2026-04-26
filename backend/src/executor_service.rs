@@ -61,9 +61,8 @@ pub async fn run_todo_execution(
     let command = format!("{} {}", executable_path, command_args.join(" "));
     let record_id = db.create_execution_record(todo_id, &command, &executor_str, trigger_type);
 
-    // Update todo status and task_id
-    db.update_todo_status(todo_id, "running");
-    db.update_todo_task_id(todo_id, Some(&task_id));
+    // Update todo status to running and associate with task
+    db.start_todo_execution(todo_id, &task_id);
 
     let task_id_return = task_id.clone();
     let db_clone = db.clone();
@@ -109,9 +108,8 @@ pub async fn run_todo_execution(
                     usage: None,
                 };
                 let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
-                let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), success: false, result: None });
-                db_clone.update_todo_status(todo_id, "failed");
-                db_clone.update_todo_task_id(todo_id, None);
+                let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), todo_id, success: false, result: None });
+                db_clone.finish_todo_execution(todo_id, false);
                 task_manager_spawn.remove(&task_id);
                 return;
             }
@@ -207,7 +205,7 @@ pub async fn run_todo_execution(
                     usage: None,
                 };
                 let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
-                let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), success: false, result: None });
+                let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), todo_id, success: false, result: None });
                 task_manager_spawn.remove(&task_id);
                 return;
             }
@@ -250,8 +248,7 @@ pub async fn run_todo_execution(
             db_clone.update_execution_record_with_model(record_id, &model);
         }
 
-        db_clone.update_todo_status(todo_id, final_status);
-        db_clone.update_todo_task_id(todo_id, None);
+        db_clone.finish_todo_execution(todo_id, success);
 
         let entry = ParsedLogEntry {
             timestamp: get_timestamp(),
@@ -261,7 +258,7 @@ pub async fn run_todo_execution(
         };
         let _ = tx_clone.send(ExecEvent::Output { task_id: task_id.clone(), entry });
 
-        let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), success, result: Some(result_str) });
+        let _ = tx_clone.send(ExecEvent::Finished { task_id: task_id.clone(), todo_id, success, result: Some(result_str) });
         task_manager_spawn.remove(&task_id);
     });
 

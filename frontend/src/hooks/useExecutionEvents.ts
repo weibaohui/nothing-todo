@@ -18,6 +18,7 @@ interface ExecEventOutput {
 interface ExecEventFinished {
   type: 'Finished';
   task_id: string;
+  todo_id: number;
   success: boolean;
   result: string | null;
 }
@@ -62,6 +63,10 @@ export function useExecutionEvents() {
                   startedAt: new Date().toISOString(),
                 },
               });
+              dispatch({
+                type: 'UPDATE_TODO_STATUS',
+                payload: { id: data.todo_id, status: 'running' },
+              });
               break;
             }
             case 'Output': {
@@ -79,6 +84,12 @@ export function useExecutionEvents() {
                   success: data.success,
                   result: data.result,
                 },
+              });
+              // Sync todo status in real-time
+              const newStatus = data.success ? 'completed' : 'failed';
+              dispatch({
+                type: 'UPDATE_TODO_STATUS',
+                payload: { id: data.todo_id, status: newStatus },
               });
               // Auto-remove after 3 seconds
               setTimeout(() => {

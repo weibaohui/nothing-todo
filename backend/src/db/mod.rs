@@ -496,6 +496,25 @@ conn.execute(
         ).unwrap();
     }
 
+    /// Mark a todo as running and associate it with a task_id.
+    pub fn start_todo_execution(&self, todo_id: i64, task_id: &str) {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE todos SET status = 'running', task_id = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?2",
+            params![task_id, todo_id],
+        ).unwrap();
+    }
+
+    /// Mark a todo as completed or failed and clear its task_id.
+    pub fn finish_todo_execution(&self, todo_id: i64, success: bool) {
+        let status = if success { "completed" } else { "failed" };
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE todos SET status = ?1, task_id = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?2",
+            params![status, todo_id],
+        ).unwrap();
+    }
+
     pub fn force_update_todo_status_by_record(&self, record_id: i64, status: &str) {
         let conn = self.conn.lock();
         // First get the todo_id from record
