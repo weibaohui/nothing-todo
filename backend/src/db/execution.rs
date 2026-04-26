@@ -89,6 +89,7 @@ impl Database {
         logs: &str,
         result: &str,
         usage: Option<&ExecutionUsage>,
+        model: Option<&str>,
     ) {
         let now = crate::models::utc_timestamp();
         let am = execution_records::ActiveModel {
@@ -97,16 +98,8 @@ impl Database {
             logs: ActiveValue::Set(Some(logs.to_string())),
             result: ActiveValue::Set(Some(result.to_string())),
             usage: ActiveValue::Set(usage.map(|u| serde_json::to_string(u).unwrap_or_default())),
+            model: ActiveValue::Set(model.map(|s| s.to_string())),
             finished_at: ActiveValue::Set(Some(now)),
-            ..Default::default()
-        };
-        self.exec_update(am).await;
-    }
-
-    pub async fn update_execution_record_with_model(&self, id: i64, model: &str) {
-        let am = execution_records::ActiveModel {
-            id: ActiveValue::Unchanged(id),
-            model: ActiveValue::Set(Some(model.to_string())),
             ..Default::default()
         };
         self.exec_update(am).await;

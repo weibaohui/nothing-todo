@@ -282,7 +282,7 @@ mod tests {
             .await;
 
         let before = truncate_seconds(Utc::now());
-        db.update_execution_record(record_id, "success", "[]", "done")
+        db.update_execution_record(record_id, "success", "[]", "done", None, None)
             .await;
         let after = truncate_seconds(Utc::now());
 
