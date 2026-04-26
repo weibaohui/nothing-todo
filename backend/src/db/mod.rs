@@ -636,7 +636,7 @@ mod tests {
         db.update_execution_record(r1, "success", "[]", "", None, None).await;
         let r2 = db.create_execution_record(todo_id, "cmd2", "claudecode", "manual").await;
         db.update_execution_record(r2, "failed", "[]", "", None, None).await;
-        let r3 = db.create_execution_record(todo_id, "cmd3", "claudecode", "manual").await;
+        let _r3 = db.create_execution_record(todo_id, "cmd3", "claudecode", "manual").await;
         // r3 stays "running"
         let summary = db.get_execution_summary(todo_id).await;
         assert_eq!(summary.total_executions, 3);

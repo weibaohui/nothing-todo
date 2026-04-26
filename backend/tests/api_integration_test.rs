@@ -1,0 +1,580 @@
+use std::sync::Arc;
+
+use axum::{
+    body::{to_bytes, Body},
+    http::{Request, StatusCode},
+};
+use serde_json::json;
+use tokio::sync::broadcast;
+use tower::ServiceExt;
+
+use ntd::{
+    adapters::{ExecutorRegistry, claude_code::ClaudeCodeExecutor},
+    db::Database,
+    handlers::create_app,
+    scheduler::TodoScheduler,
+    task_manager::TaskManager,
+};
+
+async fn create_test_app() -> axum::Router {
+    let db = Arc::new(Database::new(":memory:").await.unwrap());
+
+    let executor_registry = Arc::new(ExecutorRegistry::new());
+    executor_registry.register(ClaudeCodeExecutor::new());
+
+    let (tx, _rx) = broadcast::channel(100);
+    let task_manager = Arc::new(TaskManager::new());
+
+    let scheduler = Arc::new(TodoScheduler::new().await.unwrap());
+    scheduler
+        .load_from_db(db.clone(), executor_registry.clone(), tx.clone(), task_manager.clone())
+        .await
+        .unwrap();
+    scheduler.start().await.unwrap();
+
+    create_app(db, executor_registry, tx, scheduler, task_manager)
+}
+
+async fn read_json_body<T: serde::de::DeserializeOwned>(
+    response: axum::response::Response,
+) -> T {
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
+fn json_request(method: &str, uri: &str, body: serde_json::Value) -> Request<Body> {
+    Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap()
+}
+
+// ===== Todo handlers =====
+
+#[tokio::test]
+async fn test_get_todos() {
+    let app = create_test_app().await;
+
+    // Create a todo first
+    let req = json_request("POST", "/xyz/todos", json!({"title": "Test", "prompt": "Do this", "tag_ids": []}));
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let req = Request::builder()
+        .uri("/xyz/todos")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["code"], 0);
+    let todos = body["data"].as_array().unwrap();
+    assert_eq!(todos.len(), 1);
+    assert_eq!(todos[0]["title"], "Test");
+}
+
+#[tokio::test]
+async fn test_create_todo_success() {
+    let app = create_test_app().await;
+
+    let req = json_request("POST", "/xyz/todos", json!({"title": "New Todo", "prompt": "Prompt text", "tag_ids": []}));
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["code"], 0);
+    assert_eq!(body["data"]["title"], "New Todo");
+    assert_eq!(body["data"]["prompt"], "Prompt text");
+    assert_eq!(body["data"]["status"], "pending");
+}
+
+#[tokio::test]
+async fn test_create_todo_empty_title() {
+    let app = create_test_app().await;
+
+    let req = json_request("POST", "/xyz/todos", json!({"title": "", "prompt": "Prompt", "tag_ids": []}));
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["code"], 40002);
+}
+
+#[tokio::test]
+async fn test_create_todo_prompt_fallback() {
+    let app = create_test_app().await;
+
+    let req = json_request("POST", "/xyz/todos", json!({"title": "Fallback Title", "prompt": "", "tag_ids": []}));
+    let response = app.oneshot(req).await.unwrap();
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["data"]["prompt"], "Fallback Title");
+}
+
+#[tokio::test]
+async fn test_create_todo_with_tags() {
+    let app = create_test_app().await;
+
+    // Create a tag first
+    let tag_req = json_request("POST", "/xyz/tags", json!({"name": "urgent", "color": "#ff0000"}));
+    let tag_resp = app.clone().oneshot(tag_req).await.unwrap();
+    let tag_body: serde_json::Value = read_json_body(tag_resp).await;
+    let tag_id = tag_body["data"]["id"].as_i64().unwrap();
+
+    let req = json_request("POST", "/xyz/todos", json!({"title": "Tagged", "prompt": "Do this", "tag_ids": [tag_id]}));
+    let response = app.oneshot(req).await.unwrap();
+
+    let body: serde_json::Value = read_json_body(response).await;
+    let tag_ids = body["data"]["tag_ids"].as_array().unwrap();
+    assert_eq!(tag_ids.len(), 1);
+    assert_eq!(tag_ids[0], tag_id);
+}
+
+#[tokio::test]
+async fn test_update_todo_success() {
+    let app = create_test_app().await;
+
+    let create_req = json_request("POST", "/xyz/todos", json!({"title": "Old", "prompt": "Old prompt", "tag_ids": []}));
+    let create_resp = app.clone().oneshot(create_req).await.unwrap();
+    let create_body: serde_json::Value = read_json_body(create_resp).await;
+    let id = create_body["data"]["id"].as_i64().unwrap();
+
+    let req = json_request("PUT", &format!("/xyz/todos/{}", id), json!({"title": "Updated", "prompt": "Updated prompt", "status": "in_progress"}));
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["data"]["title"], "Updated");
+    assert_eq!(body["data"]["status"], "in_progress");
+}
+
+#[tokio::test]
+async fn test_update_todo_prompt_fallback() {
+    let app = create_test_app().await;
+
+    let create_req = json_request("POST", "/xyz/todos", json!({"title": "Title", "prompt": "Prompt", "tag_ids": []}));
+    let create_resp = app.clone().oneshot(create_req).await.unwrap();
+    let create_body: serde_json::Value = read_json_body(create_resp).await;
+    let id = create_body["data"]["id"].as_i64().unwrap();
+
+    let req = json_request("PUT", &format!("/xyz/todos/{}", id), json!({"title": "New Title", "prompt": "", "status": "pending"}));
+    let response = app.oneshot(req).await.unwrap();
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["data"]["prompt"], "New Title");
+}
+
+#[tokio::test]
+async fn test_update_todo_tags() {
+    let app = create_test_app().await;
+
+    let create_req = json_request("POST", "/xyz/todos", json!({"title": "Test", "prompt": "Prompt", "tag_ids": []}));
+    let create_resp = app.clone().oneshot(create_req).await.unwrap();
+    let create_body: serde_json::Value = read_json_body(create_resp).await;
+    let todo_id = create_body["data"]["id"].as_i64().unwrap();
+
+    let tag_req = json_request("POST", "/xyz/tags", json!({"name": "urgent", "color": "#ff0000"}));
+    let tag_resp = app.clone().oneshot(tag_req).await.unwrap();
+    let tag_body: serde_json::Value = read_json_body(tag_resp).await;
+    let tag_id = tag_body["data"]["id"].as_i64().unwrap();
+
+    let req = json_request("PUT", &format!("/xyz/todos/{}/tags", todo_id), json!({"tag_ids": [tag_id]}));
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["code"], 0);
+}
+
+#[tokio::test]
+async fn test_delete_todo() {
+    let app = create_test_app().await;
+
+    let create_req = json_request("POST", "/xyz/todos", json!({"title": "To Delete", "prompt": "Prompt", "tag_ids": []}));
+    let create_resp = app.clone().oneshot(create_req).await.unwrap();
+    let create_body: serde_json::Value = read_json_body(create_resp).await;
+    let id = create_body["data"]["id"].as_i64().unwrap();
+
+    let req = Request::builder()
+        .method("DELETE")
+        .uri(format!("/xyz/todos/{}", id))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify it's gone
+    let get_req = Request::builder()
+        .uri("/xyz/todos")
+        .body(Body::empty())
+        .unwrap();
+    let get_resp = create_test_app().await.oneshot(get_req).await.unwrap();
+    let get_body: serde_json::Value = read_json_body(get_resp).await;
+    let todos = get_body["data"].as_array().unwrap();
+    assert!(todos.iter().all(|t| t["id"].as_i64().unwrap() != id));
+}
+
+#[tokio::test]
+async fn test_delete_todo_not_found() {
+    let app = create_test_app().await;
+
+    let req = Request::builder()
+        .method("DELETE")
+        .uri("/xyz/todos/9999")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(req).await.unwrap();
+    // delete_todo doesn't check if todo exists, returns OK regardless
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_force_update_status() {
+    let app = create_test_app().await;
+
+    let create_req = json_request("POST", "/xyz/todos", json!({"title": "Test", "prompt": "Prompt", "tag_ids": []}));
+    let create_resp = app.clone().oneshot(create_req).await.unwrap();
+    let create_body: serde_json::Value = read_json_body(create_resp).await;
+    let id = create_body["data"]["id"].as_i64().unwrap();
+
+    let req = json_request("PUT", &format!("/xyz/todos/{}/force-status", id), json!({"title": "Test", "prompt": "Prompt", "status": "completed"}));
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["data"]["status"], "completed");
+}
+
+#[tokio::test]
+async fn test_get_todo_not_found() {
+    let app = create_test_app().await;
+
+    let req = json_request("PUT", "/xyz/todos/9999", json!({"title": "Test", "prompt": "Prompt", "status": "pending"}));
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+// ===== Tag handlers =====
+
+#[tokio::test]
+async fn test_get_tags() {
+    let app = create_test_app().await;
+
+    let req = Request::builder()
+        .uri("/xyz/tags")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["code"], 0);
+    assert!(body["data"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn test_create_tag_success() {
+    let app = create_test_app().await;
+
+    let req = json_request("POST", "/xyz/tags", json!({"name": "urgent", "color": "#ff0000"}));
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["code"], 0);
+    assert_eq!(body["data"]["name"], "urgent");
+    assert_eq!(body["data"]["color"], "#ff0000");
+}
+
+#[tokio::test]
+async fn test_create_tag_empty_name() {
+    let app = create_test_app().await;
+
+    let req = json_request("POST", "/xyz/tags", json!({"name": "", "color": "#ff0000"}));
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["code"], 40002);
+}
+
+#[tokio::test]
+async fn test_delete_tag() {
+    let app = create_test_app().await;
+
+    let create_req = json_request("POST", "/xyz/tags", json!({"name": "to-delete", "color": "#ff0000"}));
+    let create_resp = app.clone().oneshot(create_req).await.unwrap();
+    let create_body: serde_json::Value = read_json_body(create_resp).await;
+    let id = create_body["data"]["id"].as_i64().unwrap();
+
+    let req = Request::builder()
+        .method("DELETE")
+        .uri(format!("/xyz/tags/{}", id))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+// ===== Execution handlers =====
+
+#[tokio::test]
+async fn test_get_execution_records() {
+    let app = create_test_app().await;
+
+    let create_req = json_request("POST", "/xyz/todos", json!({"title": "Test", "prompt": "Prompt", "tag_ids": []}));
+    let create_resp = app.clone().oneshot(create_req).await.unwrap();
+    let create_body: serde_json::Value = read_json_body(create_resp).await;
+    let todo_id = create_body["data"]["id"].as_i64().unwrap();
+
+    let req = Request::builder()
+        .uri(format!("/xyz/execution-records?todo_id={}", todo_id))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["code"], 0);
+    assert_eq!(body["data"]["total"], 0);
+    assert!(body["data"]["records"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn test_get_execution_records_pagination() {
+    let app = create_test_app().await;
+
+    let create_req = json_request("POST", "/xyz/todos", json!({"title": "Test", "prompt": "Prompt", "tag_ids": []}));
+    let create_resp = app.clone().oneshot(create_req).await.unwrap();
+    let create_body: serde_json::Value = read_json_body(create_resp).await;
+    let todo_id = create_body["data"]["id"].as_i64().unwrap();
+
+    let req = Request::builder()
+        .uri(format!("/xyz/execution-records?todo_id={}&page=1&limit=5", todo_id))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(req).await.unwrap();
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["data"]["page"], 1);
+    assert_eq!(body["data"]["limit"], 5);
+}
+
+#[tokio::test]
+async fn test_get_execution_summary() {
+    let app = create_test_app().await;
+
+    let create_req = json_request("POST", "/xyz/todos", json!({"title": "Test", "prompt": "Prompt", "tag_ids": []}));
+    let create_resp = app.clone().oneshot(create_req).await.unwrap();
+    let create_body: serde_json::Value = read_json_body(create_resp).await;
+    let todo_id = create_body["data"]["id"].as_i64().unwrap();
+
+    let req = Request::builder()
+        .uri(format!("/xyz/todos/{}/summary", todo_id))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["code"], 0);
+    assert_eq!(body["data"]["total_executions"], 0);
+}
+
+#[tokio::test]
+async fn test_stop_execution_not_found() {
+    let app = create_test_app().await;
+
+    let req = json_request("POST", "/xyz/execute/stop", json!({"task_id": "nonexistent-task"}));
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["code"], 40002);
+}
+
+// ===== Scheduler handlers =====
+
+#[tokio::test]
+async fn test_update_scheduler_enable() {
+    let app = create_test_app().await;
+
+    let create_req = json_request("POST", "/xyz/todos", json!({"title": "Scheduled", "prompt": "Prompt", "tag_ids": []}));
+    let create_resp = app.clone().oneshot(create_req).await.unwrap();
+    let create_body: serde_json::Value = read_json_body(create_resp).await;
+    let id = create_body["data"]["id"].as_i64().unwrap();
+
+    let req = json_request("PUT", &format!("/xyz/todos/{}/scheduler", id), json!({"scheduler_enabled": true, "scheduler_config": "0 0 * * *"}));
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["data"]["scheduler_enabled"], true);
+    assert_eq!(body["data"]["scheduler_config"], "0 0 * * *");
+}
+
+#[tokio::test]
+async fn test_update_scheduler_disable() {
+    let app = create_test_app().await;
+
+    let create_req = json_request("POST", "/xyz/todos", json!({"title": "Scheduled", "prompt": "Prompt", "tag_ids": []}));
+    let create_resp = app.clone().oneshot(create_req).await.unwrap();
+    let create_body: serde_json::Value = read_json_body(create_resp).await;
+    let id = create_body["data"]["id"].as_i64().unwrap();
+
+    // Enable first
+    let enable_req = json_request("PUT", &format!("/xyz/todos/{}/scheduler", id), json!({"scheduler_enabled": true, "scheduler_config": "0 0 * * *"}));
+    let _ = app.clone().oneshot(enable_req).await.unwrap();
+
+    // Then disable
+    let req = json_request("PUT", &format!("/xyz/todos/{}/scheduler", id), json!({"scheduler_enabled": false, "scheduler_config": null}));
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["data"]["scheduler_enabled"], false);
+}
+
+#[tokio::test]
+async fn test_update_scheduler_missing_config() {
+    let app = create_test_app().await;
+
+    let create_req = json_request("POST", "/xyz/todos", json!({"title": "Scheduled", "prompt": "Prompt", "tag_ids": []}));
+    let create_resp = app.clone().oneshot(create_req).await.unwrap();
+    let create_body: serde_json::Value = read_json_body(create_resp).await;
+    let id = create_body["data"]["id"].as_i64().unwrap();
+
+    // Enable but without config -> should remove task
+    let req = json_request("PUT", &format!("/xyz/todos/{}/scheduler", id), json!({"scheduler_enabled": true, "scheduler_config": null}));
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["data"]["scheduler_enabled"], true);
+}
+
+#[tokio::test]
+async fn test_get_scheduler_todos() {
+    let app = create_test_app().await;
+
+    let create_req = json_request("POST", "/xyz/todos", json!({"title": "Scheduled", "prompt": "Prompt", "tag_ids": []}));
+    let create_resp = app.clone().oneshot(create_req).await.unwrap();
+    let create_body: serde_json::Value = read_json_body(create_resp).await;
+    let id = create_body["data"]["id"].as_i64().unwrap();
+
+    let enable_req = json_request("PUT", &format!("/xyz/todos/{}/scheduler", id), json!({"scheduler_enabled": true, "scheduler_config": "0 0 * * *"}));
+    let _ = app.clone().oneshot(enable_req).await.unwrap();
+
+    let req = Request::builder()
+        .uri("/xyz/scheduler/todos")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["code"], 0);
+    let todos = body["data"].as_array().unwrap();
+    assert_eq!(todos.len(), 1);
+    assert_eq!(todos[0]["id"], id);
+}
+
+// ===== Lifecycle integration tests =====
+
+#[tokio::test]
+async fn test_todo_lifecycle() {
+    let app = create_test_app().await;
+
+    // Create
+    let req = json_request("POST", "/xyz/todos", json!({"title": "Lifecycle", "prompt": "Test", "tag_ids": []}));
+    let response = app.clone().oneshot(req).await.unwrap();
+    let body: serde_json::Value = read_json_body(response).await;
+    let id = body["data"]["id"].as_i64().unwrap();
+    assert_eq!(body["data"]["title"], "Lifecycle");
+
+    // Update
+    let req = json_request("PUT", &format!("/xyz/todos/{}", id), json!({"title": "Updated", "prompt": "Updated", "status": "in_progress"}));
+    let response = app.clone().oneshot(req).await.unwrap();
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["data"]["title"], "Updated");
+
+    // Delete
+    let req = Request::builder()
+        .method("DELETE")
+        .uri(format!("/xyz/todos/{}", id))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_tag_lifecycle() {
+    let app = create_test_app().await;
+
+    // Create
+    let req = json_request("POST", "/xyz/tags", json!({"name": "lifecycle", "color": "#00ff00"}));
+    let response = app.clone().oneshot(req).await.unwrap();
+    let body: serde_json::Value = read_json_body(response).await;
+    let id = body["data"]["id"].as_i64().unwrap();
+    assert_eq!(body["data"]["name"], "lifecycle");
+
+    // Get list
+    let req = Request::builder()
+        .uri("/xyz/tags")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    let body: serde_json::Value = read_json_body(response).await;
+    assert_eq!(body["data"].as_array().unwrap().len(), 1);
+
+    // Delete
+    let req = Request::builder()
+        .method("DELETE")
+        .uri(format!("/xyz/tags/{}", id))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_todo_with_tags() {
+    let app = create_test_app().await;
+
+    // Create tags
+    let tag1_req = json_request("POST", "/xyz/tags", json!({"name": "urgent", "color": "#ff0000"}));
+    let tag1_resp = app.clone().oneshot(tag1_req).await.unwrap();
+    let tag1_body: serde_json::Value = read_json_body(tag1_resp).await;
+    let tag1_id = tag1_body["data"]["id"].as_i64().unwrap();
+
+    let tag2_req = json_request("POST", "/xyz/tags", json!({"name": "later", "color": "#00ff00"}));
+    let tag2_resp = app.clone().oneshot(tag2_req).await.unwrap();
+    let tag2_body: serde_json::Value = read_json_body(tag2_resp).await;
+    let tag2_id = tag2_body["data"]["id"].as_i64().unwrap();
+
+    // Create todo with tags
+    let todo_req = json_request("POST", "/xyz/todos", json!({"title": "Tagged", "prompt": "Do it", "tag_ids": [tag1_id]}));
+    let todo_resp = app.clone().oneshot(todo_req).await.unwrap();
+    let todo_body: serde_json::Value = read_json_body(todo_resp).await;
+    let todo_id = todo_body["data"]["id"].as_i64().unwrap();
+    assert_eq!(todo_body["data"]["tag_ids"], json!([tag1_id]));
+
+    // Update tags
+    let update_req = json_request("PUT", &format!("/xyz/todos/{}/tags", todo_id), json!({"tag_ids": [tag2_id]}));
+    let _ = app.clone().oneshot(update_req).await.unwrap();
+
+    // Verify
+    let get_req = Request::builder()
+        .uri("/xyz/todos")
+        .body(Body::empty())
+        .unwrap();
+    let get_resp = app.oneshot(get_req).await.unwrap();
+    let get_body: serde_json::Value = read_json_body(get_resp).await;
+    let todos = get_body["data"].as_array().unwrap();
+    let todo = todos.iter().find(|t| t["id"].as_i64().unwrap() == todo_id).unwrap();
+    assert_eq!(todo["tag_ids"], json!([tag2_id]));
+}

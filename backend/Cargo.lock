@@ -2186,6 +2186,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-cron-scheduler",
+ "tower",
  "tower-http",
  "tracing",
  "tracing-subscriber",

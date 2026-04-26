@@ -21,6 +21,7 @@
     "cron-parser": "^5.5.0",
     "rc-field-form": "^2.7.1",
     "react": "^19.1.0",
+    "react-countup": "^6.5.3",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
