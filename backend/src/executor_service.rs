@@ -109,13 +109,11 @@ pub async fn run_todo_execution(
             .stderr(std::process::Stdio::piped())
             .stdin(std::process::Stdio::piped());
 
-        let child_id = 0u32;
-        #[cfg(unix)]
-        {
-            // 在 Unix 上，我们需要在 pre_exec 中设置进程组
-            // 但这可能导致多个子进程在同一个进程组中
-            // 让我们改用更可靠的方法：spawn 后再设置进程组
-        }
+        let mut cmd = Command::new(&executable_path);
+        cmd.args(&command_args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .stdin(std::process::Stdio::piped());
 
         let mut child = match cmd.spawn() {
             Ok(c) => c,

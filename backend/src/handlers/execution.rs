@@ -2,14 +2,13 @@ use axum::{
     extract::{Path, Query, State},
 };
 use serde::Deserialize;
-use sea_orm::ActiveValue;
+use sea_orm::{EntityTrait, ActiveValue, ColumnTrait, QueryFilter};
 
 use crate::executor_service::run_todo_execution;
 use crate::handlers::{ApiJson, AppError, AppState};
 use crate::models::{
     ApiResponse, DashboardStats, ExecuteRequest, ExecutionRecordsPage, ExecutionSummary, TodoIdQuery,
 };
-use crate::db::entity::execution_records;
 
 pub async fn get_execution_records(
     State(state): State<AppState>,
@@ -58,11 +57,13 @@ pub async fn stop_execution_handler(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<StopExecutionRequest>,
 ) -> Result<ApiResponse<()>, AppError> {
+    use crate::db::entity::execution_records;
+
     tracing::info!("Stopping execution record: {}", req.record_id);
 
     // 根据 record_id 查询执行记录
-    use crate::db::entity::execution_records;
-    let record = execution_records::Entity::find_by_id(req.record_id)
+    let record = execution_records::Entity::find()
+        .filter(execution_records::Column::Id.eq(req.record_id))
         .one(&state.db.conn)
         .await
         .map_err(|_| AppError::BadRequest("Failed to query execution record".to_string()))?;
@@ -79,17 +80,16 @@ pub async fn stop_execution_handler(
 
     // 获取 pid 并停止
     if let Some(pid) = record.pid {
-        let pid: i32 = pid;
         tracing::info!("Stopping execution record {} with pid: {}", req.record_id, pid);
 
         // 更新数据库状态
         let now = crate::models::utc_timestamp();
         let am = execution_records::ActiveModel {
-            id: sea_orm::ActiveValue::Unchanged(req.record_id),
-            status: sea_orm::ActiveValue::Set(Some(crate::models::ExecutionStatus::Failed.as_str().to_string())),
-            finished_at: sea_orm::ActiveValue::Set(Some(now)),
-            result: sea_orm::ActiveValue::Set(Some("任务已被手动停止".to_string())),
-            pid: sea_orm::ActiveValue::Set(None),
+            id: ActiveValue::Unchanged(req.record_id),
+            status: ActiveValue::Set(Some(crate::models::ExecutionStatus::Failed.as_str().to_string())),
+            finished_at: ActiveValue::Set(Some(now)),
+            result: ActiveValue::Set(Some("任务已被手动停止".to_string())),
+            pid: ActiveValue::Set(None),
             ..Default::default()
         };
         state.db.exec_update(am).await;
