@@ -130,6 +130,34 @@ pub struct ParsedLogEntry {
     pub usage: Option<ExecutionUsage>,
 }
 
+impl ParsedLogEntry {
+    pub fn new(log_type: impl Into<String>, content: impl Into<String>) -> Self {
+        Self {
+            timestamp: utc_timestamp(),
+            log_type: log_type.into(),
+            content: content.into(),
+            usage: None,
+        }
+    }
+
+    pub fn info(content: impl Into<String>) -> Self {
+        Self::new("info", content)
+    }
+
+    pub fn error(content: impl Into<String>) -> Self {
+        Self::new("error", content)
+    }
+
+    pub fn stderr(content: impl Into<String>) -> Self {
+        Self::new("stderr", content)
+    }
+
+    pub fn with_usage(mut self, usage: ExecutionUsage) -> Self {
+        self.usage = Some(usage);
+        self
+    }
+}
+
 // Request/Response types
 #[derive(Deserialize)]
 pub struct CreateTodoRequest {
