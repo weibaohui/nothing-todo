@@ -112,27 +112,27 @@ cross-build:
 	@mkdir -p backend/target/cross
 	@echo ""
 	@echo "[1/6] Building: x86_64-pc-windows-gnu"
-	@cross build --release --bin ntd --target x86_64-pc-windows-gnu -p ntd
+	@cd backend && cross build --release --bin ntd --target x86_64-pc-windows-gnu --force-non-host
 	@mv backend/target/x86_64-pc-windows-gnu/release/ntd.exe backend/target/cross/ntd-x86_64-pc-windows-gnu.exe
 	@echo ""
 	@echo "[2/6] Building: i686-pc-windows-gnu"
-	@cross build --release --bin ntd --target i686-pc-windows-gnu -p ntd
+	@cd backend && cross build --release --bin ntd --target i686-pc-windows-gnu --force-non-host
 	@mv backend/target/i686-pc-windows-gnu/release/ntd.exe backend/target/cross/ntd-i686-pc-windows-gnu.exe
 	@echo ""
 	@echo "[3/6] Building: x86_64-apple-darwin"
-	@cross build --release --bin ntd --target x86_64-apple-darwin -p ntd
+	@cd backend && cross build --release --bin ntd --target x86_64-apple-darwin
 	@mv backend/target/x86_64-apple-darwin/release/ntd backend/target/cross/ntd-x86_64-apple-darwin
 	@echo ""
 	@echo "[4/6] Building: aarch64-apple-darwin"
-	@cross build --release --bin ntd --target aarch64-apple-darwin -p ntd
+	@cd backend && cross build --release --bin ntd --target aarch64-apple-darwin
 	@mv backend/target/aarch64-apple-darwin/release/ntd backend/target/cross/ntd-aarch64-apple-darwin
 	@echo ""
 	@echo "[5/6] Building: x86_64-unknown-linux-gnu"
-	@cross build --release --bin ntd --target x86_64-unknown-linux-gnu -p ntd
+	@cd backend && cross build --release --bin ntd --target x86_64-unknown-linux-gnu
 	@mv backend/target/x86_64-unknown-linux-gnu/release/ntd backend/target/cross/ntd-x86_64-unknown-linux-gnu
 	@echo ""
 	@echo "[6/6] Building: aarch64-unknown-linux-gnu"
-	@cross build --release --bin ntd --target aarch64-unknown-linux-gnu -p ntd
+	@cd backend && cross build --release --bin ntd --target aarch64-unknown-linux-gnu
 	@mv backend/target/aarch64-unknown-linux-gnu/release/ntd backend/target/cross/ntd-aarch64-unknown-linux-gnu
 	@echo ""
 	@echo "=== Cross-build complete ==="
