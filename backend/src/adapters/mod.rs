@@ -4,6 +4,16 @@ use std::sync::{Arc, RwLock};
 
 use crate::models::{ExecutorType, ParsedLogEntry, ExecutionUsage};
 
+/// Parse executor string (with aliases) into `ExecutorType`.
+pub fn parse_executor_type(executor: &str) -> ExecutorType {
+    match executor.to_lowercase().as_str() {
+        "claudecode" | "claude" => ExecutorType::Claudecode,
+        "codebuddy" | "cbc" => ExecutorType::Codebuddy,
+        "opencode" => ExecutorType::Opencode,
+        _ => ExecutorType::Joinai,
+    }
+}
+
 /// Strip `<think>...</think>` tags from content.
 pub fn strip_think_tags(content: &str) -> String {
     use regex::Regex;

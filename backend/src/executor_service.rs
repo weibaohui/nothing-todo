@@ -4,20 +4,11 @@ use tokio::process::Command;
 use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
 
-use crate::adapters::ExecutorRegistry;
+use crate::adapters::{ExecutorRegistry, parse_executor_type};
 use crate::db::Database;
 use crate::handlers::ExecEvent;
 use crate::models::{ParsedLogEntry, ExecutorType};
 use crate::task_manager::TaskManager;
-
-fn parse_executor_type(executor: &str) -> ExecutorType {
-    match executor.to_lowercase().as_str() {
-        "claudecode" | "claude" => ExecutorType::Claudecode,
-        "codebuddy" | "cbc" => ExecutorType::Codebuddy,
-        "opencode" => ExecutorType::Opencode,
-        _ => ExecutorType::Joinai,
-    }
-}
 
 fn send_event(tx: &broadcast::Sender<ExecEvent>, event: ExecEvent) {
     let _ = tx.send(event);
