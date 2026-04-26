@@ -307,3 +307,181 @@ pub mod codes {
 pub fn utc_timestamp() -> String {
     chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_todo_status_as_str() {
+        assert_eq!(TodoStatus::Pending.as_str(), "pending");
+        assert_eq!(TodoStatus::InProgress.as_str(), "in_progress");
+        assert_eq!(TodoStatus::Running.as_str(), "running");
+        assert_eq!(TodoStatus::Completed.as_str(), "completed");
+        assert_eq!(TodoStatus::Failed.as_str(), "failed");
+        assert_eq!(TodoStatus::Cancelled.as_str(), "cancelled");
+    }
+
+    #[test]
+    fn test_todo_status_from_str() {
+        assert_eq!("pending".parse::<TodoStatus>().unwrap(), TodoStatus::Pending);
+        assert_eq!("in_progress".parse::<TodoStatus>().unwrap(), TodoStatus::InProgress);
+        assert_eq!("running".parse::<TodoStatus>().unwrap(), TodoStatus::Running);
+        assert_eq!("completed".parse::<TodoStatus>().unwrap(), TodoStatus::Completed);
+        assert_eq!("failed".parse::<TodoStatus>().unwrap(), TodoStatus::Failed);
+        assert_eq!("cancelled".parse::<TodoStatus>().unwrap(), TodoStatus::Cancelled);
+        assert!("unknown".parse::<TodoStatus>().is_err());
+    }
+
+    #[test]
+    fn test_todo_status_display() {
+        assert_eq!(format!("{}", TodoStatus::Running), "running");
+        assert_eq!(format!("{}", TodoStatus::Completed), "completed");
+    }
+
+    #[test]
+    fn test_todo_status_serde() {
+        let status = TodoStatus::Pending;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, "\"pending\"");
+        let de: TodoStatus = serde_json::from_str("\"failed\"").unwrap();
+        assert_eq!(de, TodoStatus::Failed);
+    }
+
+    #[test]
+    fn test_execution_status_as_str() {
+        assert_eq!(ExecutionStatus::Running.as_str(), "running");
+        assert_eq!(ExecutionStatus::Success.as_str(), "success");
+        assert_eq!(ExecutionStatus::Failed.as_str(), "failed");
+    }
+
+    #[test]
+    fn test_execution_status_display() {
+        assert_eq!(format!("{}", ExecutionStatus::Success), "success");
+    }
+
+    #[test]
+    fn test_execution_status_serde() {
+        let json = serde_json::to_string(&ExecutionStatus::Running).unwrap();
+        assert_eq!(json, "\"running\"");
+        let de: ExecutionStatus = serde_json::from_str("\"success\"").unwrap();
+        assert_eq!(de, ExecutionStatus::Success);
+    }
+
+    #[test]
+    fn test_executor_type_as_str() {
+        assert_eq!(ExecutorType::Joinai.as_str(), "joinai");
+        assert_eq!(ExecutorType::Claudecode.as_str(), "claudecode");
+        assert_eq!(ExecutorType::Codebuddy.as_str(), "codebuddy");
+        assert_eq!(ExecutorType::Opencode.as_str(), "opencode");
+    }
+
+    #[test]
+    fn test_executor_type_default() {
+        assert_eq!(ExecutorType::default(), ExecutorType::Claudecode);
+    }
+
+    #[test]
+    fn test_parsed_log_entry_new() {
+        let entry = ParsedLogEntry::new("info", "hello");
+        assert_eq!(entry.log_type, "info");
+        assert_eq!(entry.content, "hello");
+        assert!(entry.usage.is_none());
+    }
+
+    #[test]
+    fn test_parsed_log_entry_info() {
+        let entry = ParsedLogEntry::info("msg");
+        assert_eq!(entry.log_type, "info");
+        assert_eq!(entry.content, "msg");
+    }
+
+    #[test]
+    fn test_parsed_log_entry_error() {
+        let entry = ParsedLogEntry::error("msg");
+        assert_eq!(entry.log_type, "error");
+        assert_eq!(entry.content, "msg");
+    }
+
+    #[test]
+    fn test_parsed_log_entry_stderr() {
+        let entry = ParsedLogEntry::stderr("msg");
+        assert_eq!(entry.log_type, "stderr");
+        assert_eq!(entry.content, "msg");
+    }
+
+    #[test]
+    fn test_parsed_log_entry_with_usage() {
+        let entry = ParsedLogEntry::info("msg").with_usage(ExecutionUsage {
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_input_tokens: Some(5),
+            cache_creation_input_tokens: None,
+            total_cost_usd: Some(0.001),
+            duration_ms: Some(100),
+        });
+        assert!(entry.usage.is_some());
+        let usage = entry.usage.unwrap();
+        assert_eq!(usage.input_tokens, 10);
+        assert_eq!(usage.output_tokens, 20);
+    }
+
+    #[test]
+    fn test_api_response_ok() {
+        let resp = ApiResponse::ok(42);
+        assert_eq!(resp.code, 0);
+        assert_eq!(resp.data, Some(42));
+        assert_eq!(resp.message, "ok");
+    }
+
+    #[test]
+    fn test_api_response_err() {
+        let resp = ApiResponse::<i32>::err(40001, "bad request");
+        assert_eq!(resp.code, 40001);
+        assert!(resp.data.is_none());
+        assert_eq!(resp.message, "bad request");
+    }
+
+    #[test]
+    fn test_utc_timestamp_format() {
+        let ts = utc_timestamp();
+        assert!(ts.ends_with('Z'));
+        assert_eq!(ts.len(), 24); // 2024-01-15T08:30:00.000Z
+        assert!(chrono::DateTime::parse_from_rfc3339(&ts).is_ok());
+    }
+
+    #[test]
+    fn test_create_todo_request_deserialize() {
+        let json = r#"{"title":"Test","prompt":"Do this","tag_ids":[1,2]}"#;
+        let req: CreateTodoRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.title, "Test");
+        assert_eq!(req.prompt, "Do this");
+        assert_eq!(req.tag_ids, vec![1, 2]);
+    }
+
+    #[test]
+    fn test_create_todo_request_default_tag_ids() {
+        let json = r#"{"title":"Test","prompt":"Do this"}"#;
+        let req: CreateTodoRequest = serde_json::from_str(json).unwrap();
+        assert!(req.tag_ids.is_empty());
+    }
+
+    #[test]
+    fn test_update_todo_request_deserialize() {
+        let json = r#"{"title":"Test","prompt":"Do this","status":"running","executor":"claudecode","scheduler_enabled":true,"scheduler_config":"0 0 * * *"}"#;
+        let req: UpdateTodoRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.title, "Test");
+        assert_eq!(req.executor, Some("claudecode".to_string()));
+        assert_eq!(req.scheduler_enabled, Some(true));
+        assert_eq!(req.scheduler_config, Some("0 0 * * *".to_string()));
+    }
+
+    #[test]
+    fn test_update_todo_request_defaults() {
+        let json = r#"{"title":"Test","prompt":"Do this","status":"pending"}"#;
+        let req: UpdateTodoRequest = serde_json::from_str(json).unwrap();
+        assert!(req.executor.is_none());
+        assert!(req.scheduler_enabled.is_none());
+        assert!(req.scheduler_config.is_none());
+    }
+}
