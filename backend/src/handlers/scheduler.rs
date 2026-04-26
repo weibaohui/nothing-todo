@@ -3,13 +3,13 @@ use axum::{
     response::Json,
 };
 
-use crate::handlers::{AppError, AppState};
+use crate::handlers::{ApiJson, AppError, AppState};
 use crate::models::{ApiResponse, Todo, UpdateSchedulerRequest};
 
 pub async fn update_scheduler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<UpdateSchedulerRequest>,
+    ApiJson(req): ApiJson<UpdateSchedulerRequest>,
 ) -> Result<Json<ApiResponse<Todo>>, AppError> {
     if req.scheduler_enabled {
         if let Some(ref config) = req.scheduler_config {

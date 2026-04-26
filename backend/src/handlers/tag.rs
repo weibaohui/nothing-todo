@@ -3,7 +3,7 @@ use axum::{
     response::Json,
 };
 
-use crate::handlers::{AppError, AppState};
+use crate::handlers::{ApiJson, AppError, AppState};
 use crate::models::{ApiResponse, CreateTagRequest, Tag};
 
 pub async fn get_tags(
@@ -14,7 +14,7 @@ pub async fn get_tags(
 
 pub async fn create_tag(
     State(state): State<AppState>,
-    Json(req): Json<CreateTagRequest>,
+    ApiJson(req): ApiJson<CreateTagRequest>,
 ) -> Result<Json<ApiResponse<Tag>>, AppError> {
     let name = req.name.trim();
     if name.is_empty() {

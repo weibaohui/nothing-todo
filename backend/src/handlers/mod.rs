@@ -1,6 +1,6 @@
 use axum::{
     Router,
-    extract::{Path, State, WebSocketUpgrade},
+    extract::{FromRequest, Path, Request, State, WebSocketUpgrade},
     http::StatusCode,
     response::{Html, IntoResponse, Response},
     routing::{delete, get, post, put},
@@ -61,6 +61,24 @@ impl IntoResponse for AppError {
         };
         let body = axum::Json(crate::models::ApiResponse::<()>::err(code, &message));
         (status, body).into_response()
+    }
+}
+
+/// 自定义 JSON 提取器，将解析错误转换为统一的 ApiResponse 错误格式
+pub struct ApiJson<T>(pub T);
+
+impl<S, T> FromRequest<S> for ApiJson<T>
+where
+    T: serde::de::DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        match axum::extract::Json::<T>::from_request(req, state).await {
+            Ok(axum::extract::Json(value)) => Ok(ApiJson(value)),
+            Err(rejection) => Err(AppError::BadRequest(rejection.to_string())),
+        }
     }
 }
 

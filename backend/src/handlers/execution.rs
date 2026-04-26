@@ -5,7 +5,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::executor_service::run_todo_execution;
-use crate::handlers::{AppError, AppState};
+use crate::handlers::{ApiJson, AppError, AppState};
 use crate::models::{
     ApiResponse, ExecuteRequest, ExecutionRecordsPage, ExecutionSummary, TodoIdQuery,
 };
@@ -31,7 +31,7 @@ pub async fn get_execution_records(
 
 pub async fn execute_handler(
     State(state): State<AppState>,
-    Json(req): Json<ExecuteRequest>,
+    ApiJson(req): ApiJson<ExecuteRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, AppError> {
     let task_id = run_todo_execution(
         state.db.clone(),
@@ -55,7 +55,7 @@ pub struct StopExecutionRequest {
 
 pub async fn stop_execution_handler(
     State(state): State<AppState>,
-    Json(req): Json<StopExecutionRequest>,
+    ApiJson(req): ApiJson<StopExecutionRequest>,
 ) -> Result<Json<ApiResponse<()>>, AppError> {
     let cancelled = state.task_manager.cancel(&req.task_id).await;
     if cancelled {

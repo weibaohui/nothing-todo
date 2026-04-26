@@ -3,7 +3,7 @@ use axum::{
     response::Json,
 };
 
-use crate::handlers::{AppError, AppState};
+use crate::handlers::{ApiJson, AppError, AppState};
 use crate::models::{ApiResponse, CreateTodoRequest, Todo, UpdateTagsRequest, UpdateTodoRequest};
 
 pub async fn get_todos(
@@ -14,7 +14,7 @@ pub async fn get_todos(
 
 pub async fn create_todo(
     State(state): State<AppState>,
-    Json(req): Json<CreateTodoRequest>,
+    ApiJson(req): ApiJson<CreateTodoRequest>,
 ) -> Result<Json<ApiResponse<Todo>>, AppError> {
     let title = req.title.trim();
     if title.is_empty() {
@@ -51,7 +51,7 @@ pub async fn create_todo(
 pub async fn update_todo(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<UpdateTodoRequest>,
+    ApiJson(req): ApiJson<UpdateTodoRequest>,
 ) -> Result<Json<ApiResponse<Todo>>, AppError> {
     let prompt = if req.prompt.trim().is_empty() {
         req.title.clone()
@@ -80,7 +80,7 @@ pub async fn update_todo(
 pub async fn update_todo_tags(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<UpdateTagsRequest>,
+    ApiJson(req): ApiJson<UpdateTagsRequest>,
 ) -> Result<Json<ApiResponse<()>>, AppError> {
     state.db.set_todo_tags(id, &req.tag_ids).await;
     Ok(Json(ApiResponse::ok(())))
@@ -97,7 +97,7 @@ pub async fn delete_todo(
 pub async fn force_update_todo_status(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<UpdateTodoRequest>,
+    ApiJson(req): ApiJson<UpdateTodoRequest>,
 ) -> Result<Json<ApiResponse<Todo>>, AppError> {
     state.db.force_update_todo_status(id, req.status).await;
     match state.db.get_todo(id).await {
