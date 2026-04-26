@@ -482,13 +482,24 @@ export function TodoDetail() {
                     }}>
                       {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
                     </span>
-                    {record.status === 'running' && currentRunningTask && (
-                      <Popconfirm title="确定强制停止该任务？" onConfirm={handleStopExecution} okText="停止" cancelText="取消">
-                        <Button type="text" danger size="small" icon={<StopOutlined />} style={{ fontSize: 12 }}>
-                          停止
-                        </Button>
-                      </Popconfirm>
-                    )}
+                    {record.status === 'running' && (() => {
+                      const taskId = currentRunningTask?.taskId || selectedTodo?.task_id;
+                      if (!taskId) return null;
+                      return (
+                        <Popconfirm title="确定强制停止该任务？" onConfirm={async () => {
+                          try {
+                            await db.stopExecution(taskId);
+                            message.info('已发送停止指令');
+                          } catch (error) {
+                            message.error('停止失败: ' + error);
+                          }
+                        }} okText="停止" cancelText="取消">
+                          <Button type="text" danger size="small" icon={<StopOutlined />} style={{ fontSize: 12 }}>
+                            停止
+                          </Button>
+                        </Popconfirm>
+                      );
+                    })()}
                   </div>
                 </div>
                 {record.command && (
