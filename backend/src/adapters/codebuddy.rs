@@ -234,13 +234,6 @@ impl CodeExecutor for CodebuddyExecutor {
         })
     }
 
-    fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
-        logs.iter()
-            .rev()
-            .find(|l| l.log_type == "result" || l.log_type == "text")
-            .map(|l| l.content.clone())
-    }
-
     fn get_usage(&self, logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
         logs.iter().rev().find(|l| l.log_type == "result")?.usage.clone()
     }

@@ -239,14 +239,6 @@ impl CodeExecutor for ClaudeCodeExecutor {
         })
     }
 
-    fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
-        // Claude Code 的结果在 result 类型日志中
-        logs.iter()
-            .rev()
-            .find(|l| l.log_type == "result" || l.log_type == "text")
-            .map(|l| l.content.clone())
-    }
-
     fn get_usage(&self, logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
         // Usage is now captured directly in the ParsedLogEntry.usage field
         logs.iter().rev().find(|l| l.log_type == "result")?.usage.clone()

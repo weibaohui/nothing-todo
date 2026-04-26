@@ -36,7 +36,12 @@ pub trait CodeExecutor: Send + Sync {
     }
 
     /// 从日志列表中提取最终结果
-    fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String>;
+    fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
+        logs.iter()
+            .rev()
+            .find(|l| l.log_type == "result" || l.log_type == "text")
+            .map(|l| l.content.clone())
+    }
 
     /// 从日志列表中提取 usage 信息
     fn get_usage(&self, logs: &[ParsedLogEntry]) -> Option<ExecutionUsage>;
