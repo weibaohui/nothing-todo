@@ -64,9 +64,13 @@ pub async fn get_todos(State(state): State<AppState>) -> Result<Json<ApiResponse
 }
 
 pub async fn create_todo(State(state): State<AppState>, Json(req): Json<CreateTodoRequest>) -> Result<Json<ApiResponse<Todo>>, AppError> {
+    let title = req.title.trim();
+    if title.is_empty() {
+        return Err(AppError::BadRequest("Title is required".to_string()));
+    }
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    let prompt = if req.prompt.is_empty() { req.title.clone() } else { req.prompt.clone() };
-    let id = state.db.create_todo(&req.title, &prompt).await;
+    let prompt = if req.prompt.trim().is_empty() { title.to_string() } else { req.prompt.trim().to_string() };
+    let id = state.db.create_todo(title, &prompt).await;
 
     for tag_id in &req.tag_ids {
         state.db.add_todo_tag(id, *tag_id).await;
@@ -74,7 +78,7 @@ pub async fn create_todo(State(state): State<AppState>, Json(req): Json<CreateTo
 
     Ok(Json(ApiResponse::ok(Todo {
         id,
-        title: req.title,
+        title: title.to_string(),
         prompt,
         status: crate::models::TodoStatus::Pending,
         created_at: now.clone(),
@@ -125,11 +129,15 @@ pub async fn get_tags(State(state): State<AppState>) -> Result<Json<ApiResponse<
 }
 
 pub async fn create_tag(State(state): State<AppState>, Json(req): Json<CreateTagRequest>) -> Result<Json<ApiResponse<Tag>>, AppError> {
+    let name = req.name.trim();
+    if name.is_empty() {
+        return Err(AppError::BadRequest("Tag name is required".to_string()));
+    }
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    let id = state.db.create_tag(&req.name, &req.color).await;
+    let id = state.db.create_tag(name, &req.color).await;
     Ok(Json(ApiResponse::ok(Tag {
         id,
-        name: req.name,
+        name: name.to_string(),
         color: req.color,
         created_at: now,
     })))
@@ -254,7 +262,10 @@ pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade)
         loop {
             match rx.recv().await {
                 Ok(event) => {
-                    let json = serde_json::to_string(&event).unwrap();
+                    let json = serde_json::to_string(&event).unwrap_or_default();
+                    if json.is_empty() {
+                        continue;
+                    }
                     if ws.send(axum::extract::ws::Message::Text(json.into())).await.is_err() {
                         break;
                     }
@@ -266,9 +277,10 @@ pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade)
 }
 
 // Static file handler
-pub async fn index_handler() -> Html<String> {
-    let content = Assets::get("index.html").unwrap();
-    Html(String::from_utf8_lossy(&content.data).to_string())
+pub async fn index_handler() -> Result<Html<String>, AppError> {
+    let content = Assets::get("index.html")
+        .ok_or_else(|| AppError::Internal("index.html not found in embedded assets".to_string()))?;
+    Ok(Html(String::from_utf8_lossy(&content.data).to_string()))
 }
 
 pub async fn static_handler(Path(path): Path<String>) -> Response {
@@ -294,8 +306,10 @@ pub async fn static_handler(Path(path): Path<String>) -> Response {
             ([("Content-Type", mime)], body).into_response()
         }
         None => {
-            let content = Assets::get("index.html").unwrap();
-            Html(String::from_utf8_lossy(&content.data).to_string()).into_response()
+            match Assets::get("index.html") {
+                Some(content) => Html(String::from_utf8_lossy(&content.data).to_string()).into_response(),
+                None => (StatusCode::NOT_FOUND, "Not found").into_response(),
+            }
         }
     }
 }
