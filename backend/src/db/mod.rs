@@ -189,7 +189,7 @@ mod tests {
         let after = truncate_seconds(Utc::now());
 
         let todo = db.get_todo(id).await.unwrap();
-        let created = parse_utc(&todo.created_at);
+        let created = truncate_seconds(parse_utc(&todo.created_at));
 
         assert!(created >= before, "created_at should not be before test start");
         assert!(created <= after, "created_at should not be after test end");
@@ -233,7 +233,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let deleted_at = model.deleted_at.unwrap();
-        let dt = parse_utc(&deleted_at);
+        let dt = truncate_seconds(parse_utc(&deleted_at));
         assert!(dt >= before);
         assert!(dt <= after);
         assert!(deleted_at.ends_with('Z'));
@@ -247,7 +247,7 @@ mod tests {
         let after = truncate_seconds(Utc::now());
 
         let tag = db.get_tags().await.into_iter().find(|t| t.id == id).unwrap();
-        let created = parse_utc(&tag.created_at);
+        let created = truncate_seconds(parse_utc(&tag.created_at));
 
         assert!(created >= before);
         assert!(created <= after);
@@ -266,7 +266,7 @@ mod tests {
 
         let (records, _) = db.get_execution_records(todo_id, 100, 0).await;
         let record = records.into_iter().find(|r| r.id == record_id).unwrap();
-        let started = parse_utc(&record.started_at);
+        let started = truncate_seconds(parse_utc(&record.started_at));
 
         assert!(started >= before);
         assert!(started <= after);
@@ -289,7 +289,7 @@ mod tests {
         let (records, _) = db.get_execution_records(todo_id, 100, 0).await;
         let record = records.into_iter().find(|r| r.id == record_id).unwrap();
         let finished_at = record.finished_at.unwrap();
-        let finished = parse_utc(&finished_at);
+        let finished = truncate_seconds(parse_utc(&finished_at));
 
         assert!(finished >= before);
         assert!(finished <= after);
