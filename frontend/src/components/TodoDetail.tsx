@@ -8,6 +8,7 @@ import { PieChart, PieChartLegend } from './PieChart';
 import { TodoSettingsModal } from './TodoSettingsModal';
 import * as db from '../utils/database';
 import { formatLocalDateTime } from '../utils/datetime';
+import { AnimatedNumber } from './AnimatedNumber';
 import { getExecutorOption } from '../types';
 import type { ExecutionSummary, Todo } from '../types';
 
@@ -314,9 +315,7 @@ export function TodoDetail() {
                           letterSpacing: '-0.02em',
                         }}
                       >
-                        {totalTokens > 0
-                          ? totalTokens.toLocaleString()
-                          : '0'}
+                        <AnimatedNumber value={totalTokens} duration={1.2} chineseFormat />
                       </div>
                       <div
                         style={{
@@ -350,23 +349,23 @@ export function TodoDetail() {
                   <span>
                     执行{' '}
                     <strong style={{ color: 'var(--color-text)' }}>
-                      {summary.total_executions}
+                      <AnimatedNumber value={summary.total_executions} duration={0.8} />
                     </strong>{' '}
                     次
                   </span>
                   <span style={{ color: 'var(--color-border)' }}>|</span>
                   <span style={{ color: 'var(--color-success)' }}>
-                    成功 {summary.success_count}
+                    成功 <AnimatedNumber value={summary.success_count} duration={0.8} />
                   </span>
                   <span style={{ color: 'var(--color-error)' }}>
-                    失败 {summary.failed_count}
+                    失败 <AnimatedNumber value={summary.failed_count} duration={0.8} />
                   </span>
                   {summary.total_cost_usd !== null &&
                     summary.total_cost_usd !== undefined && (
                       <>
                         <span style={{ color: 'var(--color-border)' }}>|</span>
                         <span style={{ color: 'var(--color-warning)', fontWeight: 600 }}>
-                          ${summary.total_cost_usd.toFixed(4)}
+                          $<AnimatedNumber value={summary.total_cost_usd} duration={0.8} decimals={4} />
                         </span>
                       </>
                     )}
