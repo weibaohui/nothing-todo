@@ -1,6 +1,5 @@
 use axum::{
     extract::{Path, State},
-    response::Json,
 };
 
 use crate::handlers::{ApiJson, AppError, AppState};
@@ -10,7 +9,7 @@ pub async fn update_scheduler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     ApiJson(req): ApiJson<UpdateSchedulerRequest>,
-) -> Result<Json<ApiResponse<Todo>>, AppError> {
+) -> Result<ApiResponse<Todo>, AppError> {
     if req.scheduler_enabled {
         if let Some(ref config) = req.scheduler_config {
             if let Err(e) = state
@@ -40,13 +39,13 @@ pub async fn update_scheduler(
         .await;
 
     match state.db.get_todo(id).await {
-        Some(todo) => Ok(Json(ApiResponse::ok(todo))),
+        Some(todo) => Ok(ApiResponse::ok(todo)),
         None => Err(AppError::NotFound),
     }
 }
 
 pub async fn get_scheduler_todos(
     State(state): State<AppState>,
-) -> Result<Json<ApiResponse<Vec<Todo>>>, AppError> {
-    Ok(Json(ApiResponse::ok(state.db.get_scheduler_todos().await)))
+) -> Result<ApiResponse<Vec<Todo>>, AppError> {
+    Ok(ApiResponse::ok(state.db.get_scheduler_todos().await))
 }

@@ -69,6 +69,12 @@ impl IntoResponse for AppError {
     }
 }
 
+impl<T: Serialize> IntoResponse for crate::models::ApiResponse<T> {
+    fn into_response(self) -> Response {
+        axum::Json(self).into_response()
+    }
+}
+
 /// 自定义 JSON 提取器，将解析错误转换为统一的 ApiResponse 错误格式
 pub struct ApiJson<T>(pub T);
 

@@ -1,6 +1,5 @@
 use axum::{
     extract::{Path, Query, State},
-    response::Json,
 };
 use serde::Deserialize;
 
@@ -13,7 +12,7 @@ use crate::models::{
 pub async fn get_execution_records(
     State(state): State<AppState>,
     Query(query): Query<TodoIdQuery>,
-) -> Result<Json<ApiResponse<ExecutionRecordsPage>>, AppError> {
+) -> Result<ApiResponse<ExecutionRecordsPage>, AppError> {
     let page = query.page.unwrap_or(1).max(1);
     let limit = query.limit.unwrap_or(10).max(1).min(100);
     let offset = (page - 1) * limit;
@@ -21,18 +20,18 @@ pub async fn get_execution_records(
         .db
         .get_execution_records(query.todo_id, limit, offset)
         .await;
-    Ok(Json(ApiResponse::ok(ExecutionRecordsPage {
+    Ok(ApiResponse::ok(ExecutionRecordsPage {
         records,
         total,
         page,
         limit,
-    })))
+    }))
 }
 
 pub async fn execute_handler(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<ExecuteRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, AppError> {
+) -> Result<ApiResponse<serde_json::Value>, AppError> {
     let task_id = run_todo_execution(
         state.db.clone(),
         state.executor_registry.clone(),
@@ -45,7 +44,7 @@ pub async fn execute_handler(
     )
     .await;
 
-    Ok(Json(ApiResponse::ok(serde_json::json!({ "task_id": task_id }))))
+    Ok(ApiResponse::ok(serde_json::json!({ "task_id": task_id })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,10 +55,10 @@ pub struct StopExecutionRequest {
 pub async fn stop_execution_handler(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<StopExecutionRequest>,
-) -> Result<Json<ApiResponse<()>>, AppError> {
+) -> Result<ApiResponse<()>, AppError> {
     let cancelled = state.task_manager.cancel(&req.task_id).await;
     if cancelled {
-        Ok(Json(ApiResponse::ok(())))
+        Ok(ApiResponse::ok(()))
     } else {
         Err(AppError::BadRequest(
             "Task not found or already finished".to_string(),
@@ -70,8 +69,8 @@ pub async fn stop_execution_handler(
 pub async fn get_execution_summary(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> Result<Json<ApiResponse<ExecutionSummary>>, AppError> {
-    Ok(Json(ApiResponse::ok(
+) -> Result<ApiResponse<ExecutionSummary>, AppError> {
+    Ok(ApiResponse::ok(
         state.db.get_execution_summary(id).await,
-    )))
+    ))
 }

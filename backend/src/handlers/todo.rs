@@ -1,6 +1,5 @@
 use axum::{
     extract::{Path, State},
-    response::Json,
 };
 
 use crate::handlers::{ApiJson, AppError, AppState};
@@ -8,14 +7,14 @@ use crate::models::{ApiResponse, CreateTodoRequest, Todo, UpdateTagsRequest, Upd
 
 pub async fn get_todos(
     State(state): State<AppState>,
-) -> Result<Json<ApiResponse<Vec<Todo>>>, AppError> {
-    Ok(Json(ApiResponse::ok(state.db.get_todos().await)))
+) -> Result<ApiResponse<Vec<Todo>>, AppError> {
+    Ok(ApiResponse::ok(state.db.get_todos().await))
 }
 
 pub async fn create_todo(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<CreateTodoRequest>,
-) -> Result<Json<ApiResponse<Todo>>, AppError> {
+) -> Result<ApiResponse<Todo>, AppError> {
     let title = req.title.trim();
     if title.is_empty() {
         return Err(AppError::BadRequest("Title is required".to_string()));
@@ -32,7 +31,7 @@ pub async fn create_todo(
         state.db.add_todo_tag(id, *tag_id).await;
     }
 
-    Ok(Json(ApiResponse::ok(Todo {
+    Ok(ApiResponse::ok(Todo {
         id,
         title: title.to_string(),
         prompt,
@@ -45,14 +44,14 @@ pub async fn create_todo(
         scheduler_config: None,
         scheduler_next_run_at: None,
         task_id: None,
-    })))
+    }))
 }
 
 pub async fn update_todo(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     ApiJson(req): ApiJson<UpdateTodoRequest>,
-) -> Result<Json<ApiResponse<Todo>>, AppError> {
+) -> Result<ApiResponse<Todo>, AppError> {
     let prompt = if req.prompt.trim().is_empty() {
         req.title.clone()
     } else {
@@ -72,7 +71,7 @@ pub async fn update_todo(
         .await;
 
     match state.db.get_todo(id).await {
-        Some(todo) => Ok(Json(ApiResponse::ok(todo))),
+        Some(todo) => Ok(ApiResponse::ok(todo)),
         None => Err(AppError::NotFound),
     }
 }
@@ -81,27 +80,27 @@ pub async fn update_todo_tags(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     ApiJson(req): ApiJson<UpdateTagsRequest>,
-) -> Result<Json<ApiResponse<()>>, AppError> {
+) -> Result<ApiResponse<()>, AppError> {
     state.db.set_todo_tags(id, &req.tag_ids).await;
-    Ok(Json(ApiResponse::ok(())))
+    Ok(ApiResponse::ok(()))
 }
 
 pub async fn delete_todo(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> Result<Json<ApiResponse<()>>, AppError> {
+) -> Result<ApiResponse<()>, AppError> {
     state.db.delete_todo(id).await;
-    Ok(Json(ApiResponse::ok(())))
+    Ok(ApiResponse::ok(()))
 }
 
 pub async fn force_update_todo_status(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     ApiJson(req): ApiJson<UpdateTodoRequest>,
-) -> Result<Json<ApiResponse<Todo>>, AppError> {
+) -> Result<ApiResponse<Todo>, AppError> {
     state.db.force_update_todo_status(id, req.status).await;
     match state.db.get_todo(id).await {
-        Some(todo) => Ok(Json(ApiResponse::ok(todo))),
+        Some(todo) => Ok(ApiResponse::ok(todo)),
         None => Err(AppError::NotFound),
     }
 }
