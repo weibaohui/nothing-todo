@@ -76,7 +76,7 @@ pub async fn create_todo(State(state): State<AppState>, Json(req): Json<CreateTo
         id,
         title: req.title,
         prompt,
-        status: "pending".to_string(),
+        status: crate::models::TodoStatus::Pending,
         created_at: now.clone(),
         updated_at: now,
         tag_ids: req.tag_ids.clone(),
@@ -95,7 +95,7 @@ pub async fn update_todo(
 ) -> Result<Json<ApiResponse<Todo>>, AppError> {
     let prompt = if req.prompt.is_empty() { req.title.clone() } else { req.prompt.clone() };
     state.db.update_todo_full(
-        id, &req.title, &prompt, &req.status,
+        id, &req.title, &prompt, req.status,
         req.executor.as_deref(), req.scheduler_enabled, req.scheduler_config.as_deref(),
     ).await;
 
@@ -231,7 +231,7 @@ pub async fn force_update_todo_status(
     Path(id): Path<i64>,
     Json(req): Json<UpdateTodoRequest>,
 ) -> Result<Json<ApiResponse<Todo>>, AppError> {
-    state.db.force_update_todo_status(id, &req.status).await;
+    state.db.force_update_todo_status(id, req.status).await;
     match state.db.get_todo(id).await {
         Some(todo) => Ok(Json(ApiResponse::ok(todo))),
         None => Err(AppError::NotFound),

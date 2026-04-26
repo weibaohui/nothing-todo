@@ -171,7 +171,7 @@ impl Database {
             id: m.id,
             title: m.title,
             prompt: m.prompt.unwrap_or_default(),
-            status: m.status.unwrap_or_default(),
+            status: m.status.as_deref().and_then(|s| s.parse().ok()).unwrap_or(crate::models::TodoStatus::Pending),
             created_at: m.created_at.unwrap_or_default(),
             updated_at: m.updated_at.unwrap_or_default(),
             tag_ids,
@@ -226,7 +226,7 @@ impl Database {
         let am = todos::ActiveModel {
             title: ActiveValue::Set(title.to_string()),
             prompt: ActiveValue::Set(Some(prompt.to_string())),
-            status: ActiveValue::Set(Some("pending".to_string())),
+            status: ActiveValue::Set(Some(crate::models::TodoStatus::Pending.to_string())),
             created_at: ActiveValue::Set(Some(now.clone())),
             updated_at: ActiveValue::Set(Some(now)),
             executor: ActiveValue::Set(Some("claudecode".to_string())),
@@ -241,7 +241,7 @@ impl Database {
         id: i64,
         title: &str,
         prompt: &str,
-        status: &str,
+        status: crate::models::TodoStatus,
         executor: Option<&str>,
         scheduler_enabled: Option<bool>,
         scheduler_config: Option<&str>,
@@ -295,7 +295,7 @@ impl Database {
         let _ = am.update(&self.conn).await;
     }
 
-    pub async fn force_update_todo_status(&self, id: i64, status: &str) {
+    pub async fn force_update_todo_status(&self, id: i64, status: crate::models::TodoStatus) {
         let now = now_utc();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
@@ -565,7 +565,7 @@ impl Database {
         let _ = am.update(&self.conn).await;
     }
 
-    pub async fn update_todo_status(&self, todo_id: i64, status: &str) {
+    pub async fn update_todo_status(&self, todo_id: i64, status: crate::models::TodoStatus) {
         let now = now_utc();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(todo_id),
@@ -581,7 +581,7 @@ impl Database {
         let now = now_utc();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(todo_id),
-            status: ActiveValue::Set(Some("running".to_string())),
+            status: ActiveValue::Set(Some(crate::models::TodoStatus::Running.to_string())),
             task_id: ActiveValue::Set(Some(task_id.to_string())),
             updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
@@ -591,7 +591,7 @@ impl Database {
 
     /// Mark a todo as completed or failed and clear its task_id.
     pub async fn finish_todo_execution(&self, todo_id: i64, success: bool) {
-        let status = if success { "completed" } else { "failed" };
+        let status = if success { crate::models::TodoStatus::Completed } else { crate::models::TodoStatus::Failed };
         let now = now_utc();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(todo_id),

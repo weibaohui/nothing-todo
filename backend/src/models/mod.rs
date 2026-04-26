@@ -1,11 +1,56 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TodoStatus {
+    Pending,
+    InProgress,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl TodoStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::InProgress => "in_progress",
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+impl std::fmt::Display for TodoStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl std::str::FromStr for TodoStatus {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "pending" => Ok(Self::Pending),
+            "in_progress" => Ok(Self::InProgress),
+            "running" => Ok(Self::Running),
+            "completed" => Ok(Self::Completed),
+            "failed" => Ok(Self::Failed),
+            "cancelled" => Ok(Self::Cancelled),
+            _ => Err(format!("unknown status: {}", s)),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Todo {
     pub id: i64,
     pub title: String,
     pub prompt: String,
-    pub status: String,
+    pub status: TodoStatus,
     pub created_at: String,
     pub updated_at: String,
     #[serde(default)]
@@ -106,7 +151,7 @@ pub struct CreateTodoRequest {
 pub struct UpdateTodoRequest {
     pub title: String,
     pub prompt: String,
-    pub status: String,
+    pub status: TodoStatus,
     #[serde(default)]
     pub executor: Option<String>,
     #[serde(default)]

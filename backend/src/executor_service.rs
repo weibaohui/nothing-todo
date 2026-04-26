@@ -194,7 +194,7 @@ pub async fn run_todo_execution(
                     let _ = handle.await;
                 }
 
-                db_clone.update_todo_status(todo_id, "cancelled").await;
+                db_clone.update_todo_status(todo_id, crate::models::TodoStatus::Cancelled).await;
                 db_clone.update_todo_task_id(todo_id, None).await;
 
                 let entry = ParsedLogEntry {
