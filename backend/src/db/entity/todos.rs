@@ -13,10 +13,9 @@ pub struct Model {
     pub updated_at: Option<String>,
     pub deleted_at: Option<String>,
     pub executor: Option<String>,
-    pub scheduler_enabled: Option<i32>,
+    pub scheduler_enabled: Option<bool>,
     pub scheduler_config: Option<String>,
     pub task_id: Option<String>,
-    pub model: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

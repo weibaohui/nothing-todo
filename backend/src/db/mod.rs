@@ -1,8 +1,8 @@
-// 注意: 原 rusqlite 实现已迁移到 SeaORM。原代码在 git 历史中可查阅。
-// 本文件保持 Database 结构体的公开方法语义不变,所有方法改为 async。
-//
-// 数据库路径固定: ~/.ntd/data.db
-// 使用 sqlx-sqlite + libsqlite3-sys (bundled) 内置 SQLite,不依赖系统库。
+//! 数据库访问层 (SeaORM)。
+//!
+//! - 数据库路径固定: `~/.ntd/data.db`
+//! - 内置 SQLite (libsqlite3-sys/bundled)，无系统依赖
+//! - 所有公开方法均为 async
 
 use std::str::FromStr;
 use std::time::Duration;
@@ -12,7 +12,7 @@ use sea_orm::sea_query::OnConflict;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectOptions, ConnectionTrait,
     Database as SeaDatabase, DatabaseConnection, DbBackend, EntityTrait, PaginatorTrait,
-    QueryFilter, QueryOrder, QuerySelect, Statement,
+    QueryFilter, QueryOrder, QuerySelect, Statement, TransactionTrait,
 };
 
 use crate::models::{ExecutionRecord, ExecutionSummary, ExecutionUsage, Tag, Todo};
@@ -33,8 +33,6 @@ fn compute_next_run(cron_expr: &str) -> Option<String> {
 fn now_utc() -> String {
     Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
-
-pub type DbPool = DatabaseConnection;
 
 pub struct Database {
     conn: DatabaseConnection,
@@ -63,19 +61,11 @@ impl Database {
         Ok(db)
     }
 
-    pub fn pool(&self) -> &DatabaseConnection {
-        &self.conn
-    }
-
     async fn exec(&self, sql: &str) -> Result<(), sea_orm::DbErr> {
         self.conn
             .execute(Statement::from_string(DbBackend::Sqlite, sql.to_string()))
             .await
             .map(|_| ())
-    }
-
-    async fn exec_ignore(&self, sql: &str) {
-        let _ = self.exec(sql).await;
     }
 
     async fn init_tables(&self) -> Result<(), sea_orm::DbErr> {
@@ -87,7 +77,11 @@ impl Database {
                 status TEXT DEFAULT 'pending',
                 created_at TEXT,
                 updated_at TEXT,
-                deleted_at TEXT
+                deleted_at TEXT,
+                executor TEXT DEFAULT 'claudecode',
+                scheduler_enabled INTEGER DEFAULT 0,
+                scheduler_config TEXT,
+                task_id TEXT
             )",
         )
         .await?;
@@ -113,42 +107,6 @@ impl Database {
         )
         .await?;
 
-        // 历史 schema 兼容: 这些 ALTER 在已存在列时会报错,忽略即可
-        self.exec_ignore("ALTER TABLE todos ADD COLUMN executor TEXT DEFAULT 'claudecode'")
-            .await;
-        self.exec_ignore("ALTER TABLE todos ADD COLUMN scheduler_enabled INTEGER DEFAULT 0")
-            .await;
-        self.exec_ignore("ALTER TABLE todos ADD COLUMN scheduler_config TEXT").await;
-        self.exec_ignore("ALTER TABLE todos ADD COLUMN model TEXT").await;
-        self.exec_ignore("ALTER TABLE todos ADD COLUMN task_id TEXT").await;
-
-        self.exec_ignore(
-            "CREATE TRIGGER IF NOT EXISTS set_todos_created_at_utc AFTER INSERT ON todos
-             WHEN new.created_at IS NULL OR new.created_at = ''
-             BEGIN
-                 UPDATE todos SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
-             END",
-        )
-        .await;
-
-        self.exec_ignore(
-            "CREATE TRIGGER IF NOT EXISTS set_todos_updated_at_utc BEFORE UPDATE ON todos
-             WHEN new.updated_at IS NULL OR new.updated_at = ''
-             BEGIN
-                 SELECT raise(IGNORE);
-             END",
-        )
-        .await;
-
-        self.exec_ignore(
-            "CREATE TRIGGER IF NOT EXISTS set_tags_created_at_utc AFTER INSERT ON tags
-             WHEN new.created_at IS NULL OR new.created_at = ''
-             BEGIN
-                 UPDATE tags SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
-             END",
-        )
-        .await;
-
         self.exec(
             "CREATE TABLE IF NOT EXISTS execution_records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,22 +128,39 @@ impl Database {
         )
         .await?;
 
-        self.exec_ignore("ALTER TABLE execution_records ADD COLUMN usage TEXT").await;
-        self.exec_ignore("ALTER TABLE execution_records ADD COLUMN executor TEXT").await;
-        self.exec_ignore("ALTER TABLE execution_records ADD COLUMN model TEXT").await;
-        self.exec_ignore(
-            "ALTER TABLE execution_records ADD COLUMN trigger_type TEXT DEFAULT 'manual'",
+        // 触发器: 在 INSERT 时如果未设置 created_at, 用 UTC 时间填充
+        self.exec(
+            "CREATE TRIGGER IF NOT EXISTS set_todos_created_at_utc AFTER INSERT ON todos
+             WHEN new.created_at IS NULL OR new.created_at = ''
+             BEGIN
+                 UPDATE todos SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+             END",
         )
-        .await;
+        .await?;
 
-        // 旧 description -> prompt 重命名 (老 db 兼容)
-        self.exec_ignore("ALTER TABLE todos RENAME COLUMN description TO prompt").await;
+        self.exec(
+            "CREATE TRIGGER IF NOT EXISTS set_todos_updated_at_utc BEFORE UPDATE ON todos
+             WHEN new.updated_at IS NULL OR new.updated_at = ''
+             BEGIN
+                 SELECT raise(IGNORE);
+             END",
+        )
+        .await?;
+
+        self.exec(
+            "CREATE TRIGGER IF NOT EXISTS set_tags_created_at_utc AFTER INSERT ON tags
+             WHEN new.created_at IS NULL OR new.created_at = ''
+             BEGIN
+                 UPDATE tags SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+             END",
+        )
+        .await?;
 
         Ok(())
     }
 
     fn model_to_todo(m: todos::Model, tag_ids: Vec<i64>) -> Todo {
-        let scheduler_enabled = m.scheduler_enabled.unwrap_or(0) != 0;
+        let scheduler_enabled = m.scheduler_enabled.unwrap_or(false);
         let scheduler_config = m.scheduler_config.clone();
         let scheduler_next_run_at = if scheduler_enabled {
             scheduler_config.as_deref().and_then(compute_next_run)
@@ -252,19 +227,6 @@ impl Database {
         inserted.id
     }
 
-    pub async fn update_todo(&self, id: i64, title: &str, prompt: &str, status: &str) {
-        let now = now_utc();
-        let am = todos::ActiveModel {
-            id: ActiveValue::Unchanged(id),
-            title: ActiveValue::Set(title.to_string()),
-            prompt: ActiveValue::Set(Some(prompt.to_string())),
-            status: ActiveValue::Set(Some(status.to_string())),
-            updated_at: ActiveValue::Set(Some(now)),
-            ..Default::default()
-        };
-        let _ = am.update(&self.conn).await;
-    }
-
     pub async fn update_todo_full(
         &self,
         id: i64,
@@ -288,10 +250,8 @@ impl Database {
             am.executor = ActiveValue::Set(Some(exec.to_string()));
         }
         if let Some(enabled) = scheduler_enabled {
-            am.scheduler_enabled = ActiveValue::Set(Some(if enabled { 1 } else { 0 }));
+            am.scheduler_enabled = ActiveValue::Set(Some(enabled));
         }
-        // 原行为: 只要 Option 是 Some(...) 就写 (包括 Some("")) 。新接口里 scheduler_config 来自调用方
-        // 我们以 "Some => Set" 的语义实现
         if let Some(cfg) = scheduler_config {
             am.scheduler_config = ActiveValue::Set(Some(cfg.to_string()));
         }
@@ -319,7 +279,7 @@ impl Database {
     pub async fn update_todo_scheduler(&self, id: i64, enabled: bool, config: Option<&str>) {
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
-            scheduler_enabled: ActiveValue::Set(Some(if enabled { 1 } else { 0 })),
+            scheduler_enabled: ActiveValue::Set(Some(enabled)),
             scheduler_config: ActiveValue::Set(config.map(|s| s.to_string())),
             ..Default::default()
         };
@@ -423,18 +383,45 @@ impl Database {
             .await;
     }
 
-    pub async fn remove_todo_tags(&self, todo_id: i64) {
-        let _ = todo_tags::Entity::delete_many()
-            .filter(todo_tags::Column::TodoId.eq(todo_id))
-            .exec(&self.conn)
-            .await;
-    }
-
     pub async fn set_todo_tags(&self, todo_id: i64, tag_ids: &[i64]) {
-        self.remove_todo_tags(todo_id).await;
-        for tag_id in tag_ids {
-            self.add_todo_tag(todo_id, *tag_id).await;
-        }
+        let tag_ids = tag_ids.to_vec();
+        let _ = self
+            .conn
+            .transaction::<_, (), sea_orm::DbErr>(|txn| {
+                Box::pin(async move {
+                    todo_tags::Entity::delete_many()
+                        .filter(todo_tags::Column::TodoId.eq(todo_id))
+                        .exec(txn)
+                        .await?;
+
+                    if tag_ids.is_empty() {
+                        return Ok(());
+                    }
+
+                    let rows: Vec<todo_tags::ActiveModel> = tag_ids
+                        .into_iter()
+                        .map(|tag_id| todo_tags::ActiveModel {
+                            todo_id: ActiveValue::Set(todo_id),
+                            tag_id: ActiveValue::Set(tag_id),
+                        })
+                        .collect();
+
+                    todo_tags::Entity::insert_many(rows)
+                        .on_conflict(
+                            OnConflict::columns([
+                                todo_tags::Column::TodoId,
+                                todo_tags::Column::TagId,
+                            ])
+                            .do_nothing()
+                            .to_owned(),
+                        )
+                        .exec(txn)
+                        .await?;
+
+                    Ok(())
+                })
+            })
+            .await;
     }
 
     // ===== Execution record operations =====
@@ -596,17 +583,6 @@ impl Database {
         let _ = am.update(&self.conn).await;
     }
 
-    pub async fn force_update_todo_status_by_record(&self, record_id: i64, status: &str) {
-        if let Ok(Some(record)) = execution_records::Entity::find_by_id(record_id)
-            .one(&self.conn)
-            .await
-        {
-            if let Some(todo_id) = record.todo_id {
-                self.force_update_todo_status(todo_id, status).await;
-            }
-        }
-    }
-
     pub async fn get_execution_summary(&self, todo_id: i64) -> ExecutionSummary {
         let records = execution_records::Entity::find()
             .filter(execution_records::Column::TodoId.eq(todo_id))
@@ -699,7 +675,7 @@ mod tests {
         let original = db.get_todo(id).await.unwrap().updated_at;
 
         tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
-        db.update_todo(id, "Updated", "Desc", "in_progress").await;
+        db.update_todo_full(id, "Updated", "Desc", "in_progress", None, None, None).await;
         let updated = db.get_todo(id).await.unwrap().updated_at;
 
         assert_ne!(original, updated, "updated_at should change after update");
