@@ -70,10 +70,8 @@ pub async fn update_todo(
         )
         .await;
 
-    match state.db.get_todo(id).await {
-        Some(todo) => Ok(ApiResponse::ok(todo)),
-        None => Err(AppError::NotFound),
-    }
+    let todo = state.require_todo(id).await?;
+    Ok(ApiResponse::ok(todo))
 }
 
 pub async fn update_todo_tags(
@@ -99,8 +97,6 @@ pub async fn force_update_todo_status(
     ApiJson(req): ApiJson<UpdateTodoRequest>,
 ) -> Result<ApiResponse<Todo>, AppError> {
     state.db.force_update_todo_status(id, req.status).await;
-    match state.db.get_todo(id).await {
-        Some(todo) => Ok(ApiResponse::ok(todo)),
-        None => Err(AppError::NotFound),
-    }
+    let todo = state.require_todo(id).await?;
+    Ok(ApiResponse::ok(todo))
 }

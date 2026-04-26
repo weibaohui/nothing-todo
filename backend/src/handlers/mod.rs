@@ -30,6 +30,13 @@ pub struct AppState {
     pub task_manager: Arc<TaskManager>,
 }
 
+impl AppState {
+    /// 根据 id 获取 todo，不存在时返回 NotFound 错误
+    pub async fn require_todo(&self, id: i64) -> Result<crate::models::Todo, AppError> {
+        self.db.get_todo(id).await.ok_or(AppError::NotFound)
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
 pub enum ExecEvent {
