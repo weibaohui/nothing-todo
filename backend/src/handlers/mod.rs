@@ -1,7 +1,7 @@
 use axum::{
     Router,
     extract::{FromRequest, Path, Request, State, WebSocketUpgrade},
-    http::StatusCode,
+    http::{StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::{delete, get, post, put},
 };
@@ -159,11 +159,30 @@ pub async fn static_handler(Path(path): axum::extract::Path<String>) -> Response
                 "text/css"
             } else if path.ends_with(".html") {
                 "text/html"
+            } else if path.ends_with(".woff2") {
+                "font/woff2"
+            } else if path.ends_with(".woff") {
+                "font/woff"
+            } else if path.ends_with(".ttf") {
+                "font/ttf"
+            } else if path.ends_with(".eot") {
+                "application/vnd.ms-fontobject"
+            } else if path.ends_with(".svg") {
+                "image/svg+xml"
+            } else if path.ends_with(".png") {
+                "image/png"
+            } else if path.ends_with(".jpg") || path.ends_with(".jpeg") {
+                "image/jpeg"
+            } else if path.ends_with(".ico") {
+                "image/x-icon"
+            } else if path.ends_with(".json") {
+                "application/json"
+            } else if path.ends_with(".webp") {
+                "image/webp"
             } else {
                 "application/octet-stream"
             };
-            let body = String::from_utf8_lossy(&content.data).to_string();
-            ([("Content-Type", mime)], body).into_response()
+            ([(header::CONTENT_TYPE, mime)], content.data.to_vec()).into_response()
         }
         None => match Assets::get("index.html") {
             Some(content) => {

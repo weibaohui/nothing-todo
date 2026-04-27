@@ -1,19 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../hooks/useApp';
-import { Button, Empty, Input, App, Popconfirm, Tag, Badge, Pagination } from 'antd';
+import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination } from 'antd';
 import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
-import { TagCheckCardGroup } from './TagCheckCard';
 import { PieChart, PieChartLegend } from './PieChart';
 import { TodoSettingsModal } from './TodoSettingsModal';
+import { TodoEditModal } from './TodoEditModal';
 import * as db from '../utils/database';
 import { formatLocalDateTime } from '../utils/datetime';
 import { AnimatedNumber } from './AnimatedNumber';
 import { getExecutorOption } from '../types';
 import XMarkdown from '@ant-design/x-markdown';
 import type { ExecutionSummary, Todo } from '../types';
-
-const { TextArea } = Input;
 
 function PromptDisplay({ content }: { content: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -68,10 +66,6 @@ export function TodoDetail() {
   }, []);
 
   const [isEditing, setIsEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState('');
-  const [editPrompt, setEditPrompt] = useState('');
-  const [editStatus, setEditStatus] = useState<string>('pending');
-  const [editTags, setEditTags] = useState<number[]>([]);
   const [summary, setSummary] = useState<ExecutionSummary | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -102,10 +96,6 @@ export function TodoDetail() {
 
   useEffect(() => {
     if (selectedTodo) {
-      setEditTitle(selectedTodo.title);
-      setEditPrompt(selectedTodo.prompt || '');
-      setEditStatus(selectedTodo.status);
-      setEditTags((selectedTodo as any).tag_ids || []);
       setHistoryPage(1);
 
       loadExecutionRecords(1, historyLimit);
@@ -152,13 +142,13 @@ export function TodoDetail() {
     message.success('状态已更新');
   };
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = async (editTitle: string, editPrompt: string, editTags: number[]) => {
     if (!selectedTodo) return;
     const updated = await db.updateTodo(
       selectedTodo.id,
       editTitle,
       editPrompt,
-      editStatus,
+      selectedTodo.status,
     );
     await db.updateTodoTags(selectedTodo.id, editTags);
     dispatch({
@@ -168,8 +158,6 @@ export function TodoDetail() {
         tag_ids: editTags,
       } as Todo
     });
-    setIsEditing(false);
-    message.success('更新成功');
   };
 
   const handleDelete = async () => {
@@ -220,116 +208,80 @@ export function TodoDetail() {
       )}
       {/* Title Card */}
       <div className="detail-card title-card">
-        {isEditing ? (
-          <>
-            <Input
-              value={editTitle}
-              onChange={e => setEditTitle(e.target.value)}
-              placeholder="任务标题"
-              className="card-input"
-              style={{ marginBottom: 12 }}
-            />
-            <TextArea
-              value={editPrompt}
-              onChange={e => setEditPrompt(e.target.value)}
-              rows={3}
-              placeholder="输入 Prompt..."
-              className="card-textarea"
-              style={{ marginBottom: 12 }}
-            />
-            {state.tags.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ marginBottom: 8, fontWeight: 600 }}>标签</div>
-                <TagCheckCardGroup
-                  tags={state.tags}
-                  value={editTags[0] || null}
-                  onChange={(val) => setEditTags(val ? [val as number] : [])}
-                />
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+              <StatusPicker
+                value={selectedTodo.status}
+                onChange={handleStatusChange}
+                disabled={isExecuting}
+              />
+              <h2 className="card-title" style={{ margin: 0 }}>{selectedTodo.title}</h2>
+            </div>
+            {selectedTodo.prompt && (
+              <PromptDisplay content={selectedTodo.prompt} />
+            )}
+            {/* Info tags: executor + scheduler */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+              <Tag color={executorOpt.color} style={{ fontWeight: 600 }}>
+                {executorOpt.icon} {executorOpt.label}
+              </Tag>
+              {selectedTodo.scheduler_enabled ? (
+                <Tag color="var(--color-primary)" style={{ fontWeight: 600 }}>
+                  调度: {selectedTodo.scheduler_config}
+                </Tag>
+              ) : (
+                <Tag style={{ fontWeight: 600, color: 'var(--color-text-tertiary)', borderColor: 'var(--color-border)' }}>
+                  调度: 关闭
+                </Tag>
+              )}
+              {records.length > 0 && (
+                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                  上次: {formatLocalDateTime(records[0].started_at)}
+                </span>
+              )}
+              {selectedTodo.scheduler_next_run_at && (
+                <span style={{ fontSize: 12, color: 'var(--color-success)' }}>
+                  下次: {formatLocalDateTime(selectedTodo.scheduler_next_run_at)}
+                </span>
+              )}
+            </div>
+            {/* Running status indicator */}
+            {isExecuting && (
+              <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Badge status="processing" />
+                <span style={{ fontSize: 13, color: 'var(--color-primary)', fontWeight: 500 }}>
+                  正在执行中...（查看底部面板）
+                </span>
               </div>
             )}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <Button onClick={() => setIsEditing(false)} block>取消</Button>
-              <Button type="primary" onClick={handleSaveEdit} block>保存</Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                  <StatusPicker
-                    value={selectedTodo.status}
-                    onChange={handleStatusChange}
-                    disabled={isExecuting}
-                  />
-                  <h2 className="card-title" style={{ margin: 0 }}>{selectedTodo.title}</h2>
-                </div>
-                {selectedTodo.prompt && (
-                  <PromptDisplay content={selectedTodo.prompt} />
-                )}
-                {/* Info tags: executor + scheduler */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                  <Tag color={executorOpt.color} style={{ fontWeight: 600 }}>
-                    {executorOpt.icon} {executorOpt.label}
-                  </Tag>
-                  {selectedTodo.scheduler_enabled ? (
-                    <Tag color="var(--color-primary)" style={{ fontWeight: 600 }}>
-                      调度: {selectedTodo.scheduler_config}
-                    </Tag>
-                  ) : (
-                    <Tag style={{ fontWeight: 600, color: 'var(--color-text-tertiary)', borderColor: 'var(--color-border)' }}>
-                      调度: 关闭
-                    </Tag>
-                  )}
-                  {records.length > 0 && (
-                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                      上次: {formatLocalDateTime(records[0].started_at)}
-                    </span>
-                  )}
-                  {selectedTodo.scheduler_next_run_at && (
-                    <span style={{ fontSize: 12, color: 'var(--color-success)' }}>
-                      下次: {formatLocalDateTime(selectedTodo.scheduler_next_run_at)}
-                    </span>
-                  )}
-                </div>
-                {/* Running status indicator */}
-                {isExecuting && (
-                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Badge status="processing" />
-                    <span style={{ fontSize: 13, color: 'var(--color-primary)', fontWeight: 500 }}>
-                      正在执行中...（查看底部面板）
-                    </span>
-                  </div>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                <Button
-                  type="text"
-                  icon={<SettingOutlined />}
-                  onClick={() => setSettingsOpen(true)}
-                  className="icon-btn"
-                  aria-label="任务设置"
-                />
-                <Button
-                  type="text"
-                  icon={<EditOutlined />}
-                  onClick={() => setIsEditing(true)}
-                  className="icon-btn"
-                  aria-label="编辑任务"
-                />
-                <Popconfirm title="删除任务" description="确定要删除吗？" onConfirm={handleDelete}>
-                  <Button
-                    type="text"
-                    danger
-                    icon={<DeleteOutlined />}
-                    className="icon-btn"
-                    aria-label="删除任务"
-                  />
-                </Popconfirm>
-              </div>
-            </div>
-          </>
-        )}
+          </div>
+          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+            <Button
+              type="text"
+              icon={<SettingOutlined />}
+              onClick={() => setSettingsOpen(true)}
+              className="icon-btn"
+              aria-label="任务设置"
+            />
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              onClick={() => setIsEditing(true)}
+              className="icon-btn"
+              aria-label="编辑任务"
+            />
+            <Popconfirm title="删除任务" description="确定要删除吗？" onConfirm={handleDelete}>
+              <Button
+                type="text"
+                danger
+                icon={<DeleteOutlined />}
+                className="icon-btn"
+                aria-label="删除任务"
+              />
+            </Popconfirm>
+          </div>
+        </div>
       </div>
 
       {/* Execution Stats */}
@@ -438,19 +390,17 @@ export function TodoDetail() {
       )}
 
       {/* Action Card */}
-      {!isEditing && (
-        <div className="detail-card action-card">
-          <Button
-            type="primary"
-            icon={<PlayCircleOutlined />}
-            onClick={handleExecute}
-            block
-            className="btn-execute"
-          >
-            执行任务
-          </Button>
-        </div>
-      )}
+      <div className="detail-card action-card">
+        <Button
+          type="primary"
+          icon={<PlayCircleOutlined />}
+          onClick={handleExecute}
+          block
+          className="btn-execute"
+        >
+          执行任务
+        </Button>
+      </div>
 
       {/* Execution History */}
       <div style={{ paddingBottom: 20, flexShrink: 0 }}>
@@ -650,6 +600,14 @@ export function TodoDetail() {
           </>
         )}
       </div>
+
+      <TodoEditModal
+        open={isEditing}
+        todo={selectedTodo}
+        tags={state.tags}
+        onClose={() => setIsEditing(false)}
+        onSave={handleSaveEdit}
+      />
 
       <TodoSettingsModal
         open={settingsOpen}
