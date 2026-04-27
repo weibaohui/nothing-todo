@@ -75,6 +75,10 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal, onSh
           <Button
             type="text"
             size="small"
+          />
+          <Button
+            type="text"
+            size="small"
             icon={<DashboardOutlined />}
             onClick={onShowDashboard}
             className="tag-btn"

@@ -15,6 +15,44 @@ import type { ExecutionSummary, Todo } from '../types';
 
 const { TextArea } = Input;
 
+function PromptDisplay({ content }: { content: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
+          fontSize: 12,
+          color: 'var(--color-text-secondary)',
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+      >
+        <span>{expanded ? '▼' : '▶'}</span>
+        <span>Prompt</span>
+      </div>
+      {expanded && (
+        <div
+          style={{
+            marginTop: 6,
+            padding: '8px 12px',
+            borderRadius: 8,
+            background: 'var(--color-bg-elevated)',
+            border: '1px solid var(--color-border-light)',
+            maxHeight: 300,
+            overflow: 'auto',
+          }}
+        >
+          <XMarkdown content={content} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function TodoDetail() {
   const { state, dispatch } = useApp();
   const { message } = App.useApp();
@@ -227,7 +265,7 @@ export function TodoDetail() {
                   <h2 className="card-title" style={{ margin: 0 }}>{selectedTodo.title}</h2>
                 </div>
                 {selectedTodo.prompt && (
-                  <p className="card-description">{selectedTodo.prompt}</p>
+                  <PromptDisplay content={selectedTodo.prompt} />
                 )}
                 {/* Info tags: executor + scheduler */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
