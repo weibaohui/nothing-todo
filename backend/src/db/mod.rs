@@ -124,6 +124,7 @@ impl Database {
                 finished_at TEXT,
                 trigger_type TEXT DEFAULT 'manual',
                 pid INTEGER,
+                task_id TEXT,
                 FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE
             )",
         )
@@ -132,6 +133,12 @@ impl Database {
         // 添加 pid 字段的迁移（向后兼容）
         self.exec(
             "ALTER TABLE execution_records ADD COLUMN pid INTEGER"
+        )
+        .await.ok(); // 忽略错误，因为字段可能已存在
+
+        // 添加 task_id 字段的迁移（向后兼容）
+        self.exec(
+            "ALTER TABLE execution_records ADD COLUMN task_id TEXT"
         )
         .await.ok(); // 忽略错误，因为字段可能已存在
 
