@@ -6,6 +6,8 @@ use crate::db::Database;
 use crate::db::entity::{tags, todo_tags};
 use crate::models::Tag;
 
+use crate::models::TagBackup;
+
 impl Database {
     pub async fn get_tags(&self) -> Vec<Tag> {
         tags::Entity::find()
@@ -98,5 +100,28 @@ impl Database {
                 })
             })
             .await;
+    }
+
+    pub async fn get_tag_backups(&self) -> Vec<TagBackup> {
+        tags::Entity::find()
+            .all(&self.conn)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|m| TagBackup {
+                name: m.name,
+                color: m.color.unwrap_or_default(),
+            })
+            .collect()
+    }
+
+    pub async fn find_tag_by_name(&self, name: &str) -> Option<i64> {
+        use sea_orm::ColumnTrait;
+        tags::Entity::find()
+            .filter(tags::Column::Name.eq(name))
+            .one(&self.conn)
+            .await
+            .unwrap_or(None)
+            .map(|m| m.id)
     }
 }

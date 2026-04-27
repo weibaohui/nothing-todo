@@ -359,6 +359,32 @@ impl<T: Serialize> ApiResponse<T> {
     }
 }
 
+/// 导入导出备份数据
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupData {
+    pub version: String,
+    pub created_at: String,
+    pub tags: Vec<TagBackup>,
+    pub todos: Vec<TodoBackup>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TagBackup {
+    pub name: String,
+    pub color: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TodoBackup {
+    pub title: String,
+    pub prompt: String,
+    pub status: TodoStatus,
+    pub executor: Option<String>,
+    pub scheduler_enabled: bool,
+    pub scheduler_config: Option<String>,
+    pub tag_names: Vec<String>,
+}
+
 // Business error codes
 pub mod codes {
     pub const NOT_FOUND: i32 = 40001;

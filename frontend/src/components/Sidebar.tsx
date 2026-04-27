@@ -1,6 +1,13 @@
 import { useApp } from '../hooks/useApp';
 import { Button, Popconfirm } from 'antd';
-import { PlusOutlined, DeleteOutlined, AppstoreOutlined } from '@ant-design/icons';
+import { useState } from 'react';
+import {
+  PlusOutlined,
+  DeleteOutlined,
+  AppstoreOutlined,
+  SaveOutlined,
+} from '@ant-design/icons';
+import { BackupModal } from './BackupModal';
 
 interface SidebarProps {
   onOpenTagModal: () => void;
@@ -9,6 +16,7 @@ interface SidebarProps {
 export function Sidebar({ onOpenTagModal }: SidebarProps) {
   const { state, dispatch } = useApp();
   const { tags, selectedTagId, todos } = state;
+  const [backupModalOpen, setBackupModalOpen] = useState(false);
 
   return (
     <div className="sidebar-container" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -27,6 +35,7 @@ export function Sidebar({ onOpenTagModal }: SidebarProps) {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+        {/* ... 标签列表内容保持不变 ... */}
         <div
           key="all"
           onClick={() => dispatch({ type: 'SELECT_TAG', payload: null })}
@@ -103,6 +112,31 @@ export function Sidebar({ onOpenTagModal }: SidebarProps) {
           </div>
         ))}
       </div>
+
+      {/* 底部备份按钮 */}
+      <div style={{ padding: '8px 12px', borderTop: '1px solid var(--color-border, #e2e8f0)' }}>
+        <Button
+          block
+          type="text"
+          icon={<SaveOutlined />}
+          onClick={() => setBackupModalOpen(true)}
+          style={{
+            justifyContent: 'flex-start',
+            textAlign: 'left',
+            color: 'var(--color-text-secondary, #475569)',
+            fontSize: 13,
+            padding: '6px 12px',
+            borderRadius: 8,
+          }}
+        >
+          备份与恢复
+        </Button>
+      </div>
+
+      <BackupModal
+        open={backupModalOpen}
+        onClose={() => setBackupModalOpen(false)}
+      />
     </div>
   );
 }

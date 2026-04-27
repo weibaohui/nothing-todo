@@ -129,3 +129,21 @@ export async function getSchedulerTodos(): Promise<Todo[]> {
 export async function getRunningTodos(): Promise<Todo[]> {
   return unwrap(await api.get<ApiResp<Todo[]>>('/xyz/running-todos'));
 }
+
+// Backup APIs
+
+export async function exportBackup(): Promise<string> {
+  const res = await api.get<string>('/xyz/backup/export', {
+    headers: { 'Accept': 'application/x-yaml' },
+    responseType: 'text',
+  });
+  if (typeof res.data === 'string') return res.data;
+  if (typeof (res.data as any)?.data === 'string') return (res.data as any).data;
+  return JSON.stringify(res.data);
+}
+
+export async function importBackup(yamlContent: string): Promise<string> {
+  return unwrap(await api.post<ApiResp<string>>('/xyz/backup/import', yamlContent, {
+    headers: { 'Content-Type': 'application/x-yaml' },
+  }));
+}

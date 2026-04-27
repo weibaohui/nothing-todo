@@ -4,7 +4,8 @@ use sea_orm::{
 
 use crate::db::Database;
 use crate::db::entity::{todo_tags, todos};
-use crate::models::{Todo, TodoStatus};
+use crate::models::{Todo, TodoBackup, TodoStatus};
+use crate::db::entity::tags;
 
 impl Database {
     fn model_to_todo(m: todos::Model, tag_ids: Vec<i64>) -> Todo {
@@ -272,5 +273,117 @@ impl Database {
         let tag_map = self.fetch_tag_ids_for_many(&[model.id]).await;
         let tag_ids = tag_map.get(&model.id).cloned().unwrap_or_default();
         Some(Self::model_to_todo(model, tag_ids))
+    }
+
+    /// 获取所有 todo 的备份数据（非软删除），包含标签名称
+    pub async fn get_todo_backups(&self) -> Vec<TodoBackup> {
+        let models = todos::Entity::find()
+            .filter(todos::Column::DeletedAt.is_null())
+            .all(&self.conn)
+            .await
+            .unwrap_or_default();
+
+        let ids: Vec<i64> = models.iter().map(|m| m.id).collect();
+        let tag_map = self.fetch_tag_ids_for_many(&ids).await;
+
+        // 获取所有标签 id -> name 映射
+        let all_tags: std::collections::HashMap<i64, String> = tags::Entity::find()
+            .all(&self.conn)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| (t.id, t.name))
+            .collect();
+
+        models
+            .into_iter()
+            .map(|m| {
+                let tag_ids = tag_map.get(&m.id).cloned().unwrap_or_default();
+                let tag_names: Vec<String> = tag_ids
+                    .iter()
+                    .filter_map(|tid| all_tags.get(tid).cloned())
+                    .collect();
+                TodoBackup {
+                    title: m.title,
+                    prompt: m.prompt.unwrap_or_default(),
+                    status: m.status.as_deref().and_then(|s| s.parse().ok()).unwrap_or(TodoStatus::Pending),
+                    executor: m.executor,
+                    scheduler_enabled: m.scheduler_enabled.unwrap_or(false),
+                    scheduler_config: m.scheduler_config,
+                    tag_names,
+                }
+            })
+            .collect()
+    }
+
+    /// 从备份数据导入 todo（清空现有数据后导入）
+    pub async fn import_backup(&self, tags_in: &[crate::models::TagBackup], todos_in: &[TodoBackup]) {
+        use sea_orm::TransactionTrait;
+        use sea_orm::QueryFilter;
+
+        let txn = self.conn.begin().await.expect("begin transaction failed");
+
+        // 清空现有数据
+        todo_tags::Entity::delete_many().exec(&txn).await.ok();
+        todos::Entity::delete_many().exec(&txn).await.ok();
+        tags::Entity::delete_many().exec(&txn).await.ok();
+
+        // 导入标签
+        for tag in tags_in {
+            let am = crate::db::entity::tags::ActiveModel {
+                name: ActiveValue::Set(tag.name.clone()),
+                color: ActiveValue::Set(Some(tag.color.clone())),
+                ..Default::default()
+            };
+            am.insert(&txn).await.ok();
+        }
+
+        // 导入 todo
+        for todo in todos_in {
+            let now = crate::models::utc_timestamp();
+            let am = todos::ActiveModel {
+                title: ActiveValue::Set(todo.title.clone()),
+                prompt: ActiveValue::Set(Some(todo.prompt.clone())),
+                status: ActiveValue::Set(Some(todo.status.to_string())),
+                executor: ActiveValue::Set(todo.executor.clone()),
+                scheduler_enabled: ActiveValue::Set(Some(todo.scheduler_enabled)),
+                scheduler_config: ActiveValue::Set(todo.scheduler_config.clone()),
+                created_at: ActiveValue::Set(Some(now.clone())),
+                updated_at: ActiveValue::Set(Some(now)),
+                ..Default::default()
+            };
+            let inserted = am.insert(&txn).await.expect("insert todo failed");
+
+            // 关联标签（通过名称查找 tag id）
+            for tag_name in &todo.tag_names {
+                let tid = tags::Entity::find()
+                    .filter(tags::Column::Name.eq(tag_name))
+                    .one(&txn)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|t| t.id);
+                if let Some(tid) = tid {
+                    let rel = todo_tags::ActiveModel {
+                        todo_id: ActiveValue::Set(inserted.id),
+                        tag_id: ActiveValue::Set(tid),
+                    };
+                    todo_tags::Entity::insert(rel)
+                        .on_conflict(
+                            sea_orm::sea_query::OnConflict::columns([
+                                todo_tags::Column::TodoId,
+                                todo_tags::Column::TagId,
+                            ])
+                            .do_nothing()
+                            .to_owned(),
+                        )
+                        .exec(&txn)
+                        .await
+                        .ok();
+                }
+            }
+        }
+
+        txn.commit().await.expect("commit transaction failed");
     }
 }
