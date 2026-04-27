@@ -6,7 +6,7 @@ import {
   WarningOutlined,
   InboxOutlined,
 } from '@ant-design/icons';
-import { exportBackup, importBackup } from '../utils/database';
+import { importBackup } from '../utils/database';
 
 const { Text, Paragraph } = Typography;
 const { Dragger } = Upload;
@@ -25,8 +25,14 @@ export function BackupModal({ open, onClose }: BackupModalProps) {
   const handleExport = async () => {
     setExporting(true);
     try {
-      const yamlContent = await exportBackup();
-      const blob = new Blob([yamlContent], { type: 'application/x-yaml' });
+      const response = await fetch('/xyz/backup/export', {
+        headers: { 'Accept': 'application/x-yaml' },
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      const yamlText = await response.text();
+      const blob = new Blob([yamlText], { type: 'application/x-yaml' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

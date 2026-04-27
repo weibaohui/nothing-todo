@@ -1,6 +1,8 @@
 use axum::{
     extract::State,
     body::Bytes,
+    response::IntoResponse,
+    http::header,
 };
 
 use crate::handlers::{AppError, AppState};
@@ -9,7 +11,7 @@ use crate::models::{ApiResponse, BackupData, utc_timestamp};
 /// 导出备份（返回 YAML 格式字符串）
 pub async fn export_backup(
     State(state): State<AppState>,
-) -> Result<String, AppError> {
+) -> Result<impl IntoResponse, AppError> {
     let tags = state.db.get_tag_backups().await;
     let todos = state.db.get_todo_backups().await;
     let data = BackupData {
@@ -18,7 +20,11 @@ pub async fn export_backup(
         tags,
         todos,
     };
-    serde_yaml::to_string(&data).map_err(|e| AppError::Internal(e.to_string()))
+    let yaml = serde_yaml::to_string(&data).map_err(|e| AppError::Internal(e.to_string()))?;
+    Ok((
+        [(header::CONTENT_TYPE, "application/x-yaml; charset=utf-8")],
+        yaml,
+    ))
 }
 
 /// 导入备份（接收 YAML 格式字符串，清空现有数据后导入）

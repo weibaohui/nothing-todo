@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty } from 'antd';
-import { PlusOutlined, TagOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined } from '@ant-design/icons';
+import { PlusOutlined, TagOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, SaveOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
+import { BackupModal } from './BackupModal';
 import * as db from '../utils/database';
 import { getExecutorOption } from '../types';
 import { formatRelativeTime, formatLocalDateTime } from '../utils/datetime';
@@ -33,6 +34,7 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal, onSh
   const { todos, selectedTodoId, selectedTagId, tags } = state;
   const [isMobile, setIsMobile] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [backupModalOpen, setBackupModalOpen] = useState(false);
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -75,6 +77,10 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal, onSh
           <Button
             type="text"
             size="small"
+            icon={<SaveOutlined />}
+            onClick={() => setBackupModalOpen(true)}
+            className="tag-btn"
+            aria-label="备份与恢复"
           />
           <Button
             type="text"
@@ -270,6 +276,11 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal, onSh
           })
         )}
       </div>
+
+      <BackupModal
+        open={backupModalOpen}
+        onClose={() => setBackupModalOpen(false)}
+      />
     </div>
   );
 }
