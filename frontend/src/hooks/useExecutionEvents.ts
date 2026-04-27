@@ -7,6 +7,7 @@ interface ExecEventStarted {
   task_id: string;
   todo_id: number;
   todo_title: string;
+  executor: string;
 }
 
 interface ExecEventOutput {
@@ -57,7 +58,7 @@ export function useExecutionEvents() {
                   taskId: data.task_id,
                   todoId: data.todo_id,
                   todoTitle: data.todo_title,
-                  executor: 'claudecode',
+                  executor: data.executor || 'claudecode',
                   logs: [],
                   status: 'running',
                   startedAt: new Date().toISOString(),

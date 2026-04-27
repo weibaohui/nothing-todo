@@ -98,7 +98,7 @@ pub async fn run_todo_execution(
     let todo_title = todo.as_ref().map(|t| t.title.clone()).unwrap_or_default();
 
     tokio::spawn(async move {
-        send_event(&tx_clone, ExecEvent::Started { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone() });
+        send_event(&tx_clone, ExecEvent::Started { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string() });
 
         let entry = ParsedLogEntry::info(format!("Starting {} with message: {}", executor_spawn.executor_type(), message_clone));
         send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });

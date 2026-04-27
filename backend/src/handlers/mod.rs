@@ -44,6 +44,7 @@ pub enum ExecEvent {
         task_id: String,
         todo_id: i64,
         todo_title: String,
+        executor: String,
     },
     Output {
         task_id: String,
@@ -104,6 +105,7 @@ mod todo;
 mod tag;
 mod execution;
 mod scheduler;
+mod backup;
 
 // WebSocket handler
 pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
@@ -205,6 +207,8 @@ pub fn create_app(
         .route("/xyz/running-todos", get(execution::get_running_todos))
         .route("/xyz/events", get(events_handler))
         .route("/xyz/scheduler/todos", get(scheduler::get_scheduler_todos))
+        .route("/xyz/backup/export", get(backup::export_backup))
+        .route("/xyz/backup/import", post(backup::import_backup))
         .route("/assets/{*path}", get(static_handler))
         .layer(CompressionLayer::new())
         .layer(CorsLayer::permissive())
