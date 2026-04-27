@@ -219,6 +219,17 @@ pub async fn run_todo_execution(
                 db_clone.update_todo_status(todo_id, crate::models::TodoStatus::Cancelled).await;
                 db_clone.update_todo_task_id(todo_id, None).await;
 
+                // 更新 execution_records 状态为 failed
+                let logs_json = serde_json::to_string(&*logs.lock().await).unwrap_or_default();
+                db_clone.update_execution_record(
+                    record_id,
+                    crate::models::ExecutionStatus::Failed.as_str(),
+                    &logs_json,
+                    "任务已被手动停止",
+                    None,
+                    None,
+                ).await;
+
                 let entry = ParsedLogEntry::error("Execution cancelled by user");
                 send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
                 send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, success: false, result: None });
