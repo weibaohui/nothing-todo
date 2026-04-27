@@ -71,7 +71,7 @@ make watch
 | 执行器 | 说明 | 适配器文件 |
 |--------|------|-----------|
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) | Anthropic 官方 CLI | `adapters/claude_code.rs` |
-| [JoinAI](https://github.com/xyflow/ai) | AI 工作流工具 | `adapters/joinai.rs` |
+| JoinAI| AI 工作流工具 | `adapters/joinai.rs` |
 | CodeBuddy | 代码助手 | `adapters/codebuddy.rs` |
 | OpenCode | 开源代码助手 | `adapters/opencode.rs` |
 | AtomCode | Atom 编辑器插件 | `adapters/atomcode.rs` |
