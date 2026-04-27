@@ -205,6 +205,21 @@ impl Database {
             }
         }
 
+        // Initialize model stats with "Unknown" as default
+        let mut model_stats: HashMap<String, crate::models::ModelCount> = HashMap::new();
+        model_stats.insert("unknown".to_string(), crate::models::ModelCount {
+            model: "unknown".to_string(),
+            count: 0,
+            execution_count: 0,
+            success_count: 0,
+            failed_count: 0,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            total_cache_read_tokens: 0,
+            total_cache_creation_tokens: 0,
+            total_cost_usd: 0.0,
+        });
+
         let all_records = execution_records::Entity::find()
             .order_by_desc(execution_records::Column::StartedAt)
             .all(&self.conn)
@@ -222,6 +237,7 @@ impl Database {
         let mut total_duration: u64 = 0;
         let mut duration_count: u64 = 0;
         let mut daily_map: HashMap<String, (i64, i64)> = HashMap::new();
+        let mut daily_token_map: HashMap<String, crate::models::DailyTokenStats> = HashMap::new();
 
         for r in &all_records {
             total_executions += 1;
@@ -293,14 +309,71 @@ impl Database {
                 }
             }
 
+            // Aggregate by model
+            let model_key = r.model.as_deref().unwrap_or("unknown");
+            if !model_stats.contains_key(model_key) {
+                model_stats.insert(model_key.to_string(), crate::models::ModelCount {
+                    model: model_key.to_string(),
+                    count: 0,
+                    execution_count: 0,
+                    success_count: 0,
+                    failed_count: 0,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    total_cache_read_tokens: 0,
+                    total_cache_creation_tokens: 0,
+                    total_cost_usd: 0.0,
+                });
+            }
+            if let Some(stat) = model_stats.get_mut(model_key) {
+                stat.execution_count += 1;
+                match rec_status {
+                    Some("success") => stat.success_count += 1,
+                    Some("failed") => stat.failed_count += 1,
+                    _ => {}
+                }
+                if let Some(usage_str) = &r.usage {
+                    if let Ok(usage) = serde_json::from_str::<crate::models::ExecutionUsage>(usage_str) {
+                        stat.total_input_tokens += usage.input_tokens;
+                        stat.total_output_tokens += usage.output_tokens;
+                        stat.total_cache_read_tokens += usage.cache_read_input_tokens.unwrap_or(0);
+                        stat.total_cache_creation_tokens += usage.cache_creation_input_tokens.unwrap_or(0);
+                        if let Some(cost) = usage.total_cost_usd {
+                            stat.total_cost_usd += cost;
+                        }
+                    }
+                }
+            }
+
+            // Aggregate daily token stats
             if let Some(date) = r.started_at.as_deref() {
                 if date.len() >= 10 {
                     let day = date[..10].to_string();
-                    let entry = daily_map.entry(day).or_insert((0, 0));
+                    let entry = daily_map.entry(day.clone()).or_insert((0, 0));
                     match rec_status {
                         Some("success") => entry.0 += 1,
                         Some("failed") => entry.1 += 1,
                         _ => {}
+                    }
+                    // Aggregate token stats for the day
+                    let token_entry = daily_token_map.entry(day.clone()).or_insert(crate::models::DailyTokenStats {
+                        date: day.clone(),
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        cache_read_tokens: 0,
+                        cache_creation_tokens: 0,
+                        total_cost_usd: 0.0,
+                    });
+                    if let Some(usage_str) = &r.usage {
+                        if let Ok(usage) = serde_json::from_str::<crate::models::ExecutionUsage>(usage_str) {
+                            token_entry.input_tokens += usage.input_tokens;
+                            token_entry.output_tokens += usage.output_tokens;
+                            token_entry.cache_read_tokens += usage.cache_read_input_tokens.unwrap_or(0);
+                            token_entry.cache_creation_tokens += usage.cache_creation_input_tokens.unwrap_or(0);
+                            if let Some(cost) = usage.total_cost_usd {
+                                token_entry.total_cost_usd += cost;
+                            }
+                        }
                     }
                 }
             }
@@ -318,6 +391,14 @@ impl Database {
             .collect();
         tag_distribution.sort_by(|a, b| b.execution_count.cmp(&a.execution_count));
 
+        let mut model_distribution: Vec<crate::models::ModelCount> = model_stats
+            .into_values()
+            .filter(|s| s.execution_count > 0)
+            .collect();
+        model_distribution.sort_by(|a, b| {
+            a.total_cost_usd.partial_cmp(&b.total_cost_usd).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         let mut daily_executions: Vec<crate::models::DailyExecution> = daily_map.into_iter()
             .map(|(date, (success, failed))| crate::models::DailyExecution { date, success, failed })
             .collect();
@@ -325,6 +406,15 @@ impl Database {
         if daily_executions.len() > 30 {
             daily_executions = daily_executions.into_iter().rev().take(30).collect();
             daily_executions.reverse();
+        }
+
+        let mut daily_token_stats: Vec<crate::models::DailyTokenStats> = daily_token_map.into_iter()
+            .map(|(_, stats)| stats)
+            .collect();
+        daily_token_stats.sort_by(|a, b| a.date.cmp(&b.date));
+        if daily_token_stats.len() > 30 {
+            daily_token_stats = daily_token_stats.into_iter().rev().take(30).collect();
+            daily_token_stats.reverse();
         }
 
         let recent_executions: Vec<crate::models::ExecutionRecord> = all_records.into_iter()
@@ -373,7 +463,9 @@ impl Database {
             avg_duration_ms,
             executor_distribution,
             tag_distribution,
+            model_distribution,
             daily_executions,
+            daily_token_stats,
             recent_executions,
         }
     }

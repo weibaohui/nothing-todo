@@ -270,10 +270,34 @@ pub struct TagCount {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelCount {
+    pub model: String,
+    pub count: i64,
+    pub execution_count: i64,
+    pub success_count: i64,
+    pub failed_count: i64,
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+    pub total_cache_read_tokens: u64,
+    pub total_cache_creation_tokens: u64,
+    pub total_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DailyExecution {
     pub date: String,
     pub success: i64,
     pub failed: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DailyTokenStats {
+    pub date: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_creation_tokens: u64,
+    pub total_cost_usd: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -296,7 +320,9 @@ pub struct DashboardStats {
     pub avg_duration_ms: u64,
     pub executor_distribution: Vec<ExecutorCount>,
     pub tag_distribution: Vec<TagCount>,
+    pub model_distribution: Vec<ModelCount>,
     pub daily_executions: Vec<DailyExecution>,
+    pub daily_token_stats: Vec<DailyTokenStats>,
     pub recent_executions: Vec<ExecutionRecord>,
 }
 

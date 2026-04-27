@@ -96,10 +96,32 @@ export interface TagCount {
   total_cost_usd: number;
 }
 
+export interface ModelCount {
+  model: string;
+  count: number;
+  execution_count: number;
+  success_count: number;
+  failed_count: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cache_read_tokens: number;
+  total_cache_creation_tokens: number;
+  total_cost_usd: number;
+}
+
 export interface DailyExecution {
   date: string;
   success: number;
   failed: number;
+}
+
+export interface DailyTokenStats {
+  date: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  total_cost_usd: number;
 }
 
 export interface DashboardStats {
@@ -121,7 +143,9 @@ export interface DashboardStats {
   avg_duration_ms: number;
   executor_distribution: ExecutorCount[];
   tag_distribution: TagCount[];
+  model_distribution: ModelCount[];
   daily_executions: DailyExecution[];
+  daily_token_stats: DailyTokenStats[];
   recent_executions: ExecutionRecord[];
 }
 

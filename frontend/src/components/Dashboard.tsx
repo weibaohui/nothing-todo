@@ -522,6 +522,160 @@ export function Dashboard({ onBack }: DashboardProps) {
     ),
   });
 
+  const modelData = stats?.model_distribution ?? [];
+  const modelMax = Math.max(...modelData.map((m) => m.total_cost_usd), 0.01);
+
+  panels.push({
+    key: 'model-chart',
+    render: () => (
+      <Card
+        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BarChartOutlined /><span>模型分布</span></div>}
+        style={{ borderRadius: 12 }}
+        bodyStyle={{ padding: '16px 20px' }}
+      >
+        {modelData.length > 0 ? (
+          <div>
+            {modelData.map((m) => {
+              const modelRate = m.execution_count > 0 ? ((m.success_count / m.execution_count) * 100).toFixed(0) : '0';
+              return (
+                <RichBarItem
+                  key={m.model}
+                  label={m.model.length > 10 ? m.model.slice(0, 10) + '...' : m.model}
+                  value={m.total_cost_usd}
+                  color="#8b5cf6"
+                  max={modelMax}
+                  detail={
+                    <span>
+                      执行 <strong style={{ color: 'var(--color-text)' }}><AnimatedNumber value={m.execution_count} duration={0.6} /></strong> 次
+                      <span style={{ margin: '0 6px', color: 'var(--color-border)' }}>|</span>
+                      输入 <strong style={{ color: '#3b82f6' }}>{formatTokens(m.total_input_tokens)}</strong>
+                      <span style={{ margin: '0 6px', color: 'var(--color-border)' }}>|</span>
+                      输出 <strong style={{ color: '#22c55e' }}>{formatTokens(m.total_output_tokens)}</strong>
+                      <span style={{ margin: '0 6px', color: 'var(--color-border)' }}>|</span>
+                      成功率 <strong style={{ color: '#22c55e' }}>{modelRate}%</strong>
+                      {m.total_cost_usd > 0 && (
+                        <>
+                          <span style={{ margin: '0 6px', color: 'var(--color-border)' }}>|</span>
+                          <span style={{ color: '#f59e0b', fontWeight: 600 }}>${m.total_cost_usd.toFixed(2)}</span>
+                        </>
+                      )}
+                    </span>
+                  }
+                />
+              );
+            })}
+          </div>
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无模型数据" />
+        )}
+      </Card>
+    ),
+  });
+
+  panels.push({
+    key: 'token-trend-chart',
+    render: () => {
+      const tokenTrendData = stats?.daily_token_stats ?? [];
+      const maxToken = Math.max(...tokenTrendData.map(d => d.input_tokens + d.output_tokens), 1);
+
+      const svg = tokenTrendData.length > 0 ? (
+        <svg width="100%" height={180} viewBox="0 0 600 180" style={{ overflow: 'visible' }}>
+          {(() => {
+            const w = 600;
+            const h = 180;
+            const padL = 45;
+            const padR = 12;
+            const padB = 28;
+            const padT = 12;
+            const chartW = w - padL - padR;
+            const chartH = h - padT - padB;
+            const barW = tokenTrendData.length > 0 ? chartW / tokenTrendData.length * 0.7 : 0;
+            const gap = tokenTrendData.length > 0 ? chartW / tokenTrendData.length * 0.3 : 0;
+
+            const yTicks = [0, maxToken * 0.5, maxToken];
+
+            return (
+              <>
+                {yTicks.map((t, i) => {
+                  const y = padT + chartH - (t / maxToken) * chartH;
+                  return (
+                    <g key={i}>
+                      <line x1={padL} y1={y} x2={w - padR} y2={y} stroke="#e2e8f0" strokeWidth={1} />
+                      <text x={padL - 6} y={y + 4} textAnchor="end" fontSize={10} fill="#94a3b8">
+                        {t >= 10000 ? `${(t/10000).toFixed(0)}w` : t}
+                      </text>
+                    </g>
+                  );
+                })}
+                {tokenTrendData.map((d, i) => {
+                  const x = padL + i * (barW + gap) + gap / 2;
+                  const inputH = d.input_tokens / maxToken * chartH;
+                  const outputH = d.output_tokens / maxToken * chartH;
+                  return (
+                    <g key={i}>
+                      <rect
+                        x={x}
+                        y={padT + chartH - inputH}
+                        width={barW}
+                        height={inputH}
+                        fill="#3b82f6"
+                        rx={2}
+                      />
+                      <rect
+                        x={x}
+                        y={padT + chartH - inputH - outputH}
+                        width={barW}
+                        height={outputH}
+                        fill="#22c55e"
+                        rx={2}
+                      />
+                      <text
+                        x={x + barW / 2}
+                        y={h - 6}
+                        textAnchor="middle"
+                        fontSize={9}
+                        fill="#94a3b8"
+                        transform={tokenTrendData.length > 14 ? `rotate(-35, ${x + barW / 2}, ${h - 6})` : undefined}
+                      >
+                        {d.date.slice(5)}
+                      </text>
+                    </g>
+                  );
+                })}
+              </>
+            );
+          })()}
+        </svg>
+      ) : null;
+
+      return (
+        <Card
+          title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BarChartOutlined /><span>Token 趋势（近30天）</span></div>}
+          style={{ borderRadius: 12 }}
+          bodyStyle={{ padding: '16px 20px' }}
+        >
+          {tokenTrendData.length > 0 ? (
+            <div style={{ width: '100%' }}>
+              <div style={{ display: 'flex', gap: 16, marginBottom: 8, justifyContent: 'flex-end' }}>
+                <span style={{ fontSize: 11, color: '#3b82f6', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: '#3b82f6' }} />
+                  输入
+                </span>
+                <span style={{ fontSize: 11, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: '#22c55e' }} />
+                  输出
+                </span>
+              </div>
+              {svg}
+            </div>
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无 Token 趋势数据" />
+          )}
+        </Card>
+      );
+    },
+  });
+
   panels.push({
     key: 'overview-card',
     render: () => (
