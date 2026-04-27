@@ -77,18 +77,18 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal, onSh
           <Button
             type="text"
             size="small"
-            icon={<SaveOutlined />}
-            onClick={() => setBackupModalOpen(true)}
-            className="tag-btn"
-            aria-label="备份与恢复"
-          />
-          <Button
-            type="text"
-            size="small"
             icon={<DashboardOutlined />}
             onClick={onShowDashboard}
             className="tag-btn"
             aria-label="查看仪表盘"
+          />
+          <Button
+            type="text"
+            size="small"
+            icon={<SaveOutlined />}
+            onClick={() => setBackupModalOpen(true)}
+            className="tag-btn"
+            aria-label="备份与恢复"
           />
           <Button
             type="text"
