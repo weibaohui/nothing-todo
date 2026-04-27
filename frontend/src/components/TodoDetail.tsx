@@ -4,8 +4,8 @@ import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination } from 'antd';
 import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import { PieChart, PieChartLegend } from './PieChart';
-import { TodoSettingsModal } from './TodoSettingsModal';
-import { TodoEditModal } from './TodoEditModal';
+import { TodoSettingsDrawer } from './TodoSettingsDrawer';
+import { TodoEditDrawer } from './TodoEditDrawer';
 import * as db from '../utils/database';
 import { formatLocalDateTime } from '../utils/datetime';
 import { AnimatedNumber } from './AnimatedNumber';
@@ -142,7 +142,7 @@ export function TodoDetail() {
     message.success('状态已更新');
   };
 
-  const handleSaveEdit = async (editTitle: string, editPrompt: string, editTags: number[]) => {
+  const handleSaveEdit = async (editTitle: string, editPrompt: string) => {
     if (!selectedTodo) return;
     const updated = await db.updateTodo(
       selectedTodo.id,
@@ -150,13 +150,9 @@ export function TodoDetail() {
       editPrompt,
       selectedTodo.status,
     );
-    await db.updateTodoTags(selectedTodo.id, editTags);
     dispatch({
       type: 'UPDATE_TODO',
-      payload: {
-        ...updated,
-        tag_ids: editTags,
-      } as Todo
+      payload: updated as Todo
     });
   };
 
@@ -601,17 +597,17 @@ export function TodoDetail() {
         )}
       </div>
 
-      <TodoEditModal
+      <TodoEditDrawer
         open={isEditing}
         todo={selectedTodo}
-        tags={state.tags}
         onClose={() => setIsEditing(false)}
         onSave={handleSaveEdit}
       />
 
-      <TodoSettingsModal
+      <TodoSettingsDrawer
         open={settingsOpen}
         todo={selectedTodo}
+        tags={state.tags}
         onClose={() => setSettingsOpen(false)}
         onUpdated={() => {
           db.getAllTodos().then(todos => {
