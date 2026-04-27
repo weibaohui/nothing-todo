@@ -48,13 +48,13 @@ interface MiniStatProps {
 
 function MiniStat({ title, value, suffix, prefix, color, loading, decimals = 0, chineseFormat = false }: MiniStatProps) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 10, background: 'var(--color-fill-quaternary)', transition: 'background 0.2s' }}>
       <div
         style={{
           width: 40,
           height: 40,
           borderRadius: 10,
-          backgroundColor: `${color}15`,
+          backgroundColor: `${color}18`,
           color,
           display: 'flex',
           alignItems: 'center',
@@ -88,65 +88,19 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
-function RichBarItem({
-  label,
-  value,
-  color,
-  max,
-  detail,
-}: {
-  label: string;
-  value: number;
-  color: string;
-  max: number;
-  detail: React.ReactNode;
+function CompactRow({ name, value, sub, color, barPct }: {
+  name: string; value: React.ReactNode; sub: React.ReactNode; color: string; barPct: number;
 }) {
-  const pct = max > 0 ? (value / max) * 100 : 0;
   return (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-        <span
-          style={{
-            fontSize: 13,
-            color: 'var(--color-text)',
-            width: 80,
-            textAlign: 'right',
-            flexShrink: 0,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            fontWeight: 600,
-          }}
-          title={label}
-        >
-          {label}
-        </span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              width: `${pct}%`,
-              minWidth: value > 0 ? 4 : 0,
-              height: 18,
-              borderRadius: 4,
-              backgroundColor: color,
-              transition: 'width 0.6s ease',
-            }}
-          />
-        </div>
-        <span
-          style={{
-            fontSize: 13,
-            fontWeight: 700,
-            color: 'var(--color-text)',
-            width: 32,
-            flexShrink: 0,
-            textAlign: 'right',
-          }}
-        >
-          {value}
-        </span>
+    <div style={{ padding: '10px 0', borderBottom: '1px solid var(--color-border-secondary)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 12 }} title={name}>{name}</span>
+        {value}
       </div>
-      <div style={{ paddingLeft: 90, fontSize: 11, color: 'var(--color-text-tertiary)' }}>{detail}</div>
+      <div style={{ height: 4, borderRadius: 2, background: 'var(--color-fill-quaternary)', marginBottom: 6 }}>
+        <div style={{ height: '100%', width: `${Math.max(barPct, 0)}%`, minWidth: barPct > 0 ? 4 : 0, borderRadius: 2, background: color, transition: 'width 0.6s ease' }} />
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{sub}</div>
     </div>
   );
 }
@@ -278,7 +232,7 @@ export function Dashboard({ onBack }: DashboardProps) {
     render: () => (
       <Card
         title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ThunderboltOutlined /><span>活跃任务</span></div>}
-        style={{ borderRadius: 12 }}
+        className="dashboard-card" style={{ borderRadius: 12 }}
         bodyStyle={{ padding: 0 }}
       >
         <div style={{ minHeight: ACTIVE_TASKS_MIN_HEIGHT, padding: '12px 16px' }}>
@@ -337,7 +291,7 @@ export function Dashboard({ onBack }: DashboardProps) {
     render: () => (
       <Card
         title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><FileTextOutlined /><span>任务概览</span></div>}
-        style={{ borderRadius: 12 }}
+        className="dashboard-card" style={{ borderRadius: 12 }}
         bodyStyle={{ padding: '16px 20px' }}
       >
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
@@ -355,14 +309,14 @@ export function Dashboard({ onBack }: DashboardProps) {
     render: () => (
       <Card
         title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ThunderboltOutlined /><span>执行概览</span></div>}
-        style={{ borderRadius: 12 }}
+        className="dashboard-card" style={{ borderRadius: 12 }}
         bodyStyle={{ padding: '16px 20px' }}
       >
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
           <MiniStat title="标签" value={stats?.total_tags ?? tags.length} prefix={<TagOutlined />} color="#8b5cf6" loading={loading && !stats} />
           <MiniStat title="调度任务" value={stats?.scheduled_todos ?? 0} prefix={<ClockCircleOutlined />} color="#f59e0b" loading={loading && !stats} />
           <MiniStat title="总执行" value={stats?.total_executions ?? 0} prefix={<ThunderboltOutlined />} color="#0d9488" loading={loading && !stats} chineseFormat />
-          <MiniStat title="总花费" value={stats ? Math.round(stats.total_cost_usd * 10000) / 10000 : 0} suffix="$" prefix={<DollarOutlined />} color="#dc2626" loading={loading && !stats} decimals={4} />
+          <MiniStat title="总花费" value={stats ? Math.round(stats.total_cost_usd) : 0} suffix="$" prefix={<DollarOutlined />} color="#dc2626" loading={loading && !stats} />
         </div>
       </Card>
     ),
@@ -373,7 +327,7 @@ export function Dashboard({ onBack }: DashboardProps) {
     render: () => (
       <Card
         title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BarChartOutlined /><span>任务状态分布</span></div>}
-        style={{ borderRadius: 12 }}
+        className="dashboard-card" style={{ borderRadius: 12 }}
         bodyStyle={{ padding: '16px 20px' }}
       >
         {statusSegments.length > 0 ? (
@@ -393,38 +347,36 @@ export function Dashboard({ onBack }: DashboardProps) {
     render: () => (
       <Card
         title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BarChartOutlined /><span>执行器分布</span></div>}
-        style={{ borderRadius: 12 }}
-        bodyStyle={{ padding: '16px 20px' }}
+        className="dashboard-card" style={{ borderRadius: 12 }}
+        bodyStyle={{ padding: '8px 16px' }}
       >
         {executorData.length > 0 ? (
-          <div>
-            {executorData.map((e) => {
-              const opt = getExecutorOption(e.executor);
-              const execRate = e.execution_count > 0 ? ((e.success_count / e.execution_count) * 100).toFixed(0) : '0';
-              return (
-                <RichBarItem
-                  key={e.executor}
-                  label={opt.label}
-                  value={e.count}
-                  color={opt.color}
-                  max={executorMax}
-                  detail={
-                    <span>
-                      执行 <strong style={{ color: 'var(--color-text)' }}><AnimatedNumber value={e.execution_count} duration={0.6} /></strong> 次
-                      <span style={{ margin: '0 6px', color: 'var(--color-border)' }}>|</span>
-                      成功率 <strong style={{ color: '#22c55e' }}>{execRate}%</strong>
-                      {e.total_cost_usd > 0 && (
-                        <>
-                          <span style={{ margin: '0 6px', color: 'var(--color-border)' }}>|</span>
-                          <span style={{ color: '#f59e0b', fontWeight: 600 }}>${e.total_cost_usd.toFixed(2)}</span>
-                        </>
-                      )}
-                    </span>
-                  }
-                />
-              );
-            })}
-          </div>
+          executorData.map((e) => {
+            const opt = getExecutorOption(e.executor);
+            const execRate = e.execution_count > 0 ? ((e.success_count / e.execution_count) * 100).toFixed(0) : '0';
+            return (
+              <CompactRow
+                key={e.executor}
+                name={opt.label}
+                value={<span style={{ fontSize: 18, fontWeight: 700, color: opt.color }}>{e.count}</span>}
+                color={opt.color}
+                barPct={(e.count / executorMax) * 100}
+                sub={
+                  <span>
+                    执行 <strong style={{ color: 'var(--color-text)' }}>{e.execution_count}</strong> 次
+                    <span style={{ margin: '0 6px' }}>·</span>
+                    成功率 <strong style={{ color: '#22c55e' }}>{execRate}%</strong>
+                    {e.total_cost_usd > 0 && (
+                      <>
+                        <span style={{ margin: '0 6px' }}>·</span>
+                        <span style={{ color: '#f59e0b', fontWeight: 600 }}>${Math.round(e.total_cost_usd)}</span>
+                      </>
+                    )}
+                  </span>
+                }
+              />
+            );
+          })
         ) : (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据" />
         )}
@@ -437,37 +389,35 @@ export function Dashboard({ onBack }: DashboardProps) {
     render: () => (
       <Card
         title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><TagOutlined /><span>标签分布</span></div>}
-        style={{ borderRadius: 12 }}
-        bodyStyle={{ padding: '16px 20px' }}
+        className="dashboard-card" style={{ borderRadius: 12 }}
+        bodyStyle={{ padding: '8px 16px' }}
       >
         {tagData.length > 0 ? (
-          <div>
-            {tagData.map((t) => {
-              const execRate = t.execution_count > 0 ? ((t.success_count / t.execution_count) * 100).toFixed(0) : '0';
-              return (
-                <RichBarItem
-                  key={t.tag_id}
-                  label={t.tag_name}
-                  value={t.count}
-                  color={t.tag_color}
-                  max={tagMax}
-                  detail={
-                    <span>
-                      执行 <strong style={{ color: 'var(--color-text)' }}><AnimatedNumber value={t.execution_count} duration={0.6} /></strong> 次
-                      <span style={{ margin: '0 6px', color: 'var(--color-border)' }}>|</span>
-                      成功率 <strong style={{ color: '#22c55e' }}>{execRate}%</strong>
-                      {t.total_cost_usd > 0 && (
-                        <>
-                          <span style={{ margin: '0 6px', color: 'var(--color-border)' }}>|</span>
-                          <span style={{ color: '#f59e0b', fontWeight: 600 }}>${t.total_cost_usd.toFixed(2)}</span>
-                        </>
-                      )}
-                    </span>
-                  }
-                />
-              );
-            })}
-          </div>
+          tagData.map((t) => {
+            const execRate = t.execution_count > 0 ? ((t.success_count / t.execution_count) * 100).toFixed(0) : '0';
+            return (
+              <CompactRow
+                key={t.tag_id}
+                name={t.tag_name}
+                value={<span style={{ fontSize: 18, fontWeight: 700, color: t.tag_color }}>{t.count}</span>}
+                color={t.tag_color}
+                barPct={(t.count / tagMax) * 100}
+                sub={
+                  <span>
+                    执行 <strong style={{ color: 'var(--color-text)' }}>{t.execution_count}</strong> 次
+                    <span style={{ margin: '0 6px' }}>·</span>
+                    成功率 <strong style={{ color: '#22c55e' }}>{execRate}%</strong>
+                    {t.total_cost_usd > 0 && (
+                      <>
+                        <span style={{ margin: '0 6px' }}>·</span>
+                        <span style={{ color: '#f59e0b', fontWeight: 600 }}>${Math.round(t.total_cost_usd)}</span>
+                      </>
+                    )}
+                  </span>
+                }
+              />
+            );
+          })
         ) : (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无标签数据" />
         )}
@@ -480,7 +430,7 @@ export function Dashboard({ onBack }: DashboardProps) {
     render: () => (
       <Card
         title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ThunderboltOutlined /><span>Token 消耗</span></div>}
-        style={{ borderRadius: 12 }}
+        className="dashboard-card" style={{ borderRadius: 12 }}
         bodyStyle={{ padding: '16px 20px' }}
       >
         {tokenSegments.length > 0 ? (
@@ -514,7 +464,7 @@ export function Dashboard({ onBack }: DashboardProps) {
     render: () => (
       <Card
         title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BarChartOutlined /><span>执行趋势（近30天）</span></div>}
-        style={{ borderRadius: 12 }}
+        className="dashboard-card" style={{ borderRadius: 12 }}
         bodyStyle={{ padding: '16px 20px' }}
       >
         <TrendChart data={trendData} height={180} />
@@ -523,48 +473,109 @@ export function Dashboard({ onBack }: DashboardProps) {
   });
 
   const modelData = stats?.model_distribution ?? [];
-  const modelMax = Math.max(...modelData.map((m) => m.total_cost_usd), 0.01);
+  const modelCountMax = Math.max(...modelData.map((m) => m.count), 1);
+  const modelTokenMax = Math.max(...modelData.map((m) => m.total_input_tokens + m.total_output_tokens), 1);
+  const modelCostMax = Math.max(...modelData.map((m) => m.total_cost_usd), 0.01);
+
+  const MODEL_COLORS = ['#8b5cf6', '#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#0891b2', '#ec4899', '#6366f1'];
 
   panels.push({
-    key: 'model-chart',
+    key: 'model-task-chart',
     render: () => (
       <Card
-        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BarChartOutlined /><span>模型分布</span></div>}
-        style={{ borderRadius: 12 }}
-        bodyStyle={{ padding: '16px 20px' }}
+        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BarChartOutlined /><span>模型任务分布</span></div>}
+        className="dashboard-card" style={{ borderRadius: 12 }}
+        bodyStyle={{ padding: '8px 16px' }}
       >
         {modelData.length > 0 ? (
-          <div>
-            {modelData.map((m) => {
-              const modelRate = m.execution_count > 0 ? ((m.success_count / m.execution_count) * 100).toFixed(0) : '0';
-              return (
-                <RichBarItem
-                  key={m.model}
-                  label={m.model.length > 10 ? m.model.slice(0, 10) + '...' : m.model}
-                  value={m.total_cost_usd}
-                  color="#8b5cf6"
-                  max={modelMax}
-                  detail={
-                    <span>
-                      执行 <strong style={{ color: 'var(--color-text)' }}><AnimatedNumber value={m.execution_count} duration={0.6} /></strong> 次
-                      <span style={{ margin: '0 6px', color: 'var(--color-border)' }}>|</span>
-                      输入 <strong style={{ color: '#3b82f6' }}>{formatTokens(m.total_input_tokens)}</strong>
-                      <span style={{ margin: '0 6px', color: 'var(--color-border)' }}>|</span>
-                      输出 <strong style={{ color: '#22c55e' }}>{formatTokens(m.total_output_tokens)}</strong>
-                      <span style={{ margin: '0 6px', color: 'var(--color-border)' }}>|</span>
-                      成功率 <strong style={{ color: '#22c55e' }}>{modelRate}%</strong>
-                      {m.total_cost_usd > 0 && (
-                        <>
-                          <span style={{ margin: '0 6px', color: 'var(--color-border)' }}>|</span>
-                          <span style={{ color: '#f59e0b', fontWeight: 600 }}>${m.total_cost_usd.toFixed(2)}</span>
-                        </>
-                      )}
-                    </span>
-                  }
-                />
-              );
-            })}
-          </div>
+          modelData.map((m, i) => {
+            const rate = m.execution_count > 0 ? ((m.success_count / m.execution_count) * 100).toFixed(0) : '0';
+            return (
+              <CompactRow
+                key={m.model}
+                name={m.model}
+                value={<span style={{ fontSize: 18, fontWeight: 700, color: MODEL_COLORS[i % MODEL_COLORS.length] }}>{m.count}</span>}
+                color={MODEL_COLORS[i % MODEL_COLORS.length]}
+                barPct={(m.count / modelCountMax) * 100}
+                sub={
+                  <span>
+                    执行 <strong style={{ color: 'var(--color-text)' }}>{m.execution_count}</strong> 次
+                    <span style={{ margin: '0 6px' }}>·</span>
+                    成功率 <strong style={{ color: '#22c55e' }}>{rate}%</strong>
+                  </span>
+                }
+              />
+            );
+          })
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无模型数据" />
+        )}
+      </Card>
+    ),
+  });
+
+  panels.push({
+    key: 'model-token-chart',
+    render: () => (
+      <Card
+        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ThunderboltOutlined /><span>模型 Token 消耗</span></div>}
+        className="dashboard-card" style={{ borderRadius: 12 }}
+        bodyStyle={{ padding: '8px 16px' }}
+      >
+        {modelData.length > 0 ? (
+          modelData.map((m, i) => {
+            const total = m.total_input_tokens + m.total_output_tokens;
+            return (
+              <CompactRow
+                key={m.model}
+                name={m.model}
+                value={<span style={{ fontSize: 18, fontWeight: 700, color: MODEL_COLORS[i % MODEL_COLORS.length] }}>{formatTokens(total)}</span>}
+                color={MODEL_COLORS[i % MODEL_COLORS.length]}
+                barPct={(total / modelTokenMax) * 100}
+                sub={
+                  <span>
+                    输入 <strong style={{ color: '#3b82f6' }}>{formatTokens(m.total_input_tokens)}</strong>
+                    <span style={{ margin: '0 6px' }}>·</span>
+                    输出 <strong style={{ color: '#22c55e' }}>{formatTokens(m.total_output_tokens)}</strong>
+                  </span>
+                }
+              />
+            );
+          })
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无模型数据" />
+        )}
+      </Card>
+    ),
+  });
+
+  panels.push({
+    key: 'model-cost-chart',
+    render: () => (
+      <Card
+        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><DollarOutlined /><span>模型花费</span></div>}
+        className="dashboard-card" style={{ borderRadius: 12 }}
+        bodyStyle={{ padding: '8px 16px' }}
+      >
+        {modelData.length > 0 ? (
+          modelData.map((m) => {
+            const costInt = Math.round(m.total_cost_usd);
+            const avgCost = m.execution_count > 0 ? Math.round((m.total_cost_usd / m.execution_count) * 100) / 100 : 0;
+            return (
+              <CompactRow
+                key={m.model}
+                name={m.model}
+                value={<span style={{ fontSize: 18, fontWeight: 700, color: '#f59e0b' }}>${costInt}</span>}
+                color="#f59e0b"
+                barPct={(m.total_cost_usd / modelCostMax) * 100}
+                sub={
+                  <span>
+                    均次 <strong style={{ color: 'var(--color-text)' }}>${avgCost}</strong>
+                  </span>
+                }
+              />
+            );
+          })
         ) : (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无模型数据" />
         )}
@@ -600,8 +611,8 @@ export function Dashboard({ onBack }: DashboardProps) {
                   const y = padT + chartH - (t / maxToken) * chartH;
                   return (
                     <g key={i}>
-                      <line x1={padL} y1={y} x2={w - padR} y2={y} stroke="#e2e8f0" strokeWidth={1} />
-                      <text x={padL - 6} y={y + 4} textAnchor="end" fontSize={10} fill="#94a3b8">
+                      <line x1={padL} y1={y} x2={w - padR} y2={y} stroke="var(--color-border-secondary)" strokeWidth={1} />
+                      <text x={padL - 6} y={y + 4} textAnchor="end" fontSize={10} fill="var(--color-text-tertiary)">
                         {t >= 10000 ? `${(t/10000).toFixed(0)}w` : t}
                       </text>
                     </g>
@@ -634,7 +645,7 @@ export function Dashboard({ onBack }: DashboardProps) {
                         y={h - 6}
                         textAnchor="middle"
                         fontSize={9}
-                        fill="#94a3b8"
+                        fill="var(--color-text-tertiary)"
                         transform={tokenTrendData.length > 14 ? `rotate(-35, ${x + barW / 2}, ${h - 6})` : undefined}
                       >
                         {d.date.slice(5)}
@@ -651,7 +662,7 @@ export function Dashboard({ onBack }: DashboardProps) {
       return (
         <Card
           title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BarChartOutlined /><span>Token 趋势（近30天）</span></div>}
-          style={{ borderRadius: 12 }}
+          className="dashboard-card" style={{ borderRadius: 12 }}
           bodyStyle={{ padding: '16px 20px' }}
         >
           {tokenTrendData.length > 0 ? (
@@ -681,36 +692,38 @@ export function Dashboard({ onBack }: DashboardProps) {
     render: () => (
       <Card
         title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ThunderboltOutlined /><span>执行概览</span></div>}
-        style={{ borderRadius: 12 }}
+        className="dashboard-card" style={{ borderRadius: 12 }}
         bodyStyle={{ padding: '16px 20px' }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
               <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>成功率</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#22c55e' }}>{successRate.toFixed(1)}%</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#22c55e' }}>{successRate.toFixed(1)}%</span>
             </div>
-            <div style={{ height: 8, borderRadius: 4, background: '#e2e8f0', overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${successRate}%`, borderRadius: 4, background: '#22c55e', transition: 'width 0.8s ease' }} />
+            <div style={{ height: 6, borderRadius: 3, background: 'var(--color-fill-quaternary)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${successRate}%`, borderRadius: 3, background: 'linear-gradient(90deg, #22c55e, #4ade80)', transition: 'width 0.8s ease' }} />
             </div>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--color-border-secondary)' }}>
-            <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>成功执行</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#22c55e' }}><AnimatedNumber value={stats?.success_executions ?? 0} duration={0.8} chineseFormat /></span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--color-border-secondary)' }}>
-            <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>失败执行</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#ef4444' }}><AnimatedNumber value={stats?.failed_executions ?? 0} duration={0.8} chineseFormat /></span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--color-border-secondary)' }}>
-            <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>平均耗时</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
-              {stats && stats.avg_duration_ms > 0 ? `${(stats.avg_duration_ms / 1000).toFixed(2)}s` : '-'}
-            </span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0' }}>
-            <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>总花费</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b' }}>${stats ? stats.total_cost_usd.toFixed(4) : '0.0000'}</span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ padding: '10px 14px', borderRadius: 10, background: '#22c55e10' }}>
+              <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 2 }}>成功执行</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#22c55e' }}><AnimatedNumber value={stats?.success_executions ?? 0} duration={0.8} chineseFormat /></div>
+            </div>
+            <div style={{ padding: '10px 14px', borderRadius: 10, background: '#ef444410' }}>
+              <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 2 }}>失败执行</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#ef4444' }}><AnimatedNumber value={stats?.failed_executions ?? 0} duration={0.8} chineseFormat /></div>
+            </div>
+            <div style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--color-fill-quaternary)' }}>
+              <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 2 }}>平均耗时</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-text)' }}>
+                {stats && stats.avg_duration_ms > 0 ? `${(stats.avg_duration_ms / 1000).toFixed(1)}s` : '-'}
+              </div>
+            </div>
+            <div style={{ padding: '10px 14px', borderRadius: 10, background: '#f59e0b10' }}>
+              <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 2 }}>总花费</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#f59e0b' }}>${stats ? Math.round(stats.total_cost_usd) : 0}</div>
+            </div>
           </div>
         </div>
       </Card>
@@ -719,6 +732,10 @@ export function Dashboard({ onBack }: DashboardProps) {
 
   return (
     <div style={{ height: '100%', overflow: 'auto', padding: '16px 20px', background: 'var(--color-bg-layout)' }}>
+      <style>{`
+        .dashboard-card { transition: border-color 0.2s, box-shadow 0.2s; }
+        .dashboard-card:hover { border-color: var(--color-border); box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+      `}</style>
       {onBack && (
         <Button
           type="text"
