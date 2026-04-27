@@ -113,8 +113,10 @@ export function PieChart({
 
 export function PieChartLegend({
   segments,
+  chineseFormat = false,
 }: {
   segments: { value: number; color: string; label: string }[];
+  chineseFormat?: boolean;
 }) {
   return (
     <div
@@ -145,7 +147,7 @@ export function PieChartLegend({
           <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
             {seg.label}{' '}
             <strong style={{ color: 'var(--color-text)', fontWeight: 600 }}>
-              <AnimatedNumber value={seg.value} duration={0.8} />
+              <AnimatedNumber value={seg.value} duration={0.8} chineseFormat={chineseFormat} />
             </strong>
           </span>
         </div>

@@ -43,9 +43,10 @@ interface MiniStatProps {
   color: string;
   loading?: boolean;
   decimals?: number;
+  chineseFormat?: boolean;
 }
 
-function MiniStat({ title, value, suffix, prefix, color, loading, decimals = 0 }: MiniStatProps) {
+function MiniStat({ title, value, suffix, prefix, color, loading, decimals = 0, chineseFormat = false }: MiniStatProps) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
       <div
@@ -71,7 +72,7 @@ function MiniStat({ title, value, suffix, prefix, color, loading, decimals = 0 }
             <Spin size="small" />
           ) : (
             <>
-              <AnimatedNumber value={value} duration={0.8} decimals={decimals} />
+              <AnimatedNumber value={value} duration={0.8} decimals={decimals} chineseFormat={chineseFormat} />
               {suffix && <span style={{ fontSize: 13, fontWeight: 500, marginLeft: 2 }}>{suffix}</span>}
             </>
           )}
@@ -82,9 +83,8 @@ function MiniStat({ title, value, suffix, prefix, color, loading, decimals = 0 }
 }
 
 function formatTokens(n: number): string {
-  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1) + 'B';
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+  if (n >= 1_0000_0000) return (n / 1_0000_0000).toFixed(1) + '亿';
+  if (n >= 1_0000) return (n / 1_0000).toFixed(1) + '万';
   return String(n);
 }
 
@@ -341,7 +341,7 @@ export function Dashboard({ onBack }: DashboardProps) {
         bodyStyle={{ padding: '16px 20px' }}
       >
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
-          <MiniStat title="总任务" value={totalTodos} prefix={<FileTextOutlined />} color="#0891b2" loading={loading && !stats} />
+          <MiniStat title="总任务" value={totalTodos} prefix={<FileTextOutlined />} color="#0891b2" loading={loading && !stats} chineseFormat />
           <MiniStat title="运行中" value={stats?.running_todos ?? 0} prefix={<PlayCircleOutlined />} color="#3b82f6" loading={loading && !stats} />
           <MiniStat title="已完成" value={stats?.completed_todos ?? 0} prefix={<CheckCircleOutlined />} color="#22c55e" loading={loading && !stats} />
           <MiniStat title="失败" value={stats?.failed_todos ?? 0} prefix={<CloseCircleOutlined />} color="#ef4444" loading={loading && !stats} />
@@ -361,7 +361,7 @@ export function Dashboard({ onBack }: DashboardProps) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
           <MiniStat title="标签" value={stats?.total_tags ?? tags.length} prefix={<TagOutlined />} color="#8b5cf6" loading={loading && !stats} />
           <MiniStat title="调度任务" value={stats?.scheduled_todos ?? 0} prefix={<ClockCircleOutlined />} color="#f59e0b" loading={loading && !stats} />
-          <MiniStat title="总执行" value={stats?.total_executions ?? 0} prefix={<ThunderboltOutlined />} color="#0d9488" loading={loading && !stats} />
+          <MiniStat title="总执行" value={stats?.total_executions ?? 0} prefix={<ThunderboltOutlined />} color="#0d9488" loading={loading && !stats} chineseFormat />
           <MiniStat title="总花费" value={stats ? Math.round(stats.total_cost_usd * 10000) / 10000 : 0} suffix="$" prefix={<DollarOutlined />} color="#dc2626" loading={loading && !stats} decimals={4} />
         </div>
       </Card>
@@ -500,7 +500,7 @@ export function Dashboard({ onBack }: DashboardProps) {
               }
               centerSubtext="Tokens"
             />
-            <PieChartLegend segments={tokenSegments} />
+            <PieChartLegend segments={tokenSegments} chineseFormat />
           </div>
         ) : (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无 Token 数据" />
@@ -542,11 +542,11 @@ export function Dashboard({ onBack }: DashboardProps) {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--color-border-secondary)' }}>
             <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>成功执行</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#22c55e' }}><AnimatedNumber value={stats?.success_executions ?? 0} duration={0.8} /></span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#22c55e' }}><AnimatedNumber value={stats?.success_executions ?? 0} duration={0.8} chineseFormat /></span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--color-border-secondary)' }}>
             <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>失败执行</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#ef4444' }}><AnimatedNumber value={stats?.failed_executions ?? 0} duration={0.8} /></span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#ef4444' }}><AnimatedNumber value={stats?.failed_executions ?? 0} duration={0.8} chineseFormat /></span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--color-border-secondary)' }}>
             <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>平均耗时</span>
