@@ -28,4 +28,4 @@ jobs:
         run: cargo install cross
 
       - name: Build
-        run: cross build --release --target ${{ matrix.target }}
+        run: cd backend && cross build --release --target ${{ matrix.target }}
