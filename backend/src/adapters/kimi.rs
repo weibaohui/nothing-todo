@@ -81,42 +81,63 @@ impl CodeExecutor for KimiExecutor {
 
         let role = json.get("role").and_then(|v| v.as_str())?;
 
-        // Skip assistant messages with tool_calls (tool call requests, not results)
+        // Assistant message: could have tool_calls or text content
         if role == "assistant" {
-            if json.get("tool_calls").is_some() {
-                return None;
+            // Has tool_calls - this is a tool call request
+            if let Some(tool_calls) = json.get("tool_calls").and_then(|v| v.as_array()) {
+                for call in tool_calls {
+                    if let Some(func) = call.get("function") {
+                        let name = func.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        let args = func.get("arguments").and_then(|v| v.as_str()).unwrap_or("{}");
+                        return Some(ParsedLogEntry {
+                            timestamp: utc_timestamp(),
+                            log_type: "tool_call".to_string(),
+                            content: format!("Calling tool: {} with args: {}", name, args),
+                            usage: None,
+                        });
+                    }
+                }
             }
-            // Final assistant message with text content
+            // Text content
             if let Some(content) = json.get("content").and_then(|v| v.as_array()) {
                 for item in content {
-                    if item.get("type").and_then(|v| v.as_str()) == Some("text") {
-                        if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
-                            return Some(ParsedLogEntry {
-                                timestamp: utc_timestamp(),
-                                log_type: "text".to_string(),
-                                content: text.to_string(),
-                                usage: None,
-                            });
+                    match item.get("type").and_then(|v| v.as_str()) {
+                        Some("text") => {
+                            if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+                                return Some(ParsedLogEntry {
+                                    timestamp: utc_timestamp(),
+                                    log_type: "text".to_string(),
+                                    content: text.to_string(),
+                                    usage: None,
+                                });
+                            }
                         }
+                        Some("think") => {
+                            if let Some(think) = item.get("think").and_then(|v| v.as_str()) {
+                                return Some(ParsedLogEntry {
+                                    timestamp: utc_timestamp(),
+                                    log_type: "thinking".to_string(),
+                                    content: think.to_string(),
+                                    usage: None,
+                                });
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
             return None;
         }
 
-        // Tool result: extract the actual result (skip <system> messages)
+        // Tool result
         if role == "tool" {
             if let Some(content) = json.get("content").and_then(|v| v.as_array()) {
                 for item in content {
                     if item.get("type").and_then(|v| v.as_str()) == Some("text") {
                         if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
-                            // Skip <system> messages, keep actual results
-                            if text.starts_with("<system>") {
-                                continue;
-                            }
                             return Some(ParsedLogEntry {
                                 timestamp: utc_timestamp(),
-                                log_type: "tool".to_string(),
+                                log_type: "tool_result".to_string(),
                                 content: text.to_string(),
                                 usage: None,
                             });
@@ -143,6 +164,7 @@ impl CodeExecutor for KimiExecutor {
     }
 
     fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
+        // Get the last text response as final result
         logs.iter()
             .rev()
             .find(|l| l.log_type == "text")
@@ -192,19 +214,21 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_output_line_tool_call_request() {
+        let executor = KimiExecutor::new();
+        let json = r#"{"role":"assistant","content":[],"tool_calls":[{"type":"function","id":"call_1","function":{"name":"Shell","arguments":"{\"command\":\"date\"}"}}]}"#;
+        let entry = executor.parse_output_line(json).unwrap();
+        assert_eq!(entry.log_type, "tool_call");
+        assert!(entry.content.contains("Shell"));
+    }
+
+    #[test]
     fn test_parse_output_line_tool_result() {
         let executor = KimiExecutor::new();
         let json = r#"{"role":"tool","content":[{"type":"text","text":"Tue Apr 28 07:59:16 PDT 2026"}]}"#;
         let entry = executor.parse_output_line(json).unwrap();
-        assert_eq!(entry.log_type, "tool");
+        assert_eq!(entry.log_type, "tool_result");
         assert_eq!(entry.content, "Tue Apr 28 07:59:16 PDT 2026");
-    }
-
-    #[test]
-    fn test_parse_output_line_skip_tool_call_request() {
-        let executor = KimiExecutor::new();
-        let json = r#"{"role":"assistant","content":[{"type":"think","think":"..."}],"tool_calls":[{"type":"function","id":"call_1","function":{"name":"Shell","arguments":"{}"}}]}"#;
-        assert!(executor.parse_output_line(json).is_none());
     }
 
     #[test]
@@ -212,14 +236,5 @@ mod tests {
         let executor = KimiExecutor::new();
         let line = "To resume this session: kimi -r abc123";
         assert!(executor.parse_output_line(line).is_none());
-    }
-
-    #[test]
-    fn test_parse_output_line_skip_system_message() {
-        let executor = KimiExecutor::new();
-        let json = r#"{"role":"tool","content":[{"type":"text","text":"<system>Command executed successfully.</system>"},{"type":"text","text":"Tue Apr 28"}]}"#;
-        let entry = executor.parse_output_line(json).unwrap();
-        assert_eq!(entry.log_type, "tool");
-        assert_eq!(entry.content, "Tue Apr 28");
     }
 }
