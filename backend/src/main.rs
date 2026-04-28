@@ -95,6 +95,7 @@ async fn run_server() {
     executor_registry.register(adapters::opencode::OpencodeExecutor::new());
     executor_registry.register(adapters::atomcode::AtomcodeExecutor::new());
     executor_registry.register(adapters::hermes::HermesExecutor::new());
+    executor_registry.register(adapters::kimi::KimiExecutor::new());
 
     // List available executors
     let executors = executor_registry.list_executors();
