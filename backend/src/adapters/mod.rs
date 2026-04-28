@@ -36,7 +36,7 @@ pub trait CodeExecutor: Send + Sync {
     /// 返回可执行文件路径
     fn executable_path(&self) -> &str;
 
-    /// 返回默认命令参数
+    /// 返回命令参数
     fn command_args(&self, message: &str) -> Vec<String>;
 
     /// 返回带 session 的命令参数（默认实现忽略 session）
