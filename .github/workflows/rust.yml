@@ -83,13 +83,12 @@ jobs:
 
       # 交叉编译
       # cross 把 backend/ 挂载为 /project，rust-embed 的 ../frontend/dist/ 解析为 /frontend/dist/
-      # 通过 -v 把宿主机的前端产物挂载到容器的 /frontend/dist
+      # 通过 CROSS_CONTAINER_OPTS 把宿主机的前端产物挂载到容器的 /frontend/dist
       - name: Build (cross)
         if: matrix.use-cross == true
-        run: |
-          FRONTEND_DIST="$(pwd)/frontend/dist"
-          cd backend && cross build --release --target ${{ matrix.target }} \
-            --container-option="-v" --container-option="${FRONTEND_DIST}:/frontend/dist:ro"
+        env:
+          CROSS_CONTAINER_OPTS: "-v ${{ github.workspace }}/frontend/dist:/frontend/dist:ro"
+        run: cd backend && cross build --release --target ${{ matrix.target }}
 
       # 原生编译（macOS）
       - name: Build (native)
