@@ -29,6 +29,7 @@ impl Database {
             scheduler_config,
             scheduler_next_run_at,
             task_id: m.task_id,
+            workspace: m.workspace,
         }
     }
 
@@ -92,6 +93,7 @@ impl Database {
         executor: Option<&str>,
         scheduler_enabled: Option<bool>,
         scheduler_config: Option<&str>,
+        workspace: Option<&str>,
     ) {
         let now = crate::models::utc_timestamp();
         let mut am = todos::ActiveModel {
@@ -110,6 +112,14 @@ impl Database {
         }
         if let Some(cfg) = scheduler_config {
             am.scheduler_config = ActiveValue::Set(Some(cfg.to_string()));
+        }
+        if let Some(ws) = workspace {
+            let ws = ws.trim();
+            if ws.is_empty() {
+                am.workspace = ActiveValue::Set(None);
+            } else {
+                am.workspace = ActiveValue::Set(Some(ws.to_string()));
+            }
         }
         self.exec_update(am).await;
     }
@@ -137,6 +147,19 @@ impl Database {
             id: ActiveValue::Unchanged(id),
             scheduler_enabled: ActiveValue::Set(Some(enabled)),
             scheduler_config: ActiveValue::Set(config.map(|s| s.to_string())),
+            ..Default::default()
+        };
+        self.exec_update(am).await;
+    }
+
+    pub async fn update_todo_workspace(&self, id: i64, workspace: Option<&str>) {
+        let ws = workspace.and_then(|s| {
+            let trimmed = s.trim();
+            if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+        });
+        let am = todos::ActiveModel {
+            id: ActiveValue::Unchanged(id),
+            workspace: ActiveValue::Set(ws),
             ..Default::default()
         };
         self.exec_update(am).await;
@@ -311,6 +334,7 @@ impl Database {
                     scheduler_enabled: m.scheduler_enabled.unwrap_or(false),
                     scheduler_config: m.scheduler_config,
                     tag_names,
+                    workspace: m.workspace,
                 }
             })
             .collect()
@@ -348,6 +372,7 @@ impl Database {
                 executor: ActiveValue::Set(todo.executor.clone()),
                 scheduler_enabled: ActiveValue::Set(Some(todo.scheduler_enabled)),
                 scheduler_config: ActiveValue::Set(todo.scheduler_config.clone()),
+                workspace: ActiveValue::Set(todo.workspace.clone()),
                 created_at: ActiveValue::Set(Some(now.clone())),
                 updated_at: ActiveValue::Set(Some(now)),
                 ..Default::default()

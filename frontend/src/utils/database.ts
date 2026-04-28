@@ -50,13 +50,13 @@ export async function updateTodo(
   executor?: string,
   scheduler_enabled?: boolean,
   scheduler_config?: string | null,
+  workspace?: string | null,
 ): Promise<Todo> {
   const body: Record<string, unknown> = { title, prompt, status };
   if (executor !== undefined) body.executor = executor;
   if (scheduler_enabled !== undefined) body.scheduler_enabled = scheduler_enabled;
   if (scheduler_config !== undefined) body.scheduler_config = scheduler_config;
-
-  console.log('发送更新请求:', { id, body }); // 调试信息
+  if (workspace !== undefined) body.workspace = workspace;
 
   return unwrap(await api.put<ApiResp<Todo>>(`/xyz/todos/${id}`, body));
 }

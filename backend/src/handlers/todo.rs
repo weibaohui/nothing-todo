@@ -44,6 +44,7 @@ pub async fn create_todo(
         scheduler_config: None,
         scheduler_next_run_at: None,
         task_id: None,
+        workspace: None,
     }))
 }
 
@@ -67,6 +68,7 @@ pub async fn update_todo(
             req.executor.as_deref(),
             req.scheduler_enabled,
             req.scheduler_config.as_deref(),
+            req.workspace.as_deref(),
         )
         .await;
 
