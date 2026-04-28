@@ -1,2 +1,2 @@
 [build.env]
-passthrough = ["CARGO_TERM_COLOR", "NTD_GIT_HASH"]
+passthrough = ["CARGO_TERM_COLOR"]
