@@ -50,10 +50,10 @@ impl CodeExecutor for HermesExecutor {
     fn command_args(&self, message: &str) -> Vec<String> {
         vec![
             "chat".to_string(),
-            "-q".to_string(),
-            message.to_string(),
             "-Q".to_string(),
             "--yolo".to_string(),
+            "-q".to_string(),
+            message.to_string(),
         ]
     }
 
@@ -187,7 +187,7 @@ mod tests {
     fn test_command_args() {
         let executor = HermesExecutor::new();
         let args = executor.command_args("do something");
-        assert_eq!(args, vec!["chat", "-q", "do something", "-Q", "--yolo"]);
+        assert_eq!(args, vec!["chat", "-Q", "--yolo", "-q", "do something"]);
     }
 
     #[test]
