@@ -220,6 +220,7 @@ pub fn create_app(
         .route("/xyz/tags", get(tag::get_tags).post(tag::create_tag))
         .route("/xyz/tags/{id}", delete(tag::delete_tag))
         .route("/xyz/execution-records", get(execution::get_execution_records))
+        .route("/xyz/execution-records/{id}", get(execution::get_execution_record))
         .route("/xyz/dashboard-stats", get(execution::get_dashboard_stats))
         .route("/xyz/execute", post(execution::execute_handler))
         .route("/xyz/execute/stop", post(execution::stop_execution_handler))

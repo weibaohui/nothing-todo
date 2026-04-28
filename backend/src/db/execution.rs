@@ -60,6 +60,33 @@ impl Database {
         (records, total)
     }
 
+    pub async fn get_execution_record(&self, record_id: i64) -> Option<ExecutionRecord> {
+        let m = execution_records::Entity::find()
+            .filter(execution_records::Column::Id.eq(record_id))
+            .one(&self.conn)
+            .await
+            .ok()??;
+        let usage = m.usage.as_deref().and_then(|u| serde_json::from_str(u).ok());
+        Some(ExecutionRecord {
+            id: m.id,
+            todo_id: m.todo_id.unwrap_or(0),
+            status: m.status.unwrap_or_default(),
+            command: m.command.unwrap_or_default(),
+            stdout: m.stdout.unwrap_or_default(),
+            stderr: m.stderr.unwrap_or_default(),
+            logs: m.logs.unwrap_or_default(),
+            result: m.result,
+            started_at: m.started_at.unwrap_or_default(),
+            finished_at: m.finished_at,
+            usage,
+            executor: m.executor,
+            model: m.model,
+            trigger_type: m.trigger_type.unwrap_or_else(|| "manual".to_string()),
+            pid: m.pid,
+            task_id: m.task_id,
+        })
+    }
+
     pub async fn create_execution_record(
         &self,
         todo_id: i64,

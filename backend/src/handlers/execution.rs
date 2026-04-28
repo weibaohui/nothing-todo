@@ -29,6 +29,18 @@ pub async fn get_execution_records(
     }))
 }
 
+pub async fn get_execution_record(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<ApiResponse<crate::models::ExecutionRecord>, AppError> {
+    let record = state
+        .db
+        .get_execution_record(id)
+        .await
+        .ok_or(AppError::NotFound)?;
+    Ok(ApiResponse::ok(record))
+}
+
 pub async fn execute_handler(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<ExecuteRequest>,
