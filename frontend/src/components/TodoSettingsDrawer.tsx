@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Drawer, Input, Button, Switch, Divider, App, Space, Tag } from 'antd';
-import { ClockCircleOutlined, CheckOutlined } from '@ant-design/icons';
+import { ClockCircleOutlined, CheckOutlined, FolderOutlined } from '@ant-design/icons';
 import * as db from '../utils/database';
 import { EXECUTORS } from '../types';
 import type { Todo } from '../types';
@@ -37,6 +37,7 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
   const [schedulerEnabled, setSchedulerEnabled] = useState(false);
   const [schedulerConfig, setSchedulerConfig] = useState<string>('');
   const [selectedTags, setSelectedTags] = useState<number[]>([]);
+  const [workspace, setWorkspace] = useState<string>('');
 
   const [cronSecond, setCronSecond] = useState<string>('');
   const [cronMinute, setCronMinute] = useState<string>('');
@@ -82,6 +83,7 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
       setSchedulerEnabled(todo.scheduler_enabled || false);
       setSchedulerConfig(todo.scheduler_config || '');
       setSelectedTags((todo as any).tag_ids || []);
+      setWorkspace(todo.workspace || '');
       if (todo.scheduler_config) {
         setCronFields(todo.scheduler_config);
       } else {
@@ -111,6 +113,7 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
         executor,
         schedulerEnabled,
         schedulerConfig || null,
+        workspace || null,
       );
       await db.updateScheduler(todo.id, schedulerEnabled, schedulerConfig || null);
       await db.updateTodoTags(todo.id, selectedTags);
@@ -224,6 +227,20 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
             );
           })}
         </div>
+      </div>
+
+      {/* Workspace */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 10, fontWeight: 600, fontSize: 14 }}>
+          <FolderOutlined style={{ color: 'var(--color-primary)', marginRight: 6 }} />
+          工作目录
+        </div>
+        <Input
+          value={workspace}
+          onChange={(e) => setWorkspace(e.target.value)}
+          placeholder="设置执行器的工作目录（可选）"
+          style={{ width: '100%' }}
+        />
       </div>
 
       <Divider style={{ margin: '8px 0 16px' }} />

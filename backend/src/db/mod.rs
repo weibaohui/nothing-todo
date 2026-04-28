@@ -81,7 +81,8 @@ impl Database {
                 executor TEXT DEFAULT 'claudecode',
                 scheduler_enabled INTEGER DEFAULT 0,
                 scheduler_config TEXT,
-                task_id TEXT
+                task_id TEXT,
+                workspace TEXT
             )",
         )
         .await?;
@@ -139,6 +140,12 @@ impl Database {
         // 添加 task_id 字段的迁移（向后兼容）
         self.exec(
             "ALTER TABLE execution_records ADD COLUMN task_id TEXT"
+        )
+        .await.ok(); // 忽略错误，因为字段可能已存在
+
+        // 添加 workspace 字段的迁移（向后兼容）
+        self.exec(
+            "ALTER TABLE todos ADD COLUMN workspace TEXT"
         )
         .await.ok(); // 忽略错误，因为字段可能已存在
 
@@ -222,6 +229,7 @@ mod tests {
             "Updated",
             "Desc",
             crate::models::TodoStatus::InProgress,
+            None,
             None,
             None,
             None,
@@ -355,6 +363,7 @@ mod tests {
             Some("opencode"),
             Some(true),
             Some("0 0 * * *"),
+            Some("/tmp/workspace"),
         )
         .await;
         let todo = db.get_todo(id).await.unwrap();
@@ -364,6 +373,7 @@ mod tests {
         assert_eq!(todo.executor, Some("opencode".to_string()));
         assert!(todo.scheduler_enabled);
         assert_eq!(todo.scheduler_config, Some("0 0 * * *".to_string()));
+        assert_eq!(todo.workspace, Some("/tmp/workspace".to_string()));
     }
 
     #[tokio::test]

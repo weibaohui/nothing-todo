@@ -61,6 +61,7 @@ pub async fn run_todo_execution(
     // Get todo to read stored executor
     let todo = db.get_todo(todo_id).await;
     let todo_executor = todo.as_ref().and_then(|t| t.executor.clone());
+    let todo_workspace = todo.as_ref().and_then(|t| t.workspace.clone());
 
     // Determine which executor to use
     let executor_type = if let Some(exec) = req_executor {
@@ -109,11 +110,10 @@ pub async fn run_todo_execution(
             .stderr(std::process::Stdio::piped())
             .stdin(std::process::Stdio::piped());
 
-        let mut cmd = Command::new(&executable_path);
-        cmd.args(&command_args)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .stdin(std::process::Stdio::piped());
+        // 设置工作目录（如果指定了 workspace）
+        if let Some(ws) = todo_workspace.as_ref() {
+            cmd.current_dir(ws);
+        }
 
         let mut child = match cmd.spawn() {
             Ok(c) => c,

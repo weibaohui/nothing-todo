@@ -89,6 +89,8 @@ pub struct Todo {
     pub scheduler_next_run_at: Option<String>,
     #[serde(default)]
     pub task_id: Option<String>,
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -206,6 +208,8 @@ pub struct UpdateTodoRequest {
     pub scheduler_enabled: Option<bool>,
     #[serde(default)]
     pub scheduler_config: Option<String>,
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -409,6 +413,7 @@ pub struct TodoBackup {
     pub scheduler_enabled: bool,
     pub scheduler_config: Option<String>,
     pub tag_names: Vec<String>,
+    pub workspace: Option<String>,
 }
 
 // Business error codes

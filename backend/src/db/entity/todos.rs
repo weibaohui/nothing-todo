@@ -16,6 +16,7 @@ pub struct Model {
     pub scheduler_enabled: Option<bool>,
     pub scheduler_config: Option<String>,
     pub task_id: Option<String>,
+    pub workspace: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
