@@ -133,20 +133,23 @@ fn handle_tunnel_command(action: &TunnelAction) {
                     // 启动 hostc 隧道
                     let output_file = "/tmp/hostc_output.txt";
 
-                    let mut child = std::process::Command::new("hostc");
-                    child.arg("8088")
+                    let mut cmd = std::process::Command::new("hostc");
+                    cmd.arg("8088")
                         .stdout(std::fs::File::create(output_file).expect("Failed to create output file"))
                         .stderr(std::fs::File::create(output_file).expect("Failed to create output file"));
 
                     #[cfg(unix)]
-                    use std::os::unix::process::CommandExt;
-                    #[cfg(unix)]
-                    let child = unsafe { child.pre_exec(|| {
-                        libc::setsid();
-                        Ok(())
-                    }) };
+                    {
+                        use std::os::unix::process::CommandExt;
+                        unsafe {
+                            cmd.pre_exec(|| {
+                                libc::setsid();
+                                Ok(())
+                            });
+                        }
+                    }
 
-                    let mut child = child.spawn().expect("Failed to start hostc. Is hostc installed?");
+                    let mut child = cmd.spawn().expect("Failed to start hostc. Is hostc installed?");
                     let hostc_pid = child.id();
                     fs::write(&pid_file, hostc_pid.to_string()).expect("Failed to write PID file");
 
@@ -200,22 +203,25 @@ fn handle_tunnel_command(action: &TunnelAction) {
                     // 启动 cloudflare 隧道
                     let output_file = "/tmp/cloudflared_output.txt";
 
-                    let mut child = std::process::Command::new("cloudflared");
-                    child.arg("tunnel")
+                    let mut cmd = std::process::Command::new("cloudflared");
+                    cmd.arg("tunnel")
                         .arg("--url")
                         .arg("http://localhost:8088")
                         .stdout(std::fs::File::create(output_file).expect("Failed to create output file"))
                         .stderr(std::fs::File::create(output_file).expect("Failed to create output file"));
 
                     #[cfg(unix)]
-                    use std::os::unix::process::CommandExt;
-                    #[cfg(unix)]
-                    let child = unsafe { child.pre_exec(|| {
-                        libc::setsid();
-                        Ok(())
-                    }) };
+                    {
+                        use std::os::unix::process::CommandExt;
+                        unsafe {
+                            cmd.pre_exec(|| {
+                                libc::setsid();
+                                Ok(())
+                            });
+                        }
+                    }
 
-                    let mut child = child.spawn().expect("Failed to start cloudflared. Is cloudflared installed?");
+                    let mut child = cmd.spawn().expect("Failed to start cloudflared. Is cloudflared installed?");
                     let cloudflared_pid = child.id();
                     fs::write(&pid_file, cloudflared_pid.to_string()).expect("Failed to write PID file");
 
