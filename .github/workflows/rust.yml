@@ -46,11 +46,6 @@ jobs:
             target: x86_64-pc-windows-gnu
             use-cross: true
 
-          # macOS x86_64 (macos-13 is the last x86_64 runner)
-          - os: macos-13
-            target: x86_64-apple-darwin
-            use-cross: false
-
           # macOS aarch64 (macos-latest is ARM)
           - os: macos-latest
             target: aarch64-apple-darwin
