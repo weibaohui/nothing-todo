@@ -72,15 +72,24 @@ async fn main() {
     info!("  Open http://0.0.0.0:8088 in your browser");
     info!("===========================================");
 
-    use std::os::fd::AsRawFd;
-
     let std_listener = std::net::TcpListener::bind("0.0.0.0:8088").unwrap();
-    // Enable SO_REUSEADDR before anything else to allow quick restart
-    unsafe {
-        let fd = std_listener.as_raw_fd();
+
+    // Enable SO_REUSEADDR on Unix to allow quick restart (Windows doesn't need it)
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
         let optval: libc::c_int = 1;
-        libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_REUSEADDR, &optval as *const libc::c_int as *const libc::c_void, std::mem::size_of::<libc::c_int>() as libc::socklen_t);
+        unsafe {
+            libc::setsockopt(
+                std_listener.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_REUSEADDR,
+                &optval as *const libc::c_int as *const libc::c_void,
+                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+            );
+        }
     }
+
     std_listener.set_nonblocking(true).unwrap();
     let listener = tokio::net::TcpListener::from_std(std_listener).unwrap();
 
