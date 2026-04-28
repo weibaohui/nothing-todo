@@ -98,32 +98,45 @@ impl CodeExecutor for KimiExecutor {
                     }
                 }
             }
-            // Text content
+
+            // Collect all content items and return as separate log entries
             if let Some(content) = json.get("content").and_then(|v| v.as_array()) {
+                let mut text_result: Option<String> = None;
+                let mut think_result: Option<String> = None;
+
                 for item in content {
                     match item.get("type").and_then(|v| v.as_str()) {
                         Some("text") => {
                             if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
-                                return Some(ParsedLogEntry {
-                                    timestamp: utc_timestamp(),
-                                    log_type: "text".to_string(),
-                                    content: text.to_string(),
-                                    usage: None,
-                                });
+                                text_result = Some(text.to_string());
                             }
                         }
                         Some("think") => {
                             if let Some(think) = item.get("think").and_then(|v| v.as_str()) {
-                                return Some(ParsedLogEntry {
-                                    timestamp: utc_timestamp(),
-                                    log_type: "thinking".to_string(),
-                                    content: think.to_string(),
-                                    usage: None,
-                                });
+                                think_result = Some(think.to_string());
                             }
                         }
                         _ => {}
                     }
+                }
+
+                // Return text first if present (it's the final answer)
+                if let Some(text) = text_result {
+                    return Some(ParsedLogEntry {
+                        timestamp: utc_timestamp(),
+                        log_type: "text".to_string(),
+                        content: text,
+                        usage: None,
+                    });
+                }
+                // Fall back to thinking
+                if let Some(think) = think_result {
+                    return Some(ParsedLogEntry {
+                        timestamp: utc_timestamp(),
+                        log_type: "thinking".to_string(),
+                        content: think,
+                        usage: None,
+                    });
                 }
             }
             return None;
