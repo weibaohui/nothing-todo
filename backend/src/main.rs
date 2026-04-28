@@ -279,28 +279,50 @@ fn handle_tunnel_command(action: &TunnelAction) {
     }
 }
 
+#[cfg(unix)]
 fn is_process_running(pid: i32) -> bool {
-    unsafe {
-        libc::kill(pid, 0) == 0
-    }
+    unsafe { libc::kill(pid, 0) == 0 }
 }
 
+#[cfg(windows)]
+fn is_process_running(pid: i32) -> bool {
+    std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
 fn kill_process(pid: i32) {
     unsafe {
         libc::kill(pid, libc::SIGTERM);
     }
 }
 
+#[cfg(windows)]
+fn kill_process(pid: i32) {
+    let _ = std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/F"])
+        .output();
+}
+
+#[cfg(unix)]
 fn kill_process_force(pid: i32) {
     unsafe {
         libc::kill(pid, libc::SIGKILL);
     }
 }
 
+#[cfg(windows)]
+fn kill_process_force(pid: i32) {
+    kill_process(pid);
+}
+
+#[cfg(unix)]
 fn cleanup_orphan_processes() {
     use std::process::Command;
 
-    // 清理残留的 hostc 进程
     if let Ok(output) = Command::new("pgrep")
         .args(["-f", "hostc 8088"])
         .output()
@@ -313,7 +335,6 @@ fn cleanup_orphan_processes() {
         }
     }
 
-    // 清理残留的 cloudflared 进程
     if let Ok(output) = Command::new("pgrep")
         .args(["-f", "cloudflared tunnel.*8088"])
         .output()
@@ -321,6 +342,35 @@ fn cleanup_orphan_processes() {
         let pids = String::from_utf8_lossy(&output.stdout);
         for pid_str in pids.lines() {
             if let Ok(pid) = pid_str.trim().parse::<i32>() {
+                kill_process(pid);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+fn cleanup_orphan_processes() {
+    use std::process::Command;
+
+    if let Ok(output) = Command::new("wmic")
+        .args(["process", "where", "commandline like '%hostc 8088%'", "get", "processid"])
+        .output()
+    {
+        let text = String::from_utf8_lossy(&output.stdout);
+        for line in text.lines().skip(1) {
+            if let Ok(pid) = line.trim().parse::<i32>() {
+                kill_process(pid);
+            }
+        }
+    }
+
+    if let Ok(output) = Command::new("wmic")
+        .args(["process", "where", "commandline like '%cloudflared%8088%'", "get", "processid"])
+        .output()
+    {
+        let text = String::from_utf8_lossy(&output.stdout);
+        for line in text.lines().skip(1) {
+            if let Ok(pid) = line.trim().parse::<i32>() {
                 kill_process(pid);
             }
         }
