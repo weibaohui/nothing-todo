@@ -47,28 +47,8 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
 
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (schedulerConfig) {
-      const parts = schedulerConfig.split(' ');
-      if (parts.length >= 6) {
-        setCronSecond(parts[0]);
-        setCronMinute(parts[1]);
-        setCronHour(parts[2]);
-        setCronDay(parts[3]);
-        setCronMonth(parts[4]);
-        setCronWeekday(parts[5]);
-      }
-    }
-  }, [schedulerConfig, open]);
-
-  const updateSchedulerConfigFromFields = () => {
-    const config = `${cronSecond} ${cronMinute} ${cronHour} ${cronDay} ${cronMonth} ${cronWeekday}`;
-    setSchedulerConfig(config);
-  };
-
-  const handlePresetSelect = (presetValue: string) => {
-    setSchedulerConfig(presetValue);
-    const parts = presetValue.split(' ');
+  const setCronFields = (config: string) => {
+    const parts = config.split(' ');
     if (parts.length >= 6) {
       setCronSecond(parts[0]);
       setCronMinute(parts[1]);
@@ -77,6 +57,11 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
       setCronMonth(parts[4]);
       setCronWeekday(parts[5]);
     }
+  };
+
+  const handlePresetSelect = (presetValue: string) => {
+    setSchedulerConfig(presetValue);
+    setCronFields(presetValue);
   };
 
   const validateCronExpression = (expr: string): { valid: boolean; error?: string } => {
@@ -97,6 +82,11 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
       setSchedulerEnabled(todo.scheduler_enabled || false);
       setSchedulerConfig(todo.scheduler_config || '');
       setSelectedTags((todo as any).tag_ids || []);
+      if (todo.scheduler_config) {
+        setCronFields(todo.scheduler_config);
+      } else {
+        setCronFields('* * * * * *');
+      }
     }
   }, [todo, open]);
 
@@ -250,7 +240,9 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
             onChange={(checked) => {
               setSchedulerEnabled(checked);
               if (checked && !schedulerConfig) {
-                setSchedulerConfig('0 */10 * * * *');
+                const defaultCron = '0 */10 * * * *';
+                setSchedulerConfig(defaultCron);
+                setCronFields(defaultCron);
               }
             }}
           />
@@ -329,8 +321,11 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
                     <Input
                       value={field.value}
                       onChange={(e) => {
-                        field.onChange(e.target.value);
-                        setTimeout(updateSchedulerConfigFromFields, 0);
+                        const newVal = e.target.value;
+                        field.onChange(newVal);
+                        const parts = [cronSecond, cronMinute, cronHour, cronDay, cronMonth, cronWeekday];
+                        parts[index] = newVal;
+                        setSchedulerConfig(parts.join(' '));
                       }}
                       placeholder={field.placeholder}
                       style={{
