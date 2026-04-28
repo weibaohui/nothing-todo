@@ -1,11 +1,41 @@
 use std::sync::Arc;
+use clap::{Parser, Subcommand};
 use tokio::sync::broadcast;
 use tracing::info;
 
 use ntd::{adapters, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager};
 
+/// ntd - Nothing Todo
+#[derive(Parser)]
+#[command(name = "ntd", about = "AI Todo App", version)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Show version info
+    Version,
+}
+
 #[tokio::main]
 async fn main() {
+    let cli = Cli::parse();
+
+    match &cli.command {
+        Some(Commands::Version) => {
+            println!("ntd {}", env!("CARGO_PKG_VERSION"));
+            println!("git: {}", env!("NTD_GIT_HASH"));
+            return;
+        }
+        _ => {}
+    }
+
+    run_server().await;
+}
+
+async fn run_server() {
     let level = std::env::var("RUST_LOG")
         .ok()
         .and_then(|s| s.parse().ok())

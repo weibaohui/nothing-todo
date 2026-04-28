@@ -90,10 +90,13 @@ jobs:
         if: matrix.use-cross == true
         env:
           CROSS_CONTAINER_OPTS: "-v ${{ github.workspace }}/frontend/dist:/frontend/dist:ro"
+          NTD_GIT_HASH: ${{ github.sha }}
         run: cd backend && cross build --release --target ${{ matrix.target }}
 
       - name: Build (native)
         if: matrix.use-cross == false
+        env:
+          NTD_GIT_HASH: ${{ github.sha }}
         run: cd backend && cargo build --release --target ${{ matrix.target }}
 
       - name: Prepare binary for upload
