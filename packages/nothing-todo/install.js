@@ -12,7 +12,7 @@ const arch = os.arch();
 function getPackageName() {
   const platformMap = {
     'linux': { 'x64': 'nothing-todo-linux-x64', 'arm64': 'nothing-todo-linux-arm64' },
-    'darwin': { 'x64': 'nothing-todo-darwin-x64', 'arm64': 'nothing-todo-darwin-arm64' },
+    'darwin': { 'arm64': 'nothing-todo-darwin-arm64' },
     'win32': { 'x64': 'nothing-todo-windows-x64' }
   };
 

@@ -14,7 +14,6 @@
   "optionalDependencies": {
     "@weibaohui/nothing-todo-linux-x64": "*",
     "@weibaohui/nothing-todo-linux-arm64": "*",
-    "@weibaohui/nothing-todo-darwin-x64": "*",
     "@weibaohui/nothing-todo-darwin-arm64": "*",
     "@weibaohui/nothing-todo-windows-x64": "*"
   }
