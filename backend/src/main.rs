@@ -17,6 +17,8 @@ struct Cli {
 enum Commands {
     /// Show version info
     Version,
+    /// Upgrade ntd to the latest version via npm
+    Upgrade,
 }
 
 #[tokio::main]
@@ -29,6 +31,20 @@ async fn main() {
             println!("git: {}", option_env!("VERGEN_GIT_SHA").unwrap_or("unknown"));
             if let Some(desc) = option_env!("VERGEN_GIT_DESCRIBE") {
                 println!("tag: {}", desc);
+            }
+            return;
+        }
+        Some(Commands::Upgrade) => {
+            println!("Upgrading ntd...");
+            let status = std::process::Command::new("npm")
+                .args(["install", "-g", "@weibaohui/nothing-todo@latest"])
+                .status()
+                .expect("Failed to run npm. Is npm installed?");
+            if status.success() {
+                println!("Upgrade completed successfully!");
+            } else {
+                eprintln!("Upgrade failed.");
+                std::process::exit(1);
             }
             return;
         }
