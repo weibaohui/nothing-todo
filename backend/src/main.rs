@@ -118,7 +118,7 @@ async fn run_server() {
 
     info!("===========================================");
     info!("  Nothing Todo (ntd)");
-    info!("  Open http://0.0.0.0:8088 in your browser");
+    info!("  Open http://localhost:8088 in your browser");
     info!("===========================================");
 
     let std_listener = std::net::TcpListener::bind("0.0.0.0:8088").unwrap();
