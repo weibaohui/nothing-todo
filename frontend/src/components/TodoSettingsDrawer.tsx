@@ -105,6 +105,7 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
 
     setLoading(true);
     try {
+      const trimmedWorkspace = workspace.trim() || null;
       await db.updateTodo(
         todo.id,
         todo.title,
@@ -113,7 +114,7 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
         executor,
         schedulerEnabled,
         schedulerConfig || null,
-        workspace || null,
+        trimmedWorkspace,
       );
       await db.updateScheduler(todo.id, schedulerEnabled, schedulerConfig || null);
       await db.updateTodoTags(todo.id, selectedTags);

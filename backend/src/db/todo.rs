@@ -114,7 +114,12 @@ impl Database {
             am.scheduler_config = ActiveValue::Set(Some(cfg.to_string()));
         }
         if let Some(ws) = workspace {
-            am.workspace = ActiveValue::Set(Some(ws.to_string()));
+            let ws = ws.trim();
+            if ws.is_empty() {
+                am.workspace = ActiveValue::Set(None);
+            } else {
+                am.workspace = ActiveValue::Set(Some(ws.to_string()));
+            }
         }
         self.exec_update(am).await;
     }
@@ -148,9 +153,13 @@ impl Database {
     }
 
     pub async fn update_todo_workspace(&self, id: i64, workspace: Option<&str>) {
+        let ws = workspace.and_then(|s| {
+            let trimmed = s.trim();
+            if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+        });
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
-            workspace: ActiveValue::Set(workspace.map(|s| s.to_string())),
+            workspace: ActiveValue::Set(ws),
             ..Default::default()
         };
         self.exec_update(am).await;

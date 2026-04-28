@@ -58,8 +58,6 @@ export async function updateTodo(
   if (scheduler_config !== undefined) body.scheduler_config = scheduler_config;
   if (workspace !== undefined) body.workspace = workspace;
 
-  console.log('发送更新请求:', { id, body }); // 调试信息
-
   return unwrap(await api.put<ApiResp<Todo>>(`/xyz/todos/${id}`, body));
 }
 
