@@ -453,53 +453,56 @@ export function TodoDetail() {
         ) : isWide ? (
           <div style={{ flex: 1, display: 'flex', gap: 16, overflow: 'hidden', minHeight: 0 }}>
             {/* Left: History List */}
-            <div className="history-list-column">
-              {records.map(record => {
-                const isSelected = selectedHistoryRecordId === record.id;
-                const recExecutor = record.executor ? getExecutorOption(record.executor) : null;
-                return (
-                  <div
-                    key={record.id}
-                    className={`history-item-compact${isSelected ? ' selected' : ''}${record.status === 'failed' ? ' failed' : record.status === 'running' ? ' running' : ''}`}
-                    onClick={() => setSelectedHistoryRecordId(record.id)}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                        {formatLocalDateTime(record.started_at)}
-                      </span>
-                      <span style={{
-                        fontSize: 10,
-                        padding: '2px 8px',
-                        borderRadius: 10,
-                        backgroundColor: record.status === 'success' ? 'var(--color-success)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-info)',
-                        color: '#fff',
-                        fontWeight: 600,
-                      }}>
-                        {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                      {recExecutor && (
-                        <Tag color={recExecutor.color} style={{ fontWeight: 600, fontSize: 10, padding: '0 6px', lineHeight: '18px' }}>
-                          {recExecutor.icon} {recExecutor.label}
-                        </Tag>
-                      )}
-                      {record.model && <Tag color="#3b82f6" style={{ fontSize: 10, padding: '0 6px', lineHeight: '18px' }}>{record.model}</Tag>}
-                      <Tag color={record.trigger_type === 'cron' ? '#8b5cf6' : '#6b7280'} style={{ fontSize: 10, padding: '0 6px', lineHeight: '18px' }}>
-                        {record.trigger_type === 'cron' ? 'Cron' : '手动'}
-                      </Tag>
-                      {record.usage?.duration_ms && (
-                        <span style={{ fontSize: 10, color: 'var(--color-success)', fontWeight: 600 }}>
-                          {(record.usage.duration_ms / 1000).toFixed(2)}s
+            <div style={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div className="history-list-column">
+                {records.map(record => {
+                  const isSelected = selectedHistoryRecordId === record.id;
+                  const recExecutor = record.executor ? getExecutorOption(record.executor) : null;
+                  return (
+                    <div
+                      key={record.id}
+                      className={`history-item-compact${isSelected ? ' selected' : ''}${record.status === 'failed' ? ' failed' : record.status === 'running' ? ' running' : ''}`}
+                      onClick={() => setSelectedHistoryRecordId(record.id)}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                          {formatLocalDateTime(record.started_at)}
                         </span>
-                      )}
+                        <span style={{
+                          fontSize: 10,
+                          padding: '2px 8px',
+                          borderRadius: 10,
+                          backgroundColor: record.status === 'success' ? 'var(--color-success)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-info)',
+                          color: '#fff',
+                          fontWeight: 600,
+                        }}>
+                          {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {recExecutor && (
+                          <Tag color={recExecutor.color} style={{ fontWeight: 600, fontSize: 10, padding: '0 6px', lineHeight: '18px' }}>
+                            {recExecutor.icon} {recExecutor.label}
+                          </Tag>
+                        )}
+                        {record.model && <Tag color="#3b82f6" style={{ fontSize: 10, padding: '0 6px', lineHeight: '18px' }}>{record.model}</Tag>}
+                        <Tag color={record.trigger_type === 'cron' ? '#8b5cf6' : '#6b7280'} style={{ fontSize: 10, padding: '0 6px', lineHeight: '18px' }}>
+                          {record.trigger_type === 'cron' ? 'Cron' : '手动'}
+                        </Tag>
+                        {record.usage?.duration_ms && (
+                          <span style={{ fontSize: 10, color: 'var(--color-success)', fontWeight: 600 }}>
+                            {(record.usage.duration_ms / 1000).toFixed(2)}s
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
               {historyTotal > historyLimit && (
-                <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+                <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'center', padding: '8px 0 0', borderTop: '1px solid var(--color-border-light)' }}>
                   <Pagination
+                    simple
                     current={historyPage}
                     pageSize={historyLimit}
                     total={historyTotal}
@@ -512,8 +515,6 @@ export function TodoDetail() {
                       }
                     }}
                     size="small"
-                    showSizeChanger
-                    pageSizeOptions={['5', '10', '20']}
                   />
                 </div>
               )}

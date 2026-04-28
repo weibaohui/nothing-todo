@@ -660,10 +660,10 @@ body {
 }
 
 .history-list-column {
-  width: 320px;
-  flex-shrink: 0;
+  flex: 1;
   overflow-y: auto;
   padding-right: 8px;
+  min-height: 0;
 }
 
 .history-list-column::-webkit-scrollbar {
