@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
-use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing::{error, info};
+
+#[cfg(unix)]
+use tokio_cron_scheduler::{Job, JobScheduler};
 
 use crate::adapters::ExecutorRegistry;
 use crate::db::Database;
