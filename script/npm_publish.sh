@@ -58,7 +58,6 @@ CROSS_DIR="$PROJECT_ROOT/backend/target/cross"
 PLATFORMS=(
     "nothing-todo-linux-x64:linux-x64:linux:x64:ntd-x86_64-unknown-linux-gnu"
     "nothing-todo-linux-arm64:linux-arm64:linux:arm64:ntd-aarch64-unknown-linux-gnu"
-    "nothing-todo-darwin-x64:darwin-x64:darwin:x64:ntd-x86_64-apple-darwin"
     "nothing-todo-darwin-arm64:darwin-arm64:darwin:arm64:ntd-aarch64-apple-darwin"
     "nothing-todo-windows-x64:windows-x64:win32:x64:ntd-x86_64-pc-windows-gnu.exe"
 )

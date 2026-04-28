@@ -1,10 +1,15 @@
-name: Rust
+name: Build and Release
 
 on:
   push:
     branches: [ "main" ]
+    tags:
+      - 'v*'
   pull_request:
     branches: [ "main" ]
+
+permissions:
+  contents: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -31,32 +36,35 @@ jobs:
     strategy:
       matrix:
         include:
-          # Linux x86_64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             use-cross: true
+            pkg: nothing-todo-linux-x64
+            bin: ntd
 
-          # Linux aarch64
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             use-cross: true
+            pkg: nothing-todo-linux-arm64
+            bin: ntd
 
-          # Windows x86_64
           - os: ubuntu-latest
             target: x86_64-pc-windows-gnu
             use-cross: true
+            pkg: nothing-todo-windows-x64
+            bin: ntd.exe
 
-          # macOS aarch64 (macos-latest is ARM)
           - os: macos-latest
             target: aarch64-apple-darwin
             use-cross: false
+            pkg: nothing-todo-darwin-arm64
+            bin: ntd
 
     runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
 
-      # 下载前端产物
       - uses: actions/download-artifact@v4
         with:
           name: frontend-dist
@@ -65,34 +73,108 @@ jobs:
       - name: Verify frontend dist
         run: ls -la frontend/dist/
 
-      # 安装 Rust
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      # 安装 cross（仅需要交叉编译的平台）
       - name: Install cross
         if: matrix.use-cross == true
         run: cargo install cross --locked
 
-      # 交叉编译
-      # cross 把 backend/ 挂载为 /project，rust-embed 的 ../frontend/dist/ 解析为 /frontend/dist/
-      # 通过 CROSS_CONTAINER_OPTS 把宿主机的前端产物挂载到容器的 /frontend/dist
       - name: Build (cross)
         if: matrix.use-cross == true
         env:
           CROSS_CONTAINER_OPTS: "-v ${{ github.workspace }}/frontend/dist:/frontend/dist:ro"
         run: cd backend && cross build --release --target ${{ matrix.target }}
 
-      # 原生编译（macOS）
       - name: Build (native)
         if: matrix.use-cross == false
         run: cd backend && cargo build --release --target ${{ matrix.target }}
 
-      # 上传二进制产物
+      - name: Prepare binary for upload
+        run: |
+          mkdir -p dist
+          cp backend/target/${{ matrix.target }}/release/${{ matrix.bin }} dist/
+          chmod +x dist/${{ matrix.bin }} || true
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ntd-${{ matrix.target }}
-          path: backend/target/${{ matrix.target }}/release/ntd*
+          name: ${{ matrix.pkg }}
+          path: dist/${{ matrix.bin }}
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          pattern: nothing-todo-*
+
+      - name: List artifacts
+        run: find artifacts/ -type f | sort
+
+      - name: Create GitHub Release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/**/ntd*
+          tag: ${{ github.ref }}
+          overwrite: true
+          file_glob: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Prepare npm packages
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          echo "Publishing version: $VERSION"
+
+          # Copy binaries to package bin/ directories
+          mkdir -p packages/nothing-todo-linux-x64/bin
+          mkdir -p packages/nothing-todo-linux-arm64/bin
+          mkdir -p packages/nothing-todo-darwin-arm64/bin
+          mkdir -p packages/nothing-todo-windows-x64/bin
+
+          cp artifacts/nothing-todo-linux-x64/ntd packages/nothing-todo-linux-x64/bin/ntd
+          cp artifacts/nothing-todo-linux-arm64/ntd packages/nothing-todo-linux-arm64/bin/ntd
+          cp artifacts/nothing-todo-darwin-arm64/ntd packages/nothing-todo-darwin-arm64/bin/ntd
+          cp artifacts/nothing-todo-windows-x64/ntd.exe packages/nothing-todo-windows-x64/bin/ntd.exe
+
+          chmod +x packages/nothing-todo-linux-x64/bin/ntd
+          chmod +x packages/nothing-todo-linux-arm64/bin/ntd
+          chmod +x packages/nothing-todo-darwin-arm64/bin/ntd
+
+          # Update version in all package.json files
+          for pkg in nothing-todo-linux-x64 nothing-todo-linux-arm64 nothing-todo-darwin-arm64 nothing-todo-windows-x64 nothing-todo; do
+            node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('packages/$pkg/package.json','utf8')); p.version='$VERSION'; fs.writeFileSync('packages/$pkg/package.json', JSON.stringify(p, null, 2)+'\n');"
+            echo "Updated $pkg to $VERSION"
+          done
+
+      - name: Publish platform packages to npm
+        run: |
+          for pkg in nothing-todo-linux-x64 nothing-todo-linux-arm64 nothing-todo-darwin-arm64 nothing-todo-windows-x64; do
+            echo "Publishing @weibaohui/$pkg..."
+            cd packages/$pkg
+            npm publish --access public
+            cd ../..
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish wrapper package to npm
+        run: |
+          cd packages/nothing-todo
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
