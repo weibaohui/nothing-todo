@@ -94,6 +94,15 @@ export function TodoDetail() {
     setHistoryTotal(pageData.total);
   };
 
+  const refreshSingleRecord = async (recordId: number) => {
+    if (!selectedTodo) return;
+    const record = await db.getExecutionRecord(recordId);
+    dispatch({
+      type: 'UPDATE_EXECUTION_RECORD',
+      payload: { todoId: selectedTodo.id, record }
+    });
+  };
+
   useEffect(() => {
     if (selectedTodo) {
       setHistoryPage(1);
@@ -540,7 +549,7 @@ export function TodoDetail() {
                         <span>查看日志 ({displayLogs.length} 条){isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}</span>
                         <ReloadOutlined
                           style={{ fontSize: 11 }}
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); loadExecutionRecords(historyPage, historyLimit); }}
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); refreshSingleRecord(record.id); }}
                         />
                       </summary>
                       <div style={{
