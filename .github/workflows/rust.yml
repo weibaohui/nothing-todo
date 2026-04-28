@@ -14,19 +14,29 @@ jobs:
     strategy:
       matrix:
         include:
-          # Linux
+          # Linux x86_64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             use-cross: true
 
-          # Windows
+          # Linux aarch64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            use-cross: true
+
+          # Windows x86_64
           - os: ubuntu-latest
             target: x86_64-pc-windows-gnu
             use-cross: true
 
-          # macOS
-          - os: macos-latest
+          # macOS x86_64 (macos-13 is the last x86_64 runner)
+          - os: macos-13
             target: x86_64-apple-darwin
+            use-cross: false
+
+          # macOS aarch64 (macos-latest is ARM)
+          - os: macos-latest
+            target: aarch64-apple-darwin
             use-cross: false
 
     runs-on: ${{ matrix.os }}
@@ -36,35 +46,39 @@ jobs:
 
       # 安装 Rust
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          override: true
+          targets: ${{ matrix.target }}
 
-      # 安装 cross（仅 Linux runner）
+      # 安装 Node.js（构建前端）
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # 安装前端依赖并构建
+      - name: Build frontend
+        run: cd frontend && npm ci --legacy-peer-deps && npm run build
+
+      # 安装 cross（仅需要交叉编译的平台）
       - name: Install cross
         if: matrix.use-cross == true
-        run: cargo install cross
+        run: cargo install cross --locked
 
-      # 安装 target（macOS 需要）
-      - name: Add target
-        if: matrix.use-cross == false
-        run: rustup target add ${{ matrix.target }}
-
-      # 构建
+      # 交叉编译
       - name: Build (cross)
         if: matrix.use-cross == true
         run: cd backend && cross build --release --target ${{ matrix.target }}
 
+      # 原生编译（macOS）
       - name: Build (native)
         if: matrix.use-cross == false
-        run: cd backend && cargo build --release
+        run: cd backend && cargo build --release --target ${{ matrix.target }}
 
-      # 上传产物
+      # 上传二进制产物
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-${{ matrix.target }}
-          path: |
-            backend/target/${{ matrix.target }}/release/*
-            backend/target/release/*
+          name: ntd-${{ matrix.target }}
+          path: backend/target/${{ matrix.target }}/release/ntd*
