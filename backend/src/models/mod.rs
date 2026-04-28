@@ -345,6 +345,7 @@ pub enum ExecutorType {
     Codebuddy,
     Opencode,
     Atomcode,
+    Hermes,
 }
 
 impl Default for ExecutorType {
@@ -361,6 +362,7 @@ impl ExecutorType {
             ExecutorType::Codebuddy => "codebuddy",
             ExecutorType::Opencode => "opencode",
             ExecutorType::Atomcode => "atomcode",
+            ExecutorType::Hermes => "hermes",
         }
     }
 }

@@ -11,6 +11,7 @@ pub fn parse_executor_type(executor: &str) -> ExecutorType {
         "codebuddy" | "cbc" => ExecutorType::Codebuddy,
         "opencode" => ExecutorType::Opencode,
         "atomcode" | "atom" => ExecutorType::Atomcode,
+        "hermes" => ExecutorType::Hermes,
         _ => ExecutorType::Joinai,
     }
 }
@@ -27,6 +28,7 @@ pub mod claude_code;
 pub mod codebuddy;
 pub mod opencode;
 pub mod atomcode;
+pub mod hermes;
 
 #[async_trait]
 pub trait CodeExecutor: Send + Sync {
