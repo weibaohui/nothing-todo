@@ -100,7 +100,7 @@ pub async fn run_todo_execution(
     tokio::spawn(async move {
         send_event(&tx_clone, ExecEvent::Started { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string() });
 
-        let entry = ParsedLogEntry::info(format!("Starting {} with message: {}", executor_spawn.executor_type(), message_clone));
+        let entry = ParsedLogEntry::info(format!("Starting {}", executor_spawn.executor_type()));
         send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
 
         let mut cmd = Command::new(&executable_path);
