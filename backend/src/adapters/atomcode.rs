@@ -49,9 +49,9 @@ impl CodeExecutor for AtomcodeExecutor {
 
     fn command_args(&self, message: &str) -> Vec<String> {
         vec![
+            "-v".to_string(),
             "-p".to_string(),
             message.to_string(),
-            "-v".to_string(),
         ]
     }
 
@@ -334,7 +334,7 @@ mod tests {
     fn test_command_args() {
         let executor = AtomcodeExecutor::new();
         let args = executor.command_args("do something");
-        assert_eq!(args, vec!["-p", "do something", "-v"]);
+        assert_eq!(args, vec!["-v", "-p", "do something"]);
     }
 
     #[test]
