@@ -56,6 +56,8 @@ export function TodoDetail() {
   const { message } = App.useApp();
   const { todos, selectedTodoId, executionRecords, runningTasks } = state;
   const [isMobile, setIsMobile] = useState(false);
+  const [isWide, setIsWide] = useState(false);
+  const [selectedHistoryRecordId, setSelectedHistoryRecordId] = useState<number | null>(null);
   const selectedTodo = todos.find(t => t.id === selectedTodoId);
 
   useEffect(() => {
@@ -63,6 +65,13 @@ export function TodoDetail() {
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  useEffect(() => {
+    const checkWide = () => setIsWide(window.innerWidth >= 1440);
+    checkWide();
+    window.addEventListener('resize', checkWide);
+    return () => window.removeEventListener('resize', checkWide);
   }, []);
 
   const [isEditing, setIsEditing] = useState(false);
@@ -75,6 +84,9 @@ export function TodoDetail() {
   const [historyTotal, setHistoryTotal] = useState(0);
 
   const records = selectedTodoId ? executionRecords[selectedTodoId] || [] : [];
+  const selectedHistoryRecord = selectedHistoryRecordId
+    ? records.find(r => r.id === selectedHistoryRecordId) || null
+    : null;
 
   // Check if current todo is running in the global panel
   const currentRunningTask = Object.values(runningTasks).find(
@@ -117,6 +129,16 @@ export function TodoDetail() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTodoId, selectedTodo, dispatch]);
+
+  useEffect(() => {
+    setSelectedHistoryRecordId(null);
+  }, [selectedTodoId]);
+
+  useEffect(() => {
+    if (!isWide || records.length === 0) return;
+    if (selectedHistoryRecordId !== null && records.find(r => r.id === selectedHistoryRecordId)) return;
+    setSelectedHistoryRecordId(records[0].id);
+  }, [isWide, records, selectedHistoryRecordId]);
 
   const handleExecute = async () => {
     if (!selectedTodo) return;
@@ -197,7 +219,7 @@ export function TodoDetail() {
   const executorOpt = getExecutorOption(executor);
 
   return (
-    <div className="detail-panel">
+    <div className={`detail-panel${isWide ? ' detail-panel-wide' : ''}`}>
       {/* Mobile Back Button */}
       {isMobile && (
         <Button
@@ -408,8 +430,13 @@ export function TodoDetail() {
       </div>
 
       {/* Execution History */}
-      <div style={{ paddingBottom: 20, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+      <div
+        style={isWide
+          ? { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }
+          : { paddingBottom: 20, flexShrink: 0 }
+        }
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, ...(isWide ? { flexShrink: 0 } : {}) }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>执行历史</h4>
           <Button
             type="text"
@@ -423,6 +450,206 @@ export function TodoDetail() {
         </div>
         {records.length === 0 ? (
           <Empty description="暂无执行记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        ) : isWide ? (
+          <div style={{ flex: 1, display: 'flex', gap: 16, overflow: 'hidden', minHeight: 0 }}>
+            {/* Left: History List */}
+            <div className="history-list-column">
+              {records.map(record => {
+                const isSelected = selectedHistoryRecordId === record.id;
+                const recExecutor = record.executor ? getExecutorOption(record.executor) : null;
+                return (
+                  <div
+                    key={record.id}
+                    className={`history-item-compact${isSelected ? ' selected' : ''}${record.status === 'failed' ? ' failed' : record.status === 'running' ? ' running' : ''}`}
+                    onClick={() => setSelectedHistoryRecordId(record.id)}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                        {formatLocalDateTime(record.started_at)}
+                      </span>
+                      <span style={{
+                        fontSize: 10,
+                        padding: '2px 8px',
+                        borderRadius: 10,
+                        backgroundColor: record.status === 'success' ? 'var(--color-success)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-info)',
+                        color: '#fff',
+                        fontWeight: 600,
+                      }}>
+                        {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                      {recExecutor && (
+                        <Tag color={recExecutor.color} style={{ fontWeight: 600, fontSize: 10, padding: '0 6px', lineHeight: '18px' }}>
+                          {recExecutor.icon} {recExecutor.label}
+                        </Tag>
+                      )}
+                      {record.model && <Tag color="#3b82f6" style={{ fontSize: 10, padding: '0 6px', lineHeight: '18px' }}>{record.model}</Tag>}
+                      <Tag color={record.trigger_type === 'cron' ? '#8b5cf6' : '#6b7280'} style={{ fontSize: 10, padding: '0 6px', lineHeight: '18px' }}>
+                        {record.trigger_type === 'cron' ? 'Cron' : '手动'}
+                      </Tag>
+                      {record.usage?.duration_ms && (
+                        <span style={{ fontSize: 10, color: 'var(--color-success)', fontWeight: 600 }}>
+                          {(record.usage.duration_ms / 1000).toFixed(2)}s
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {historyTotal > historyLimit && (
+                <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+                  <Pagination
+                    current={historyPage}
+                    pageSize={historyLimit}
+                    total={historyTotal}
+                    onChange={(page, pageSize) => {
+                      if (pageSize !== historyLimit) {
+                        setHistoryLimit(pageSize);
+                        loadExecutionRecords(1, pageSize);
+                      } else {
+                        loadExecutionRecords(page, historyLimit);
+                      }
+                    }}
+                    size="small"
+                    showSizeChanger
+                    pageSizeOptions={['5', '10', '20']}
+                  />
+                </div>
+              )}
+            </div>
+            {/* Divider */}
+            <div style={{ width: 1, background: 'var(--color-border-light)', flexShrink: 0 }} />
+            {/* Right: Record Detail */}
+            <div className="history-detail-column">
+              {selectedHistoryRecord ? (() => {
+                const record = selectedHistoryRecord;
+                const isRunning = record.status === 'running';
+                const liveLogs = isRunning && currentRunningTask ? currentRunningTask.logs : null;
+                const restLogs: Array<{ timestamp?: string; type?: string; content?: string }> = (() => {
+                  try { return record.logs && record.logs !== '[]' ? JSON.parse(record.logs) : []; }
+                  catch { return []; }
+                })();
+                const displayLogs = liveLogs && liveLogs.length > 0 ? liveLogs : restLogs;
+                return (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {record.executor && (() => {
+                          const recOpt = getExecutorOption(record.executor);
+                          return <Tag color={recOpt.color} style={{ fontWeight: 600 }}>{recOpt.icon} {recOpt.label}</Tag>;
+                        })()}
+                        {record.model && <Tag color="#3b82f6">{record.model}</Tag>}
+                        <span style={{ fontSize: 13, color: 'var(--color-text-secondary)', fontWeight: 500 }}>
+                          {formatLocalDateTime(record.started_at)}
+                        </span>
+                        <span style={{
+                          fontSize: 11,
+                          padding: '3px 12px',
+                          borderRadius: 12,
+                          backgroundColor: record.status === 'success' ? 'var(--color-success)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-info)',
+                          color: '#fff',
+                          fontWeight: 600,
+                        }}>
+                          {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
+                        </span>
+                        {record.usage?.duration_ms && (
+                          <span style={{ fontSize: 12, color: 'var(--color-success)', fontWeight: 600 }}>
+                            {(record.usage.duration_ms / 1000).toFixed(2)}s
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        {record.status === 'running' && (
+                          <Popconfirm
+                            title="确定强制停止该任务？"
+                            okText="停止"
+                            cancelText="取消"
+                            onConfirm={async () => { await handleStopExecution(record.id); }}
+                          >
+                            <Button type="primary" danger size="small" icon={<StopOutlined />}>停止</Button>
+                          </Popconfirm>
+                        )}
+                      </div>
+                    </div>
+                    {record.result !== null && record.result !== '' && (
+                      <div className={`history-result ${record.status === 'success' ? 'history-result-success' : 'history-result-failed'}`} style={{ marginBottom: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>结论</span>
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<CopyOutlined />}
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(record.result || '');
+                                message.success('已复制到剪贴板');
+                              } catch {
+                                message.error('复制失败');
+                              }
+                            }}
+                          />
+                        </div>
+                        <XMarkdown content={record.result} />
+                      </div>
+                    )}
+                    {record.usage && (
+                      <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 12, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                        <span>Input: {record.usage.input_tokens.toLocaleString()}</span>
+                        <span>Output: {record.usage.output_tokens.toLocaleString()}</span>
+                        {record.usage.total_cost_usd !== null && (
+                          <span style={{ color: 'var(--color-warning)', fontWeight: 600 }}>${record.usage.total_cost_usd.toFixed(6)}</span>
+                        )}
+                      </div>
+                    )}
+                    {(() => {
+                      if (!isRunning && displayLogs.length === 0) return null;
+                      return (
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-primary)' }}>
+                              执行过程 ({displayLogs.length} 条){isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}
+                            </span>
+                            <ReloadOutlined
+                              style={{ fontSize: 12, color: 'var(--color-text-tertiary)', cursor: 'pointer' }}
+                              onClick={() => refreshSingleRecord(record.id)}
+                            />
+                          </div>
+                          <div style={{
+                            background: '#1a1a2e',
+                            color: '#e2e8f0',
+                            padding: 12,
+                            borderRadius: 8,
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: 11,
+                            overflow: 'auto',
+                          }}>
+                            {displayLogs.length === 0 ? (
+                              <div style={{ color: '#64748b' }}>等待输出...</div>
+                            ) : (
+                              displayLogs.map((log, idx) => (
+                                <div key={idx} style={{ marginBottom: 4, display: 'flex', gap: 8 }}>
+                                  <span style={{ color: '#64748b', flexShrink: 0 }}>{log.timestamp}</span>
+                                  <span style={{ color: logTypeColors[log.type || ''] || '#cbd5e1' }}>
+                                    [{logTypeLabels[log.type || ''] || log.type}]
+                                  </span>
+                                  <span>{log.content}</span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </>
+                );
+              })() : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                  <Empty description="选择一条执行记录查看详情" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                </div>
+              )}
+            </div>
+          </div>
         ) : (
           <>
             {records.map(record => (
