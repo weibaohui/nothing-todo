@@ -135,6 +135,21 @@ impl CodeExecutor for OpencodeExecutor {
         ]
     }
 
+    fn command_args_with_session(&self, message: &str, session_id: Option<&str>) -> Vec<String> {
+        let mut args = vec![
+            "run".to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ];
+        if let Some(sid) = session_id {
+            args.push("--session".to_string());
+            args.push(sid.to_string());
+        }
+        args.push("--dangerously-skip-permissions".to_string());
+        args.push(message.to_string());
+        args
+    }
+
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
         let event: OpencodeEvent = serde_json::from_str(line).ok()?;
 

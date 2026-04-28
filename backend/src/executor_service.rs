@@ -76,7 +76,7 @@ pub async fn run_todo_execution(
         .unwrap_or_else(|| executor_registry.get_default().unwrap());
 
     let executable_path = executor.executable_path().to_string();
-    let command_args = executor.command_args(&message);
+    let command_args = executor.command_args_with_session(&message, Some(&task_id));
 
     // Update todo's executor to the one being used
     let executor_str = executor.executor_type().to_string();

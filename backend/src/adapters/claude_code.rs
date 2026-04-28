@@ -129,6 +129,22 @@ impl CodeExecutor for ClaudeCodeExecutor {
         ]
     }
 
+    fn command_args_with_session(&self, message: &str, session_id: Option<&str>) -> Vec<String> {
+        let mut args = vec![
+            "--dangerously-skip-permissions".to_string(),
+            "-p".to_string(),
+            "--output-format".to_string(),
+            "stream-json".to_string(),
+        ];
+        if let Some(sid) = session_id {
+            args.push("--session-id".to_string());
+            args.push(sid.to_string());
+        }
+        args.push("--verbose".to_string());
+        args.push(message.to_string());
+        args
+    }
+
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
         if line.is_empty() {
             return None;
