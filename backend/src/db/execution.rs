@@ -293,20 +293,28 @@ impl Database {
 
             // Aggregate by executor
             if let Some(exec) = &r.executor {
-                if let Some(stat) = executor_stats.get_mut(exec) {
-                    stat.execution_count += 1;
-                    match rec_status {
-                        Some("success") => stat.success_count += 1,
-                        Some("failed") => stat.failed_count += 1,
-                        _ => {}
-                    }
-                    if let Some(usage_str) = &r.usage {
-                        if let Ok(usage) = serde_json::from_str::<crate::models::ExecutionUsage>(usage_str) {
-                            stat.total_input_tokens += usage.input_tokens;
-                            stat.total_output_tokens += usage.output_tokens;
-                            if let Some(cost) = usage.total_cost_usd {
-                                stat.total_cost_usd += cost;
-                            }
+                let stat = executor_stats.entry(exec.clone()).or_insert_with(|| crate::models::ExecutorCount {
+                    executor: exec.clone(),
+                    count: 0,
+                    execution_count: 0,
+                    success_count: 0,
+                    failed_count: 0,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    total_cost_usd: 0.0,
+                });
+                stat.execution_count += 1;
+                match rec_status {
+                    Some("success") => stat.success_count += 1,
+                    Some("failed") => stat.failed_count += 1,
+                    _ => {}
+                }
+                if let Some(usage_str) = &r.usage {
+                    if let Ok(usage) = serde_json::from_str::<crate::models::ExecutionUsage>(usage_str) {
+                        stat.total_input_tokens += usage.input_tokens;
+                        stat.total_output_tokens += usage.output_tokens;
+                        if let Some(cost) = usage.total_cost_usd {
+                            stat.total_cost_usd += cost;
                         }
                     }
                 }
@@ -408,7 +416,7 @@ impl Database {
 
         let mut executor_distribution: Vec<crate::models::ExecutorCount> = executor_stats
             .into_values()
-            .filter(|s| s.count > 0)
+            .filter(|s| s.execution_count > 0)
             .collect();
         executor_distribution.sort_by(|a, b| b.execution_count.cmp(&a.execution_count));
 
