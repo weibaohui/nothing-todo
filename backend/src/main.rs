@@ -104,10 +104,20 @@ fn handle_tunnel_command(action: &TunnelAction) {
                         println!("Stopping old tunnel (PID: {})", old_pid);
                         #[cfg(unix)]
                         {
-                            kill_process_group(old_pid as i32);
-                            thread::sleep(Duration::from_millis(500));
-                            if is_process_running(old_pid as i32) {
-                                kill_process_group_force(old_pid as i32);
+                            // 检查 PID 是否仍是进程组 leader
+                            if is_process_group_leader(old_pid as i32) {
+                                kill_process_group(old_pid as i32);
+                                thread::sleep(Duration::from_millis(500));
+                                if is_process_running(old_pid as i32) {
+                                    kill_process_group_force(old_pid as i32);
+                                }
+                            } else {
+                                // 不是进程组 leader，回退到单 PID 终止
+                                kill_process(old_pid as i32);
+                                thread::sleep(Duration::from_millis(500));
+                                if is_process_running(old_pid as i32) {
+                                    kill_process_force(old_pid as i32);
+                                }
                             }
                         }
                         #[cfg(windows)]
@@ -133,10 +143,17 @@ fn handle_tunnel_command(action: &TunnelAction) {
                     // 启动 hostc 隧道
                     let output_file = "/tmp/hostc_output.txt";
 
+                    let output = std::fs::OpenOptions::new()
+                        .create(true)
+                        .write(true)
+                        .truncate(true)
+                        .open(output_file)
+                        .expect("Failed to create output file");
+
                     let mut cmd = std::process::Command::new("hostc");
                     cmd.arg("8088")
-                        .stdout(std::fs::File::create(output_file).expect("Failed to create output file"))
-                        .stderr(std::fs::File::create(output_file).expect("Failed to create output file"));
+                        .stdout(output.try_clone().expect("Failed to clone output file"))
+                        .stderr(output);
 
                     #[cfg(unix)]
                     {
@@ -186,7 +203,18 @@ fn handle_tunnel_command(action: &TunnelAction) {
 
                     if public_url.is_empty() {
                         // 清理已启动的进程
-                        let _ = child.kill();
+                        #[cfg(unix)]
+                        {
+                            if is_process_group_leader(hostc_pid as i32) {
+                                kill_process_group(hostc_pid as i32);
+                            } else {
+                                let _ = child.kill();
+                            }
+                        }
+                        #[cfg(windows)]
+                        {
+                            let _ = child.kill();
+                        }
                         fs::remove_file(&pid_file).ok();
                         fs::remove_file(&url_file).ok();
                         eprintln!("Error: failed to capture Public URL within 60s");
@@ -203,12 +231,19 @@ fn handle_tunnel_command(action: &TunnelAction) {
                     // 启动 cloudflare 隧道
                     let output_file = "/tmp/cloudflared_output.txt";
 
+                    let output = std::fs::OpenOptions::new()
+                        .create(true)
+                        .write(true)
+                        .truncate(true)
+                        .open(output_file)
+                        .expect("Failed to create output file");
+
                     let mut cmd = std::process::Command::new("cloudflared");
                     cmd.arg("tunnel")
                         .arg("--url")
                         .arg("http://localhost:8088")
-                        .stdout(std::fs::File::create(output_file).expect("Failed to create output file"))
-                        .stderr(std::fs::File::create(output_file).expect("Failed to create output file"));
+                        .stdout(output.try_clone().expect("Failed to clone output file"))
+                        .stderr(output);
 
                     #[cfg(unix)]
                     {
@@ -256,7 +291,18 @@ fn handle_tunnel_command(action: &TunnelAction) {
 
                     if public_url.is_empty() {
                         // 清理已启动的进程
-                        let _ = child.kill();
+                        #[cfg(unix)]
+                        {
+                            if is_process_group_leader(cloudflared_pid as i32) {
+                                kill_process_group(cloudflared_pid as i32);
+                            } else {
+                                let _ = child.kill();
+                            }
+                        }
+                        #[cfg(windows)]
+                        {
+                            let _ = child.kill();
+                        }
                         fs::remove_file(&pid_file).ok();
                         fs::remove_file(&url_file).ok();
                         eprintln!("Error: failed to capture Public URL within 60s");
@@ -283,10 +329,20 @@ fn handle_tunnel_command(action: &TunnelAction) {
                         println!("Stopping tunnel (PID: {})", pid);
                         #[cfg(unix)]
                         {
-                            kill_process_group(pid as i32);
-                            thread::sleep(Duration::from_millis(500));
-                            if is_process_running(pid as i32) {
-                                kill_process_group_force(pid as i32);
+                            // 检查 PID 是否仍是进程组 leader
+                            if is_process_group_leader(pid as i32) {
+                                kill_process_group(pid as i32);
+                                thread::sleep(Duration::from_millis(500));
+                                if is_process_running(pid as i32) {
+                                    kill_process_group_force(pid as i32);
+                                }
+                            } else {
+                                // 不是进程组 leader，回退到单 PID 终止
+                                kill_process(pid as i32);
+                                thread::sleep(Duration::from_millis(500));
+                                if is_process_running(pid as i32) {
+                                    kill_process_force(pid as i32);
+                                }
                             }
                         }
                         #[cfg(windows)]
@@ -335,6 +391,11 @@ fn handle_tunnel_command(action: &TunnelAction) {
 #[cfg(unix)]
 fn is_process_running(pid: i32) -> bool {
     unsafe { libc::kill(pid, 0) == 0 }
+}
+
+#[cfg(unix)]
+fn is_process_group_leader(pid: i32) -> bool {
+    unsafe { libc::getpgid(pid) == pid as libc::pid_t }
 }
 
 #[cfg(windows)]
