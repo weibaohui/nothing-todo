@@ -652,6 +652,80 @@ body {
   }
 }
 
+/* ---------- Wide Screen Layout (≥1440px) ---------- */
+.detail-panel-wide {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden !important;
+}
+
+.history-list-column {
+  width: 320px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.history-list-column::-webkit-scrollbar {
+  width: 4px;
+}
+
+.history-list-column::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.history-list-column::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 2px;
+}
+
+.history-detail-column {
+  flex: 1;
+  overflow-y: auto;
+  padding-left: 8px;
+}
+
+.history-detail-column::-webkit-scrollbar {
+  width: 6px;
+}
+
+.history-detail-column::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.history-detail-column::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+.history-item-compact {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-light);
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.history-item-compact:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-bg);
+}
+
+.history-item-compact.selected {
+  border-color: var(--color-primary);
+  background: var(--color-primary-bg);
+  box-shadow: var(--shadow-primary);
+}
+
+.history-item-compact.failed {
+  border-left: 3px solid var(--color-error);
+}
+
+.history-item-compact.running {
+  border-left: 3px solid var(--color-info);
+}
+
 /* Tag Check Card Styles */
 .tag-check-card {
   background: #ffffff;
