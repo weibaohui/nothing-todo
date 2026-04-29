@@ -10,6 +10,7 @@ use tower_http::compression::CompressionLayer;
 use tower_http::cors::{CorsLayer, Any};
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
+use axum::extract::DefaultBodyLimit;
 use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -239,6 +240,7 @@ pub fn create_app(
         .route("/xyz/backup/export", get(backup::export_backup))
         .route("/xyz/backup/import", post(backup::import_backup))
         .route("/assets/{*path}", get(static_handler))
+        .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
         .layer(CompressionLayer::new())
         .layer(
             CorsLayer::new()
