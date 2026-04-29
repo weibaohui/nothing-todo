@@ -1,5 +1,5 @@
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Statement,
 };
 
 use crate::db::Database;
@@ -194,266 +194,250 @@ impl Database {
         let tag_map = self.fetch_tag_ids_for_many(&todo_ids).await;
 
         // Build executor and tag stat templates from todos
-        let mut executor_stats: HashMap<String, crate::models::ExecutorCount> = HashMap::new();
+        let mut executor_todo_counts: HashMap<String, i64> = HashMap::new();
         for t in &todos {
-            let exec = t.executor.as_deref().unwrap_or("claudecode");
-            executor_stats.entry(exec.to_string()).or_insert_with(|| crate::models::ExecutorCount {
-                executor: exec.to_string(),
-                count: 0,
-                execution_count: 0,
-                success_count: 0,
-                failed_count: 0,
-                total_input_tokens: 0,
-                total_output_tokens: 0,
-                total_cost_usd: 0.0,
-            }).count += 1;
+            let exec = t.executor.as_deref().unwrap_or("claudecode").to_string();
+            *executor_todo_counts.entry(exec).or_insert(0) += 1;
         }
 
-        let mut tag_stats: HashMap<i64, crate::models::TagCount> = HashMap::new();
-        for t in &tags {
-            tag_stats.insert(t.id, crate::models::TagCount {
-                tag_id: t.id,
-                tag_name: t.name.clone(),
-                tag_color: t.color.clone(),
-                count: 0,
-                execution_count: 0,
-                success_count: 0,
-                failed_count: 0,
-                total_input_tokens: 0,
-                total_output_tokens: 0,
-                total_cost_usd: 0.0,
-            });
-        }
+        let mut tag_todo_counts: HashMap<i64, i64> = HashMap::new();
         for (_, tids) in &tag_map {
             for tid in tids {
-                if let Some(stat) = tag_stats.get_mut(tid) {
-                    stat.count += 1;
-                }
+                *tag_todo_counts.entry(*tid).or_insert(0) += 1;
             }
         }
 
-        // Initialize model stats with "Unknown" as default
-        let mut model_stats: HashMap<String, crate::models::ModelCount> = HashMap::new();
-        model_stats.insert("unknown".to_string(), crate::models::ModelCount {
-            model: "unknown".to_string(),
-            count: 0,
-            execution_count: 0,
-            success_count: 0,
-            failed_count: 0,
-            total_input_tokens: 0,
-            total_output_tokens: 0,
-            total_cache_read_tokens: 0,
-            total_cache_creation_tokens: 0,
-            total_cost_usd: 0.0,
-        });
+        // SQL-based aggregation for execution records (avoids loading all records into memory)
+        let backend = self.conn.get_database_backend();
 
-        let all_records = execution_records::Entity::find()
-            .order_by_desc(execution_records::Column::StartedAt)
-            .all(&self.conn)
+        // 1. Overall execution stats with token aggregation
+        let overall_sql = "SELECT \
+            COUNT(*) as total, \
+            COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success, \
+            COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.input_tokens'), 0)), 0) as input_tokens, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.output_tokens'), 0)), 0) as output_tokens, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_read_input_tokens'), 0)), 0) as cache_read, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_creation_input_tokens'), 0)), 0) as cache_creation, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.total_cost_usd'), 0.0)), 0.0) as total_cost, \
+            COALESCE(SUM(CASE WHEN json_extract(usage, '$.duration_ms') IS NOT NULL THEN json_extract(usage, '$.duration_ms') ELSE 0 END), 0) as total_duration, \
+            COALESCE(SUM(CASE WHEN json_extract(usage, '$.duration_ms') IS NOT NULL THEN 1 ELSE 0 END), 0) as duration_count \
+            FROM execution_records";
+
+        let (total_executions, success_executions, failed_executions,
+             total_input_tokens, total_output_tokens, total_cache_read_tokens,
+             total_cache_creation_tokens, total_cost, total_duration, duration_count) =
+            if let Ok(Some(row)) = self.conn.query_one(Statement::from_string(backend, overall_sql.to_string())).await {
+                let t: i64 = row.try_get_by("total").unwrap_or(0);
+                let s: i64 = row.try_get_by("success").unwrap_or(0);
+                let f: i64 = row.try_get_by("failed").unwrap_or(0);
+                let it: i64 = row.try_get_by("input_tokens").unwrap_or(0);
+                let ot: i64 = row.try_get_by("output_tokens").unwrap_or(0);
+                let cr: i64 = row.try_get_by("cache_read").unwrap_or(0);
+                let cc: i64 = row.try_get_by("cache_creation").unwrap_or(0);
+                let tc: f64 = row.try_get_by("total_cost").unwrap_or(0.0);
+                let td: i64 = row.try_get_by("total_duration").unwrap_or(0);
+                let dc: i64 = row.try_get_by("duration_count").unwrap_or(0);
+                (t, s, f, it as u64, ot as u64, cr as u64, cc as u64, tc, td as u64, dc as u64)
+            } else {
+                (0, 0, 0, 0u64, 0u64, 0u64, 0u64, 0.0f64, 0u64, 0u64)
+            };
+
+        let avg_duration_ms = if duration_count > 0 { total_duration / duration_count } else { 0 };
+
+        // 2. Executor distribution via SQL
+        let executor_sql = "SELECT \
+            COALESCE(executor, 'claudecode') as executor, \
+            COUNT(*) as execution_count, \
+            COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success_count, \
+            COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed_count, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.input_tokens'), 0)), 0) as input_tokens, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.output_tokens'), 0)), 0) as output_tokens, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.total_cost_usd'), 0.0)), 0.0) as cost \
+            FROM execution_records \
+            GROUP BY COALESCE(executor, 'claudecode')";
+
+        let mut executor_distribution: Vec<crate::models::ExecutorCount> = self.conn
+            .query_all(Statement::from_string(backend, executor_sql.to_string()))
             .await
-            .unwrap_or_default();
-
-        let mut total_executions = 0i64;
-        let mut success_executions = 0i64;
-        let mut failed_executions = 0i64;
-        let mut total_input_tokens = 0u64;
-        let mut total_output_tokens = 0u64;
-        let mut total_cache_read_tokens = 0u64;
-        let mut total_cache_creation_tokens = 0u64;
-        let mut total_cost = 0.0f64;
-        let mut total_duration: u64 = 0;
-        let mut duration_count: u64 = 0;
-        let mut daily_map: HashMap<String, (i64, i64)> = HashMap::new();
-        let mut daily_token_map: HashMap<String, crate::models::DailyTokenStats> = HashMap::new();
-
-        for r in &all_records {
-            total_executions += 1;
-            let rec_status = r.status.as_deref();
-            match rec_status {
-                Some("success") => success_executions += 1,
-                Some("failed") => failed_executions += 1,
-                _ => {}
-            }
-
-            if let Some(usage_str) = &r.usage {
-                if let Ok(usage) = serde_json::from_str::<crate::models::ExecutionUsage>(usage_str) {
-                    total_input_tokens += usage.input_tokens;
-                    total_output_tokens += usage.output_tokens;
-                    total_cache_read_tokens += usage.cache_read_input_tokens.unwrap_or(0);
-                    total_cache_creation_tokens += usage.cache_creation_input_tokens.unwrap_or(0);
-                    if let Some(cost) = usage.total_cost_usd {
-                        total_cost += cost;
-                    }
-                    if let Some(dur) = usage.duration_ms {
-                        total_duration += dur;
-                        duration_count += 1;
-                    }
-                }
-            }
-
-            // Aggregate by executor
-            if let Some(exec) = &r.executor {
-                let stat = executor_stats.entry(exec.clone()).or_insert_with(|| crate::models::ExecutorCount {
-                    executor: exec.clone(),
-                    count: 0,
-                    execution_count: 0,
-                    success_count: 0,
-                    failed_count: 0,
-                    total_input_tokens: 0,
-                    total_output_tokens: 0,
-                    total_cost_usd: 0.0,
-                });
-                stat.execution_count += 1;
-                match rec_status {
-                    Some("success") => stat.success_count += 1,
-                    Some("failed") => stat.failed_count += 1,
-                    _ => {}
-                }
-                if let Some(usage_str) = &r.usage {
-                    if let Ok(usage) = serde_json::from_str::<crate::models::ExecutionUsage>(usage_str) {
-                        stat.total_input_tokens += usage.input_tokens;
-                        stat.total_output_tokens += usage.output_tokens;
-                        if let Some(cost) = usage.total_cost_usd {
-                            stat.total_cost_usd += cost;
-                        }
-                    }
-                }
-            }
-
-            // Aggregate by tag
-            let rec_todo_id = r.todo_id.unwrap_or(0);
-            if let Some(tids) = tag_map.get(&rec_todo_id) {
-                for tid in tids {
-                    if let Some(stat) = tag_stats.get_mut(tid) {
-                        stat.execution_count += 1;
-                        match rec_status {
-                            Some("success") => stat.success_count += 1,
-                            Some("failed") => stat.failed_count += 1,
-                            _ => {}
-                        }
-                        if let Some(usage_str) = &r.usage {
-                            if let Ok(usage) = serde_json::from_str::<crate::models::ExecutionUsage>(usage_str) {
-                                stat.total_input_tokens += usage.input_tokens;
-                                stat.total_output_tokens += usage.output_tokens;
-                                if let Some(cost) = usage.total_cost_usd {
-                                    stat.total_cost_usd += cost;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Aggregate by model
-            let model_key = r.model.as_deref().unwrap_or("unknown");
-            if !model_stats.contains_key(model_key) {
-                model_stats.insert(model_key.to_string(), crate::models::ModelCount {
-                    model: model_key.to_string(),
-                    count: 0,
-                    execution_count: 0,
-                    success_count: 0,
-                    failed_count: 0,
-                    total_input_tokens: 0,
-                    total_output_tokens: 0,
-                    total_cache_read_tokens: 0,
-                    total_cache_creation_tokens: 0,
-                    total_cost_usd: 0.0,
-                });
-            }
-            if let Some(stat) = model_stats.get_mut(model_key) {
-                stat.execution_count += 1;
-                match rec_status {
-                    Some("success") => stat.success_count += 1,
-                    Some("failed") => stat.failed_count += 1,
-                    _ => {}
-                }
-                if let Some(usage_str) = &r.usage {
-                    if let Ok(usage) = serde_json::from_str::<crate::models::ExecutionUsage>(usage_str) {
-                        stat.total_input_tokens += usage.input_tokens;
-                        stat.total_output_tokens += usage.output_tokens;
-                        stat.total_cache_read_tokens += usage.cache_read_input_tokens.unwrap_or(0);
-                        stat.total_cache_creation_tokens += usage.cache_creation_input_tokens.unwrap_or(0);
-                        if let Some(cost) = usage.total_cost_usd {
-                            stat.total_cost_usd += cost;
-                        }
-                    }
-                }
-            }
-
-            // Aggregate daily token stats
-            if let Some(date) = r.started_at.as_deref() {
-                if date.len() >= 10 {
-                    let day = date[..10].to_string();
-                    let entry = daily_map.entry(day.clone()).or_insert((0, 0));
-                    match rec_status {
-                        Some("success") => entry.0 += 1,
-                        Some("failed") => entry.1 += 1,
-                        _ => {}
-                    }
-                    // Aggregate token stats for the day
-                    let token_entry = daily_token_map.entry(day.clone()).or_insert(crate::models::DailyTokenStats {
-                        date: day.clone(),
-                        input_tokens: 0,
-                        output_tokens: 0,
-                        cache_read_tokens: 0,
-                        cache_creation_tokens: 0,
-                        total_cost_usd: 0.0,
-                    });
-                    if let Some(usage_str) = &r.usage {
-                        if let Ok(usage) = serde_json::from_str::<crate::models::ExecutionUsage>(usage_str) {
-                            token_entry.input_tokens += usage.input_tokens;
-                            token_entry.output_tokens += usage.output_tokens;
-                            token_entry.cache_read_tokens += usage.cache_read_input_tokens.unwrap_or(0);
-                            token_entry.cache_creation_tokens += usage.cache_creation_input_tokens.unwrap_or(0);
-                            if let Some(cost) = usage.total_cost_usd {
-                                token_entry.total_cost_usd += cost;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        let mut executor_distribution: Vec<crate::models::ExecutorCount> = executor_stats
-            .into_values()
-            .filter(|s| s.execution_count > 0)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|row| {
+                let exec: String = row.try_get_by("executor").ok()?;
+                let ec: i64 = row.try_get_by("execution_count").ok()?;
+                if ec == 0 { return None; }
+                let sc: i64 = row.try_get_by("success_count").ok()?;
+                let fc: i64 = row.try_get_by("failed_count").ok()?;
+                let it: i64 = row.try_get_by("input_tokens").ok()?;
+                let ot: i64 = row.try_get_by("output_tokens").ok()?;
+                let cost: f64 = row.try_get_by("cost").ok()?;
+                Some(crate::models::ExecutorCount {
+                    count: *executor_todo_counts.get(&exec).unwrap_or(&0),
+                    executor: exec,
+                    execution_count: ec,
+                    success_count: sc,
+                    failed_count: fc,
+                    total_input_tokens: it as u64,
+                    total_output_tokens: ot as u64,
+                    total_cost_usd: cost,
+                })
+            })
             .collect();
         executor_distribution.sort_by(|a, b| b.execution_count.cmp(&a.execution_count));
 
-        let mut tag_distribution: Vec<crate::models::TagCount> = tag_stats
-            .into_values()
-            .filter(|s| s.count > 0)
-            .collect();
-        tag_distribution.sort_by(|a, b| b.execution_count.cmp(&a.execution_count));
+        // 3. Model distribution via SQL
+        let model_sql = "SELECT \
+            COALESCE(model, 'unknown') as model, \
+            COUNT(*) as execution_count, \
+            COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success_count, \
+            COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed_count, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.input_tokens'), 0)), 0) as input_tokens, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.output_tokens'), 0)), 0) as output_tokens, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_read_input_tokens'), 0)), 0) as cache_read, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_creation_input_tokens'), 0)), 0) as cache_creation, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.total_cost_usd'), 0.0)), 0.0) as cost \
+            FROM execution_records \
+            GROUP BY COALESCE(model, 'unknown')";
 
-        let mut model_distribution: Vec<crate::models::ModelCount> = model_stats
-            .into_values()
-            .filter(|s| s.execution_count > 0)
+        let mut model_distribution: Vec<crate::models::ModelCount> = self.conn
+            .query_all(Statement::from_string(backend, model_sql.to_string()))
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|row| {
+                let model: String = row.try_get_by("model").ok()?;
+                let ec: i64 = row.try_get_by("execution_count").ok()?;
+                if ec == 0 { return None; }
+                let sc: i64 = row.try_get_by("success_count").ok()?;
+                let fc: i64 = row.try_get_by("failed_count").ok()?;
+                let it: i64 = row.try_get_by("input_tokens").ok()?;
+                let ot: i64 = row.try_get_by("output_tokens").ok()?;
+                let cr: i64 = row.try_get_by("cache_read").ok()?;
+                let cc: i64 = row.try_get_by("cache_creation").ok()?;
+                let cost: f64 = row.try_get_by("cost").ok()?;
+                Some(crate::models::ModelCount {
+                    model,
+                    count: 0,
+                    execution_count: ec,
+                    success_count: sc,
+                    failed_count: fc,
+                    total_input_tokens: it as u64,
+                    total_output_tokens: ot as u64,
+                    total_cache_read_tokens: cr as u64,
+                    total_cache_creation_tokens: cc as u64,
+                    total_cost_usd: cost,
+                })
+            })
             .collect();
         model_distribution.sort_by(|a, b| {
             a.total_cost_usd.partial_cmp(&b.total_cost_usd).unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        let mut daily_executions: Vec<crate::models::DailyExecution> = daily_map.into_iter()
-            .map(|(date, (success, failed))| crate::models::DailyExecution { date, success, failed })
-            .collect();
-        daily_executions.sort_by(|a, b| a.date.cmp(&b.date));
-        if daily_executions.len() > 30 {
-            daily_executions = daily_executions.into_iter().rev().take(30).collect();
-            daily_executions.reverse();
+        // 4. Daily execution stats via SQL
+        let daily_sql = "SELECT \
+            SUBSTR(COALESCE(started_at, ''), 1, 10) as day, \
+            COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success, \
+            COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.input_tokens'), 0)), 0) as input_tokens, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.output_tokens'), 0)), 0) as output_tokens, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_read_input_tokens'), 0)), 0) as cache_read, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_creation_input_tokens'), 0)), 0) as cache_creation, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.total_cost_usd'), 0.0)), 0.0) as cost \
+            FROM execution_records \
+            WHERE started_at IS NOT NULL AND LENGTH(started_at) >= 10 \
+            GROUP BY SUBSTR(started_at, 1, 10) \
+            ORDER BY day DESC \
+            LIMIT 30";
+
+        let daily_rows = self.conn
+            .query_all(Statement::from_string(backend, daily_sql.to_string()))
+            .await
+            .unwrap_or_default();
+
+        let mut daily_executions: Vec<crate::models::DailyExecution> = Vec::with_capacity(daily_rows.len());
+        let mut daily_token_stats: Vec<crate::models::DailyTokenStats> = Vec::with_capacity(daily_rows.len());
+        for row in &daily_rows {
+            let day: String = row.try_get_by("day").unwrap_or_default();
+            let success: i64 = row.try_get_by("success").unwrap_or(0);
+            let failed: i64 = row.try_get_by("failed").unwrap_or(0);
+            daily_executions.push(crate::models::DailyExecution { date: day.clone(), success, failed });
+
+            let it: i64 = row.try_get_by("input_tokens").unwrap_or(0);
+            let ot: i64 = row.try_get_by("output_tokens").unwrap_or(0);
+            let cr: i64 = row.try_get_by("cache_read").unwrap_or(0);
+            let cc: i64 = row.try_get_by("cache_creation").unwrap_or(0);
+            let cost: f64 = row.try_get_by("cost").unwrap_or(0.0);
+            daily_token_stats.push(crate::models::DailyTokenStats {
+                date: day,
+                input_tokens: it as u64,
+                output_tokens: ot as u64,
+                cache_read_tokens: cr as u64,
+                cache_creation_tokens: cc as u64,
+                total_cost_usd: cost,
+            });
+        }
+        daily_executions.reverse();
+        daily_token_stats.reverse();
+
+        // 5. Tag distribution via SQL (join through todo_tags)
+        let tag_sql = "SELECT \
+            tt.tag_id, \
+            COUNT(*) as execution_count, \
+            COALESCE(SUM(CASE WHEN er.status = 'success' THEN 1 ELSE 0 END), 0) as success_count, \
+            COALESCE(SUM(CASE WHEN er.status = 'failed' THEN 1 ELSE 0 END), 0) as failed_count, \
+            COALESCE(SUM(COALESCE(json_extract(er.usage, '$.input_tokens'), 0)), 0) as input_tokens, \
+            COALESCE(SUM(COALESCE(json_extract(er.usage, '$.output_tokens'), 0)), 0) as output_tokens, \
+            COALESCE(SUM(COALESCE(json_extract(er.usage, '$.total_cost_usd'), 0.0)), 0.0) as cost \
+            FROM execution_records er \
+            INNER JOIN todo_tags tt ON tt.todo_id = er.todo_id \
+            WHERE er.todo_id IS NOT NULL \
+            GROUP BY tt.tag_id";
+
+        let tag_rows = self.conn
+            .query_all(Statement::from_string(backend, tag_sql.to_string()))
+            .await
+            .unwrap_or_default();
+
+        let mut tag_exec_stats: HashMap<i64, (i64, i64, i64, u64, u64, f64)> = HashMap::new();
+        for row in tag_rows {
+            let tag_id: i64 = row.try_get_by("tag_id").unwrap_or(0);
+            let ec: i64 = row.try_get_by("execution_count").unwrap_or(0);
+            let sc: i64 = row.try_get_by("success_count").unwrap_or(0);
+            let fc: i64 = row.try_get_by("failed_count").unwrap_or(0);
+            let it: i64 = row.try_get_by("input_tokens").unwrap_or(0);
+            let ot: i64 = row.try_get_by("output_tokens").unwrap_or(0);
+            let cost: f64 = row.try_get_by("cost").unwrap_or(0.0);
+            tag_exec_stats.insert(tag_id, (ec, sc, fc, it as u64, ot as u64, cost));
         }
 
-        let mut daily_token_stats: Vec<crate::models::DailyTokenStats> = daily_token_map.into_iter()
-            .map(|(_, stats)| stats)
-            .collect();
-        daily_token_stats.sort_by(|a, b| a.date.cmp(&b.date));
-        if daily_token_stats.len() > 30 {
-            daily_token_stats = daily_token_stats.into_iter().rev().take(30).collect();
-            daily_token_stats.reverse();
-        }
+        let mut tag_distribution: Vec<crate::models::TagCount> = tags.iter().filter_map(|t| {
+            let todo_count = *tag_todo_counts.get(&t.id).unwrap_or(&0);
+            if todo_count == 0 { return None; }
+            let (ec, sc, fc, it, ot, cost) = tag_exec_stats.get(&t.id).copied().unwrap_or((0, 0, 0, 0, 0, 0.0));
+            Some(crate::models::TagCount {
+                tag_id: t.id,
+                tag_name: t.name.clone(),
+                tag_color: t.color.clone(),
+                count: todo_count,
+                execution_count: ec,
+                success_count: sc,
+                failed_count: fc,
+                total_input_tokens: it,
+                total_output_tokens: ot,
+                total_cost_usd: cost,
+            })
+        }).collect();
+        tag_distribution.sort_by(|a, b| b.execution_count.cmp(&a.execution_count));
 
-        let recent_executions: Vec<crate::models::ExecutionRecord> = all_records.into_iter()
-            .take(10)
+        // 6. Recent executions (only load 10 rows, not the entire table)
+        let recent_records = execution_records::Entity::find()
+            .order_by_desc(execution_records::Column::StartedAt)
+            .limit(10)
+            .all(&self.conn)
+            .await
+            .unwrap_or_default();
+
+        let recent_executions: Vec<crate::models::ExecutionRecord> = recent_records.into_iter()
             .map(|m| {
                 let usage = m.usage.as_deref().and_then(|u| serde_json::from_str(u).ok());
                 crate::models::ExecutionRecord {
@@ -476,8 +460,6 @@ impl Database {
                 }
             })
             .collect();
-
-        let avg_duration_ms = if duration_count > 0 { total_duration / duration_count } else { 0 };
 
         crate::models::DashboardStats {
             total_todos,
