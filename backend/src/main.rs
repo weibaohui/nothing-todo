@@ -102,15 +102,35 @@ fn handle_tunnel_command(action: &TunnelAction) {
                 if let Ok(old_pid) = old_pid_str.trim().parse::<u32>() {
                     if is_process_running(old_pid as i32) {
                         println!("Stopping old tunnel (PID: {})", old_pid);
-                        kill_process(old_pid as i32);
-                        // 等待退出，最多 3s
-                        for _ in 0..3 {
-                            if !is_process_running(old_pid as i32) {
-                                break;
+                        #[cfg(unix)]
+                        {
+                            // 检查 PID 是否仍是进程组 leader
+                            if is_process_group_leader(old_pid as i32) {
+                                kill_process_group(old_pid as i32);
+                                thread::sleep(Duration::from_millis(500));
+                                if is_process_running(old_pid as i32) {
+                                    kill_process_group_force(old_pid as i32);
+                                }
+                            } else {
+                                // 不是进程组 leader，回退到单 PID 终止
+                                kill_process(old_pid as i32);
+                                thread::sleep(Duration::from_millis(500));
+                                if is_process_running(old_pid as i32) {
+                                    kill_process_force(old_pid as i32);
+                                }
                             }
-                            thread::sleep(Duration::from_secs(1));
                         }
-                        kill_process_force(old_pid as i32);
+                        #[cfg(windows)]
+                        {
+                            kill_process(old_pid as i32);
+                            for _ in 0..3 {
+                                if !is_process_running(old_pid as i32) {
+                                    break;
+                                }
+                                thread::sleep(Duration::from_secs(1));
+                            }
+                            kill_process_force(old_pid as i32);
+                        }
                     }
                 }
             }
@@ -123,13 +143,30 @@ fn handle_tunnel_command(action: &TunnelAction) {
                     // 启动 hostc 隧道
                     let output_file = "/tmp/hostc_output.txt";
 
-                    let child = std::process::Command::new("hostc")
-                        .arg("8088")
-                        .stdout(std::fs::File::create(output_file).expect("Failed to create output file"))
-                        .stderr(std::fs::File::create(output_file).expect("Failed to create output file"))
-                        .spawn()
-                        .expect("Failed to start hostc. Is hostc installed?");
+                    let output = std::fs::OpenOptions::new()
+                        .create(true)
+                        .write(true)
+                        .truncate(true)
+                        .open(output_file)
+                        .expect("Failed to create output file");
 
+                    let mut cmd = std::process::Command::new("hostc");
+                    cmd.arg("8088")
+                        .stdout(output.try_clone().expect("Failed to clone output file"))
+                        .stderr(output);
+
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::process::CommandExt;
+                        unsafe {
+                            cmd.pre_exec(|| {
+                                libc::setsid();
+                                Ok(())
+                            });
+                        }
+                    }
+
+                    let mut child = cmd.spawn().expect("Failed to start hostc. Is hostc installed?");
                     let hostc_pid = child.id();
                     fs::write(&pid_file, hostc_pid.to_string()).expect("Failed to write PID file");
 
@@ -165,6 +202,21 @@ fn handle_tunnel_command(action: &TunnelAction) {
                     }
 
                     if public_url.is_empty() {
+                        // 清理已启动的进程
+                        #[cfg(unix)]
+                        {
+                            if is_process_group_leader(hostc_pid as i32) {
+                                kill_process_group(hostc_pid as i32);
+                            } else {
+                                let _ = child.kill();
+                            }
+                        }
+                        #[cfg(windows)]
+                        {
+                            let _ = child.kill();
+                        }
+                        fs::remove_file(&pid_file).ok();
+                        fs::remove_file(&url_file).ok();
                         eprintln!("Error: failed to capture Public URL within 60s");
                         std::process::exit(1);
                     }
@@ -179,15 +231,32 @@ fn handle_tunnel_command(action: &TunnelAction) {
                     // 启动 cloudflare 隧道
                     let output_file = "/tmp/cloudflared_output.txt";
 
-                    let child = std::process::Command::new("cloudflared")
-                        .arg("tunnel")
+                    let output = std::fs::OpenOptions::new()
+                        .create(true)
+                        .write(true)
+                        .truncate(true)
+                        .open(output_file)
+                        .expect("Failed to create output file");
+
+                    let mut cmd = std::process::Command::new("cloudflared");
+                    cmd.arg("tunnel")
                         .arg("--url")
                         .arg("http://localhost:8088")
-                        .stdout(std::fs::File::create(output_file).expect("Failed to create output file"))
-                        .stderr(std::fs::File::create(output_file).expect("Failed to create output file"))
-                        .spawn()
-                        .expect("Failed to start cloudflared. Is cloudflared installed?");
+                        .stdout(output.try_clone().expect("Failed to clone output file"))
+                        .stderr(output);
 
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::process::CommandExt;
+                        unsafe {
+                            cmd.pre_exec(|| {
+                                libc::setsid();
+                                Ok(())
+                            });
+                        }
+                    }
+
+                    let mut child = cmd.spawn().expect("Failed to start cloudflared. Is cloudflared installed?");
                     let cloudflared_pid = child.id();
                     fs::write(&pid_file, cloudflared_pid.to_string()).expect("Failed to write PID file");
 
@@ -221,6 +290,21 @@ fn handle_tunnel_command(action: &TunnelAction) {
                     }
 
                     if public_url.is_empty() {
+                        // 清理已启动的进程
+                        #[cfg(unix)]
+                        {
+                            if is_process_group_leader(cloudflared_pid as i32) {
+                                kill_process_group(cloudflared_pid as i32);
+                            } else {
+                                let _ = child.kill();
+                            }
+                        }
+                        #[cfg(windows)]
+                        {
+                            let _ = child.kill();
+                        }
+                        fs::remove_file(&pid_file).ok();
+                        fs::remove_file(&url_file).ok();
                         eprintln!("Error: failed to capture Public URL within 60s");
                         std::process::exit(1);
                     }
@@ -243,10 +327,31 @@ fn handle_tunnel_command(action: &TunnelAction) {
                 if let Ok(pid) = pid_str.trim().parse::<u32>() {
                     if is_process_running(pid as i32) {
                         println!("Stopping tunnel (PID: {})", pid);
-                        kill_process(pid as i32);
-                        thread::sleep(Duration::from_secs(1));
-                        if is_process_running(pid as i32) {
-                            kill_process_force(pid as i32);
+                        #[cfg(unix)]
+                        {
+                            // 检查 PID 是否仍是进程组 leader
+                            if is_process_group_leader(pid as i32) {
+                                kill_process_group(pid as i32);
+                                thread::sleep(Duration::from_millis(500));
+                                if is_process_running(pid as i32) {
+                                    kill_process_group_force(pid as i32);
+                                }
+                            } else {
+                                // 不是进程组 leader，回退到单 PID 终止
+                                kill_process(pid as i32);
+                                thread::sleep(Duration::from_millis(500));
+                                if is_process_running(pid as i32) {
+                                    kill_process_force(pid as i32);
+                                }
+                            }
+                        }
+                        #[cfg(windows)]
+                        {
+                            kill_process(pid as i32);
+                            thread::sleep(Duration::from_secs(1));
+                            if is_process_running(pid as i32) {
+                                kill_process_force(pid as i32);
+                            }
                         }
                     }
                     fs::remove_file(&pid_file).ok();
@@ -271,6 +376,10 @@ fn handle_tunnel_command(action: &TunnelAction) {
                         println!("Tunnel is not running (stale PID file)");
                         fs::remove_file(&pid_file).ok();
                     }
+                } else {
+                    println!("Tunnel state is invalid (bad PID file)");
+                    fs::remove_file(&pid_file).ok();
+                    fs::remove_file(&url_file).ok();
                 }
             } else {
                 println!("No tunnel is running");
@@ -282,6 +391,11 @@ fn handle_tunnel_command(action: &TunnelAction) {
 #[cfg(unix)]
 fn is_process_running(pid: i32) -> bool {
     unsafe { libc::kill(pid, 0) == 0 }
+}
+
+#[cfg(unix)]
+fn is_process_group_leader(pid: i32) -> bool {
+    unsafe { libc::getpgid(pid) == pid as libc::pid_t }
 }
 
 #[cfg(windows)]
@@ -297,6 +411,20 @@ fn is_process_running(pid: i32) -> bool {
 fn kill_process(pid: i32) {
     unsafe {
         libc::kill(pid, libc::SIGTERM);
+    }
+}
+
+#[cfg(unix)]
+fn kill_process_group(pid: i32) {
+    unsafe {
+        libc::kill(-pid, libc::SIGTERM);
+    }
+}
+
+#[cfg(unix)]
+fn kill_process_group_force(pid: i32) {
+    unsafe {
+        libc::kill(-pid, libc::SIGKILL);
     }
 }
 
@@ -323,6 +451,7 @@ fn kill_process_force(pid: i32) {
 fn cleanup_orphan_processes() {
     use std::process::Command;
 
+    // 清理残留的 hostc 进程
     if let Ok(output) = Command::new("pgrep")
         .args(["-f", "hostc 8088"])
         .output()
@@ -330,11 +459,15 @@ fn cleanup_orphan_processes() {
         let pids = String::from_utf8_lossy(&output.stdout);
         for pid_str in pids.lines() {
             if let Ok(pid) = pid_str.trim().parse::<i32>() {
-                kill_process(pid);
+                // 只清理父进程是 init (pid 1) 或当前进程的孤儿进程
+                if is_orphan_process(pid) {
+                    kill_process(pid);
+                }
             }
         }
     }
 
+    // 清理残留的 cloudflared 进程
     if let Ok(output) = Command::new("pgrep")
         .args(["-f", "cloudflared tunnel.*8088"])
         .output()
@@ -342,10 +475,31 @@ fn cleanup_orphan_processes() {
         let pids = String::from_utf8_lossy(&output.stdout);
         for pid_str in pids.lines() {
             if let Ok(pid) = pid_str.trim().parse::<i32>() {
-                kill_process(pid);
+                // 只清理父进程是 init (pid 1) 或当前进程的孤儿进程
+                if is_orphan_process(pid) {
+                    kill_process(pid);
+                }
             }
         }
     }
+}
+
+#[cfg(unix)]
+fn is_orphan_process(pid: i32) -> bool {
+    use std::process::Command;
+
+    // 获取进程的父进程 ID
+    if let Ok(output) = Command::new("ps")
+        .args(["-o", "ppid=", "-p", &pid.to_string()])
+        .output()
+    {
+        let ppid_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if let Ok(ppid) = ppid_str.parse::<i32>() {
+            // 孤儿进程：父进程是 init (pid 1)
+            return ppid == 1;
+        }
+    }
+    false
 }
 
 #[cfg(windows)]

@@ -20,9 +20,8 @@ uuid = { version = "1", features = ["v4"] }
 async-trait = "0.1"
 regex = "1"
 dirs = "5"
-[target.'cfg(unix)'.dependencies]
 libc = "0.2"
-tokio-cron-scheduler = { version = "0.13", features = ["signal"] }
+tokio-cron-scheduler = "0.13"
 cron = "0.15"
 tracing = "0.1"
 tracing-subscriber = "0.3"
