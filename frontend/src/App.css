@@ -832,6 +832,28 @@ code {
   height: 40px;
 }
 
+.execution-panel.fullscreen {
+  height: 100vh;
+  top: 0;
+  z-index: 1000;
+}
+
+.execution-panel.fullscreen .execution-panel-logs {
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 8px 16px;
+}
+
+.execution-panel.fullscreen .log-timestamp {
+  width: 64px;
+  font-size: 11px;
+}
+
+.execution-panel.fullscreen .log-type-badge {
+  font-size: 10px;
+  padding: 1px 4px;
+}
+
 .execution-panel-tabs {
   display: flex;
   align-items: center;
