@@ -87,6 +87,12 @@ impl From<sea_orm::DbErr> for AppError {
     }
 }
 
+impl From<String> for AppError {
+    fn from(s: String) -> Self {
+        AppError::BadRequest(s)
+    }
+}
+
 impl<T: Serialize> IntoResponse for crate::models::ApiResponse<T> {
     fn into_response(self) -> Response {
         axum::Json(self).into_response()
@@ -226,7 +232,7 @@ pub fn create_app(
         .route("/xyz/todos/{id}/tags", put(todo::update_todo_tags))
         .route("/xyz/todos/{id}/summary", get(execution::get_execution_summary))
         .route("/xyz/todos/{id}/scheduler", put(scheduler::update_scheduler))
-        .route("/xyz/todos/{id}", put(todo::update_todo).delete(todo::delete_todo))
+        .route("/xyz/todos/{id}", get(todo::get_todo).put(todo::update_todo).delete(todo::delete_todo))
         .route("/xyz/tags", get(tag::get_tags).post(tag::create_tag))
         .route("/xyz/tags/{id}", delete(tag::delete_tag))
         .route("/xyz/execution-records", get(execution::get_execution_records))
