@@ -138,6 +138,11 @@ fn handle_tunnel_command(action: &TunnelAction) {
             // 顺手清理任何残留的 hostc 8088 进程（防止脚本异常退出留下的孤儿）
             cleanup_orphan_processes();
 
+            let port = std::env::var("NTD_PORT")
+                .ok()
+                .and_then(|s| s.parse::<u16>().ok())
+                .unwrap_or(8088);
+
             match tunnel_type.as_str() {
                 "hostc" => {
                     // 启动 hostc 隧道
@@ -151,7 +156,7 @@ fn handle_tunnel_command(action: &TunnelAction) {
                         .expect("Failed to create output file");
 
                     let mut cmd = std::process::Command::new("hostc");
-                    cmd.arg("8088")
+                    cmd.arg(port.to_string())
                         .stdout(output.try_clone().expect("Failed to clone output file"))
                         .stderr(output);
 
@@ -241,7 +246,7 @@ fn handle_tunnel_command(action: &TunnelAction) {
                     let mut cmd = std::process::Command::new("cloudflared");
                     cmd.arg("tunnel")
                         .arg("--url")
-                        .arg("http://localhost:8088")
+                        .arg(format!("http://localhost:{}", port))
                         .stdout(output.try_clone().expect("Failed to clone output file"))
                         .stderr(output);
 
@@ -451,9 +456,14 @@ fn kill_process_force(pid: i32) {
 fn cleanup_orphan_processes() {
     use std::process::Command;
 
+    let port = std::env::var("NTD_PORT")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(8088);
+
     // 清理残留的 hostc 进程
     if let Ok(output) = Command::new("pgrep")
-        .args(["-f", "hostc 8088"])
+        .args(["-f", &format!("hostc {}", port)])
         .output()
     {
         let pids = String::from_utf8_lossy(&output.stdout);
@@ -469,7 +479,7 @@ fn cleanup_orphan_processes() {
 
     // 清理残留的 cloudflared 进程
     if let Ok(output) = Command::new("pgrep")
-        .args(["-f", "cloudflared tunnel.*8088"])
+        .args(["-f", &format!("cloudflared tunnel.*{}", port)])
         .output()
     {
         let pids = String::from_utf8_lossy(&output.stdout);
@@ -506,8 +516,13 @@ fn is_orphan_process(pid: i32) -> bool {
 fn cleanup_orphan_processes() {
     use std::process::Command;
 
+    let port = std::env::var("NTD_PORT")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(8088);
+
     if let Ok(output) = Command::new("wmic")
-        .args(["process", "where", "commandline like '%hostc 8088%'", "get", "processid"])
+        .args(["process", "where", &format!("commandline like '%hostc {}%'", port), "get", "processid"])
         .output()
     {
         let text = String::from_utf8_lossy(&output.stdout);
@@ -519,7 +534,7 @@ fn cleanup_orphan_processes() {
     }
 
     if let Ok(output) = Command::new("wmic")
-        .args(["process", "where", "commandline like '%cloudflared%8088%'", "get", "processid"])
+        .args(["process", "where", &format!("commandline like '%cloudflared%{}%'", port), "get", "processid"])
         .output()
     {
         let text = String::from_utf8_lossy(&output.stdout);
@@ -595,12 +610,17 @@ async fn run_server() {
     // Create app
     let app = handlers::create_app(db, executor_registry, tx, scheduler, task_manager);
 
+    let port = std::env::var("NTD_PORT")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(8088);
+
     info!("===========================================");
     info!("  Nothing Todo (ntd)");
-    info!("  Open http://localhost:8088 in your browser");
+    info!("  Open http://localhost:{} in your browser", port);
     info!("===========================================");
 
-    let std_listener = std::net::TcpListener::bind("0.0.0.0:8088").unwrap();
+    let std_listener = std::net::TcpListener::bind(format!("0.0.0.0:{}", port)).unwrap();
 
     // Enable SO_REUSEADDR on Unix to allow quick restart (Windows doesn't need it)
     #[cfg(unix)]
