@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use std::env;
 use std::sync::{Arc, Mutex};
 
 use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
@@ -11,9 +10,7 @@ pub struct JoinaiExecutor {
 }
 
 impl JoinaiExecutor {
-    pub fn new() -> Self {
-        let path = env::var("JOINAI_PATH")
-            .unwrap_or_else(|_| "joinai".to_string());
+    pub fn new(path: String) -> Self {
         Self { path, usage: Arc::new(Mutex::new(None)) }
     }
 }
@@ -21,12 +18,6 @@ impl JoinaiExecutor {
 impl Clone for JoinaiExecutor {
     fn clone(&self) -> Self {
         Self { path: self.path.clone(), usage: self.usage.clone() }
-    }
-}
-
-impl Default for JoinaiExecutor {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

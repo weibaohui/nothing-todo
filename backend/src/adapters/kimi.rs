@@ -1,4 +1,3 @@
-use std::env;
 use std::sync::{Arc, Mutex};
 
 use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
@@ -10,9 +9,7 @@ pub struct KimiExecutor {
 }
 
 impl KimiExecutor {
-    pub fn new() -> Self {
-        let path = env::var("KIMI_PATH")
-            .unwrap_or_else(|_| "kimi".to_string());
+    pub fn new(path: String) -> Self {
         Self {
             path,
             usage: Arc::new(Mutex::new(None)),
@@ -26,12 +23,6 @@ impl Clone for KimiExecutor {
             path: self.path.clone(),
             usage: self.usage.clone(),
         }
-    }
-}
-
-impl Default for KimiExecutor {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

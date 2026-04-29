@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use std::env;
 use std::sync::{Arc, Mutex};
 
 use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
@@ -13,9 +12,7 @@ pub struct OpencodeExecutor {
 }
 
 impl OpencodeExecutor {
-    pub fn new() -> Self {
-        let path = env::var("OPENCODE_PATH")
-            .unwrap_or_else(|_| "opencode".to_string());
+    pub fn new(path: String) -> Self {
         Self {
             path,
             model: Arc::new(Mutex::new(None)),
@@ -36,11 +33,6 @@ impl Clone for OpencodeExecutor {
     }
 }
 
-impl Default for OpencodeExecutor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 #[derive(Debug, Clone, Deserialize)]
 struct OpencodeEvent {

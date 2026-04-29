@@ -1,4 +1,3 @@
-use std::env;
 use std::sync::{Arc, Mutex};
 use serde::Deserialize;
 
@@ -11,9 +10,7 @@ pub struct CodebuddyExecutor {
 }
 
 impl CodebuddyExecutor {
-    pub fn new() -> Self {
-        let path = env::var("CODEBUDDY_PATH")
-            .unwrap_or_else(|_| "codebuddy".to_string());
+    pub fn new(path: String) -> Self {
         Self { path, model: Arc::new(Mutex::new(None)) }
     }
 }
@@ -21,12 +18,6 @@ impl CodebuddyExecutor {
 impl Clone for CodebuddyExecutor {
     fn clone(&self) -> Self {
         Self { path: self.path.clone(), model: self.model.clone() }
-    }
-}
-
-impl Default for CodebuddyExecutor {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

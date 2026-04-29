@@ -1,4 +1,3 @@
-use std::env;
 use std::sync::{Arc, Mutex};
 
 use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
@@ -11,9 +10,7 @@ pub struct AtomcodeExecutor {
 }
 
 impl AtomcodeExecutor {
-    pub fn new() -> Self {
-        let path = env::var("ATOMCODE_PATH")
-            .unwrap_or_else(|_| "atomcode".to_string());
+    pub fn new(path: String) -> Self {
         Self {
             path,
             usage: Arc::new(Mutex::new(None)),
@@ -29,12 +26,6 @@ impl Clone for AtomcodeExecutor {
             usage: self.usage.clone(),
             has_done: self.has_done.clone(),
         }
-    }
-}
-
-impl Default for AtomcodeExecutor {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
