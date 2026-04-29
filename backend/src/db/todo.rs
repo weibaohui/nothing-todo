@@ -69,7 +69,7 @@ impl Database {
             .collect()
     }
 
-    pub async fn create_todo(&self, title: &str, prompt: &str) -> i64 {
+    pub async fn create_todo(&self, title: &str, prompt: &str) -> Result<i64, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             title: ActiveValue::Set(title.to_string()),
@@ -80,8 +80,8 @@ impl Database {
             executor: ActiveValue::Set(Some("claudecode".to_string())),
             ..Default::default()
         };
-        let inserted = am.insert(&self.conn).await.expect("insert todo failed");
-        inserted.id
+        let inserted = am.insert(&self.conn).await?;
+        Ok(inserted.id)
     }
 
     pub async fn update_todo_full(
