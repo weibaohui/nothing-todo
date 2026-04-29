@@ -26,6 +26,7 @@ impl From<execution_records::Model> for ExecutionRecord {
             trigger_type: m.trigger_type.unwrap_or_else(|| "manual".to_string()),
             pid: m.pid,
             task_id: m.task_id,
+            todo_progress: m.todo_progress,
         }
     }
 }
@@ -131,6 +132,16 @@ impl Database {
         let am = execution_records::ActiveModel {
             id: ActiveValue::Unchanged(id),
             pid: ActiveValue::Set(pid),
+            ..Default::default()
+        };
+        self.exec_update(am).await
+    }
+
+    /// 更新执行记录的 todo_progress
+    pub async fn update_execution_record_todo_progress(&self, id: i64, todo_progress_json: &str) -> Result<(), sea_orm::DbErr> {
+        let am = execution_records::ActiveModel {
+            id: ActiveValue::Unchanged(id),
+            todo_progress: ActiveValue::Set(Some(todo_progress_json.to_string())),
             ..Default::default()
         };
         self.exec_update(am).await

@@ -57,10 +57,14 @@ impl CodeExecutor for CodebuddyExecutor {
                         log_type: "system".to_string(),
                         content: format!("Session init: {:?}", session_id.or(subtype)),
                         usage: None,
+                tool_name: None,
+                tool_input_json: None,
                     })
                 }
                 ClaudeMessage::Assistant { message, .. } => {
                     let mut parts = Vec::new();
+                    let mut first_tool_name: Option<String> = None;
+                    let mut first_tool_input_json: Option<String> = None;
                     for block in message.content {
                         match block {
                             ClaudeContentBlock::Thinking { thinking } => {
@@ -75,7 +79,11 @@ impl CodeExecutor for CodebuddyExecutor {
                             }
                             ClaudeContentBlock::ToolUse { name, input, .. } => {
                                 let input_str = serde_json::to_string(&input).unwrap_or_default();
-                                parts.push(format!("[tool] {}: {}", name.unwrap_or_default(), input_str.chars().take(100).collect::<String>()));
+                                parts.push(format!("[tool] {}: {}", name.as_ref().unwrap_or(&String::new()), input_str.chars().take(100).collect::<String>()));
+                                if first_tool_name.is_none() {
+                                    first_tool_name = name;
+                                    first_tool_input_json = Some(serde_json::to_string(&input).unwrap_or_default());
+                                }
                             }
                             ClaudeContentBlock::ToolResult { content, is_error, .. } => {
                                 let err_str = if is_error.unwrap_or(false) { "[error] " } else { "" };
@@ -94,6 +102,8 @@ impl CodeExecutor for CodebuddyExecutor {
                             log_type: "assistant".to_string(),
                             content: parts.join("\n"),
                             usage: None,
+                            tool_name: first_tool_name,
+                            tool_input_json: first_tool_input_json,
                         })
                     }
                 }
@@ -113,6 +123,8 @@ impl CodeExecutor for CodebuddyExecutor {
                             log_type: "user".to_string(),
                             content: parts.join("\n"),
                             usage: None,
+                tool_name: None,
+                tool_input_json: None,
                         })
                     }
                 }
@@ -134,6 +146,8 @@ impl CodeExecutor for CodebuddyExecutor {
                         log_type: if is_error { "error".to_string() } else { "result".to_string() },
                         content: format!("{}{}", err_str, result_str),
                         usage,
+                        tool_name: None,
+                        tool_input_json: None,
                     })
                 }
             };
@@ -144,6 +158,8 @@ impl CodeExecutor for CodebuddyExecutor {
             log_type: "text".to_string(),
             content: line.to_string(),
             usage: None,
+                tool_name: None,
+                tool_input_json: None,
         })
     }
 
@@ -255,6 +271,8 @@ mod tests {
                     total_cost_usd: Some(0.001),
                     duration_ms: Some(100),
                 }),
+                tool_name: None,
+                tool_input_json: None,
             },
         ];
         let usage = executor.get_usage(&logs).unwrap();

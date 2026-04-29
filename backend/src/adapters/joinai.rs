@@ -59,6 +59,8 @@ impl CodeExecutor for JoinaiExecutor {
                     log_type: "step_start".to_string(),
                     content: format!("Step started"),
                     usage: None,
+                tool_name: None,
+                tool_input_json: None,
                 })
             }
             "tool_use" => {
@@ -66,6 +68,9 @@ impl CodeExecutor for JoinaiExecutor {
                 let tool = part.tool.unwrap_or_default();
                 let status = part.state.as_ref().and_then(|s| s.status.clone()).unwrap_or_default();
                 let description = part.state.as_ref().and_then(|s| s.input.as_ref().and_then(|i| i.description.clone())).unwrap_or_default();
+                let input_json = part.state.as_ref()
+                    .and_then(|s| s.input.as_ref())
+                    .map(|i| i.to_full_json());
 
                 let content = if tool == "bash" {
                     if let Some(output) = &part.state.as_ref().and_then(|s| s.output.clone()) {
@@ -82,6 +87,8 @@ impl CodeExecutor for JoinaiExecutor {
                     log_type: "tool".to_string(),
                     content,
                     usage: None,
+                    tool_name: Some(tool),
+                    tool_input_json: input_json,
                 })
             }
             "text" => {
@@ -94,6 +101,8 @@ impl CodeExecutor for JoinaiExecutor {
                     log_type: "text".to_string(),
                     content: text,
                     usage: None,
+                tool_name: None,
+                tool_input_json: None,
                 })
             }
             "step_finish" => {
@@ -116,6 +125,8 @@ impl CodeExecutor for JoinaiExecutor {
                     log_type: "step_finish".to_string(),
                     content: "Step finished".to_string(),
                     usage: None,
+                tool_name: None,
+                tool_input_json: None,
                 })
             }
             _ => None,

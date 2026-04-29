@@ -124,6 +124,8 @@ pub struct ExecutionRecord {
     pub pid: Option<i32>,
     #[serde(default)]
     pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub todo_progress: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,6 +153,13 @@ pub struct ExecutionSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TodoItem {
+    pub id: Option<String>,
+    pub content: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParsedLogEntry {
     pub timestamp: String,
     #[serde(rename = "type")]
@@ -158,6 +167,10 @@ pub struct ParsedLogEntry {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<ExecutionUsage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_input_json: Option<String>,
 }
 
 impl ParsedLogEntry {
@@ -167,6 +180,8 @@ impl ParsedLogEntry {
             log_type: log_type.into(),
             content: content.into(),
             usage: None,
+            tool_name: None,
+            tool_input_json: None,
         }
     }
 

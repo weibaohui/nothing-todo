@@ -67,6 +67,8 @@ impl CodeExecutor for HermesExecutor {
                 log_type: "info".to_string(),
                 content: trimmed.to_string(),
                 usage: None,
+                tool_name: None,
+                tool_input_json: None,
             });
         }
 
@@ -85,6 +87,8 @@ impl CodeExecutor for HermesExecutor {
             log_type: "text".to_string(),
             content: trimmed.to_string(),
             usage: None,
+            tool_name: None,
+            tool_input_json: None,
         })
     }
 
@@ -106,6 +110,8 @@ impl CodeExecutor for HermesExecutor {
             log_type,
             content: trimmed.to_string(),
             usage: None,
+            tool_name: None,
+            tool_input_json: None,
         })
     }
 

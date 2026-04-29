@@ -62,6 +62,10 @@ pub enum ExecEvent {
     Sync {
         tasks: Vec<TaskInfo>,
     },
+    TodoProgress {
+        task_id: String,
+        progress: Vec<crate::models::TodoItem>,
+    },
 }
 
 #[derive(Debug)]
