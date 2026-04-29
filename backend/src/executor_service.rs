@@ -65,9 +65,15 @@ pub async fn run_todo_execution(
 
     // Determine which executor to use
     let executor_type = if let Some(exec) = req_executor {
-        parse_executor_type(&exec)
+        parse_executor_type(&exec).unwrap_or_else(|| {
+            tracing::warn!("Unknown executor '{}', falling back to default", exec);
+            ExecutorType::default()
+        })
     } else if let Some(exec) = todo_executor {
-        parse_executor_type(&exec)
+        parse_executor_type(&exec).unwrap_or_else(|| {
+            tracing::warn!("Unknown executor '{}', falling back to default", exec);
+            ExecutorType::default()
+        })
     } else {
         ExecutorType::default()
     };
