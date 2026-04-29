@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 
 use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
 use crate::models::utc_timestamp;
@@ -81,7 +82,7 @@ impl CodeExecutor for AtomcodeExecutor {
                 }
             }
 
-            let mut usage_guard = self.usage.lock().unwrap();
+            let mut usage_guard = self.usage.lock();
             if let Some(ref mut usage) = *usage_guard {
                 usage.input_tokens = prompt_tokens;
                 usage.output_tokens = completion_tokens;
@@ -106,7 +107,7 @@ impl CodeExecutor for AtomcodeExecutor {
 
         // [done] 4.6s tokens=0 turns=1 tool_calls=0 [stopped=turn_limit]
         if trimmed.starts_with("[done]") {
-            *self.has_done.lock().unwrap() = true;
+            *self.has_done.lock() = true;
 
             let mut total_tokens = 0u64;
             let mut turns = 0u64;
@@ -130,7 +131,7 @@ impl CodeExecutor for AtomcodeExecutor {
                 }
             }
 
-            let mut usage_guard = self.usage.lock().unwrap();
+            let mut usage_guard = self.usage.lock();
             if let Some(ref mut usage) = *usage_guard {
                 usage.duration_ms = duration_ms;
             } else if total_tokens > 0 {
@@ -190,7 +191,7 @@ impl CodeExecutor for AtomcodeExecutor {
     }
 
     fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
-        self.usage.lock().unwrap().clone()
+        self.usage.lock().clone()
     }
 
     fn get_model(&self) -> Option<String> {

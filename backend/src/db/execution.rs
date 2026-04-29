@@ -6,6 +6,30 @@ use crate::db::Database;
 use crate::db::entity::execution_records;
 use crate::models::{ExecutionRecord, ExecutionSummary, ExecutionUsage};
 
+impl From<execution_records::Model> for ExecutionRecord {
+    fn from(m: execution_records::Model) -> Self {
+        let usage = m.usage.as_deref().and_then(|u| serde_json::from_str(u).ok());
+        ExecutionRecord {
+            id: m.id,
+            todo_id: m.todo_id.unwrap_or(0),
+            status: m.status.unwrap_or_default(),
+            command: m.command.unwrap_or_default(),
+            stdout: m.stdout.unwrap_or_default(),
+            stderr: m.stderr.unwrap_or_default(),
+            logs: m.logs.unwrap_or_default(),
+            result: m.result,
+            started_at: m.started_at.unwrap_or_default(),
+            finished_at: m.finished_at,
+            usage,
+            executor: m.executor,
+            model: m.model,
+            trigger_type: m.trigger_type.unwrap_or_else(|| "manual".to_string()),
+            pid: m.pid,
+            task_id: m.task_id,
+        }
+    }
+}
+
 impl Database {
     pub async fn get_execution_records(
         &self,
@@ -31,30 +55,7 @@ impl Database {
             .await
             .unwrap_or_default()
             .into_iter()
-            .map(|m| {
-                let usage = m
-                    .usage
-                    .as_deref()
-                    .and_then(|u| serde_json::from_str(u).ok());
-                ExecutionRecord {
-                    id: m.id,
-                    todo_id: m.todo_id.unwrap_or(0),
-                    status: m.status.unwrap_or_default(),
-                    command: m.command.unwrap_or_default(),
-                    stdout: m.stdout.unwrap_or_default(),
-                    stderr: m.stderr.unwrap_or_default(),
-                    logs: m.logs.unwrap_or_default(),
-                    result: m.result,
-                    started_at: m.started_at.unwrap_or_default(),
-                    finished_at: m.finished_at,
-                    usage,
-                    executor: m.executor,
-                    model: m.model,
-                    trigger_type: m.trigger_type.unwrap_or_else(|| "manual".to_string()),
-                    pid: m.pid,
-                    task_id: m.task_id,
-                }
-            })
+            .map(Into::into)
             .collect();
 
         (records, total)
@@ -66,25 +67,7 @@ impl Database {
             .one(&self.conn)
             .await
             .ok()??;
-        let usage = m.usage.as_deref().and_then(|u| serde_json::from_str(u).ok());
-        Some(ExecutionRecord {
-            id: m.id,
-            todo_id: m.todo_id.unwrap_or(0),
-            status: m.status.unwrap_or_default(),
-            command: m.command.unwrap_or_default(),
-            stdout: m.stdout.unwrap_or_default(),
-            stderr: m.stderr.unwrap_or_default(),
-            logs: m.logs.unwrap_or_default(),
-            result: m.result,
-            started_at: m.started_at.unwrap_or_default(),
-            finished_at: m.finished_at,
-            usage,
-            executor: m.executor,
-            model: m.model,
-            trigger_type: m.trigger_type.unwrap_or_else(|| "manual".to_string()),
-            pid: m.pid,
-            task_id: m.task_id,
-        })
+        Some(m.into())
     }
 
     /// 根据 task_id 获取执行记录
@@ -94,25 +77,7 @@ impl Database {
             .one(&self.conn)
             .await
             .ok()??;
-        let usage = m.usage.as_deref().and_then(|u| serde_json::from_str(u).ok());
-        Some(ExecutionRecord {
-            id: m.id,
-            todo_id: m.todo_id.unwrap_or(0),
-            status: m.status.unwrap_or_default(),
-            command: m.command.unwrap_or_default(),
-            stdout: m.stdout.unwrap_or_default(),
-            stderr: m.stderr.unwrap_or_default(),
-            logs: m.logs.unwrap_or_default(),
-            result: m.result,
-            started_at: m.started_at.unwrap_or_default(),
-            finished_at: m.finished_at,
-            usage,
-            executor: m.executor,
-            model: m.model,
-            trigger_type: m.trigger_type.unwrap_or_else(|| "manual".to_string()),
-            pid: m.pid,
-            task_id: m.task_id,
-        })
+        Some(m.into())
     }
 
     pub async fn create_execution_record(
@@ -461,27 +426,7 @@ impl Database {
             .unwrap_or_default();
 
         let recent_executions: Vec<crate::models::ExecutionRecord> = recent_records.into_iter()
-            .map(|m| {
-                let usage = m.usage.as_deref().and_then(|u| serde_json::from_str(u).ok());
-                crate::models::ExecutionRecord {
-                    id: m.id,
-                    todo_id: m.todo_id.unwrap_or(0),
-                    status: m.status.unwrap_or_default(),
-                    command: m.command.unwrap_or_default(),
-                    stdout: m.stdout.unwrap_or_default(),
-                    stderr: m.stderr.unwrap_or_default(),
-                    logs: m.logs.unwrap_or_default(),
-                    result: m.result,
-                    started_at: m.started_at.unwrap_or_default(),
-                    finished_at: m.finished_at,
-                    usage,
-                    executor: m.executor,
-                    model: m.model,
-                    trigger_type: m.trigger_type.unwrap_or_else(|| "manual".to_string()),
-                    pid: m.pid,
-                    task_id: m.task_id,
-                }
-            })
+            .map(Into::into)
             .collect();
 
         crate::models::DashboardStats {
@@ -512,8 +457,7 @@ impl Database {
 
     pub async fn get_execution_summary(&self, todo_id: i64) -> ExecutionSummary {
         let backend = self.conn.get_database_backend();
-        let sql = format!(
-            "SELECT \
+        let sql = "SELECT \
                 COUNT(*) as total, \
                 COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success_count, \
                 COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed_count, \
@@ -523,11 +467,9 @@ impl Database {
                 COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_read_input_tokens'), 0)), 0) as cache_read, \
                 COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_creation_input_tokens'), 0)), 0) as cache_creation, \
                 COALESCE(SUM(COALESCE(json_extract(usage, '$.total_cost_usd'), 0.0)), 0.0) as total_cost \
-                FROM execution_records WHERE todo_id = {}",
-            todo_id
-        );
+                FROM execution_records WHERE todo_id = $1";
 
-        if let Ok(Some(row)) = self.conn.query_one(Statement::from_string(backend, sql)).await {
+        if let Ok(Some(row)) = self.conn.query_one(Statement::from_sql_and_values(backend, sql, [todo_id.into()])).await {
             let total_executions: i64 = row.try_get_by("total").unwrap_or(0);
             let success_count: i64 = row.try_get_by("success_count").unwrap_or(0);
             let failed_count: i64 = row.try_get_by("failed_count").unwrap_or(0);
@@ -571,11 +513,9 @@ impl Database {
     pub async fn cleanup_orphan_execution_records(&self) {
         let now = crate::models::utc_timestamp();
         let backend = self.conn.get_database_backend();
-        // Single UPDATE: mark running records as failed where todo is missing or has no task_id
-        let sql = format!(
-            "UPDATE execution_records SET \
+        let sql = "UPDATE execution_records SET \
                 status = 'failed', \
-                finished_at = '{}', \
+                finished_at = $1, \
                 result = CASE \
                     WHEN todo_id NOT IN (SELECT id FROM todos) THEN '任务已被删除' \
                     ELSE '程序崩溃，任务被中断' \
@@ -583,10 +523,8 @@ impl Database {
                 WHERE status = 'running' AND ( \
                     todo_id NOT IN (SELECT id FROM todos) \
                     OR todo_id IN (SELECT id FROM todos WHERE task_id IS NULL) \
-                )",
-            now
-        );
-        if let Err(e) = self.conn.execute(Statement::from_string(backend, sql)).await {
+                )";
+        if let Err(e) = self.conn.execute(Statement::from_sql_and_values(backend, sql, [now.into()])).await {
             tracing::error!("Failed to cleanup orphan execution records: {}", e);
         }
     }
@@ -595,15 +533,12 @@ impl Database {
     pub async fn mark_execution_records_as_failed(&self, todo_id: i64) {
         let now = crate::models::utc_timestamp();
         let backend = self.conn.get_database_backend();
-        let sql = format!(
-            "UPDATE execution_records SET \
+        let sql = "UPDATE execution_records SET \
                 status = 'failed', \
-                finished_at = '{}', \
+                finished_at = $1, \
                 result = '任务已被手动停止' \
-                WHERE todo_id = {} AND status = 'running'",
-            now, todo_id
-        );
-        let result = self.conn.execute(Statement::from_string(backend, sql)).await;
+                WHERE todo_id = $2 AND status = 'running'";
+        let result = self.conn.execute(Statement::from_sql_and_values(backend, sql, [now.into(), todo_id.into()])).await;
         match result {
             Ok(res) => {
                 let rows = res.rows_affected();

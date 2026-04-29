@@ -51,6 +51,8 @@ pub fn get_usage_from_logs(logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
 }
 
 pub mod joinai;
+pub mod claude_protocol;
+pub mod agent_event;
 pub mod claude_code;
 pub mod codebuddy;
 pub mod opencode;
