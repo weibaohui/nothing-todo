@@ -1,16 +1,33 @@
 use std::sync::Arc;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tracing::info;
 
-use ntd::{adapters, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager, tunnel};
+use ntd::{adapters, cli, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager, tunnel};
 
 /// ntd - Nothing Todo
 #[derive(Parser)]
-#[command(name = "ntd", about = "AI Todo App", version)]
+#[command(name = "ntd", about = "AI Todo CLI", version)]
 struct Cli {
+    /// API server URL (default: http://localhost:8088)
+    #[arg(long, default_value = "http://localhost:8088")]
+    server: String,
+
+    /// Output format
+    #[arg(short, long, default_value = "json", value_enum)]
+    output: OutputFormat,
+
     #[command(subcommand)]
     command: Option<Commands>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OutputFormat {
+    #[default]
+    Json,
+    Pretty,
 }
 
 #[derive(Subcommand)]
@@ -24,6 +41,29 @@ enum Commands {
         #[command(subcommand)]
         action: tunnel::TunnelAction,
     },
+    /// Start the API server
+    Server {
+        #[command(subcommand)]
+        action: ServerAction,
+    },
+    /// Todo management
+    Todo {
+        #[command(subcommand)]
+        action: cli::TodoAction,
+    },
+    /// Tag management
+    Tag {
+        #[command(subcommand)]
+        action: cli::TagAction,
+    },
+    /// Global statistics
+    Stats,
+}
+
+#[derive(Subcommand)]
+enum ServerAction {
+    /// Start the API server
+    Start,
 }
 
 #[tokio::main]
@@ -57,10 +97,60 @@ async fn main() {
             tunnel::handle_tunnel_command(action);
             return;
         }
-        _ => {}
+        Some(Commands::Server { action: ServerAction::Start }) => {
+            println!("Starting ntd server...");
+            run_server().await;
+            return;
+        }
+        Some(Commands::Todo { action }) => {
+            let cli = cli::Cli {
+                server: cli.server.clone(),
+                output: output_to_cli(&cli.output),
+                command: cli::Commands::Todo { action: action.clone() },
+            };
+            if let Err(e) = cli::run_command(&cli).await {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+            return;
+        }
+        Some(Commands::Tag { action }) => {
+            let cli = cli::Cli {
+                server: cli.server.clone(),
+                output: output_to_cli(&cli.output),
+                command: cli::Commands::Tag { action: action.clone() },
+            };
+            if let Err(e) = cli::run_command(&cli).await {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+            return;
+        }
+        Some(Commands::Stats) => {
+            let cli = cli::Cli {
+                server: cli.server.clone(),
+                output: output_to_cli(&cli.output),
+                command: cli::Commands::Stats,
+            };
+            if let Err(e) = cli::run_command(&cli).await {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+            return;
+        }
+        None => {
+            // No subcommand: start server by default
+            println!("Starting ntd server...");
+            run_server().await;
+        }
     }
+}
 
-    run_server().await;
+fn output_to_cli(output: &OutputFormat) -> cli::OutputFormat {
+    match output {
+        OutputFormat::Json => cli::OutputFormat::Json,
+        OutputFormat::Pretty => cli::OutputFormat::Pretty,
+    }
 }
 
 async fn run_server() {
@@ -75,28 +165,23 @@ async fn run_server() {
         .with_timer(tracing_subscriber::fmt::time::time())
         .init();
 
-    // Get database path from home directory
     let db_path = dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".ntd")
         .join("data.db");
 
-    // Ensure the directory exists
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent).ok();
     }
 
-    // Initialize database
     let db = Arc::new(
         db::Database::new(db_path.to_str().unwrap())
             .await
             .expect("Failed to open database")
     );
 
-    // 清理孤儿执行记录（程序崩溃后状态为running但没有task_id的记录）
     db.cleanup_orphan_execution_records().await;
 
-    // Initialize executor registry with adapters
     let executor_registry = Arc::new(adapters::ExecutorRegistry::new());
     executor_registry.register(adapters::joinai::JoinaiExecutor::new());
     executor_registry.register(adapters::claude_code::ClaudeCodeExecutor::new());
@@ -106,17 +191,12 @@ async fn run_server() {
     executor_registry.register(adapters::hermes::HermesExecutor::new());
     executor_registry.register(adapters::kimi::KimiExecutor::new());
 
-    // List available executors
     let executors = executor_registry.list_executors();
     info!("Available executors: {:?}", executors);
 
-    // Create broadcast channel for events
     let (tx, _rx) = broadcast::channel(100);
-
-    // Initialize task manager
     let task_manager = Arc::new(TaskManager::new());
 
-    // Initialize scheduler
     let scheduler = Arc::new({
         let sched = TodoScheduler::new().await.expect("Failed to create scheduler");
         sched.load_from_db(db.clone(), executor_registry.clone(), tx.clone(), task_manager.clone()).await.expect("Failed to load scheduled tasks");
@@ -124,7 +204,6 @@ async fn run_server() {
         sched
     });
 
-    // Create app
     let app = handlers::create_app(db, executor_registry, tx, scheduler, task_manager);
 
     let port = std::env::var("NTD_PORT")
@@ -139,7 +218,6 @@ async fn run_server() {
 
     let std_listener = std::net::TcpListener::bind(format!("0.0.0.0:{}", port)).unwrap();
 
-    // Enable SO_REUSEADDR on Unix to allow quick restart (Windows doesn't need it)
     #[cfg(unix)]
     {
         use std::os::fd::AsRawFd;
