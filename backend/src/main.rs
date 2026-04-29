@@ -127,12 +127,17 @@ async fn run_server() {
     // Create app
     let app = handlers::create_app(db, executor_registry, tx, scheduler, task_manager);
 
+    let port = std::env::var("NTD_PORT")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(8088);
+
     info!("===========================================");
     info!("  Nothing Todo (ntd)");
-    info!("  Open http://localhost:8088 in your browser");
+    info!("  Open http://localhost:{} in your browser", port);
     info!("===========================================");
 
-    let std_listener = std::net::TcpListener::bind("0.0.0.0:8088").unwrap();
+    let std_listener = std::net::TcpListener::bind(format!("0.0.0.0:{}", port)).unwrap();
 
     // Enable SO_REUSEADDR on Unix to allow quick restart (Windows doesn't need it)
     #[cfg(unix)]
