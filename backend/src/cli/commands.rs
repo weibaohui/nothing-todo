@@ -6,16 +6,15 @@ use crate::models::{
     ExecutionRecordsPage, ExecutionSummary, Tag, Todo, ExecuteRequest,
 };
 use crate::cli::client::ApiClient;
-
-pub const DEFAULT_SERVER: &str = "http://localhost:8088";
+use crate::config;
 
 #[derive(Parser, Debug)]
 #[command(name = "ntd")]
 #[command(about = "AI Todo CLI - Manage AI-powered tasks", long_about = None)]
 pub struct Cli {
-    /// API server URL (default: http://localhost:8088)
-    #[arg(long, default_value = DEFAULT_SERVER)]
-    pub server: String,
+    /// API server URL (default: from ~/.ntd/config.yaml, or http://localhost:8088)
+    #[arg(long)]
+    pub server: Option<String>,
 
     /// Output format
     #[arg(short, long, default_value = "json", value_enum)]
@@ -238,7 +237,8 @@ fn parse_tags(tags: &Option<String>) -> Vec<i64> {
 // ============== Main Entry Point ==============
 
 pub async fn run_command(cli: &Cli) -> anyhow::Result<()> {
-    let client = ApiClient::new(&cli.server);
+    let server_url = cli.server.clone().unwrap_or_else(|| config::Config::load().server_url());
+    let client = ApiClient::new(&server_url);
 
     match &cli.command {
         Commands::Todo { action } => handle_todo(&client, action, &cli.output).await?,

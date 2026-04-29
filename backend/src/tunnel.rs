@@ -7,10 +7,7 @@ use std::time::Duration;
 use clap::Subcommand;
 
 fn get_port() -> u16 {
-    std::env::var("NTD_PORT")
-        .ok()
-        .and_then(|s| s.parse::<u16>().ok())
-        .unwrap_or(8088)
+    crate::config::Config::load().port
 }
 
 #[derive(Subcommand)]
