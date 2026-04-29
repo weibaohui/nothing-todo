@@ -166,61 +166,92 @@ impl CodeExecutor for ClaudeCodeExecutor {
                     })
                 }
                 ClaudeMessage::Assistant { message, .. } => {
-                    let mut parts = Vec::new();
-                    for block in message.content {
-                        match block {
-                            ClaudeContentBlock::Thinking { thinking } => {
-                                if let Some(t) = thinking {
-                                    parts.push(format!("[thinking] {}", t.chars().take(200).collect::<String>()));
-                                }
-                            }
-                            ClaudeContentBlock::Text { text } => {
-                                if let Some(t) = text {
-                                    parts.push(t);
-                                }
-                            }
-                            ClaudeContentBlock::ToolUse { name, input, .. } => {
-                                let input_str = serde_json::to_string(&input).unwrap_or_default();
-                                parts.push(format!("[tool] {}: {}", name.unwrap_or_default(), input_str.chars().take(100).collect::<String>()));
-                            }
-                            ClaudeContentBlock::ToolResult { content, is_error, .. } => {
-                                let err_str = if is_error.unwrap_or(false) { "[error] " } else { "" };
-                                parts.push(format!("{}{}", err_str, content.unwrap_or_default().chars().take(100).collect::<String>()));
-                            }
-                            ClaudeContentBlock::Redacted { redacted } => {
-                                parts.push(format!("[redacted] {}", redacted.unwrap_or_default()));
+                    // Check for tool_use first (for tool execution display)
+                    for block in &message.content {
+                        if let ClaudeContentBlock::ToolUse { name, input, .. } = block {
+                            let input_str = serde_json::to_string(input).unwrap_or_default();
+                            return Some(ParsedLogEntry {
+                                timestamp: utc_timestamp(),
+                                log_type: "tool_use".to_string(),
+                                content: format!("调用工具: {} - {}", name.as_ref().unwrap_or(&"unknown".to_string()), input_str.chars().take(300).collect::<String>()),
+                                usage: None,
+                            });
+                        }
+                    }
+
+                    // Check for thinking (for AI thinking display)
+                    for block in &message.content {
+                        if let ClaudeContentBlock::Thinking { thinking } = block {
+                            if let Some(t) = thinking {
+                                return Some(ParsedLogEntry {
+                                    timestamp: utc_timestamp(),
+                                    log_type: "thinking".to_string(),
+                                    content: t.chars().take(500).collect::<String>(),
+                                    usage: None,
+                                });
                             }
                         }
                     }
-                    if parts.is_empty() {
-                        None
-                    } else {
-                        Some(ParsedLogEntry {
+
+                    // Check for tool_result (from user message)
+                    for block in &message.content {
+                        if let ClaudeContentBlock::ToolResult { content, is_error, .. } = block {
+                            let err_str = if is_error.unwrap_or(false) { "[错误] " } else { "" };
+                            return Some(ParsedLogEntry {
+                                timestamp: utc_timestamp(),
+                                log_type: "tool_result".to_string(),
+                                content: format!("{}{}", err_str, content.as_ref().unwrap_or(&String::new()).chars().take(300).collect::<String>()),
+                                usage: None,
+                            });
+                        }
+                    }
+
+                    // Check for text content
+                    let mut text_parts = Vec::new();
+                    for block in &message.content {
+                        if let ClaudeContentBlock::Text { text } = block {
+                            if let Some(t) = text {
+                                text_parts.push(t.clone());
+                            }
+                        }
+                    }
+                    if !text_parts.is_empty() {
+                        return Some(ParsedLogEntry {
                             timestamp: utc_timestamp(),
                             log_type: "assistant".to_string(),
-                            content: parts.join("\n"),
+                            content: text_parts.join("\n"),
                             usage: None,
-                        })
+                        });
                     }
-                }
-                ClaudeMessage::User { message, .. } => {
-                    let mut parts = Vec::new();
-                    for block in message.content {
-                        if let ClaudeContentBlock::ToolResult { content, is_error, .. } = block {
-                            let err_str = if is_error.unwrap_or(false) { "[error] " } else { "" };
-                            parts.push(format!("{}{}", err_str, content.unwrap_or_default()));
+
+                    // Check for redacted content
+                    for block in &message.content {
+                        if let ClaudeContentBlock::Redacted { redacted } = block {
+                            return Some(ParsedLogEntry {
+                                timestamp: utc_timestamp(),
+                                log_type: "assistant".to_string(),
+                                content: format!("[redacted] {}", redacted.as_ref().unwrap_or(&String::new())),
+                                usage: None,
+                            });
                         }
                     }
-                    if parts.is_empty() {
-                        None
-                    } else {
-                        Some(ParsedLogEntry {
-                            timestamp: utc_timestamp(),
-                            log_type: "user".to_string(),
-                            content: parts.join("\n"),
-                            usage: None,
-                        })
+
+                    None
+                }
+                ClaudeMessage::User { message, .. } => {
+                    // Check for tool_result in user message
+                    for block in &message.content {
+                        if let ClaudeContentBlock::ToolResult { content, is_error, .. } = block {
+                            let err_str = if is_error.unwrap_or(false) { "[错误] " } else { "" };
+                            return Some(ParsedLogEntry {
+                                timestamp: utc_timestamp(),
+                                log_type: "tool_result".to_string(),
+                                content: format!("{}{}", err_str, content.as_ref().unwrap_or(&String::new()).chars().take(300).collect::<String>()),
+                                usage: None,
+                            });
+                        }
                     }
+                    None
                 }
                 ClaudeMessage::Result { result, is_error, duration_ms, total_cost_usd, usage, .. } => {
                     let err_str = if is_error { "[error] " } else { "" };
@@ -293,9 +324,8 @@ mod tests {
         let executor = ClaudeCodeExecutor::new();
         let line = r#"{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"thinking..."}]}}"#;
         let entry = executor.parse_output_line(line).unwrap();
-        assert_eq!(entry.log_type, "assistant");
-        assert!(entry.content.starts_with("[thinking]"));
-        assert!(entry.content.contains("thinking..."));
+        assert_eq!(entry.log_type, "thinking");
+        assert_eq!(entry.content, "thinking...");
     }
 
     #[test]
@@ -303,7 +333,7 @@ mod tests {
         let executor = ClaudeCodeExecutor::new();
         let line = r#"{"type":"user","message":{"content":[{"type":"tool_result","content":"result","is_error":false}]}}"#;
         let entry = executor.parse_output_line(line).unwrap();
-        assert_eq!(entry.log_type, "user");
+        assert_eq!(entry.log_type, "tool_result");
         assert_eq!(entry.content, "result");
     }
 
