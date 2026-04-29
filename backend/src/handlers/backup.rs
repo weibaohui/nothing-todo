@@ -41,7 +41,8 @@ pub async fn import_backup(
         return Err(AppError::BadRequest("Backup contains no todos".to_string()));
     }
 
-    state.db.import_backup(&data.tags, &data.todos).await;
+    state.db.import_backup(&data.tags, &data.todos).await
+        .map_err(|e| AppError::Internal(format!("Import failed, data unchanged: {}", e)))?;
 
     Ok(ApiResponse::ok(format!("Imported {} todos and {} tags", data.todos.len(), data.tags.len())))
 }
