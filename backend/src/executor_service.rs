@@ -82,8 +82,16 @@ pub async fn run_todo_execution(
         })
         .unwrap_or_default();
 
-    let executor = executor_registry.get(executor_type)
-        .unwrap_or_else(|| executor_registry.get_default().unwrap());
+    let executor = match executor_registry.get(executor_type)
+        .or_else(|| executor_registry.get_default()) {
+        Some(exec) => exec,
+        None => {
+            tracing::error!("No executor available for type {:?} and no default registered", executor_type);
+            let _ = db.finish_todo_execution(todo_id, false).await;
+            task_manager.remove(&task_id).await;
+            return task_id;
+        }
+    };
 
     let executable_path = executor.executable_path().to_string();
     let command_args = executor.command_args_with_session(&message, Some(&task_id));
@@ -187,8 +195,6 @@ pub async fn run_todo_execution(
         let stdout_task = if let Some(stdout_reader) = stdout_handle {
             let tx_clone = tx.clone();
             let tid = task_id.clone();
-            let db_clone2 = db_clone.clone();
-            let rid = record_id;
             let executor_clone = executor_for_parse.clone();
             let logs_for_db = logs_for_db.clone();
 
@@ -198,9 +204,6 @@ pub async fn run_todo_execution(
                     if let Some(parsed) = executor_clone.parse_output_line(&line) {
                         logs_for_db.lock().await.push(parsed.clone());
                         send_event(&tx_clone, ExecEvent::Output { task_id: tid.clone(), entry: parsed });
-
-                        let logs_json = serde_json::to_string(&*logs_for_db.lock().await).unwrap_or_default();
-                        let _ = db_clone2.update_execution_record(rid, crate::models::ExecutionStatus::Running.as_str(), &logs_json, "", None, None).await;
                     }
                 }
             }))

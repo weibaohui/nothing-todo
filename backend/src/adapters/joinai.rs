@@ -1,7 +1,8 @@
-use serde::Deserialize;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 
 use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
+use super::agent_event::{AgentEvent, AgentPart, AgentToolState, AgentTokens};
 use crate::models::utc_timestamp;
 
 pub struct JoinaiExecutor {
@@ -19,74 +20,6 @@ impl Clone for JoinaiExecutor {
     fn clone(&self) -> Self {
         Self { path: self.path.clone(), usage: self.usage.clone() }
     }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct JoinaiEvent {
-    #[serde(rename = "type")]
-    event_type: String,
-    #[serde(default)]
-    part: Option<JoinaiPart>,
-    timestamp: Option<u64>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct JoinaiPart {
-    #[serde(rename = "type")]
-    part_type: String,
-    #[serde(default)]
-    text: Option<String>,
-    #[serde(default)]
-    tool: Option<String>,
-    #[serde(default)]
-    call_id: Option<String>,
-    #[serde(default)]
-    state: Option<JoinaiToolState>,
-    message_id: Option<String>,
-    session_id: Option<String>,
-    #[serde(default)]
-    tokens: Option<JoinaiTokens>,
-    #[serde(default)]
-    cost: Option<f64>,
-    #[serde(default)]
-    reason: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct JoinaiToolState {
-    #[serde(default)]
-    status: Option<String>,
-    #[serde(default)]
-    input: Option<JoinaiToolInput>,
-    #[serde(default)]
-    output: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct JoinaiToolInput {
-    #[serde(default)]
-    command: Option<String>,
-    #[serde(default)]
-    description: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct JoinaiTokens {
-    total: u64,
-    input: u64,
-    output: u64,
-    #[serde(default)]
-    reasoning: u64,
-    #[serde(default)]
-    cache: JoinaiCacheTokens,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-struct JoinaiCacheTokens {
-    #[serde(default)]
-    read: u64,
-    #[serde(default)]
-    write: u64,
 }
 
 impl CodeExecutor for JoinaiExecutor {
@@ -108,7 +41,7 @@ impl CodeExecutor for JoinaiExecutor {
     }
 
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
-        let event: JoinaiEvent = serde_json::from_str(line).ok()?;
+        let event: AgentEvent = serde_json::from_str(line).ok()?;
 
         let timestamp = event.timestamp
             .map(|ts| {
@@ -174,7 +107,7 @@ impl CodeExecutor for JoinaiExecutor {
                             total_cost_usd: part.cost,
                             duration_ms: None,
                         };
-                        *self.usage.lock().unwrap() = Some(usage);
+                        *self.usage.lock() = Some(usage);
                     }
                 }
                 Some(ParsedLogEntry {
@@ -193,7 +126,7 @@ impl CodeExecutor for JoinaiExecutor {
     }
 
     fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
-        self.usage.lock().unwrap().clone()
+        self.usage.lock().clone()
     }
 
     fn get_model(&self) -> Option<String> {
