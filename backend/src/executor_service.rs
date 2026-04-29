@@ -63,20 +63,24 @@ pub async fn run_todo_execution(
     let todo_executor = todo.as_ref().and_then(|t| t.executor.clone());
     let todo_workspace = todo.as_ref().and_then(|t| t.workspace.clone());
 
-    // Determine which executor to use
-    let executor_type = if let Some(exec) = req_executor {
-        parse_executor_type(&exec).unwrap_or_else(|| {
-            tracing::warn!("Unknown executor '{}', falling back to default", exec);
-            ExecutorType::default()
+    // Determine which executor to use: explicit > todo stored > default
+    let executor_type = req_executor
+        .as_deref()
+        .and_then(|exec| {
+            parse_executor_type(exec).or_else(|| {
+                tracing::warn!("Unknown explicit executor '{}', trying todo executor", exec);
+                None
+            })
         })
-    } else if let Some(exec) = todo_executor {
-        parse_executor_type(&exec).unwrap_or_else(|| {
-            tracing::warn!("Unknown executor '{}', falling back to default", exec);
-            ExecutorType::default()
+        .or_else(|| {
+            todo_executor.as_deref().and_then(|exec| {
+                parse_executor_type(exec).or_else(|| {
+                    tracing::warn!("Unknown todo executor '{}', falling back to default", exec);
+                    None
+                })
+            })
         })
-    } else {
-        ExecutorType::default()
-    };
+        .unwrap_or_default();
 
     let executor = executor_registry.get(executor_type)
         .unwrap_or_else(|| executor_registry.get_default().unwrap());

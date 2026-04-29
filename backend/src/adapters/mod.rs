@@ -7,7 +7,7 @@ use crate::models::{ExecutorType, ParsedLogEntry, ExecutionUsage};
 /// Parse executor string (with aliases) into `ExecutorType`.
 /// Returns `None` for unrecognized names.
 pub fn parse_executor_type(executor: &str) -> Option<ExecutorType> {
-    match executor.to_lowercase().as_str() {
+    match executor.trim().to_lowercase().as_str() {
         "claudecode" | "claude" => Some(ExecutorType::Claudecode),
         "codebuddy" | "cbc" => Some(ExecutorType::Codebuddy),
         "opencode" => Some(ExecutorType::Opencode),
@@ -158,6 +158,13 @@ mod tests {
         assert_eq!(parse_executor_type("Claude"), Some(ExecutorType::Claudecode));
         assert_eq!(parse_executor_type("CLAUDE"), Some(ExecutorType::Claudecode));
         assert_eq!(parse_executor_type("CodeBuddy"), Some(ExecutorType::Codebuddy));
+    }
+
+    #[test]
+    fn test_parse_executor_type_trims_whitespace() {
+        assert_eq!(parse_executor_type(" claude "), Some(ExecutorType::Claudecode));
+        assert_eq!(parse_executor_type("  opencode"), Some(ExecutorType::Opencode));
+        assert_eq!(parse_executor_type("kimi  "), Some(ExecutorType::Kimi));
     }
 
     #[test]
