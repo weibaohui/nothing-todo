@@ -53,6 +53,7 @@ impl CodeExecutor for JoinaiExecutor {
 
         match event.event_type.as_str() {
             "step_start" => {
+                *self.usage.lock() = None;
                 Some(ParsedLogEntry {
                     timestamp,
                     log_type: "step_start".to_string(),

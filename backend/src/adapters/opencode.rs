@@ -78,6 +78,8 @@ impl CodeExecutor for OpencodeExecutor {
 
         match event.event_type.as_str() {
             "step_start" => {
+                *self.has_successful_finish.lock() = false;
+                *self.usage.lock() = None;
                 Some(ParsedLogEntry {
                     timestamp,
                     log_type: "step_start".to_string(),
