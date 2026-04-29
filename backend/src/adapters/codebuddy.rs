@@ -235,7 +235,7 @@ impl CodeExecutor for CodebuddyExecutor {
     }
 
     fn get_usage(&self, logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
-        logs.iter().rev().find(|l| l.log_type == "result")?.usage.clone()
+        super::get_usage_from_logs(logs)
     }
 
     fn get_model(&self) -> Option<String> {

@@ -69,7 +69,7 @@ impl Database {
             .collect()
     }
 
-    pub async fn create_todo(&self, title: &str, prompt: &str) -> i64 {
+    pub async fn create_todo(&self, title: &str, prompt: &str) -> Result<i64, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             title: ActiveValue::Set(title.to_string()),
@@ -80,8 +80,8 @@ impl Database {
             executor: ActiveValue::Set(Some("claudecode".to_string())),
             ..Default::default()
         };
-        let inserted = am.insert(&self.conn).await.expect("insert todo failed");
-        inserted.id
+        let inserted = am.insert(&self.conn).await?;
+        Ok(inserted.id)
     }
 
     pub async fn update_todo_full(
@@ -94,7 +94,7 @@ impl Database {
         scheduler_enabled: Option<bool>,
         scheduler_config: Option<&str>,
         workspace: Option<&str>,
-    ) {
+    ) -> Result<(), sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let mut am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
@@ -121,38 +121,38 @@ impl Database {
                 am.workspace = ActiveValue::Set(Some(ws.to_string()));
             }
         }
-        self.exec_update(am).await;
+        self.exec_update(am).await
     }
 
-    pub async fn update_todo_executor(&self, id: i64, executor: &str) {
+    pub async fn update_todo_executor(&self, id: i64, executor: &str) -> Result<(), sea_orm::DbErr> {
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
             executor: ActiveValue::Set(Some(executor.to_string())),
             ..Default::default()
         };
-        self.exec_update(am).await;
+        self.exec_update(am).await
     }
 
-    pub async fn update_todo_task_id(&self, id: i64, task_id: Option<&str>) {
+    pub async fn update_todo_task_id(&self, id: i64, task_id: Option<&str>) -> Result<(), sea_orm::DbErr> {
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
             task_id: ActiveValue::Set(task_id.map(|s| s.to_string())),
             ..Default::default()
         };
-        self.exec_update(am).await;
+        self.exec_update(am).await
     }
 
-    pub async fn update_todo_scheduler(&self, id: i64, enabled: bool, config: Option<&str>) {
+    pub async fn update_todo_scheduler(&self, id: i64, enabled: bool, config: Option<&str>) -> Result<(), sea_orm::DbErr> {
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
             scheduler_enabled: ActiveValue::Set(Some(enabled)),
             scheduler_config: ActiveValue::Set(config.map(|s| s.to_string())),
             ..Default::default()
         };
-        self.exec_update(am).await;
+        self.exec_update(am).await
     }
 
-    pub async fn update_todo_workspace(&self, id: i64, workspace: Option<&str>) {
+    pub async fn update_todo_workspace(&self, id: i64, workspace: Option<&str>) -> Result<(), sea_orm::DbErr> {
         let ws = workspace.and_then(|s| {
             let trimmed = s.trim();
             if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
@@ -162,13 +162,13 @@ impl Database {
             workspace: ActiveValue::Set(ws),
             ..Default::default()
         };
-        self.exec_update(am).await;
+        self.exec_update(am).await
     }
 
     pub async fn force_update_todo_status(&self,
         id: i64,
         status: TodoStatus,
-    ) {
+    ) -> Result<(), sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
@@ -176,17 +176,17 @@ impl Database {
             updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
-        self.exec_update(am).await;
+        self.exec_update(am).await
     }
 
-    pub async fn delete_todo(&self, id: i64) {
+    pub async fn delete_todo(&self, id: i64) -> Result<(), sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
             deleted_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
-        self.exec_update(am).await;
+        self.exec_update(am).await
     }
 
     pub async fn get_todo(&self, id: i64) -> Option<Todo> {
@@ -210,6 +210,7 @@ impl Database {
     pub async fn get_scheduler_todos(&self) -> Vec<Todo> {
         let models = todos::Entity::find()
             .filter(todos::Column::DeletedAt.is_null())
+            .filter(todos::Column::SchedulerEnabled.eq(true))
             .filter(todos::Column::SchedulerConfig.is_not_null())
             .all(&self.conn)
             .await
@@ -248,7 +249,7 @@ impl Database {
             .collect()
     }
 
-    pub async fn update_todo_status(&self, todo_id: i64, status: TodoStatus) {
+    pub async fn update_todo_status(&self, todo_id: i64, status: TodoStatus) -> Result<(), sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(todo_id),
@@ -256,10 +257,10 @@ impl Database {
             updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
-        self.exec_update(am).await;
+        self.exec_update(am).await
     }
 
-    pub async fn start_todo_execution(&self, todo_id: i64, task_id: &str) {
+    pub async fn start_todo_execution(&self, todo_id: i64, task_id: &str) -> Result<(), sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(todo_id),
@@ -268,10 +269,10 @@ impl Database {
             updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
-        self.exec_update(am).await;
+        self.exec_update(am).await
     }
 
-    pub async fn finish_todo_execution(&self, todo_id: i64, success: bool) {
+    pub async fn finish_todo_execution(&self, todo_id: i64, success: bool) -> Result<(), sea_orm::DbErr> {
         let status = if success { TodoStatus::Completed } else { TodoStatus::Failed };
         let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
@@ -281,7 +282,7 @@ impl Database {
             updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
-        self.exec_update(am).await;
+        self.exec_update(am).await
     }
 
     /// 根据task_id查找对应的todo
@@ -340,17 +341,17 @@ impl Database {
             .collect()
     }
 
-    /// 从备份数据导入 todo（清空现有数据后导入）
-    pub async fn import_backup(&self, tags_in: &[crate::models::TagBackup], todos_in: &[TodoBackup]) {
+    /// 从备份数据导入 todo（清空现有数据后导入，失败时自动回滚）
+    pub async fn import_backup(&self, tags_in: &[crate::models::TagBackup], todos_in: &[TodoBackup]) -> Result<(), sea_orm::DbErr> {
         use sea_orm::TransactionTrait;
         use sea_orm::QueryFilter;
 
-        let txn = self.conn.begin().await.expect("begin transaction failed");
+        let txn = self.conn.begin().await?;
 
         // 清空现有数据
-        todo_tags::Entity::delete_many().exec(&txn).await.ok();
-        todos::Entity::delete_many().exec(&txn).await.ok();
-        tags::Entity::delete_many().exec(&txn).await.ok();
+        todo_tags::Entity::delete_many().exec(&txn).await?;
+        todos::Entity::delete_many().exec(&txn).await?;
+        tags::Entity::delete_many().exec(&txn).await?;
 
         // 导入标签
         for tag in tags_in {
@@ -359,7 +360,7 @@ impl Database {
                 color: ActiveValue::Set(Some(tag.color.clone())),
                 ..Default::default()
             };
-            am.insert(&txn).await.ok();
+            am.insert(&txn).await?;
         }
 
         // 导入 todo
@@ -377,16 +378,14 @@ impl Database {
                 updated_at: ActiveValue::Set(Some(now)),
                 ..Default::default()
             };
-            let inserted = am.insert(&txn).await.expect("insert todo failed");
+            let inserted = am.insert(&txn).await?;
 
             // 关联标签（通过名称查找 tag id）
             for tag_name in &todo.tag_names {
                 let tid = tags::Entity::find()
                     .filter(tags::Column::Name.eq(tag_name))
                     .one(&txn)
-                    .await
-                    .ok()
-                    .flatten()
+                    .await?
                     .map(|t| t.id);
                 if let Some(tid) = tid {
                     let rel = todo_tags::ActiveModel {
@@ -403,12 +402,12 @@ impl Database {
                             .to_owned(),
                         )
                         .exec(&txn)
-                        .await
-                        .ok();
+                        .await?;
                 }
             }
         }
 
-        txn.commit().await.expect("commit transaction failed");
+        txn.commit().await?;
+        Ok(())
     }
 }

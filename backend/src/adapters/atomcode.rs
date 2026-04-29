@@ -195,17 +195,7 @@ impl CodeExecutor for AtomcodeExecutor {
     }
 
     fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
-        let text_result = logs.iter()
-            .rev()
-            .find(|l| l.log_type == "text")
-            .map(|l| super::strip_think_tags(&l.content));
-
-        let fallback = logs.iter()
-            .rev()
-            .find(|l| l.log_type == "stderr")
-            .map(|l| l.content.clone());
-
-        text_result.or(fallback)
+        super::default_final_result_with_think_stripping(logs)
     }
 
     fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
