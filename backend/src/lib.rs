@@ -1,4 +1,5 @@
 pub mod adapters;
+pub mod cli;
 pub mod db;
 pub mod executor_service;
 pub mod handlers;

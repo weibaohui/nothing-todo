@@ -1,16 +1,33 @@
 use std::sync::Arc;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tracing::info;
 
-use ntd::{adapters, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager};
+use ntd::{adapters, cli, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager};
 
 /// ntd - Nothing Todo
 #[derive(Parser)]
-#[command(name = "ntd", about = "AI Todo App", version)]
+#[command(name = "ntd", about = "AI Todo CLI", version)]
 struct Cli {
+    /// API server URL (default: http://localhost:8088)
+    #[arg(long, default_value = "http://localhost:8088")]
+    server: String,
+
+    /// Output format
+    #[arg(short, long, default_value = "json", value_enum)]
+    output: OutputFormat,
+
     #[command(subcommand)]
     command: Option<Commands>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OutputFormat {
+    #[default]
+    Json,
+    Pretty,
 }
 
 #[derive(Subcommand)]
@@ -24,6 +41,29 @@ enum Commands {
         #[command(subcommand)]
         action: TunnelAction,
     },
+    /// Start the API server
+    Server {
+        #[command(subcommand)]
+        action: ServerAction,
+    },
+    /// Todo management
+    Todo {
+        #[command(subcommand)]
+        action: cli::TodoAction,
+    },
+    /// Tag management
+    Tag {
+        #[command(subcommand)]
+        action: cli::TagAction,
+    },
+    /// Global statistics
+    Stats,
+}
+
+#[derive(Subcommand)]
+enum ServerAction {
+    /// Start the API server
+    Start,
 }
 
 #[derive(Subcommand)]
@@ -71,10 +111,60 @@ async fn main() {
             handle_tunnel_command(action);
             return;
         }
-        _ => {}
+        Some(Commands::Server { action: ServerAction::Start }) => {
+            println!("Starting ntd server...");
+            run_server().await;
+            return;
+        }
+        Some(Commands::Todo { action }) => {
+            let cli = cli::Cli {
+                server: cli::DEFAULT_SERVER.to_string(),
+                output: output_to_cli(&cli.output),
+                command: cli::Commands::Todo { action: action.clone() },
+            };
+            if let Err(e) = cli::run_command(&cli).await {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+            return;
+        }
+        Some(Commands::Tag { action }) => {
+            let cli = cli::Cli {
+                server: cli::DEFAULT_SERVER.to_string(),
+                output: output_to_cli(&cli.output),
+                command: cli::Commands::Tag { action: action.clone() },
+            };
+            if let Err(e) = cli::run_command(&cli).await {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+            return;
+        }
+        Some(Commands::Stats) => {
+            let cli = cli::Cli {
+                server: cli::DEFAULT_SERVER.to_string(),
+                output: output_to_cli(&cli.output),
+                command: cli::Commands::Stats,
+            };
+            if let Err(e) = cli::run_command(&cli).await {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+            return;
+        }
+        None => {
+            // No subcommand: start server by default
+            println!("Starting ntd server...");
+            run_server().await;
+        }
     }
+}
 
-    run_server().await;
+fn output_to_cli(output: &OutputFormat) -> cli::OutputFormat {
+    match output {
+        OutputFormat::Json => cli::OutputFormat::Json,
+        OutputFormat::Pretty => cli::OutputFormat::Pretty,
+    }
 }
 
 fn handle_tunnel_command(action: &TunnelAction) {
@@ -94,16 +184,15 @@ fn handle_tunnel_command(action: &TunnelAction) {
     match action {
         TunnelAction::Start { tunnel_type } => {
             let tunnel_type = tunnel_type.clone();
-            // 确保目录存在
+            // Ensure directory exists
             fs::create_dir_all(&ntd_dir).expect("Failed to create .ntd directory");
 
-            // 如果存在旧的 tunnel pid，先杀掉
+            // Kill old tunnel if exists
             if let Ok(old_pid_str) = fs::read_to_string(&pid_file) {
                 if let Ok(old_pid) = old_pid_str.trim().parse::<u32>() {
                     if is_process_running(old_pid as i32) {
                         println!("Stopping old tunnel (PID: {})", old_pid);
                         kill_process(old_pid as i32);
-                        // 等待退出，最多 3s
                         for _ in 0..3 {
                             if !is_process_running(old_pid as i32) {
                                 break;
@@ -115,25 +204,22 @@ fn handle_tunnel_command(action: &TunnelAction) {
                 }
             }
 
-            // 顺手清理任何残留的 hostc 8088 进程（防止脚本异常退出留下的孤儿）
             cleanup_orphan_processes();
 
             match tunnel_type.as_str() {
                 "hostc" => {
-                    // 启动 hostc 隧道
                     let output_file = "/tmp/hostc_output.txt";
-
                     let child = std::process::Command::new("hostc")
                         .arg("8088")
                         .stdout(std::fs::File::create(output_file).expect("Failed to create output file"))
                         .stderr(std::fs::File::create(output_file).expect("Failed to create output file"))
                         .spawn()
-                        .expect("Failed to start hostc. Is hostc installed?");
+                        .expect("Failed to start hostc");
 
                     let hostc_pid = child.id();
                     fs::write(&pid_file, hostc_pid.to_string()).expect("Failed to write PID file");
 
-                    // 轮询等待 Public URL（最多 60s）
+                    // Poll for public URL (max 60s)
                     let mut public_url = String::new();
                     for _ in 0..120 {
                         if let Ok(file) = std::fs::File::open(output_file) {
@@ -159,7 +245,6 @@ fn handle_tunnel_command(action: &TunnelAction) {
                         thread::sleep(Duration::from_millis(500));
                     }
 
-                    // 显示 hostc 输出
                     if let Ok(content) = fs::read_to_string(output_file) {
                         println!("{}", content);
                     }
@@ -170,15 +255,12 @@ fn handle_tunnel_command(action: &TunnelAction) {
                     }
 
                     fs::write(&url_file, &public_url).expect("Failed to write URL file");
-
                     println!("\nTunnel PID: {}", hostc_pid);
                     println!("Public URL saved to ~/.ntd/tunnel.url");
                     println!("Public URL: {}", public_url);
                 }
                 "trycloudflare" => {
-                    // 启动 cloudflare 隧道
                     let output_file = "/tmp/cloudflared_output.txt";
-
                     let child = std::process::Command::new("cloudflared")
                         .arg("tunnel")
                         .arg("--url")
@@ -186,20 +268,17 @@ fn handle_tunnel_command(action: &TunnelAction) {
                         .stdout(std::fs::File::create(output_file).expect("Failed to create output file"))
                         .stderr(std::fs::File::create(output_file).expect("Failed to create output file"))
                         .spawn()
-                        .expect("Failed to start cloudflared. Is cloudflared installed?");
+                        .expect("Failed to start cloudflared");
 
                     let cloudflared_pid = child.id();
                     fs::write(&pid_file, cloudflared_pid.to_string()).expect("Failed to write PID file");
 
-                    // 轮询等待 Public URL（最多 60s）
                     let mut public_url = String::new();
                     for _ in 0..120 {
                         if let Ok(file) = std::fs::File::open(output_file) {
                             let reader = std::io::BufReader::new(file);
                             for line in reader.lines() {
                                 if let Ok(line_content) = line {
-                                    // cloudflared 输出格式: https://xxx.trycloudflare.com
-                                    // 查找以 https:// 开头且包含 trycloudflare.com 的行
                                     if line_content.trim().starts_with("https://") && line_content.contains("trycloudflare.com") {
                                         public_url = line_content.trim().to_string();
                                         if !public_url.is_empty() {
@@ -215,7 +294,6 @@ fn handle_tunnel_command(action: &TunnelAction) {
                         thread::sleep(Duration::from_millis(500));
                     }
 
-                    // 显示 cloudflared 输出
                     if let Ok(content) = fs::read_to_string(output_file) {
                         println!("{}", content);
                     }
@@ -226,7 +304,6 @@ fn handle_tunnel_command(action: &TunnelAction) {
                     }
 
                     fs::write(&url_file, &public_url).expect("Failed to write URL file");
-
                     println!("\nTunnel PID: {}", cloudflared_pid);
                     println!("Public URL saved to ~/.ntd/tunnel.url");
                     println!("Public URL: {}", public_url);
@@ -295,9 +372,7 @@ fn is_process_running(pid: i32) -> bool {
 
 #[cfg(unix)]
 fn kill_process(pid: i32) {
-    unsafe {
-        libc::kill(pid, libc::SIGTERM);
-    }
+    unsafe { libc::kill(pid, libc::SIGTERM); }
 }
 
 #[cfg(windows)]
@@ -309,9 +384,7 @@ fn kill_process(pid: i32) {
 
 #[cfg(unix)]
 fn kill_process_force(pid: i32) {
-    unsafe {
-        libc::kill(pid, libc::SIGKILL);
-    }
+    unsafe { libc::kill(pid, libc::SIGKILL); }
 }
 
 #[cfg(windows)]
@@ -323,10 +396,7 @@ fn kill_process_force(pid: i32) {
 fn cleanup_orphan_processes() {
     use std::process::Command;
 
-    if let Ok(output) = Command::new("pgrep")
-        .args(["-f", "hostc 8088"])
-        .output()
-    {
+    if let Ok(output) = Command::new("pgrep").args(["-f", "hostc 8088"]).output() {
         let pids = String::from_utf8_lossy(&output.stdout);
         for pid_str in pids.lines() {
             if let Ok(pid) = pid_str.trim().parse::<i32>() {
@@ -335,10 +405,7 @@ fn cleanup_orphan_processes() {
         }
     }
 
-    if let Ok(output) = Command::new("pgrep")
-        .args(["-f", "cloudflared tunnel.*8088"])
-        .output()
-    {
+    if let Ok(output) = Command::new("pgrep").args(["-f", "cloudflared tunnel.*8088"]).output() {
         let pids = String::from_utf8_lossy(&output.stdout);
         for pid_str in pids.lines() {
             if let Ok(pid) = pid_str.trim().parse::<i32>() {
@@ -389,28 +456,23 @@ async fn run_server() {
         .with_timer(tracing_subscriber::fmt::time::time())
         .init();
 
-    // Get database path from home directory
     let db_path = dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".ntd")
         .join("data.db");
 
-    // Ensure the directory exists
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent).ok();
     }
 
-    // Initialize database
     let db = Arc::new(
         db::Database::new(db_path.to_str().unwrap())
             .await
             .expect("Failed to open database")
     );
 
-    // 清理孤儿执行记录（程序崩溃后状态为running但没有task_id的记录）
     db.cleanup_orphan_execution_records().await;
 
-    // Initialize executor registry with adapters
     let executor_registry = Arc::new(adapters::ExecutorRegistry::new());
     executor_registry.register(adapters::joinai::JoinaiExecutor::new());
     executor_registry.register(adapters::claude_code::ClaudeCodeExecutor::new());
@@ -419,17 +481,12 @@ async fn run_server() {
     executor_registry.register(adapters::atomcode::AtomcodeExecutor::new());
     executor_registry.register(adapters::hermes::HermesExecutor::new());
 
-    // List available executors
     let executors = executor_registry.list_executors();
     info!("Available executors: {:?}", executors);
 
-    // Create broadcast channel for events
     let (tx, _rx) = broadcast::channel(100);
-
-    // Initialize task manager
     let task_manager = Arc::new(TaskManager::new());
 
-    // Initialize scheduler
     let scheduler = Arc::new({
         let sched = TodoScheduler::new().await.expect("Failed to create scheduler");
         sched.load_from_db(db.clone(), executor_registry.clone(), tx.clone(), task_manager.clone()).await.expect("Failed to load scheduled tasks");
@@ -437,7 +494,6 @@ async fn run_server() {
         sched
     });
 
-    // Create app
     let app = handlers::create_app(db, executor_registry, tx, scheduler, task_manager);
 
     info!("===========================================");
@@ -447,7 +503,6 @@ async fn run_server() {
 
     let std_listener = std::net::TcpListener::bind("0.0.0.0:8088").unwrap();
 
-    // Enable SO_REUSEADDR on Unix to allow quick restart (Windows doesn't need it)
     #[cfg(unix)]
     {
         use std::os::fd::AsRawFd;
