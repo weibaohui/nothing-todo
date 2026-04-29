@@ -191,6 +191,7 @@ export const EXECUTORS: ExecutorOption[] = [
   { value: 'joinai',     label: 'JoinAI',     color: '#0d9488', icon: '🟢' },
   { value: 'atomcode',   label: 'AtomCode',   color: '#dc2626', icon: '🔴' },
   { value: 'hermes',     label: 'Hermes',    color: '#ea580c', icon: '🟠' },
+  { value: 'kimi',      label: 'Kimi',      color: '#6366f1', icon: '🟪' },
 ];
 
 export function getExecutorOption(value: string): ExecutorOption {

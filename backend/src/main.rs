@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tracing::info;
 
-use ntd::{adapters, cli, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager};
+use ntd::{adapters, cli, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager, tunnel};
 
 /// ntd - Nothing Todo
 #[derive(Parser)]
@@ -39,7 +39,7 @@ enum Commands {
     /// Manage tunnels
     Tunnel {
         #[command(subcommand)]
-        action: TunnelAction,
+        action: tunnel::TunnelAction,
     },
     /// Start the API server
     Server {
@@ -64,20 +64,6 @@ enum Commands {
 enum ServerAction {
     /// Start the API server
     Start,
-}
-
-#[derive(Subcommand)]
-enum TunnelAction {
-    /// Start a tunnel
-    Start {
-        /// Tunnel type (hostc, trycloudflare)
-        #[arg(long = "type", default_value = "hostc")]
-        tunnel_type: String,
-    },
-    /// Stop the running tunnel
-    Stop,
-    /// Show tunnel status
-    Status,
 }
 
 #[tokio::main]
@@ -108,7 +94,7 @@ async fn main() {
             return;
         }
         Some(Commands::Tunnel { action }) => {
-            handle_tunnel_command(action);
+            tunnel::handle_tunnel_command(action);
             return;
         }
         Some(Commands::Server { action: ServerAction::Start }) => {
@@ -167,283 +153,6 @@ fn output_to_cli(output: &OutputFormat) -> cli::OutputFormat {
     }
 }
 
-fn handle_tunnel_command(action: &TunnelAction) {
-    use std::fs;
-    use std::io::BufRead;
-    use std::path::PathBuf;
-    use std::thread;
-    use std::time::Duration;
-
-    let ntd_dir = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".ntd");
-
-    let pid_file = ntd_dir.join("tunnel.pid");
-    let url_file = ntd_dir.join("tunnel.url");
-
-    match action {
-        TunnelAction::Start { tunnel_type } => {
-            let tunnel_type = tunnel_type.clone();
-            // Ensure directory exists
-            fs::create_dir_all(&ntd_dir).expect("Failed to create .ntd directory");
-
-            // Kill old tunnel if exists
-            if let Ok(old_pid_str) = fs::read_to_string(&pid_file) {
-                if let Ok(old_pid) = old_pid_str.trim().parse::<u32>() {
-                    if is_process_running(old_pid as i32) {
-                        println!("Stopping old tunnel (PID: {})", old_pid);
-                        kill_process(old_pid as i32);
-                        for _ in 0..3 {
-                            if !is_process_running(old_pid as i32) {
-                                break;
-                            }
-                            thread::sleep(Duration::from_secs(1));
-                        }
-                        kill_process_force(old_pid as i32);
-                    }
-                }
-            }
-
-            cleanup_orphan_processes();
-
-            match tunnel_type.as_str() {
-                "hostc" => {
-                    let output_file = "/tmp/hostc_output.txt";
-                    let child = std::process::Command::new("hostc")
-                        .arg("8088")
-                        .stdout(std::fs::File::create(output_file).expect("Failed to create output file"))
-                        .stderr(std::fs::File::create(output_file).expect("Failed to create output file"))
-                        .spawn()
-                        .expect("Failed to start hostc");
-
-                    let hostc_pid = child.id();
-                    fs::write(&pid_file, hostc_pid.to_string()).expect("Failed to write PID file");
-
-                    // Poll for public URL (max 60s)
-                    let mut public_url = String::new();
-                    for _ in 0..120 {
-                        if let Ok(file) = std::fs::File::open(output_file) {
-                            let reader = std::io::BufReader::new(file);
-                            for line in reader.lines() {
-                                if let Ok(line_content) = line {
-                                    if line_content.contains("Public URL:") {
-                                        public_url = line_content
-                                            .split("Public URL:")
-                                            .nth(1)
-                                            .map(|s| s.trim().to_string())
-                                            .unwrap_or_default();
-                                        if !public_url.is_empty() {
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            if !public_url.is_empty() {
-                                break;
-                            }
-                        }
-                        thread::sleep(Duration::from_millis(500));
-                    }
-
-                    if let Ok(content) = fs::read_to_string(output_file) {
-                        println!("{}", content);
-                    }
-
-                    if public_url.is_empty() {
-                        eprintln!("Error: failed to capture Public URL within 60s");
-                        std::process::exit(1);
-                    }
-
-                    fs::write(&url_file, &public_url).expect("Failed to write URL file");
-                    println!("\nTunnel PID: {}", hostc_pid);
-                    println!("Public URL saved to ~/.ntd/tunnel.url");
-                    println!("Public URL: {}", public_url);
-                }
-                "trycloudflare" => {
-                    let output_file = "/tmp/cloudflared_output.txt";
-                    let child = std::process::Command::new("cloudflared")
-                        .arg("tunnel")
-                        .arg("--url")
-                        .arg("http://localhost:8088")
-                        .stdout(std::fs::File::create(output_file).expect("Failed to create output file"))
-                        .stderr(std::fs::File::create(output_file).expect("Failed to create output file"))
-                        .spawn()
-                        .expect("Failed to start cloudflared");
-
-                    let cloudflared_pid = child.id();
-                    fs::write(&pid_file, cloudflared_pid.to_string()).expect("Failed to write PID file");
-
-                    let mut public_url = String::new();
-                    for _ in 0..120 {
-                        if let Ok(file) = std::fs::File::open(output_file) {
-                            let reader = std::io::BufReader::new(file);
-                            for line in reader.lines() {
-                                if let Ok(line_content) = line {
-                                    if line_content.trim().starts_with("https://") && line_content.contains("trycloudflare.com") {
-                                        public_url = line_content.trim().to_string();
-                                        if !public_url.is_empty() {
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            if !public_url.is_empty() {
-                                break;
-                            }
-                        }
-                        thread::sleep(Duration::from_millis(500));
-                    }
-
-                    if let Ok(content) = fs::read_to_string(output_file) {
-                        println!("{}", content);
-                    }
-
-                    if public_url.is_empty() {
-                        eprintln!("Error: failed to capture Public URL within 60s");
-                        std::process::exit(1);
-                    }
-
-                    fs::write(&url_file, &public_url).expect("Failed to write URL file");
-                    println!("\nTunnel PID: {}", cloudflared_pid);
-                    println!("Public URL saved to ~/.ntd/tunnel.url");
-                    println!("Public URL: {}", public_url);
-                }
-                _ => {
-                    eprintln!("Error: unsupported tunnel type '{}'", tunnel_type);
-                    eprintln!("Supported types: hostc, trycloudflare");
-                    std::process::exit(1);
-                }
-            }
-        }
-        TunnelAction::Stop => {
-            if let Ok(pid_str) = fs::read_to_string(&pid_file) {
-                if let Ok(pid) = pid_str.trim().parse::<u32>() {
-                    if is_process_running(pid as i32) {
-                        println!("Stopping tunnel (PID: {})", pid);
-                        kill_process(pid as i32);
-                        thread::sleep(Duration::from_secs(1));
-                        if is_process_running(pid as i32) {
-                            kill_process_force(pid as i32);
-                        }
-                    }
-                    fs::remove_file(&pid_file).ok();
-                    fs::remove_file(&url_file).ok();
-                    println!("Tunnel stopped");
-                } else {
-                    eprintln!("No tunnel is running");
-                }
-            } else {
-                eprintln!("No tunnel is running");
-            }
-        }
-        TunnelAction::Status => {
-            if let Ok(pid_str) = fs::read_to_string(&pid_file) {
-                if let Ok(pid) = pid_str.trim().parse::<u32>() {
-                    if is_process_running(pid as i32) {
-                        println!("Tunnel is running (PID: {})", pid);
-                        if let Ok(url) = fs::read_to_string(&url_file) {
-                            println!("Public URL: {}", url.trim());
-                        }
-                    } else {
-                        println!("Tunnel is not running (stale PID file)");
-                        fs::remove_file(&pid_file).ok();
-                    }
-                }
-            } else {
-                println!("No tunnel is running");
-            }
-        }
-    }
-}
-
-#[cfg(unix)]
-fn is_process_running(pid: i32) -> bool {
-    unsafe { libc::kill(pid, 0) == 0 }
-}
-
-#[cfg(windows)]
-fn is_process_running(pid: i32) -> bool {
-    std::process::Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
-        .unwrap_or(false)
-}
-
-#[cfg(unix)]
-fn kill_process(pid: i32) {
-    unsafe { libc::kill(pid, libc::SIGTERM); }
-}
-
-#[cfg(windows)]
-fn kill_process(pid: i32) {
-    let _ = std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/F"])
-        .output();
-}
-
-#[cfg(unix)]
-fn kill_process_force(pid: i32) {
-    unsafe { libc::kill(pid, libc::SIGKILL); }
-}
-
-#[cfg(windows)]
-fn kill_process_force(pid: i32) {
-    kill_process(pid);
-}
-
-#[cfg(unix)]
-fn cleanup_orphan_processes() {
-    use std::process::Command;
-
-    if let Ok(output) = Command::new("pgrep").args(["-f", "hostc 8088"]).output() {
-        let pids = String::from_utf8_lossy(&output.stdout);
-        for pid_str in pids.lines() {
-            if let Ok(pid) = pid_str.trim().parse::<i32>() {
-                kill_process(pid);
-            }
-        }
-    }
-
-    if let Ok(output) = Command::new("pgrep").args(["-f", "cloudflared tunnel.*8088"]).output() {
-        let pids = String::from_utf8_lossy(&output.stdout);
-        for pid_str in pids.lines() {
-            if let Ok(pid) = pid_str.trim().parse::<i32>() {
-                kill_process(pid);
-            }
-        }
-    }
-}
-
-#[cfg(windows)]
-fn cleanup_orphan_processes() {
-    use std::process::Command;
-
-    if let Ok(output) = Command::new("wmic")
-        .args(["process", "where", "commandline like '%hostc 8088%'", "get", "processid"])
-        .output()
-    {
-        let text = String::from_utf8_lossy(&output.stdout);
-        for line in text.lines().skip(1) {
-            if let Ok(pid) = line.trim().parse::<i32>() {
-                kill_process(pid);
-            }
-        }
-    }
-
-    if let Ok(output) = Command::new("wmic")
-        .args(["process", "where", "commandline like '%cloudflared%8088%'", "get", "processid"])
-        .output()
-    {
-        let text = String::from_utf8_lossy(&output.stdout);
-        for line in text.lines().skip(1) {
-            if let Ok(pid) = line.trim().parse::<i32>() {
-                kill_process(pid);
-            }
-        }
-    }
-}
-
 async fn run_server() {
     let level = std::env::var("RUST_LOG")
         .ok()
@@ -480,6 +189,7 @@ async fn run_server() {
     executor_registry.register(adapters::opencode::OpencodeExecutor::new());
     executor_registry.register(adapters::atomcode::AtomcodeExecutor::new());
     executor_registry.register(adapters::hermes::HermesExecutor::new());
+    executor_registry.register(adapters::kimi::KimiExecutor::new());
 
     let executors = executor_registry.list_executors();
     info!("Available executors: {:?}", executors);
@@ -496,12 +206,17 @@ async fn run_server() {
 
     let app = handlers::create_app(db, executor_registry, tx, scheduler, task_manager);
 
+    let port = std::env::var("NTD_PORT")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(8088);
+
     info!("===========================================");
     info!("  Nothing Todo (ntd)");
-    info!("  Open http://localhost:8088 in your browser");
+    info!("  Open http://localhost:{} in your browser", port);
     info!("===========================================");
 
-    let std_listener = std::net::TcpListener::bind("0.0.0.0:8088").unwrap();
+    let std_listener = std::net::TcpListener::bind(format!("0.0.0.0:{}", port)).unwrap();
 
     #[cfg(unix)]
     {

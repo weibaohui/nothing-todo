@@ -49,7 +49,7 @@ pub async fn create_todo(
     } else {
         req.prompt.trim().to_string()
     };
-    let id = state.db.create_todo(title, &prompt).await;
+    let id = state.db.create_todo(title, &prompt).await?;
 
     for tag_id in &req.tag_ids {
         state.db.add_todo_tag(id, *tag_id).await;
@@ -79,23 +79,22 @@ pub async fn update_todo(
 ) -> Result<ApiResponse<Todo>, AppError> {
     // 获取当前值用于填充
     let current = state.require_todo(id).await?;
-    
+
     let title = req.title.unwrap_or(current.title);
     let prompt = req.prompt.unwrap_or(current.prompt);
     let status = req.status.unwrap_or(current.status);
     let executor = req.executor.or(current.executor);
     let workspace = req.workspace.or(current.workspace);
-    
+
     let scheduler_config = req.scheduler_config
         .as_ref()
         .filter(|s| !s.is_empty())
         .cloned();
-    
+
     // Validate cron expression if scheduler config is provided
     if let Some(ref config) = scheduler_config {
         validate_cron_expression(config)?;
     }
-    
     state
         .db
         .update_todo_full(
@@ -108,7 +107,8 @@ pub async fn update_todo(
             scheduler_config.as_deref(),
             workspace.as_deref(),
         )
-        .await;
+        .await
+        .map_err(AppError::from)?;
 
     let todo = state.require_todo(id).await?;
     Ok(ApiResponse::ok(todo))
@@ -127,7 +127,7 @@ pub async fn delete_todo(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<ApiResponse<()>, AppError> {
-    state.db.delete_todo(id).await;
+    let _ = state.db.delete_todo(id).await;
     Ok(ApiResponse::ok(()))
 }
 
