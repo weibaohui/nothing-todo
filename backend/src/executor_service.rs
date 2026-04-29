@@ -120,6 +120,15 @@ pub async fn run_todo_execution(
 
     let todo_title = todo.as_ref().map(|t| t.title.clone()).unwrap_or_default();
 
+    // 注册任务信息，用于 WebSocket 同步
+    task_manager.register_info(crate::task_manager::TaskInfo {
+        task_id: task_id.clone(),
+        todo_id,
+        todo_title: todo_title.clone(),
+        executor: executor_spawn.executor_type().to_string(),
+        logs: "[]".to_string(), // 初始为空，WebSocket 同步时会从数据库获取实际日志
+    }).await;
+
     tokio::spawn(async move {
         send_event(&tx_clone, ExecEvent::Started { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string() });
 

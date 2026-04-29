@@ -32,6 +32,7 @@ type Action =
   | { type: 'APPEND_TASK_LOG'; payload: { taskId: string; log: LogEntry } }
   | { type: 'FINISH_TASK'; payload: { taskId: string; success: boolean; result: string | null } }
   | { type: 'REMOVE_RUNNING_TASK'; payload: string }
+  | { type: 'CLEAR_RUNNING_TASKS' }
   | { type: 'SET_ACTIVE_TASK'; payload: string | null };
 
 const initialState: AppState = {
@@ -65,7 +66,7 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SELECT_TAG':
       return { ...state, selectedTagId: action.payload };
     case 'ADD_TAG':
-      return { ...state, tags: [...state.tags, action.payload] };
+      return { ...state, tags: [...state.tags, ...[action.payload]] };
     case 'DELETE_TAG':
       return { ...state, tags: state.tags.filter(t => t.id !== action.payload) };
     case 'SET_EXECUTION_RECORDS':
@@ -159,6 +160,13 @@ function reducer(state: AppState, action: Action): AppState {
           : state.activeTaskId,
       };
     }
+    case 'CLEAR_RUNNING_TASKS': {
+      return {
+        ...state,
+        runningTasks: {},
+        activeTaskId: null,
+      };
+    }
     case 'SET_ACTIVE_TASK':
       return { ...state, activeTaskId: action.payload };
     default:
@@ -182,28 +190,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         dispatch({ type: 'SET_TODOS', payload: todos });
         dispatch({ type: 'SET_TAGS', payload: tags });
 
-        // Load running tasks and sync to state
-        try {
-          const runningTodos = await db.getRunningTodos();
-          runningTodos.forEach(todo => {
-            if (todo.task_id && todo.status === 'running') {
-              dispatch({
-                type: 'ADD_RUNNING_TASK',
-                payload: {
-                  taskId: todo.task_id,
-                  todoId: todo.id,
-                  todoTitle: todo.title,
-                  executor: todo.executor || 'claudecode',
-                  logs: [],
-                  status: 'running',
-                  startedAt: new Date().toISOString(),
-                },
-              });
-            }
-          });
-        } catch (error) {
-          console.error('Failed to load running tasks:', error);
-        }
+        // 注意：running tasks 现在由 WebSocket 的 Sync 事件初始化
+        // 不再从数据库加载 running todos，因为数据库状态可能与实际进程状态不同步
       } catch (error) {
         console.error('Failed to load data:', error);
       } finally {
