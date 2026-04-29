@@ -20,8 +20,11 @@ pub fn parse_executor_type(executor: &str) -> ExecutorType {
 /// Strip `<think>...</think>` tags from content.
 pub fn strip_think_tags(content: &str) -> String {
     use regex::Regex;
-    let re = Regex::new(r"<think>[\s\S]*?</think>").unwrap();
-    re.replace_all(content, "").trim().to_string()
+    use std::sync::LazyLock;
+    static THINK_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"<think>[\s\S]*?</think>").unwrap()
+    });
+    THINK_RE.replace_all(content, "").trim().to_string()
 }
 
 pub mod joinai;
