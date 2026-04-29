@@ -1,8 +1,9 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 use tokio_cron_scheduler::{Job, JobScheduler};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::adapters::ExecutorRegistry;
 use crate::db::Database;
@@ -37,14 +38,16 @@ impl TodoScheduler {
             if let Some(ref config) = todo.scheduler_config {
                 if todo.scheduler_enabled {
                     info!("Loading scheduled task for todo {} with cron: {}", todo.id, config);
-                    self.upsert_task(
+                    if let Err(e) = self.upsert_task(
                         db.clone(),
                         executor_registry.clone(),
                         tx.clone(),
                         todo.id,
                         config.clone(),
                         task_manager.clone(),
-                    ).await?;
+                    ).await {
+                        warn!("Skipping invalid scheduled task for todo {}: {}", todo.id, e);
+                    }
                 }
             }
         }
@@ -61,6 +64,20 @@ impl TodoScheduler {
         cron_expr: String,
         task_manager: Arc<TaskManager>,
     ) -> Result<uuid::Uuid, Box<dyn std::error::Error>> {
+        // Validate cron expression
+        if cron::Schedule::from_str(&cron_expr).is_err() {
+            warn!(
+                "Invalid cron expression '{}' for todo {}. \
+                AI must convert natural language to valid cron format with 6 fields (seconds + 5 standard). \
+                Example: '0 */12 * * * *' (every 12 min), '0 0 9 * * *' (daily at 9am).",
+                cron_expr, todo_id
+            );
+            return Err(format!(
+                "Invalid cron expression '{}' for todo {}. AI must convert natural language to valid cron format.",
+                cron_expr, todo_id
+            ).into());
+        }
+
         self.remove_task_for_todo(todo_id).await;
 
         let db_clone = db.clone();
@@ -79,7 +96,7 @@ impl TodoScheduler {
                 if let Some(todo) = db.get_todo(todo_id).await {
                     let message = if todo.prompt.is_empty() { todo.title.clone() } else { todo.prompt.clone() };
                     let executor = todo.executor.clone();
-                    info!("Scheduled execution triggered for todo {}: {}", todo_id, message);
+                    info!("Scheduled execution triggered for todo {}", todo_id);
                     run_todo_execution(db, registry, tx, todo_id, message, executor, "cron", tm).await;
                 }
             })

@@ -1,14 +1,38 @@
 use axum::{
     extract::{Path, State},
 };
+use cron::Schedule;
+use std::str::FromStr;
 
 use crate::handlers::{ApiJson, AppError, AppState};
 use crate::models::{ApiResponse, CreateTodoRequest, Todo, UpdateTagsRequest, UpdateTodoRequest, utc_timestamp};
+
+/// Validate cron expression, return helpful error for invalid ones
+fn validate_cron_expression(expr: &str) -> Result<(), String> {
+    Schedule::from_str(expr)
+        .map(|_| ())
+        .map_err(|_| {
+            format!(
+                "Invalid cron expression: '{}'. AI must convert natural language to valid cron format. \
+                Expected format with 6 fields (seconds + 5 standard): '0 */12 * * * *' (every 12 min), \
+                '0 0 * * * *' (every minute), '0 0 9 * * *' (daily at 9am). See https://crontab.guru/",
+                expr
+            )
+        })
+}
 
 pub async fn get_todos(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<Vec<Todo>>, AppError> {
     Ok(ApiResponse::ok(state.db.get_todos().await))
+}
+
+pub async fn get_todo(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<ApiResponse<Todo>, AppError> {
+    let todo = state.require_todo(id).await?;
+    Ok(ApiResponse::ok(todo))
 }
 
 pub async fn create_todo(
@@ -53,22 +77,36 @@ pub async fn update_todo(
     Path(id): Path<i64>,
     ApiJson(req): ApiJson<UpdateTodoRequest>,
 ) -> Result<ApiResponse<Todo>, AppError> {
-    let prompt = if req.prompt.trim().is_empty() {
-        req.title.clone()
-    } else {
-        req.prompt.clone()
-    };
+    // 获取当前值用于填充
+    let current = state.require_todo(id).await?;
+    
+    let title = req.title.unwrap_or(current.title);
+    let prompt = req.prompt.unwrap_or(current.prompt);
+    let status = req.status.unwrap_or(current.status);
+    let executor = req.executor.or(current.executor);
+    let workspace = req.workspace.or(current.workspace);
+    
+    let scheduler_config = req.scheduler_config
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned();
+    
+    // Validate cron expression if scheduler config is provided
+    if let Some(ref config) = scheduler_config {
+        validate_cron_expression(config)?;
+    }
+    
     state
         .db
         .update_todo_full(
             id,
-            &req.title,
+            &title,
             &prompt,
-            req.status,
-            req.executor.as_deref(),
+            status,
+            executor.as_deref(),
             req.scheduler_enabled,
-            req.scheduler_config.as_deref(),
-            req.workspace.as_deref(),
+            scheduler_config.as_deref(),
+            workspace.as_deref(),
         )
         .await;
 
@@ -98,7 +136,9 @@ pub async fn force_update_todo_status(
     Path(id): Path<i64>,
     ApiJson(req): ApiJson<UpdateTodoRequest>,
 ) -> Result<ApiResponse<Todo>, AppError> {
-    state.db.force_update_todo_status(id, req.status).await;
+    if let Some(status) = req.status {
+        state.db.force_update_todo_status(id, status).await;
+    }
     let todo = state.require_todo(id).await?;
     Ok(ApiResponse::ok(todo))
 }

@@ -189,7 +189,7 @@ impl ParsedLogEntry {
 }
 
 // Request/Response types
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct CreateTodoRequest {
     pub title: String,
     pub prompt: String,
@@ -197,11 +197,14 @@ pub struct CreateTodoRequest {
     pub tag_ids: Vec<i64>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct UpdateTodoRequest {
-    pub title: String,
-    pub prompt: String,
-    pub status: TodoStatus,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub prompt: Option<String>,
+    #[serde(default)]
+    pub status: Option<TodoStatus>,
     #[serde(default)]
     pub executor: Option<String>,
     #[serde(default)]
@@ -212,18 +215,18 @@ pub struct UpdateTodoRequest {
     pub workspace: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct UpdateTagsRequest {
     pub tag_ids: Vec<i64>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct CreateTagRequest {
     pub name: String,
     pub color: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct ExecuteRequest {
     pub todo_id: i64,
     pub message: String,
@@ -382,6 +385,24 @@ pub struct ApiResponse<T: Serialize> {
 }
 
 impl<T: Serialize> ApiResponse<T> {
+    pub fn ok(data: T) -> Self {
+        Self { code: 0, data: Some(data), message: "ok".to_string() }
+    }
+
+    pub fn err(code: i32, message: &str) -> Self {
+        Self { code, data: None, message: message.to_string() }
+    }
+}
+
+// API Response for client (deserializable)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ClientResponse<T> {
+    pub code: i32,
+    pub data: Option<T>,
+    pub message: String,
+}
+
+impl<T: for<'de> Deserialize<'de>> ClientResponse<T> {
     pub fn ok(data: T) -> Self {
         Self { code: 0, data: Some(data), message: "ok".to_string() }
     }
