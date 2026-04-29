@@ -80,14 +80,18 @@ pub async fn run_todo_execution(
 
     // Update todo's executor to the one being used
     let executor_str = executor.executor_type().to_string();
-    db.update_todo_executor(todo_id, &executor_str).await;
+    if let Err(e) = db.update_todo_executor(todo_id, &executor_str).await {
+        tracing::error!("Failed to update todo executor: {}", e);
+    }
 
     // Create execution record
     let command = format!("{} {}", executable_path, command_args.join(" "));
     let record_id = db.create_execution_record(todo_id, &command, &executor_str, trigger_type, &task_id).await;
 
     // Update todo status to running and associate with task
-    db.start_todo_execution(todo_id, &task_id).await;
+    if let Err(e) = db.start_todo_execution(todo_id, &task_id).await {
+        tracing::error!("Failed to start todo execution: {}", e);
+    }
 
     let task_id_return = task_id.clone();
     let db_clone = db.clone();
@@ -121,7 +125,7 @@ pub async fn run_todo_execution(
                 let entry = ParsedLogEntry::error(format!("Failed to spawn executor: {}", e));
                 send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
                 send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, success: false, result: None });
-                db_clone.finish_todo_execution(todo_id, false).await;
+                let _ = db_clone.finish_todo_execution(todo_id, false).await;
                 task_manager_spawn.remove(&task_id).await;
                 return;
             }
@@ -140,7 +144,7 @@ pub async fn run_todo_execution(
 
         // 保存 pid 到 execution_records 表
         if child_id > 0 {
-            db_clone.update_execution_record_pid(record_id, Some(child_id as i32)).await;
+            let _ = db_clone.update_execution_record_pid(record_id, Some(child_id as i32)).await;
         }
 
         let stdout_handle = child.stdout.take();
@@ -169,7 +173,7 @@ pub async fn run_todo_execution(
                         send_event(&tx_clone, ExecEvent::Output { task_id: tid.clone(), entry: parsed });
 
                         let logs_json = serde_json::to_string(&*logs_for_db.lock().await).unwrap_or_default();
-                        db_clone2.update_execution_record(rid, crate::models::ExecutionStatus::Running.as_str(), &logs_json, "", None, None).await;
+                        let _ = db_clone2.update_execution_record(rid, crate::models::ExecutionStatus::Running.as_str(), &logs_json, "", None, None).await;
                     }
                 }
             }))
@@ -216,12 +220,12 @@ pub async fn run_todo_execution(
                     let _ = handle.await;
                 }
 
-                db_clone.update_todo_status(todo_id, crate::models::TodoStatus::Cancelled).await;
-                db_clone.update_todo_task_id(todo_id, None).await;
+                let _ = db_clone.update_todo_status(todo_id, crate::models::TodoStatus::Cancelled).await;
+                let _ = db_clone.update_todo_task_id(todo_id, None).await;
 
                 // 更新 execution_records 状态为 failed
                 let logs_json = serde_json::to_string(&*logs.lock().await).unwrap_or_default();
-                db_clone.update_execution_record(
+                let _ = db_clone.update_execution_record(
                     record_id,
                     crate::models::ExecutionStatus::Failed.as_str(),
                     &logs_json,
@@ -264,9 +268,9 @@ pub async fn run_todo_execution(
         let logs_json = serde_json::to_string(&all_logs_snapshot).unwrap_or_default();
         let usage = executor_spawn.get_usage(&all_logs_snapshot);
         let model = executor_spawn.get_model();
-        db_clone.update_execution_record(record_id, final_status, &logs_json, &result_str, usage.as_ref(), model.as_deref()).await;
+        let _ = db_clone.update_execution_record(record_id, final_status, &logs_json, &result_str, usage.as_ref(), model.as_deref()).await;
 
-        db_clone.finish_todo_execution(todo_id, success).await;
+        let _ = db_clone.finish_todo_execution(todo_id, success).await;
 
         let entry = ParsedLogEntry::new(
             if success { "info" } else { "error" },

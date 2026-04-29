@@ -53,6 +53,9 @@ pub async fn update_todo(
     Path(id): Path<i64>,
     ApiJson(req): ApiJson<UpdateTodoRequest>,
 ) -> Result<ApiResponse<Todo>, AppError> {
+    // Check existence first to return 404 for non-existent todos
+    state.require_todo(id).await?;
+
     let prompt = if req.prompt.trim().is_empty() {
         req.title.clone()
     } else {
@@ -70,7 +73,8 @@ pub async fn update_todo(
             req.scheduler_config.as_deref(),
             req.workspace.as_deref(),
         )
-        .await;
+        .await
+        .map_err(AppError::from)?;
 
     let todo = state.require_todo(id).await?;
     Ok(ApiResponse::ok(todo))
@@ -89,7 +93,7 @@ pub async fn delete_todo(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<ApiResponse<()>, AppError> {
-    state.db.delete_todo(id).await;
+    let _ = state.db.delete_todo(id).await;
     Ok(ApiResponse::ok(()))
 }
 
@@ -98,7 +102,7 @@ pub async fn force_update_todo_status(
     Path(id): Path<i64>,
     ApiJson(req): ApiJson<UpdateTodoRequest>,
 ) -> Result<ApiResponse<Todo>, AppError> {
-    state.db.force_update_todo_status(id, req.status).await;
+    state.db.force_update_todo_status(id, req.status).await.map_err(AppError::from)?;
     let todo = state.require_todo(id).await?;
     Ok(ApiResponse::ok(todo))
 }

@@ -77,6 +77,15 @@ impl IntoResponse for AppError {
     }
 }
 
+impl From<sea_orm::DbErr> for AppError {
+    fn from(err: sea_orm::DbErr) -> Self {
+        match &err {
+            sea_orm::DbErr::RecordNotFound(_) => AppError::NotFound,
+            _ => AppError::Internal(err.to_string()),
+        }
+    }
+}
+
 impl<T: Serialize> IntoResponse for crate::models::ApiResponse<T> {
     fn into_response(self) -> Response {
         axum::Json(self).into_response()
