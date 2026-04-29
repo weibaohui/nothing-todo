@@ -1,5 +1,5 @@
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Statement,
 };
 
 use crate::db::Database;
@@ -506,141 +506,113 @@ impl Database {
     }
 
     pub async fn get_execution_summary(&self, todo_id: i64) -> ExecutionSummary {
-        let records = execution_records::Entity::find()
-            .filter(execution_records::Column::TodoId.eq(todo_id))
-            .all(&self.conn)
-            .await
-            .unwrap_or_default();
+        let backend = self.conn.get_database_backend();
+        let sql = format!(
+            "SELECT \
+                COUNT(*) as total, \
+                COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success_count, \
+                COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed_count, \
+                COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), 0) as running_count, \
+                COALESCE(SUM(COALESCE(json_extract(usage, '$.input_tokens'), 0)), 0) as input_tokens, \
+                COALESCE(SUM(COALESCE(json_extract(usage, '$.output_tokens'), 0)), 0) as output_tokens, \
+                COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_read_input_tokens'), 0)), 0) as cache_read, \
+                COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_creation_input_tokens'), 0)), 0) as cache_creation, \
+                COALESCE(SUM(COALESCE(json_extract(usage, '$.total_cost_usd'), 0.0)), 0.0) as total_cost \
+                FROM execution_records WHERE todo_id = {}",
+            todo_id
+        );
 
-        let mut total_executions = 0i64;
-        let mut success_count = 0i64;
-        let mut failed_count = 0i64;
-        let mut running_count = 0i64;
-        let mut total_input_tokens = 0u64;
-        let mut total_output_tokens = 0u64;
-        let mut total_cache_read_tokens = 0u64;
-        let mut total_cache_creation_tokens = 0u64;
-        let mut total_cost = 0.0f64;
+        if let Ok(Some(row)) = self.conn.query_one(Statement::from_string(backend, sql)).await {
+            let total_executions: i64 = row.try_get_by("total").unwrap_or(0);
+            let success_count: i64 = row.try_get_by("success_count").unwrap_or(0);
+            let failed_count: i64 = row.try_get_by("failed_count").unwrap_or(0);
+            let running_count: i64 = row.try_get_by("running_count").unwrap_or(0);
+            let input_tokens: i64 = row.try_get_by("input_tokens").unwrap_or(0);
+            let output_tokens: i64 = row.try_get_by("output_tokens").unwrap_or(0);
+            let cache_read: i64 = row.try_get_by("cache_read").unwrap_or(0);
+            let cache_creation: i64 = row.try_get_by("cache_creation").unwrap_or(0);
+            let total_cost: f64 = row.try_get_by("total_cost").unwrap_or(0.0);
 
-        for r in records {
-            total_executions += 1;
-            match r.status.as_deref() {
-                Some(s) if s == crate::models::ExecutionStatus::Success.as_str() => success_count += 1,
-                Some(s) if s == crate::models::ExecutionStatus::Failed.as_str() => failed_count += 1,
-                Some(s) if s == crate::models::ExecutionStatus::Running.as_str() => running_count += 1,
-                _ => {}
+            ExecutionSummary {
+                todo_id,
+                total_executions,
+                success_count,
+                failed_count,
+                running_count,
+                total_input_tokens: input_tokens as u64,
+                total_output_tokens: output_tokens as u64,
+                total_cache_read_tokens: cache_read as u64,
+                total_cache_creation_tokens: cache_creation as u64,
+                total_cost_usd: if total_cost > 0.0 { Some(total_cost) } else { None },
             }
-            if let Some(usage_str) = r.usage {
-                if let Ok(usage) = serde_json::from_str::<ExecutionUsage>(&usage_str) {
-                    total_input_tokens += usage.input_tokens;
-                    total_output_tokens += usage.output_tokens;
-                    total_cache_read_tokens += usage.cache_read_input_tokens.unwrap_or(0);
-                    total_cache_creation_tokens += usage.cache_creation_input_tokens.unwrap_or(0);
-                    if let Some(cost) = usage.total_cost_usd {
-                        total_cost += cost;
-                    }
-                }
+        } else {
+            ExecutionSummary {
+                todo_id,
+                total_executions: 0,
+                success_count: 0,
+                failed_count: 0,
+                running_count: 0,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                total_cache_read_tokens: 0,
+                total_cache_creation_tokens: 0,
+                total_cost_usd: None,
             }
-        }
-
-        ExecutionSummary {
-            todo_id,
-            total_executions,
-            success_count,
-            failed_count,
-            running_count,
-            total_input_tokens,
-            total_output_tokens,
-            total_cache_read_tokens,
-            total_cache_creation_tokens,
-            total_cost_usd: if total_cost > 0.0 { Some(total_cost) } else { None },
         }
     }
 
     /// 清理孤儿执行记录：状态为running但todo没有对应task_id的记录
     /// 程序崩溃后，执行记录可能保持running状态，需要修复
     pub async fn cleanup_orphan_execution_records(&self) {
-        // 查找所有状态为running的执行记录
-        let running_records = execution_records::Entity::find()
-            .filter(execution_records::Column::Status.eq(crate::models::ExecutionStatus::Running.as_str()))
-            .all(&self.conn)
-            .await
-            .unwrap_or_default();
-
-        for record in running_records {
-            // 检查对应的todo是否有task_id
-            if let Some(todo) = self.get_todo(record.todo_id.unwrap_or(0)).await {
-                if todo.task_id.is_none() {
-                    // todo没有task_id，说明这个执行记录是孤儿的，标记为失败
-                    tracing::warn!(
-                        "Found orphan execution record {} for todo {}, marking as failed",
-                        record.id,
-                        record.todo_id.unwrap_or(0)
-                    );
-                    let now = crate::models::utc_timestamp();
-                    let am = execution_records::ActiveModel {
-                        id: ActiveValue::Unchanged(record.id),
-                        status: ActiveValue::Set(Some(crate::models::ExecutionStatus::Failed.as_str().to_string())),
-                        finished_at: ActiveValue::Set(Some(now)),
-                        result: ActiveValue::Set(Some("程序崩溃，任务被中断".to_string())),
-                        ..Default::default()
-                    };
-                    let _ = self.exec_update(am).await;
-                }
-            } else {
-                // todo不存在，直接标记执行记录为失败
-                tracing::warn!(
-                    "Found orphan execution record {} for non-existent todo {}, marking as failed",
-                    record.id,
-                    record.todo_id.unwrap_or(0)
-                );
-                let now = crate::models::utc_timestamp();
-                let am = execution_records::ActiveModel {
-                    id: ActiveValue::Unchanged(record.id),
-                    status: ActiveValue::Set(Some(crate::models::ExecutionStatus::Failed.as_str().to_string())),
-                    finished_at: ActiveValue::Set(Some(now)),
-                    result: ActiveValue::Set(Some("任务已被删除".to_string())),
-                    ..Default::default()
-                };
-                let _ = self.exec_update(am).await;
-            }
+        let now = crate::models::utc_timestamp();
+        let backend = self.conn.get_database_backend();
+        // Single UPDATE: mark running records as failed where todo is missing or has no task_id
+        let sql = format!(
+            "UPDATE execution_records SET \
+                status = 'failed', \
+                finished_at = '{}', \
+                result = CASE \
+                    WHEN todo_id NOT IN (SELECT id FROM todos) THEN '任务已被删除' \
+                    ELSE '程序崩溃，任务被中断' \
+                END \
+                WHERE status = 'running' AND ( \
+                    todo_id NOT IN (SELECT id FROM todos) \
+                    OR todo_id IN (SELECT id FROM todos WHERE task_id IS NULL) \
+                )",
+            now
+        );
+        if let Err(e) = self.conn.execute(Statement::from_string(backend, sql)).await {
+            tracing::error!("Failed to cleanup orphan execution records: {}", e);
         }
     }
 
     /// 标记指定todo的所有running状态执行记录为failed
     pub async fn mark_execution_records_as_failed(&self, todo_id: i64) {
-        let running_records = execution_records::Entity::find()
-            .filter(execution_records::Column::TodoId.eq(todo_id))
-            .filter(execution_records::Column::Status.eq(crate::models::ExecutionStatus::Running.as_str()))
-            .all(&self.conn)
-            .await
-            .unwrap_or_default();
-
-        let count = running_records.len();
-        if count > 0 {
-            tracing::warn!(
-                "Marking {} running execution records as failed for todo {}",
-                count,
-                todo_id
-            );
-
-            let now = crate::models::utc_timestamp();
-            for record in running_records {
-                let am = execution_records::ActiveModel {
-                    id: ActiveValue::Unchanged(record.id),
-                    status: ActiveValue::Set(Some(crate::models::ExecutionStatus::Failed.as_str().to_string())),
-                    finished_at: ActiveValue::Set(Some(now.clone())),
-                    result: ActiveValue::Set(Some("任务已被手动停止".to_string())),
-                    ..Default::default()
-                };
-                let _ = self.exec_update(am).await;
+        let now = crate::models::utc_timestamp();
+        let backend = self.conn.get_database_backend();
+        let sql = format!(
+            "UPDATE execution_records SET \
+                status = 'failed', \
+                finished_at = '{}', \
+                result = '任务已被手动停止' \
+                WHERE todo_id = {} AND status = 'running'",
+            now, todo_id
+        );
+        let result = self.conn.execute(Statement::from_string(backend, sql)).await;
+        match result {
+            Ok(res) => {
+                let rows = res.rows_affected();
+                if rows > 0 {
+                    tracing::warn!(
+                        "Marked {} running execution records as failed for todo {}",
+                        rows,
+                        todo_id
+                    );
+                }
             }
-
-            tracing::info!(
-                "Successfully marked {} execution records as failed for todo {}",
-                count,
-                todo_id
-            );
+            Err(e) => {
+                tracing::error!("Failed to mark execution records as failed for todo {}: {}", todo_id, e);
+            }
         }
     }
 }
