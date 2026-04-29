@@ -49,7 +49,13 @@ pub async fn create_todo(
     } else {
         req.prompt.trim().to_string()
     };
+    let executor = req.executor.clone().unwrap_or_else(|| "claudecode".to_string());
     let id = state.db.create_todo(title, &prompt).await?;
+
+    // Update executor if specified
+    if let Some(ref exec) = req.executor {
+        state.db.update_todo_executor(id, exec).await.ok();
+    }
 
     for tag_id in &req.tag_ids {
         state.db.add_todo_tag(id, *tag_id).await;
@@ -63,7 +69,7 @@ pub async fn create_todo(
         created_at: now.clone(),
         updated_at: now,
         tag_ids: req.tag_ids.clone(),
-        executor: Some("claudecode".to_string()),
+        executor: Some(executor),
         scheduler_enabled: false,
         scheduler_config: None,
         scheduler_next_run_at: None,

@@ -6,7 +6,7 @@ pub struct AgentEvent {
     pub event_type: String,
     #[serde(default)]
     pub timestamp: Option<u64>,
-    #[serde(default)]
+    #[serde(default, rename = "sessionID")]
     pub session_id: Option<String>,
     #[serde(default)]
     pub part: Option<AgentPart>,

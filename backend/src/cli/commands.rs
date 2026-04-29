@@ -264,6 +264,7 @@ async fn handle_todo(client: &ApiClient, action: &TodoAction, output: &OutputFor
                 title: title.clone(),
                 prompt: prompt_content,
                 tag_ids: parse_tags(tags),
+                executor: executor.clone(),
             };
 
             let resp: ClientResponse<Todo> = client.post("/todos", &req).await?;
