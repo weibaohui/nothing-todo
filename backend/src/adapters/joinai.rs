@@ -198,19 +198,7 @@ impl CodeExecutor for JoinaiExecutor {
     }
 
     fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
-        // 查找最后的 text 类型日志作为结果
-        let text_result = logs.iter()
-            .rev()
-            .find(|l| l.log_type == "text")
-            .map(|l| super::strip_think_tags(&l.content));
-
-        // 如果没有 text，尝试 stderr
-        let fallback = logs.iter()
-            .rev()
-            .find(|l| l.log_type == "stderr")
-            .map(|l| l.content.clone());
-
-        text_result.or(fallback)
+        super::default_final_result_with_think_stripping(logs)
     }
 
     fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
