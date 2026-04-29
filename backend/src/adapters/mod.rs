@@ -5,15 +5,17 @@ use std::sync::{Arc, RwLock};
 use crate::models::{ExecutorType, ParsedLogEntry, ExecutionUsage};
 
 /// Parse executor string (with aliases) into `ExecutorType`.
-pub fn parse_executor_type(executor: &str) -> ExecutorType {
-    match executor.to_lowercase().as_str() {
-        "claudecode" | "claude" => ExecutorType::Claudecode,
-        "codebuddy" | "cbc" => ExecutorType::Codebuddy,
-        "opencode" => ExecutorType::Opencode,
-        "atomcode" | "atom" => ExecutorType::Atomcode,
-        "hermes" => ExecutorType::Hermes,
-        "kimi" => ExecutorType::Kimi,
-        _ => ExecutorType::Joinai,
+/// Returns `None` for unrecognized names.
+pub fn parse_executor_type(executor: &str) -> Option<ExecutorType> {
+    match executor.trim().to_lowercase().as_str() {
+        "claudecode" | "claude" => Some(ExecutorType::Claudecode),
+        "codebuddy" | "cbc" => Some(ExecutorType::Codebuddy),
+        "opencode" => Some(ExecutorType::Opencode),
+        "atomcode" | "atom" => Some(ExecutorType::Atomcode),
+        "hermes" => Some(ExecutorType::Hermes),
+        "kimi" => Some(ExecutorType::Kimi),
+        "joinai" => Some(ExecutorType::Joinai),
+        _ => None,
     }
 }
 
@@ -141,40 +143,52 @@ mod tests {
 
     #[test]
     fn test_parse_executor_type_claudecode() {
-        assert_eq!(parse_executor_type("claudecode"), ExecutorType::Claudecode);
-        assert_eq!(parse_executor_type("claude"), ExecutorType::Claudecode);
+        assert_eq!(parse_executor_type("claudecode"), Some(ExecutorType::Claudecode));
+        assert_eq!(parse_executor_type("claude"), Some(ExecutorType::Claudecode));
     }
 
     #[test]
     fn test_parse_executor_type_codebuddy() {
-        assert_eq!(parse_executor_type("codebuddy"), ExecutorType::Codebuddy);
-        assert_eq!(parse_executor_type("cbc"), ExecutorType::Codebuddy);
+        assert_eq!(parse_executor_type("codebuddy"), Some(ExecutorType::Codebuddy));
+        assert_eq!(parse_executor_type("cbc"), Some(ExecutorType::Codebuddy));
     }
 
     #[test]
     fn test_parse_executor_type_opencode() {
-        assert_eq!(parse_executor_type("opencode"), ExecutorType::Opencode);
+        assert_eq!(parse_executor_type("opencode"), Some(ExecutorType::Opencode));
     }
 
     #[test]
     fn test_parse_executor_type_atomcode() {
-        assert_eq!(parse_executor_type("atomcode"), ExecutorType::Atomcode);
-        assert_eq!(parse_executor_type("atom"), ExecutorType::Atomcode);
-        assert_eq!(parse_executor_type("ATOMCODE"), ExecutorType::Atomcode);
+        assert_eq!(parse_executor_type("atomcode"), Some(ExecutorType::Atomcode));
+        assert_eq!(parse_executor_type("atom"), Some(ExecutorType::Atomcode));
+        assert_eq!(parse_executor_type("ATOMCODE"), Some(ExecutorType::Atomcode));
     }
 
     #[test]
-    fn test_parse_executor_type_joinai_default() {
-        assert_eq!(parse_executor_type("joinai"), ExecutorType::Joinai);
-        assert_eq!(parse_executor_type("unknown"), ExecutorType::Joinai);
-        assert_eq!(parse_executor_type(""), ExecutorType::Joinai);
+    fn test_parse_executor_type_joinai() {
+        assert_eq!(parse_executor_type("joinai"), Some(ExecutorType::Joinai));
+    }
+
+    #[test]
+    fn test_parse_executor_type_unknown() {
+        assert_eq!(parse_executor_type("unknown"), None);
+        assert_eq!(parse_executor_type(""), None);
+        assert_eq!(parse_executor_type("typo_executor"), None);
     }
 
     #[test]
     fn test_parse_executor_type_case_insensitive() {
-        assert_eq!(parse_executor_type("Claude"), ExecutorType::Claudecode);
-        assert_eq!(parse_executor_type("CLAUDE"), ExecutorType::Claudecode);
-        assert_eq!(parse_executor_type("CodeBuddy"), ExecutorType::Codebuddy);
+        assert_eq!(parse_executor_type("Claude"), Some(ExecutorType::Claudecode));
+        assert_eq!(parse_executor_type("CLAUDE"), Some(ExecutorType::Claudecode));
+        assert_eq!(parse_executor_type("CodeBuddy"), Some(ExecutorType::Codebuddy));
+    }
+
+    #[test]
+    fn test_parse_executor_type_trims_whitespace() {
+        assert_eq!(parse_executor_type(" claude "), Some(ExecutorType::Claudecode));
+        assert_eq!(parse_executor_type("  opencode"), Some(ExecutorType::Opencode));
+        assert_eq!(parse_executor_type("kimi  "), Some(ExecutorType::Kimi));
     }
 
     #[test]
