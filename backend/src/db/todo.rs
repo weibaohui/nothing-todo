@@ -341,17 +341,17 @@ impl Database {
             .collect()
     }
 
-    /// 从备份数据导入 todo（清空现有数据后导入）
-    pub async fn import_backup(&self, tags_in: &[crate::models::TagBackup], todos_in: &[TodoBackup]) {
+    /// 从备份数据导入 todo（清空现有数据后导入，失败时自动回滚）
+    pub async fn import_backup(&self, tags_in: &[crate::models::TagBackup], todos_in: &[TodoBackup]) -> Result<(), sea_orm::DbErr> {
         use sea_orm::TransactionTrait;
         use sea_orm::QueryFilter;
 
-        let txn = self.conn.begin().await.expect("begin transaction failed");
+        let txn = self.conn.begin().await?;
 
         // 清空现有数据
-        todo_tags::Entity::delete_many().exec(&txn).await.ok();
-        todos::Entity::delete_many().exec(&txn).await.ok();
-        tags::Entity::delete_many().exec(&txn).await.ok();
+        todo_tags::Entity::delete_many().exec(&txn).await?;
+        todos::Entity::delete_many().exec(&txn).await?;
+        tags::Entity::delete_many().exec(&txn).await?;
 
         // 导入标签
         for tag in tags_in {
@@ -360,7 +360,7 @@ impl Database {
                 color: ActiveValue::Set(Some(tag.color.clone())),
                 ..Default::default()
             };
-            am.insert(&txn).await.ok();
+            am.insert(&txn).await?;
         }
 
         // 导入 todo
@@ -378,16 +378,14 @@ impl Database {
                 updated_at: ActiveValue::Set(Some(now)),
                 ..Default::default()
             };
-            let inserted = am.insert(&txn).await.expect("insert todo failed");
+            let inserted = am.insert(&txn).await?;
 
             // 关联标签（通过名称查找 tag id）
             for tag_name in &todo.tag_names {
                 let tid = tags::Entity::find()
                     .filter(tags::Column::Name.eq(tag_name))
                     .one(&txn)
-                    .await
-                    .ok()
-                    .flatten()
+                    .await?
                     .map(|t| t.id);
                 if let Some(tid) = tid {
                     let rel = todo_tags::ActiveModel {
@@ -404,12 +402,12 @@ impl Database {
                             .to_owned(),
                         )
                         .exec(&txn)
-                        .await
-                        .ok();
+                        .await?;
                 }
             }
         }
 
-        txn.commit().await.expect("commit transaction failed");
+        txn.commit().await?;
+        Ok(())
     }
 }
