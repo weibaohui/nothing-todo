@@ -10,9 +10,9 @@ use ntd::{adapters, cli, db, handlers, scheduler::TodoScheduler, task_manager::T
 #[derive(Parser)]
 #[command(name = "ntd", about = "AI Todo CLI", version)]
 struct Cli {
-    /// API server URL (default: http://localhost:8088)
-    #[arg(long, default_value = "http://localhost:8088")]
-    server: String,
+    /// API server URL (default: from ~/.ntd/config.yaml, or http://localhost:8088)
+    #[arg(long)]
+    server: Option<String>,
 
     /// Output format
     #[arg(short, long, default_value = "json", value_enum)]
@@ -64,7 +64,7 @@ enum Commands {
 enum ServerAction {
     /// Start the API server
     Start {
-        /// Port to listen on (default: 8088, or NTD_PORT env var)
+        /// Port to listen on (default: from ~/.ntd/config.yaml, or 8088)
         #[arg(short, long)]
         port: Option<u16>,
     },
@@ -108,7 +108,7 @@ async fn main() {
         }
         Some(Commands::Todo { action }) => {
             let cli = cli::Cli {
-                server: Some(cli.server.clone()),
+                server: cli.server.clone(),
                 output: output_to_cli(&cli.output),
                 command: cli::Commands::Todo { action: action.clone() },
             };
@@ -120,7 +120,7 @@ async fn main() {
         }
         Some(Commands::Tag { action }) => {
             let cli = cli::Cli {
-                server: Some(cli.server.clone()),
+                server: cli.server.clone(),
                 output: output_to_cli(&cli.output),
                 command: cli::Commands::Tag { action: action.clone() },
             };
@@ -132,7 +132,7 @@ async fn main() {
         }
         Some(Commands::Stats) => {
             let cli = cli::Cli {
-                server: Some(cli.server.clone()),
+                server: cli.server.clone(),
                 output: output_to_cli(&cli.output),
                 command: cli::Commands::Stats,
             };

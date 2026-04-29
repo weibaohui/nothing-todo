@@ -19,10 +19,10 @@ async fn start_test_server() -> TestServer {
     let db = Arc::new(db::Database::new(db_path.to_str().unwrap()).await.unwrap());
 
     let executor_registry = Arc::new(adapters::ExecutorRegistry::new());
-    executor_registry.register(adapters::joinai::JoinaiExecutor::new());
-    executor_registry.register(adapters::claude_code::ClaudeCodeExecutor::new());
-    executor_registry.register(adapters::codebuddy::CodebuddyExecutor::new());
-    executor_registry.register(adapters::opencode::OpencodeExecutor::new());
+    executor_registry.register(adapters::joinai::JoinaiExecutor::new("joinai".to_string()));
+    executor_registry.register(adapters::claude_code::ClaudeCodeExecutor::new("claude".to_string()));
+    executor_registry.register(adapters::codebuddy::CodebuddyExecutor::new("codebuddy".to_string()));
+    executor_registry.register(adapters::opencode::OpencodeExecutor::new("opencode".to_string()));
 
     let (tx, _rx) = broadcast::channel(100);
     let task_manager = Arc::new(TaskManager::new());

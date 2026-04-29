@@ -20,7 +20,7 @@ async fn create_test_app() -> axum::Router {
     let db = Arc::new(Database::new(":memory:").await.unwrap());
 
     let executor_registry = Arc::new(ExecutorRegistry::new());
-    executor_registry.register(ClaudeCodeExecutor::new());
+    executor_registry.register(ClaudeCodeExecutor::new("claude".to_string()));
 
     let (tx, _rx) = broadcast::channel(100);
     let task_manager = Arc::new(TaskManager::new());
