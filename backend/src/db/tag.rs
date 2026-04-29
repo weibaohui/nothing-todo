@@ -25,7 +25,7 @@ impl Database {
             .collect()
     }
 
-    pub async fn create_tag(&self, name: &str, color: &str) -> i64 {
+    pub async fn create_tag(&self, name: &str, color: &str) -> Result<i64, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = tags::ActiveModel {
             name: ActiveValue::Set(name.to_string()),
@@ -33,8 +33,8 @@ impl Database {
             created_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
-        let inserted = am.insert(&self.conn).await.expect("insert tag failed");
-        inserted.id
+        let inserted = am.insert(&self.conn).await?;
+        Ok(inserted.id)
     }
 
     pub async fn delete_tag(&self, id: i64) {

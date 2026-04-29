@@ -25,7 +25,7 @@ pub async fn create_todo(
     } else {
         req.prompt.trim().to_string()
     };
-    let id = state.db.create_todo(title, &prompt).await;
+    let id = state.db.create_todo(title, &prompt).await.map_err(AppError::from)?;
 
     for tag_id in &req.tag_ids {
         state.db.add_todo_tag(id, *tag_id).await;

@@ -94,7 +94,7 @@ impl Database {
         executor: &str,
         trigger_type: &str,
         task_id: &str,
-    ) -> i64 {
+    ) -> Result<i64, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = execution_records::ActiveModel {
             todo_id: ActiveValue::Set(Some(todo_id)),
@@ -106,11 +106,8 @@ impl Database {
             task_id: ActiveValue::Set(Some(task_id.to_string())),
             ..Default::default()
         };
-        let inserted = am
-            .insert(&self.conn)
-            .await
-            .expect("insert execution record failed");
-        inserted.id
+        let inserted = am.insert(&self.conn).await?;
+        Ok(inserted.id)
     }
 
     pub async fn update_execution_record(

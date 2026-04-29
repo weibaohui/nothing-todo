@@ -206,7 +206,7 @@ mod tests {
     async fn test_todo_created_at_is_utc() {
         let db = setup_db().await;
         let before = truncate_seconds(Utc::now());
-        let id = db.create_todo("Test", "Desc").await;
+        let id = db.create_todo("Test", "Desc").await.unwrap();
         let after = truncate_seconds(Utc::now());
 
         let todo = db.get_todo(id).await.unwrap();
@@ -220,7 +220,7 @@ mod tests {
     #[tokio::test]
     async fn test_todo_updated_at_changes_on_update() {
         let db = setup_db().await;
-        let id = db.create_todo("Test", "Desc").await;
+        let id = db.create_todo("Test", "Desc").await.unwrap();
         let original = db.get_todo(id).await.unwrap().updated_at;
 
         tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
@@ -244,7 +244,7 @@ mod tests {
     #[tokio::test]
     async fn test_todo_deleted_at_is_utc() {
         let db = setup_db().await;
-        let id = db.create_todo("Test", "Desc").await;
+        let id = db.create_todo("Test", "Desc").await.unwrap();
         let before = truncate_seconds(Utc::now());
         db.delete_todo(id).await;
         let after = truncate_seconds(Utc::now());
@@ -265,7 +265,7 @@ mod tests {
     async fn test_tag_created_at_is_utc() {
         let db = setup_db().await;
         let before = truncate_seconds(Utc::now());
-        let id = db.create_tag("urgent", "#ff0000").await;
+        let id = db.create_tag("urgent", "#ff0000").await.unwrap();
         let after = truncate_seconds(Utc::now());
 
         let tag = db.get_tags().await.into_iter().find(|t| t.id == id).unwrap();
@@ -279,11 +279,12 @@ mod tests {
     #[tokio::test]
     async fn test_execution_record_started_at_is_utc() {
         let db = setup_db().await;
-        let todo_id = db.create_todo("Test", "Desc").await;
+        let todo_id = db.create_todo("Test", "Desc").await.unwrap();
         let before = truncate_seconds(Utc::now());
         let record_id = db
             .create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id")
-            .await;
+            .await
+            .unwrap();
         let after = truncate_seconds(Utc::now());
 
         let (records, _) = db.get_execution_records(todo_id, 100, 0).await;
@@ -298,10 +299,11 @@ mod tests {
     #[tokio::test]
     async fn test_execution_record_finished_at_is_utc() {
         let db = setup_db().await;
-        let todo_id = db.create_todo("Test", "Desc").await;
+        let todo_id = db.create_todo("Test", "Desc").await.unwrap();
         let record_id = db
             .create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id")
-            .await;
+            .await
+            .unwrap();
 
         let before = truncate_seconds(Utc::now());
         db.update_execution_record(record_id, crate::models::ExecutionStatus::Success.as_str(), "[]", "done", None, None)
@@ -323,7 +325,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_and_get_todo() {
         let db = setup_db().await;
-        let id = db.create_todo("Title", "Prompt").await;
+        let id = db.create_todo("Title", "Prompt").await.unwrap();
         let todo = db.get_todo(id).await.unwrap();
         assert_eq!(todo.title, "Title");
         assert_eq!(todo.prompt, "Prompt");
@@ -334,7 +336,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_todos_excludes_deleted() {
         let db = setup_db().await;
-        let id = db.create_todo("Active", "Prompt").await;
+        let id = db.create_todo("Active", "Prompt").await.unwrap();
         db.delete_todo(id).await;
         let todos = db.get_todos().await;
         assert!(todos.iter().all(|t| t.id != id));
@@ -343,9 +345,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_todos_ordering() {
         let db = setup_db().await;
-        let id1 = db.create_todo("First", "Prompt").await;
+        let id1 = db.create_todo("First", "Prompt").await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        let id2 = db.create_todo("Second", "Prompt").await;
+        let id2 = db.create_todo("Second", "Prompt").await.unwrap();
         let todos = db.get_todos().await;
         assert_eq!(todos[0].id, id2);
         assert_eq!(todos[1].id, id1);
@@ -354,7 +356,7 @@ mod tests {
     #[tokio::test]
     async fn test_update_todo_full() {
         let db = setup_db().await;
-        let id = db.create_todo("Old", "Old prompt").await;
+        let id = db.create_todo("Old", "Old prompt").await.unwrap();
         db.update_todo_full(
             id,
             "New",
@@ -379,7 +381,7 @@ mod tests {
     #[tokio::test]
     async fn test_update_todo_executor() {
         let db = setup_db().await;
-        let id = db.create_todo("Test", "Prompt").await;
+        let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.update_todo_executor(id, "joinai").await;
         let todo = db.get_todo(id).await.unwrap();
         assert_eq!(todo.executor, Some("joinai".to_string()));
@@ -388,7 +390,7 @@ mod tests {
     #[tokio::test]
     async fn test_update_todo_task_id() {
         let db = setup_db().await;
-        let id = db.create_todo("Test", "Prompt").await;
+        let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.update_todo_task_id(id, Some("task-123")).await;
         let todo = db.get_todo(id).await.unwrap();
         assert_eq!(todo.task_id, Some("task-123".to_string()));
@@ -400,7 +402,7 @@ mod tests {
     #[tokio::test]
     async fn test_update_todo_scheduler() {
         let db = setup_db().await;
-        let id = db.create_todo("Test", "Prompt").await;
+        let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.update_todo_scheduler(id, true, Some("0 0 * * *")).await;
         let todo = db.get_todo(id).await.unwrap();
         assert!(todo.scheduler_enabled);
@@ -410,7 +412,7 @@ mod tests {
     #[tokio::test]
     async fn test_force_update_todo_status() {
         let db = setup_db().await;
-        let id = db.create_todo("Test", "Prompt").await;
+        let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.force_update_todo_status(id, crate::models::TodoStatus::Failed).await;
         let todo = db.get_todo(id).await.unwrap();
         assert_eq!(todo.status, crate::models::TodoStatus::Failed);
@@ -419,7 +421,7 @@ mod tests {
     #[tokio::test]
     async fn test_delete_todo_soft_delete() {
         let db = setup_db().await;
-        let id = db.create_todo("Test", "Prompt").await;
+        let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.delete_todo(id).await;
         assert!(db.get_todo(id).await.is_none());
         let todos = db.get_todos().await;
@@ -429,7 +431,7 @@ mod tests {
     #[tokio::test]
     async fn test_start_todo_execution() {
         let db = setup_db().await;
-        let id = db.create_todo("Test", "Prompt").await;
+        let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.start_todo_execution(id, "task-1").await;
         let todo = db.get_todo(id).await.unwrap();
         assert_eq!(todo.status, crate::models::TodoStatus::Running);
@@ -439,7 +441,7 @@ mod tests {
     #[tokio::test]
     async fn test_finish_todo_execution_success() {
         let db = setup_db().await;
-        let id = db.create_todo("Test", "Prompt").await;
+        let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.start_todo_execution(id, "task-1").await;
         db.finish_todo_execution(id, true).await;
         let todo = db.get_todo(id).await.unwrap();
@@ -450,7 +452,7 @@ mod tests {
     #[tokio::test]
     async fn test_finish_todo_execution_failure() {
         let db = setup_db().await;
-        let id = db.create_todo("Test", "Prompt").await;
+        let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.start_todo_execution(id, "task-1").await;
         db.finish_todo_execution(id, false).await;
         let todo = db.get_todo(id).await.unwrap();
@@ -460,9 +462,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_scheduler_todos() {
         let db = setup_db().await;
-        let id1 = db.create_todo("Scheduled", "Prompt").await;
+        let id1 = db.create_todo("Scheduled", "Prompt").await.unwrap();
         db.update_todo_scheduler(id1, true, Some("0 0 * * *")).await;
-        let id2 = db.create_todo("Normal", "Prompt").await;
+        let id2 = db.create_todo("Normal", "Prompt").await.unwrap();
         let scheduled = db.get_scheduler_todos().await;
         assert_eq!(scheduled.len(), 1);
         assert_eq!(scheduled[0].id, id1);
@@ -472,8 +474,8 @@ mod tests {
     #[tokio::test]
     async fn test_todo_with_tag_ids() {
         let db = setup_db().await;
-        let tag_id = db.create_tag("urgent", "#ff0000").await;
-        let todo_id = db.create_todo("Test", "Prompt").await;
+        let tag_id = db.create_tag("urgent", "#ff0000").await.unwrap();
+        let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
         db.add_todo_tag(todo_id, tag_id).await;
         let todo = db.get_todo(todo_id).await.unwrap();
         assert_eq!(todo.tag_ids, vec![tag_id]);
@@ -484,7 +486,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_and_get_tag() {
         let db = setup_db().await;
-        let id = db.create_tag("urgent", "#ff0000").await;
+        let id = db.create_tag("urgent", "#ff0000").await.unwrap();
         let tags = db.get_tags().await;
         let tag = tags.iter().find(|t| t.id == id).unwrap();
         assert_eq!(tag.name, "urgent");
@@ -494,9 +496,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_tags_ordered_by_name() {
         let db = setup_db().await;
-        db.create_tag("zebra", "#000").await;
-        db.create_tag("apple", "#fff").await;
-        db.create_tag("mango", "#aaa").await;
+        db.create_tag("zebra", "#000").await.unwrap();
+        db.create_tag("apple", "#fff").await.unwrap();
+        db.create_tag("mango", "#aaa").await.unwrap();
         let tags = db.get_tags().await;
         assert_eq!(tags[0].name, "apple");
         assert_eq!(tags[1].name, "mango");
@@ -506,7 +508,7 @@ mod tests {
     #[tokio::test]
     async fn test_delete_tag() {
         let db = setup_db().await;
-        let id = db.create_tag("temp", "#000").await;
+        let id = db.create_tag("temp", "#000").await.unwrap();
         db.delete_tag(id).await;
         let tags = db.get_tags().await;
         assert!(tags.iter().all(|t| t.id != id));
@@ -515,8 +517,8 @@ mod tests {
     #[tokio::test]
     async fn test_add_todo_tag() {
         let db = setup_db().await;
-        let todo_id = db.create_todo("Test", "Prompt").await;
-        let tag_id = db.create_tag("urgent", "#ff0000").await;
+        let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
+        let tag_id = db.create_tag("urgent", "#ff0000").await.unwrap();
         db.add_todo_tag(todo_id, tag_id).await;
         let todo = db.get_todo(todo_id).await.unwrap();
         assert_eq!(todo.tag_ids, vec![tag_id]);
@@ -525,8 +527,8 @@ mod tests {
     #[tokio::test]
     async fn test_add_todo_tag_duplicate_ignored() {
         let db = setup_db().await;
-        let todo_id = db.create_todo("Test", "Prompt").await;
-        let tag_id = db.create_tag("urgent", "#ff0000").await;
+        let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
+        let tag_id = db.create_tag("urgent", "#ff0000").await.unwrap();
         db.add_todo_tag(todo_id, tag_id).await;
         db.add_todo_tag(todo_id, tag_id).await; // should not panic
         let todo = db.get_todo(todo_id).await.unwrap();
@@ -536,10 +538,10 @@ mod tests {
     #[tokio::test]
     async fn test_set_todo_tags_replace_all() {
         let db = setup_db().await;
-        let todo_id = db.create_todo("Test", "Prompt").await;
-        let tag1 = db.create_tag("a", "#000").await;
-        let tag2 = db.create_tag("b", "#fff").await;
-        let tag3 = db.create_tag("c", "#aaa").await;
+        let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
+        let tag1 = db.create_tag("a", "#000").await.unwrap();
+        let tag2 = db.create_tag("b", "#fff").await.unwrap();
+        let tag3 = db.create_tag("c", "#aaa").await.unwrap();
         db.add_todo_tag(todo_id, tag1).await;
         db.set_todo_tags(todo_id, &[tag2, tag3]).await;
         let todo = db.get_todo(todo_id).await.unwrap();
@@ -552,8 +554,8 @@ mod tests {
     #[tokio::test]
     async fn test_set_todo_tags_empty_clears_all() {
         let db = setup_db().await;
-        let todo_id = db.create_todo("Test", "Prompt").await;
-        let tag_id = db.create_tag("urgent", "#ff0000").await;
+        let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
+        let tag_id = db.create_tag("urgent", "#ff0000").await.unwrap();
         db.add_todo_tag(todo_id, tag_id).await;
         db.set_todo_tags(todo_id, &[]).await;
         let todo = db.get_todo(todo_id).await.unwrap();
@@ -563,8 +565,8 @@ mod tests {
     #[tokio::test]
     async fn test_delete_todo_cascades_tags() {
         let db = setup_db().await;
-        let todo_id = db.create_todo("Test", "Prompt").await;
-        let tag_id = db.create_tag("urgent", "#ff0000").await;
+        let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
+        let tag_id = db.create_tag("urgent", "#ff0000").await.unwrap();
         db.add_todo_tag(todo_id, tag_id).await;
         db.delete_todo(todo_id).await;
         // tag should still exist but association should be gone
@@ -577,8 +579,8 @@ mod tests {
     #[tokio::test]
     async fn test_create_execution_record() {
         let db = setup_db().await;
-        let todo_id = db.create_todo("Test", "Prompt").await;
-        let record_id = db.create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id").await;
+        let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
+        let record_id = db.create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id").await.unwrap();
         let (records, total) = db.get_execution_records(todo_id, 100, 0).await;
         assert_eq!(total, 1);
         let record = records.iter().find(|r| r.id == record_id).unwrap();
@@ -592,9 +594,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_execution_records_pagination() {
         let db = setup_db().await;
-        let todo_id = db.create_todo("Test", "Prompt").await;
+        let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
         for i in 0..5 {
-            db.create_execution_record(todo_id, &format!("cmd{}", i), "claudecode", "manual", "test-task-id").await;
+            db.create_execution_record(todo_id, &format!("cmd{}", i), "claudecode", "manual", "test-task-id").await.unwrap();
         }
         let (records, total) = db.get_execution_records(todo_id, 2, 0).await;
         assert_eq!(total, 5);
@@ -604,9 +606,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_execution_records_offset() {
         let db = setup_db().await;
-        let todo_id = db.create_todo("Test", "Prompt").await;
+        let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
         for i in 0..3 {
-            db.create_execution_record(todo_id, &format!("cmd{}", i), "claudecode", "manual", "test-task-id").await;
+            db.create_execution_record(todo_id, &format!("cmd{}", i), "claudecode", "manual", "test-task-id").await.unwrap();
         }
         let (records, total) = db.get_execution_records(todo_id, 10, 2).await;
         assert_eq!(total, 3);
@@ -616,8 +618,8 @@ mod tests {
     #[tokio::test]
     async fn test_update_execution_record() {
         let db = setup_db().await;
-        let todo_id = db.create_todo("Test", "Prompt").await;
-        let record_id = db.create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id").await;
+        let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
+        let record_id = db.create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id").await.unwrap();
         let usage = crate::models::ExecutionUsage {
             input_tokens: 100,
             output_tokens: 50,
@@ -642,7 +644,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_execution_summary_empty() {
         let db = setup_db().await;
-        let todo_id = db.create_todo("Test", "Prompt").await;
+        let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
         let summary = db.get_execution_summary(todo_id).await;
         assert_eq!(summary.todo_id, todo_id);
         assert_eq!(summary.total_executions, 0);
@@ -655,12 +657,12 @@ mod tests {
     #[tokio::test]
     async fn test_get_execution_summary_counts() {
         let db = setup_db().await;
-        let todo_id = db.create_todo("Test", "Prompt").await;
-        let r1 = db.create_execution_record(todo_id, "cmd1", "claudecode", "manual", "test-task-id").await;
+        let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
+        let r1 = db.create_execution_record(todo_id, "cmd1", "claudecode", "manual", "test-task-id").await.unwrap();
         db.update_execution_record(r1, "success", "[]", "", None, None).await;
-        let r2 = db.create_execution_record(todo_id, "cmd2", "claudecode", "manual", "test-task-id").await;
+        let r2 = db.create_execution_record(todo_id, "cmd2", "claudecode", "manual", "test-task-id").await.unwrap();
         db.update_execution_record(r2, "failed", "[]", "", None, None).await;
-        let _r3 = db.create_execution_record(todo_id, "cmd3", "claudecode", "manual", "test-task-id").await;
+        let _r3 = db.create_execution_record(todo_id, "cmd3", "claudecode", "manual", "test-task-id").await.unwrap();
         // r3 stays "running"
         let summary = db.get_execution_summary(todo_id).await;
         assert_eq!(summary.total_executions, 3);
@@ -672,8 +674,8 @@ mod tests {
     #[tokio::test]
     async fn test_get_execution_summary_tokens_and_cost() {
         let db = setup_db().await;
-        let todo_id = db.create_todo("Test", "Prompt").await;
-        let r1 = db.create_execution_record(todo_id, "cmd1", "claudecode", "manual", "test-task-id").await;
+        let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
+        let r1 = db.create_execution_record(todo_id, "cmd1", "claudecode", "manual", "test-task-id").await.unwrap();
         let usage1 = crate::models::ExecutionUsage {
             input_tokens: 100,
             output_tokens: 50,
@@ -683,7 +685,7 @@ mod tests {
             duration_ms: Some(1000),
         };
         db.update_execution_record(r1, "success", "[]", "", Some(&usage1), None).await;
-        let r2 = db.create_execution_record(todo_id, "cmd2", "claudecode", "manual", "test-task-id").await;
+        let r2 = db.create_execution_record(todo_id, "cmd2", "claudecode", "manual", "test-task-id").await.unwrap();
         let usage2 = crate::models::ExecutionUsage {
             input_tokens: 200,
             output_tokens: 100,

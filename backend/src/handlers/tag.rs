@@ -20,7 +20,7 @@ pub async fn create_tag(
         return Err(AppError::BadRequest("Tag name is required".to_string()));
     }
     let now = utc_timestamp();
-    let id = state.db.create_tag(name, &req.color).await;
+    let id = state.db.create_tag(name, &req.color).await.map_err(AppError::from)?;
     Ok(ApiResponse::ok(Tag {
         id,
         name: name.to_string(),
