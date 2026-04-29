@@ -210,6 +210,7 @@ impl Database {
     pub async fn get_scheduler_todos(&self) -> Vec<Todo> {
         let models = todos::Entity::find()
             .filter(todos::Column::DeletedAt.is_null())
+            .filter(todos::Column::SchedulerEnabled.eq(true))
             .filter(todos::Column::SchedulerConfig.is_not_null())
             .all(&self.conn)
             .await
