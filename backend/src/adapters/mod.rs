@@ -221,14 +221,14 @@ mod tests {
     #[test]
     fn test_executor_registry_register_and_get() {
         let reg = ExecutorRegistry::new();
-        reg.register(joinai::JoinaiExecutor::new());
+        reg.register(joinai::JoinaiExecutor::new("joinai".to_string()));
         assert!(reg.get(ExecutorType::Joinai).is_some());
     }
 
     #[test]
     fn test_executor_registry_get_default() {
         let reg = ExecutorRegistry::new();
-        reg.register(claude_code::ClaudeCodeExecutor::new());
+        reg.register(claude_code::ClaudeCodeExecutor::new("claude".to_string()));
         assert!(reg.get_default().is_some());
     }
 
@@ -241,8 +241,8 @@ mod tests {
     #[test]
     fn test_executor_registry_list_executors() {
         let reg = ExecutorRegistry::new();
-        reg.register(joinai::JoinaiExecutor::new());
-        reg.register(claude_code::ClaudeCodeExecutor::new());
+        reg.register(joinai::JoinaiExecutor::new("joinai".to_string()));
+        reg.register(claude_code::ClaudeCodeExecutor::new("claude".to_string()));
         let list = reg.list_executors();
         assert_eq!(list.len(), 2);
         assert!(list.contains(&ExecutorType::Joinai));

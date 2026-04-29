@@ -33,6 +33,7 @@ pub struct Config {
 
 /// Paths for each supported executor binary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ExecutorPaths {
     pub opencode: String,
     pub hermes: String,

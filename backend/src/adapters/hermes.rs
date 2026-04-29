@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn test_parse_output_line_text() {
-        let executor = HermesExecutor::new();
+        let executor = HermesExecutor::new("hermes".to_string());
         let entry = executor.parse_output_line("Hello world").unwrap();
         assert_eq!(entry.log_type, "text");
         assert_eq!(entry.content, "Hello world");
@@ -135,14 +135,14 @@ mod tests {
 
     #[test]
     fn test_parse_output_line_empty() {
-        let executor = HermesExecutor::new();
+        let executor = HermesExecutor::new("hermes".to_string());
         assert!(executor.parse_output_line("").is_none());
         assert!(executor.parse_output_line("   ").is_none());
     }
 
     #[test]
     fn test_parse_output_line_session_id() {
-        let executor = HermesExecutor::new();
+        let executor = HermesExecutor::new("hermes".to_string());
         let entry = executor.parse_output_line("session_id: abc123").unwrap();
         assert_eq!(entry.log_type, "info");
         assert!(entry.content.contains("session_id"));
@@ -150,14 +150,14 @@ mod tests {
 
     #[test]
     fn test_parse_output_line_banner() {
-        let executor = HermesExecutor::new();
+        let executor = HermesExecutor::new("hermes".to_string());
         assert!(executor.parse_output_line("╭─ Hermes ─────────────────────────────────").is_none());
         assert!(executor.parse_output_line("│ some text").is_none());
     }
 
     #[test]
     fn test_get_final_result_with_text() {
-        let executor = HermesExecutor::new();
+        let executor = HermesExecutor::new("hermes".to_string());
         let logs = vec![
             ParsedLogEntry::new("text", "  hello world  "),
         ];
@@ -166,20 +166,20 @@ mod tests {
 
     #[test]
     fn test_get_usage_before_tokens() {
-        let executor = HermesExecutor::new();
+        let executor = HermesExecutor::new("hermes".to_string());
         assert!(executor.get_usage(&[]).is_none());
     }
 
     #[test]
     fn test_command_args() {
-        let executor = HermesExecutor::new();
+        let executor = HermesExecutor::new("hermes".to_string());
         let args = executor.command_args("do something");
         assert_eq!(args, vec!["chat", "-Q", "--yolo", "-q", "do something"]);
     }
 
     #[test]
     fn test_executor_type() {
-        let executor = HermesExecutor::new();
+        let executor = HermesExecutor::new("hermes".to_string());
         assert_eq!(executor.executor_type(), ExecutorType::Hermes);
     }
 }
