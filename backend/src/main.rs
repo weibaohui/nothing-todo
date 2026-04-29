@@ -10,9 +10,9 @@ use ntd::{adapters, cli, db, handlers, scheduler::TodoScheduler, task_manager::T
 #[derive(Parser)]
 #[command(name = "ntd", about = "AI Todo CLI", version)]
 struct Cli {
-    /// API server URL (default: http://localhost:8088)
-    #[arg(long, default_value = "http://localhost:8088")]
-    server: String,
+    /// API server URL (default: from ~/.ntd/config.yaml, or http://localhost:8088)
+    #[arg(long)]
+    server: Option<String>,
 
     /// Output format
     #[arg(short, long, default_value = "json", value_enum)]
@@ -63,7 +63,11 @@ enum Commands {
 #[derive(Subcommand)]
 enum ServerAction {
     /// Start the API server
-    Start,
+    Start {
+        /// Port to listen on (default: from ~/.ntd/config.yaml, or 8088)
+        #[arg(short, long)]
+        port: Option<u16>,
+    },
 }
 
 #[tokio::main]
@@ -97,9 +101,9 @@ async fn main() {
             tunnel::handle_tunnel_command(action);
             return;
         }
-        Some(Commands::Server { action: ServerAction::Start }) => {
+        Some(Commands::Server { action: ServerAction::Start { port } }) => {
             println!("Starting ntd server...");
-            run_server().await;
+            run_server(*port).await;
             return;
         }
         Some(Commands::Todo { action }) => {
@@ -141,7 +145,7 @@ async fn main() {
         None => {
             // No subcommand: start server by default
             println!("Starting ntd server...");
-            run_server().await;
+            run_server(None).await;
         }
     }
 }
@@ -153,10 +157,11 @@ fn output_to_cli(output: &OutputFormat) -> cli::OutputFormat {
     }
 }
 
-async fn run_server() {
-    let level = std::env::var("RUST_LOG")
-        .ok()
-        .and_then(|s| s.parse().ok())
+async fn run_server(cli_port: Option<u16>) {
+    let cfg = ntd::config::Config::load();
+
+    let level = cfg.log_level
+        .parse::<tracing::Level>()
         .unwrap_or(tracing::Level::INFO);
 
     tracing_subscriber::fmt()
@@ -165,17 +170,13 @@ async fn run_server() {
         .with_timer(tracing_subscriber::fmt::time::time())
         .init();
 
-    let db_path = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".ntd")
-        .join("data.db");
-
-    if let Some(parent) = db_path.parent() {
+    let db_path = &cfg.db_path;
+    if let Some(parent) = std::path::Path::new(db_path).parent() {
         std::fs::create_dir_all(parent).ok();
     }
 
     let db = Arc::new(
-        db::Database::new(db_path.to_str().unwrap())
+        db::Database::new(&db_path)
             .await
             .expect("Failed to open database")
     );
@@ -183,13 +184,13 @@ async fn run_server() {
     db.cleanup_orphan_execution_records().await;
 
     let executor_registry = Arc::new(adapters::ExecutorRegistry::new());
-    executor_registry.register(adapters::joinai::JoinaiExecutor::new());
-    executor_registry.register(adapters::claude_code::ClaudeCodeExecutor::new());
-    executor_registry.register(adapters::codebuddy::CodebuddyExecutor::new());
-    executor_registry.register(adapters::opencode::OpencodeExecutor::new());
-    executor_registry.register(adapters::atomcode::AtomcodeExecutor::new());
-    executor_registry.register(adapters::hermes::HermesExecutor::new());
-    executor_registry.register(adapters::kimi::KimiExecutor::new());
+    executor_registry.register(adapters::joinai::JoinaiExecutor::new(cfg.executors.joinai.clone()));
+    executor_registry.register(adapters::claude_code::ClaudeCodeExecutor::new(cfg.executors.claude_code.clone()));
+    executor_registry.register(adapters::codebuddy::CodebuddyExecutor::new(cfg.executors.codebuddy.clone()));
+    executor_registry.register(adapters::opencode::OpencodeExecutor::new(cfg.executors.opencode.clone()));
+    executor_registry.register(adapters::atomcode::AtomcodeExecutor::new(cfg.executors.atomcode.clone()));
+    executor_registry.register(adapters::hermes::HermesExecutor::new(cfg.executors.hermes.clone()));
+    executor_registry.register(adapters::kimi::KimiExecutor::new(cfg.executors.kimi.clone()));
 
     let executors = executor_registry.list_executors();
     info!("Available executors: {:?}", executors);
@@ -206,10 +207,7 @@ async fn run_server() {
 
     let app = handlers::create_app(db, executor_registry, tx, scheduler, task_manager);
 
-    let port = std::env::var("NTD_PORT")
-        .ok()
-        .and_then(|s| s.parse::<u16>().ok())
-        .unwrap_or(8088);
+    let port = cli_port.unwrap_or(cfg.port);
 
     info!("===========================================");
     info!("  Nothing Todo (ntd)");

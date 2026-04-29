@@ -20,7 +20,7 @@ use crate::Assets;
 use crate::db::Database;
 use crate::models::ParsedLogEntry;
 use crate::scheduler::TodoScheduler;
-use crate::task_manager::TaskManager;
+use crate::task_manager::{TaskManager, TaskInfo};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -56,6 +56,11 @@ pub enum ExecEvent {
         todo_id: i64,
         success: bool,
         result: Option<String>,
+    },
+    /// 同步事件：连接时发送当前实际运行的任务列表
+    /// 前端收到此事件后应清空 runningTasks 并用此列表初始化
+    Sync {
+        tasks: Vec<TaskInfo>,
     },
 }
 
@@ -127,9 +132,23 @@ mod backup;
 pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(|mut ws| async move {
         let mut rx = state.tx.subscribe();
-        let _ = ws
-            .send(axum::extract::ws::Message::Text("Connected".into()))
-            .await;
+
+        // 连接时发送当前实际运行的任务列表
+        // 每个任务需要从数据库获取最新的日志
+        let mut running_tasks = state.task_manager.get_all_task_infos().await;
+        for task in &mut running_tasks {
+            // 从数据库获取该任务的执行记录日志
+            if let Some(record) = state.db.get_execution_record_by_task_id(&task.task_id).await {
+                task.logs = record.logs;
+            }
+        }
+        let sync_event = ExecEvent::Sync { tasks: running_tasks };
+        let sync_json = serde_json::to_string(&sync_event).unwrap_or_default();
+        if !sync_json.is_empty() {
+            let _ = ws
+                .send(axum::extract::ws::Message::Text(sync_json.into()))
+                .await;
+        }
 
         loop {
             match rx.recv().await {

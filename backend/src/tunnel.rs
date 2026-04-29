@@ -1,16 +1,15 @@
 use std::fs;
 use std::io::BufRead;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
 
 use clap::Subcommand;
 
 fn get_port() -> u16 {
-    std::env::var("NTD_PORT")
-        .ok()
-        .and_then(|s| s.parse::<u16>().ok())
-        .unwrap_or(8088)
+    static PORT: OnceLock<u16> = OnceLock::new();
+    *PORT.get_or_init(|| crate::config::Config::load().port)
 }
 
 #[derive(Subcommand)]

@@ -1,4 +1,3 @@
-use std::env;
 use std::sync::{Arc, Mutex};
 
 use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
@@ -11,9 +10,7 @@ pub struct AtomcodeExecutor {
 }
 
 impl AtomcodeExecutor {
-    pub fn new() -> Self {
-        let path = env::var("ATOMCODE_PATH")
-            .unwrap_or_else(|_| "atomcode".to_string());
+    pub fn new(path: String) -> Self {
         Self {
             path,
             usage: Arc::new(Mutex::new(None)),
@@ -29,12 +26,6 @@ impl Clone for AtomcodeExecutor {
             usage: self.usage.clone(),
             has_done: self.has_done.clone(),
         }
-    }
-}
-
-impl Default for AtomcodeExecutor {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -214,7 +205,7 @@ mod tests {
 
     #[test]
     fn test_parse_output_line_text() {
-        let executor = AtomcodeExecutor::new();
+        let executor = AtomcodeExecutor::new("atomcode".to_string());
         let entry = executor.parse_output_line("Hello world").unwrap();
         assert_eq!(entry.log_type, "text");
         assert_eq!(entry.content, "Hello world");
@@ -222,14 +213,14 @@ mod tests {
 
     #[test]
     fn test_parse_output_line_empty() {
-        let executor = AtomcodeExecutor::new();
+        let executor = AtomcodeExecutor::new("atomcode".to_string());
         assert!(executor.parse_output_line("").is_none());
         assert!(executor.parse_output_line("   ").is_none());
     }
 
     #[test]
     fn test_parse_stderr_line_tokens() {
-        let executor = AtomcodeExecutor::new();
+        let executor = AtomcodeExecutor::new("atomcode".to_string());
         let entry = executor.parse_stderr_line("[tokens] prompt=11 completion=5").unwrap();
         assert_eq!(entry.log_type, "tokens");
         assert_eq!(entry.content, "[tokens] prompt=11 completion=5");
@@ -241,7 +232,7 @@ mod tests {
 
     #[test]
     fn test_parse_stderr_line_done() {
-        let executor = AtomcodeExecutor::new();
+        let executor = AtomcodeExecutor::new("atomcode".to_string());
         let entry = executor.parse_stderr_line("[done] 4.6s tokens=100 turns=2 tool_calls=1").unwrap();
         assert_eq!(entry.log_type, "step_finish");
         assert!(entry.content.contains("2 turns"));
@@ -253,7 +244,7 @@ mod tests {
 
     #[test]
     fn test_parse_stderr_line_done_with_stopped() {
-        let executor = AtomcodeExecutor::new();
+        let executor = AtomcodeExecutor::new("atomcode".to_string());
         let entry = executor.parse_stderr_line("[done] 4.9s tokens=0 turns=3 tool_calls=3 stopped=turn_limit").unwrap();
         assert_eq!(entry.log_type, "step_finish");
         assert!(entry.content.contains("3 turns"));
@@ -262,46 +253,46 @@ mod tests {
 
     #[test]
     fn test_parse_stderr_line_tool_call() {
-        let executor = AtomcodeExecutor::new();
+        let executor = AtomcodeExecutor::new("atomcode".to_string());
         let entry = executor.parse_stderr_line("[tool→ bash args={\"command\": \"ls\"}]").unwrap();
         assert_eq!(entry.log_type, "tool");
     }
 
     #[test]
     fn test_parse_stderr_line_tool_result() {
-        let executor = AtomcodeExecutor::new();
+        let executor = AtomcodeExecutor::new("atomcode".to_string());
         let entry = executor.parse_stderr_line("[tool← bash OK 39ms] result here").unwrap();
         assert_eq!(entry.log_type, "tool");
     }
 
     #[test]
     fn test_parse_stderr_line_approval_denied() {
-        let executor = AtomcodeExecutor::new();
+        let executor = AtomcodeExecutor::new("atomcode".to_string());
         let entry = executor.parse_stderr_line("[approval-denied] tool=write_file reason=outside dir").unwrap();
         assert_eq!(entry.log_type, "error");
     }
 
     #[test]
     fn test_parse_stderr_line_streaming_skipped() {
-        let executor = AtomcodeExecutor::new();
+        let executor = AtomcodeExecutor::new("atomcode".to_string());
         assert!(executor.parse_stderr_line("[tool-streaming← write_file]").is_none());
     }
 
     #[test]
     fn test_parse_stderr_line_headless_skipped() {
-        let executor = AtomcodeExecutor::new();
+        let executor = AtomcodeExecutor::new("atomcode".to_string());
         assert!(executor.parse_stderr_line("[headless] auto-approved bash: ...").is_none());
     }
 
     #[test]
     fn test_parse_stderr_line_unknown_falls_back() {
-        let executor = AtomcodeExecutor::new();
+        let executor = AtomcodeExecutor::new("atomcode".to_string());
         assert!(executor.parse_stderr_line("some random stderr").is_none());
     }
 
     #[test]
     fn test_get_final_result_with_text() {
-        let executor = AtomcodeExecutor::new();
+        let executor = AtomcodeExecutor::new("atomcode".to_string());
         let logs = vec![
             ParsedLogEntry::new("text", "  hello world  "),
         ];
@@ -310,26 +301,26 @@ mod tests {
 
     #[test]
     fn test_get_usage_before_tokens() {
-        let executor = AtomcodeExecutor::new();
+        let executor = AtomcodeExecutor::new("atomcode".to_string());
         assert!(executor.get_usage(&[]).is_none());
     }
 
     #[test]
     fn test_get_model_always_none() {
-        let executor = AtomcodeExecutor::new();
+        let executor = AtomcodeExecutor::new("atomcode".to_string());
         assert!(executor.get_model().is_none());
     }
 
     #[test]
     fn test_command_args() {
-        let executor = AtomcodeExecutor::new();
+        let executor = AtomcodeExecutor::new("atomcode".to_string());
         let args = executor.command_args("do something");
         assert_eq!(args, vec!["-v", "-p", "do something"]);
     }
 
     #[test]
     fn test_executor_type() {
-        let executor = AtomcodeExecutor::new();
+        let executor = AtomcodeExecutor::new("atomcode".to_string());
         assert_eq!(executor.executor_type(), ExecutorType::Atomcode);
     }
 }
