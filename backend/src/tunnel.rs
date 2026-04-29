@@ -6,6 +6,13 @@ use std::time::Duration;
 
 use clap::Subcommand;
 
+fn get_port() -> u16 {
+    std::env::var("NTD_PORT")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(8088)
+}
+
 #[derive(Subcommand)]
 pub enum TunnelAction {
     /// Start a tunnel
@@ -155,7 +162,7 @@ fn start_hostc_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
         .expect("Failed to create output file");
 
     let mut cmd = std::process::Command::new("hostc");
-    cmd.arg("8088")
+    cmd.arg(get_port().to_string())
         .stdout(output.try_clone().expect("Failed to clone output file"))
         .stderr(output);
 
@@ -216,7 +223,7 @@ fn start_cloudflare_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
     let mut cmd = std::process::Command::new("cloudflared");
     cmd.arg("tunnel")
         .arg("--url")
-        .arg("http://localhost:8088")
+        .arg(format!("http://localhost:{}", get_port()))
         .stdout(output.try_clone().expect("Failed to clone output file"))
         .stderr(output);
 
@@ -359,7 +366,7 @@ fn cleanup_orphan_processes() {
     use std::process::Command;
 
     if let Ok(output) = Command::new("pgrep")
-        .args(["-f", "hostc 8088"])
+        .args(["-f", &format!("hostc {}", get_port())])
         .output()
     {
         let pids = String::from_utf8_lossy(&output.stdout);
@@ -373,7 +380,7 @@ fn cleanup_orphan_processes() {
     }
 
     if let Ok(output) = Command::new("pgrep")
-        .args(["-f", "cloudflared tunnel.*8088"])
+        .args(["-f", &format!("cloudflared tunnel.*{}", get_port())])
         .output()
     {
         let pids = String::from_utf8_lossy(&output.stdout);
@@ -408,7 +415,7 @@ fn cleanup_orphan_processes() {
     use std::process::Command;
 
     if let Ok(output) = Command::new("wmic")
-        .args(["process", "where", "commandline like '%hostc 8088%'", "get", "processid"])
+        .args(["process", "where", &format!("commandline like '%hostc {}%'", get_port()), "get", "processid"])
         .output()
     {
         let text = String::from_utf8_lossy(&output.stdout);
@@ -420,7 +427,7 @@ fn cleanup_orphan_processes() {
     }
 
     if let Ok(output) = Command::new("wmic")
-        .args(["process", "where", "commandline like '%cloudflared%8088%'", "get", "processid"])
+        .args(["process", "where", &format!("commandline like '%cloudflared%{}%'", get_port()), "get", "processid"])
         .output()
     {
         let text = String::from_utf8_lossy(&output.stdout);
