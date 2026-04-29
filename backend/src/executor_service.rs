@@ -96,7 +96,15 @@ pub async fn run_todo_execution(
 
     // Create execution record
     let command = format!("{} {}", executable_path, command_args.join(" "));
-    let record_id = db.create_execution_record(todo_id, &command, &executor_str, trigger_type, &task_id).await;
+    let record_id = match db.create_execution_record(todo_id, &command, &executor_str, trigger_type, &task_id).await {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!("Failed to create execution record: {}", e);
+            let _ = db.finish_todo_execution(todo_id, false).await;
+            task_manager.remove(&task_id).await;
+            return task_id;
+        }
+    };
 
     // Update todo status to running and associate with task
     if let Err(e) = db.start_todo_execution(todo_id, &task_id).await {
