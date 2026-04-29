@@ -304,6 +304,17 @@ pub async fn run_todo_execution(
         let exit_code = status.as_ref().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
         let success = executor_spawn.check_success(exit_code);
 
+        // Try post-execution todo progress extraction (for executors like hermes that don't expose tool calls in stdout)
+        if let Some(progress) = executor_spawn.post_execution_todo_progress() {
+            if let Ok(progress_json) = serde_json::to_string(&progress) {
+                let _ = db_clone.update_execution_record_todo_progress(record_id, &progress_json).await;
+                send_event(&tx_clone, ExecEvent::TodoProgress {
+                    task_id: task_id.clone(),
+                    progress,
+                });
+            }
+        }
+
         let all_logs_snapshot = logs_for_result.lock().await.clone();
         let result_str = executor_spawn.get_final_result(&all_logs_snapshot).unwrap_or_default();
 
