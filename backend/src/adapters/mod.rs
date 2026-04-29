@@ -27,6 +27,27 @@ pub fn strip_think_tags(content: &str) -> String {
     THINK_RE.replace_all(content, "").trim().to_string()
 }
 
+/// Default `get_final_result` for executors that use text+stderr logs with think-tag stripping.
+/// Returns the last "text" log (with think tags stripped), falling back to last "stderr" log.
+pub fn default_final_result_with_think_stripping(logs: &[ParsedLogEntry]) -> Option<String> {
+    let text_result = logs.iter()
+        .rev()
+        .find(|l| l.log_type == "text")
+        .map(|l| strip_think_tags(&l.content));
+
+    let fallback = logs.iter()
+        .rev()
+        .find(|l| l.log_type == "stderr")
+        .map(|l| l.content.clone());
+
+    text_result.or(fallback)
+}
+
+/// Extract usage from the last "result" log entry (used by claude_code, codebuddy).
+pub fn get_usage_from_logs(logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
+    logs.iter().rev().find(|l| l.log_type == "result")?.usage.clone()
+}
+
 pub mod joinai;
 pub mod claude_code;
 pub mod codebuddy;
