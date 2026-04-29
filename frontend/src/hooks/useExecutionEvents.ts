@@ -24,7 +24,18 @@ interface ExecEventFinished {
   result: string | null;
 }
 
-type ExecEvent = ExecEventStarted | ExecEventOutput | ExecEventFinished;
+interface ExecEventSync {
+  type: 'Sync';
+  tasks: Array<{
+    task_id: string;
+    todo_id: number;
+    todo_title: string;
+    executor: string;
+    logs: string; // JSON string
+  }>;
+}
+
+type ExecEvent = ExecEventStarted | ExecEventOutput | ExecEventFinished | ExecEventSync;
 
 export function useExecutionEvents() {
   const { dispatch } = useApp();
@@ -46,11 +57,51 @@ export function useExecutionEvents() {
       };
 
       ws.onmessage = (event) => {
+        // Legacy "Connected" message - ignore
         if (event.data === 'Connected') return;
+        
         try {
           const data: ExecEvent = JSON.parse(event.data);
 
           switch (data.type) {
+            case 'Sync': {
+              // 后端发送当前实际运行的任务列表
+              // 前端应清空当前 runningTasks 并用此列表初始化
+              // 先移除所有当前任务
+              dispatch({ type: 'CLEAR_RUNNING_TASKS' });
+              
+              // 添加后端发送的任务
+              data.tasks.forEach(task => {
+                let parsedLogs: LogEntry[] = [];
+                try {
+                  parsedLogs = JSON.parse(task.logs || '[]');
+                } catch (e) {
+                  console.error('[ExecutionEvents] Failed to parse logs:', e);
+                }
+                
+                dispatch({
+                  type: 'ADD_RUNNING_TASK',
+                  payload: {
+                    taskId: task.task_id,
+                    todoId: task.todo_id,
+                    todoTitle: task.todo_title,
+                    executor: task.executor || 'claudecode',
+                    logs: parsedLogs,
+                    status: 'running',
+                    startedAt: new Date().toISOString(),
+                  },
+                });
+                
+                // 更新对应的 todo 状态
+                dispatch({
+                  type: 'UPDATE_TODO_STATUS',
+                  payload: { id: task.todo_id, status: 'running' },
+                });
+              });
+              
+              console.log(`[ExecutionEvents] Synced ${data.tasks.length} running tasks`);
+              break;
+            }
             case 'Started': {
               dispatch({
                 type: 'ADD_RUNNING_TASK',
