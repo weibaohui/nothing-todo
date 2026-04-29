@@ -7,7 +7,7 @@ use axum::{
 };
 use std::time::Duration;
 use tower_http::compression::CompressionLayer;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{CorsLayer, Any};
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use serde::Serialize;
@@ -240,7 +240,17 @@ pub fn create_app(
         .route("/xyz/backup/import", post(backup::import_backup))
         .route("/assets/{*path}", get(static_handler))
         .layer(CompressionLayer::new())
-        .layer(CorsLayer::permissive())
+        .layer(
+            CorsLayer::new()
+                .allow_origin([
+                    "http://localhost:8088".parse().unwrap(),
+                    "http://127.0.0.1:8088".parse().unwrap(),
+                    "http://localhost:5173".parse().unwrap(),
+                    "http://127.0.0.1:5173".parse().unwrap(),
+                ])
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
         .layer(TraceLayer::new_for_http())
         .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(30)))
         .with_state(state)
