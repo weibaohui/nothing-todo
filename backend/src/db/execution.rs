@@ -430,9 +430,7 @@ impl Database {
             .into_values()
             .filter(|s| s.execution_count > 0)
             .collect();
-        model_distribution.sort_by(|a, b| {
-            a.total_cost_usd.partial_cmp(&b.total_cost_usd).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        model_distribution.sort_by(|a, b| b.execution_count.cmp(&a.execution_count));
 
         let mut daily_executions: Vec<crate::models::DailyExecution> = daily_map.into_iter()
             .map(|(date, (success, failed))| crate::models::DailyExecution { date, success, failed })
