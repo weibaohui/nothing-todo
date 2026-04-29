@@ -329,9 +329,7 @@ impl Database {
                 })
             })
             .collect();
-        model_distribution.sort_by(|a, b| {
-            a.total_cost_usd.partial_cmp(&b.total_cost_usd).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        model_distribution.sort_by(|a, b| b.execution_count.cmp(&a.execution_count));
 
         // 4. Daily execution stats via SQL
         let daily_sql = "SELECT \
