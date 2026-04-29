@@ -104,7 +104,7 @@ async fn main() {
         }
         Some(Commands::Todo { action }) => {
             let cli = cli::Cli {
-                server: cli::DEFAULT_SERVER.to_string(),
+                server: cli.server.clone(),
                 output: output_to_cli(&cli.output),
                 command: cli::Commands::Todo { action: action.clone() },
             };
@@ -116,7 +116,7 @@ async fn main() {
         }
         Some(Commands::Tag { action }) => {
             let cli = cli::Cli {
-                server: cli::DEFAULT_SERVER.to_string(),
+                server: cli.server.clone(),
                 output: output_to_cli(&cli.output),
                 command: cli::Commands::Tag { action: action.clone() },
             };
@@ -128,7 +128,7 @@ async fn main() {
         }
         Some(Commands::Stats) => {
             let cli = cli::Cli {
-                server: cli::DEFAULT_SERVER.to_string(),
+                server: cli.server.clone(),
                 output: output_to_cli(&cli.output),
                 command: cli::Commands::Stats,
             };

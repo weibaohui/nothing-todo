@@ -22,30 +22,6 @@ use crate::models::ParsedLogEntry;
 use crate::scheduler::TodoScheduler;
 use crate::task_manager::TaskManager;
 
-/// 验证 cron 表达式，无效时返回错误提示让 AI 转换
-pub fn validate_cron(schedule: &str) -> Result<(), String> {
-    if schedule.is_empty() {
-        return Ok(());
-    }
-    
-    // 检查是否是有效的 cron 表达式（5-6个字段）
-    let parts: Vec<&str> = schedule.split_whitespace().collect();
-    if parts.len() < 5 || parts.len() > 6 {
-        return Err("Invalid cron format. Please convert natural language to cron expression first. Examples: 每12分钟 -> */12 * * * *".to_string());
-    }
-    
-    // 基本格式检查
-    for part in &parts {
-        for c in part.chars() {
-            if !c.is_ascii_digit() && c != '*' && c != '/' && c != '-' && c != ',' {
-                return Err(format!("Invalid cron '{}'. Please convert natural language to cron first. Example: */12 * * * * for every 12 minutes", schedule));
-            }
-        }
-    }
-    
-    Ok(())
-}
-
 #[derive(Clone)]
 pub struct AppState {
     pub db: Arc<Database>,

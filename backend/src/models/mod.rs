@@ -379,14 +379,14 @@ impl std::fmt::Display for ExecutorType {
 }
 
 // Unified API Response
-#[derive(Debug, Serialize)]
-pub struct ApiResponse<T: Serialize> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiResponse<T> {
     pub code: i32,
     pub data: Option<T>,
     pub message: String,
 }
 
-impl<T: Serialize> ApiResponse<T> {
+impl<T> ApiResponse<T> {
     pub fn ok(data: T) -> Self {
         Self { code: 0, data: Some(data), message: "ok".to_string() }
     }
@@ -396,23 +396,7 @@ impl<T: Serialize> ApiResponse<T> {
     }
 }
 
-// API Response for client (deserializable)
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ClientResponse<T> {
-    pub code: i32,
-    pub data: Option<T>,
-    pub message: String,
-}
-
-impl<T: for<'de> Deserialize<'de>> ClientResponse<T> {
-    pub fn ok(data: T) -> Self {
-        Self { code: 0, data: Some(data), message: "ok".to_string() }
-    }
-
-    pub fn err(code: i32, message: &str) -> Self {
-        Self { code, data: None, message: message.to_string() }
-    }
-}
+pub type ClientResponse<T> = ApiResponse<T>;
 
 /// 导入导出备份数据
 #[derive(Debug, Clone, Serialize, Deserialize)]
