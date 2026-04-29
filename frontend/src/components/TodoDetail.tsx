@@ -630,7 +630,7 @@ export function TodoDetail() {
                             ) : (
                               displayLogs.map((log, idx) => (
                                 <div key={idx} style={{ marginBottom: 4, display: 'flex', gap: 8 }}>
-                                  <span style={{ color: '#64748b', flexShrink: 0 }}>{log.timestamp}</span>
+                                  <span style={{ color: '#64748b', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
                                   <span style={{ color: logTypeColors[log.type || ''] || '#cbd5e1' }}>
                                     [{logTypeLabels[log.type || ''] || log.type}]
                                   </span>
@@ -796,7 +796,7 @@ export function TodoDetail() {
                         ) : (
                           displayLogs.map((log, idx) => (
                             <div key={idx} style={{ marginBottom: 4, display: 'flex', gap: 8 }}>
-                              <span style={{ color: '#64748b', flexShrink: 0 }}>{log.timestamp}</span>
+                              <span style={{ color: '#64748b', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
                               <span style={{ color: logTypeColors[log.type || ''] || '#cbd5e1' }}>
                                 [{logTypeLabels[log.type || ''] || log.type}]
                               </span>
@@ -865,30 +865,55 @@ const logTypeColors: Record<string, string> = {
   info: '#60a5fa',
   text: '#4ade80',
   tool: '#fbbf24',
+  tool_use: '#fbbf24',
+  tool_call: '#fbbf24',
+  tool_result: '#fbbf24',
   step_start: '#c084fc',
   step_finish: '#2dd4bf',
   stdout: '#cbd5e1',
-  stderr: '#f87171',
+  stderr: '#94a3b8',
   error: '#ef4444',
   system: '#94a3b8',
   assistant: '#a78bfa',
   user: '#22d3ee',
   result: '#4ade80',
   thinking: '#fb923c',
+  tokens: '#94a3b8',
 };
 
 const logTypeLabels: Record<string, string> = {
   info: 'INFO',
   text: 'TEXT',
   tool: 'TOOL',
+  tool_use: 'TOOL',
+  tool_call: 'TOOL',
+  tool_result: 'RESULT',
   step_start: 'START',
   step_finish: 'END',
   stdout: 'OUT',
-  stderr: 'ERR',
+  stderr: 'LOG',
   error: 'ERROR',
   system: 'SYS',
   assistant: 'ASST',
   user: 'USER',
   result: 'RESULT',
   thinking: 'THINK',
+  tokens: 'INFO',
 };
+
+/**
+ * 格式化时间戳为短时间格式 (HH:mm:ss)
+ */
+function formatLogTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+  } catch {
+    return iso;
+  }
+}

@@ -102,10 +102,16 @@ impl CodeExecutor for HermesExecutor {
             return None;
         }
 
-        // Hermes outputs some info to stderr
+        // Classify stderr content by its nature - Hermes often outputs info to stderr
+        let log_type = if trimmed.contains("error") || trimmed.contains("Error") || trimmed.contains("ERROR") || trimmed.contains("failed") || trimmed.contains("Failed") {
+            "stderr".to_string()
+        } else {
+            "info".to_string()
+        };
+
         Some(ParsedLogEntry {
             timestamp: utc_timestamp(),
-            log_type: "stderr".to_string(),
+            log_type,
             content: trimmed.to_string(),
             usage: None,
         })
