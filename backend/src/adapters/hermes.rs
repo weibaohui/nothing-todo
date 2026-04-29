@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 
 use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
 use crate::models::utc_timestamp;
@@ -113,7 +114,7 @@ impl CodeExecutor for HermesExecutor {
     }
 
     fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
-        self.usage.lock().unwrap().clone()
+        self.usage.lock().clone()
     }
 
     fn get_model(&self) -> Option<String> {

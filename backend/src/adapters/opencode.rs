@@ -1,7 +1,8 @@
-use serde::Deserialize;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 
 use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
+use super::agent_event::{AgentEvent, AgentPart, AgentToolState, AgentTokens};
 use crate::models::utc_timestamp;
 
 pub struct OpencodeExecutor {
@@ -31,81 +32,6 @@ impl Clone for OpencodeExecutor {
             has_successful_finish: self.has_successful_finish.clone(),
         }
     }
-}
-
-
-#[derive(Debug, Clone, Deserialize)]
-struct OpencodeEvent {
-    #[serde(rename = "type")]
-    event_type: String,
-    timestamp: u64,
-    #[serde(default)]
-    session_id: Option<String>,
-    #[serde(default)]
-    part: Option<OpencodePart>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct OpencodePart {
-    #[serde(rename = "type")]
-    part_type: Option<String>,
-    #[serde(default)]
-    id: Option<String>,
-    #[serde(default)]
-    message_id: Option<String>,
-    #[serde(default)]
-    session_id: Option<String>,
-    #[serde(default)]
-    text: Option<String>,
-    #[serde(default)]
-    tool: Option<String>,
-    #[serde(default)]
-    call_id: Option<String>,
-    #[serde(default)]
-    state: Option<OpencodeToolState>,
-    #[serde(default)]
-    reason: Option<String>,
-    #[serde(default)]
-    tokens: Option<OpencodeTokens>,
-    #[serde(default)]
-    cost: Option<f64>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct OpencodeToolState {
-    #[serde(default)]
-    status: Option<String>,
-    #[serde(default)]
-    input: Option<OpencodeToolInput>,
-    #[serde(default)]
-    output: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct OpencodeToolInput {
-    #[serde(default)]
-    command: Option<String>,
-    #[serde(default)]
-    description: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct OpencodeTokens {
-    total: u64,
-    input: u64,
-    output: u64,
-    #[serde(default)]
-    reasoning: u64,
-    #[serde(default)]
-    cache: OpencodeCacheTokens,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-struct OpencodeCacheTokens {
-    #[serde(default)]
-    read: u64,
-    #[serde(default)]
-    write: u64,
 }
 
 impl CodeExecutor for OpencodeExecutor {
@@ -143,14 +69,17 @@ impl CodeExecutor for OpencodeExecutor {
     }
 
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
-        let event: OpencodeEvent = serde_json::from_str(line).ok()?;
+        let event: AgentEvent = serde_json::from_str(line).ok()?;
 
-        let timestamp = chrono::DateTime::from_timestamp_millis(event.timestamp as i64)
+        let timestamp = event.timestamp
+            .and_then(|ts| chrono::DateTime::from_timestamp_millis(ts as i64))
             .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
             .unwrap_or_else(utc_timestamp);
 
         match event.event_type.as_str() {
             "step_start" => {
+                *self.has_successful_finish.lock() = false;
+                *self.usage.lock() = None;
                 Some(ParsedLogEntry {
                     timestamp,
                     log_type: "step_start".to_string(),
@@ -197,7 +126,7 @@ impl CodeExecutor for OpencodeExecutor {
             "step_finish" => {
                 // Mark as successfully finished — opencode returns non-zero exit code
                 // even on successful execution, so we track success via the event stream.
-                *self.has_successful_finish.lock().unwrap() = true;
+                *self.has_successful_finish.lock() = true;
 
                 // Store usage info if available
                 if let Some(part) = &event.part {
@@ -210,7 +139,7 @@ impl CodeExecutor for OpencodeExecutor {
                             total_cost_usd: part.cost,
                             duration_ms: None,
                         };
-                        *self.usage.lock().unwrap() = Some(usage);
+                        *self.usage.lock() = Some(usage);
                     }
                 }
                 Some(ParsedLogEntry {
@@ -229,11 +158,11 @@ impl CodeExecutor for OpencodeExecutor {
     }
 
     fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
-        self.usage.lock().unwrap().clone()
+        self.usage.lock().clone()
     }
 
     fn get_model(&self) -> Option<String> {
-        self.model.lock().unwrap().clone()
+        self.model.lock().clone()
     }
 
     fn check_success(&self, exit_code: i32) -> bool {
@@ -242,7 +171,7 @@ impl CodeExecutor for OpencodeExecutor {
         }
         // opencode returns non-zero exit codes (e.g. 144) even on successful execution.
         // Trust the presence of a step_finish event in the output stream.
-        *self.has_successful_finish.lock().unwrap()
+        *self.has_successful_finish.lock()
     }
 }
 
