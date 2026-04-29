@@ -1,4 +1,3 @@
-use std::env;
 use std::sync::{Arc, Mutex};
 
 use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
@@ -10,9 +9,7 @@ pub struct KimiExecutor {
 }
 
 impl KimiExecutor {
-    pub fn new() -> Self {
-        let path = env::var("KIMI_PATH")
-            .unwrap_or_else(|_| "kimi".to_string());
+    pub fn new(path: String) -> Self {
         Self {
             path,
             usage: Arc::new(Mutex::new(None)),
@@ -26,12 +23,6 @@ impl Clone for KimiExecutor {
             path: self.path.clone(),
             usage: self.usage.clone(),
         }
-    }
-}
-
-impl Default for KimiExecutor {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -209,27 +200,27 @@ mod tests {
 
     #[test]
     fn test_command_args() {
-        let executor = KimiExecutor::new();
+        let executor = KimiExecutor::new("kimi".to_string());
         let args = executor.command_args("do something");
         assert_eq!(args, vec!["--print", "--output-format", "stream-json", "-p", "do something"]);
     }
 
     #[test]
     fn test_command_args_with_session() {
-        let executor = KimiExecutor::new();
+        let executor = KimiExecutor::new("kimi".to_string());
         let args = executor.command_args_with_session("continue task", Some("abc123"));
         assert_eq!(args, vec!["--print", "--output-format", "stream-json", "-p", "continue task", "-S", "abc123"]);
     }
 
     #[test]
     fn test_executor_type() {
-        let executor = KimiExecutor::new();
+        let executor = KimiExecutor::new("kimi".to_string());
         assert_eq!(executor.executor_type(), ExecutorType::Kimi);
     }
 
     #[test]
     fn test_parse_output_line_assistant_text() {
-        let executor = KimiExecutor::new();
+        let executor = KimiExecutor::new("kimi".to_string());
         let json = r#"{"role":"assistant","content":[{"type":"text","text":"Hello world"}]}"#;
         let entry = executor.parse_output_line(json).unwrap();
         assert_eq!(entry.log_type, "text");
@@ -238,7 +229,7 @@ mod tests {
 
     #[test]
     fn test_parse_output_line_tool_call_request() {
-        let executor = KimiExecutor::new();
+        let executor = KimiExecutor::new("kimi".to_string());
         let json = r#"{"role":"assistant","content":[],"tool_calls":[{"type":"function","id":"call_1","function":{"name":"Shell","arguments":"{\"command\":\"date\"}"}}]}"#;
         let entry = executor.parse_output_line(json).unwrap();
         assert_eq!(entry.log_type, "tool_call");
@@ -247,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_parse_output_line_tool_result() {
-        let executor = KimiExecutor::new();
+        let executor = KimiExecutor::new("kimi".to_string());
         let json = r#"{"role":"tool","content":[{"type":"text","text":"Tue Apr 28 07:59:16 PDT 2026"}]}"#;
         let entry = executor.parse_output_line(json).unwrap();
         assert_eq!(entry.log_type, "tool_result");
@@ -256,7 +247,7 @@ mod tests {
 
     #[test]
     fn test_parse_output_line_skip_resume() {
-        let executor = KimiExecutor::new();
+        let executor = KimiExecutor::new("kimi".to_string());
         let line = "To resume this session: kimi -r abc123";
         assert!(executor.parse_output_line(line).is_none());
     }

@@ -1,4 +1,3 @@
-use std::env;
 use std::sync::{Arc, Mutex};
 use serde::Deserialize;
 
@@ -11,9 +10,7 @@ pub struct CodebuddyExecutor {
 }
 
 impl CodebuddyExecutor {
-    pub fn new() -> Self {
-        let path = env::var("CODEBUDDY_PATH")
-            .unwrap_or_else(|_| "codebuddy".to_string());
+    pub fn new(path: String) -> Self {
         Self { path, model: Arc::new(Mutex::new(None)) }
     }
 }
@@ -21,12 +18,6 @@ impl CodebuddyExecutor {
 impl Clone for CodebuddyExecutor {
     fn clone(&self) -> Self {
         Self { path: self.path.clone(), model: self.model.clone() }
-    }
-}
-
-impl Default for CodebuddyExecutor {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -250,7 +241,7 @@ mod tests {
 
     #[test]
     fn test_parse_output_line_system() {
-        let executor = CodebuddyExecutor::new();
+        let executor = CodebuddyExecutor::new("codebuddy".to_string());
         let line = r#"{"type":"system","model":"claude-3-5-sonnet"}"#;
         let entry = executor.parse_output_line(line).unwrap();
         assert_eq!(entry.log_type, "system");
@@ -260,7 +251,7 @@ mod tests {
 
     #[test]
     fn test_parse_output_line_assistant_text() {
-        let executor = CodebuddyExecutor::new();
+        let executor = CodebuddyExecutor::new("codebuddy".to_string());
         let line = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}"#;
         let entry = executor.parse_output_line(line).unwrap();
         assert_eq!(entry.log_type, "assistant");
@@ -269,7 +260,7 @@ mod tests {
 
     #[test]
     fn test_parse_output_line_assistant_thinking() {
-        let executor = CodebuddyExecutor::new();
+        let executor = CodebuddyExecutor::new("codebuddy".to_string());
         let line = r#"{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"thinking..."}]}}"#;
         let entry = executor.parse_output_line(line).unwrap();
         assert_eq!(entry.log_type, "assistant");
@@ -279,7 +270,7 @@ mod tests {
 
     #[test]
     fn test_parse_output_line_user_tool_result() {
-        let executor = CodebuddyExecutor::new();
+        let executor = CodebuddyExecutor::new("codebuddy".to_string());
         let line = r#"{"type":"user","message":{"content":[{"type":"tool_result","content":"result","is_error":false}]}}"#;
         let entry = executor.parse_output_line(line).unwrap();
         assert_eq!(entry.log_type, "user");
@@ -288,7 +279,7 @@ mod tests {
 
     #[test]
     fn test_parse_output_line_result_success() {
-        let executor = CodebuddyExecutor::new();
+        let executor = CodebuddyExecutor::new("codebuddy".to_string());
         let line = r#"{"type":"result","result":"final","is_error":false,"duration_ms":100,"total_cost_usd":0.001,"usage":{"input_tokens":10,"output_tokens":20}}"#;
         let entry = executor.parse_output_line(line).unwrap();
         assert_eq!(entry.log_type, "result");
@@ -303,7 +294,7 @@ mod tests {
 
     #[test]
     fn test_parse_output_line_result_error() {
-        let executor = CodebuddyExecutor::new();
+        let executor = CodebuddyExecutor::new("codebuddy".to_string());
         let line = r#"{"type":"result","result":"error","is_error":true}"#;
         let entry = executor.parse_output_line(line).unwrap();
         assert_eq!(entry.log_type, "error");
@@ -312,14 +303,14 @@ mod tests {
 
     #[test]
     fn test_parse_output_line_empty_line() {
-        let executor = CodebuddyExecutor::new();
+        let executor = CodebuddyExecutor::new("codebuddy".to_string());
         let line = "";
         assert!(executor.parse_output_line(line).is_none());
     }
 
     #[test]
     fn test_parse_output_line_raw_text_fallback() {
-        let executor = CodebuddyExecutor::new();
+        let executor = CodebuddyExecutor::new("codebuddy".to_string());
         let line = "just text";
         let entry = executor.parse_output_line(line).unwrap();
         assert_eq!(entry.log_type, "text");
@@ -328,7 +319,7 @@ mod tests {
 
     #[test]
     fn test_get_usage_after_result() {
-        let executor = CodebuddyExecutor::new();
+        let executor = CodebuddyExecutor::new("codebuddy".to_string());
         let logs = vec![
             ParsedLogEntry {
                 timestamp: utc_timestamp(),
@@ -351,14 +342,14 @@ mod tests {
 
     #[test]
     fn test_get_usage_no_result() {
-        let executor = CodebuddyExecutor::new();
+        let executor = CodebuddyExecutor::new("codebuddy".to_string());
         let logs: Vec<ParsedLogEntry> = vec![];
         assert!(executor.get_usage(&logs).is_none());
     }
 
     #[test]
     fn test_get_model_before_system() {
-        let executor = CodebuddyExecutor::new();
+        let executor = CodebuddyExecutor::new("codebuddy".to_string());
         assert!(executor.get_model().is_none());
     }
 }

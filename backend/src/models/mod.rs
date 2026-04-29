@@ -600,7 +600,7 @@ mod tests {
     fn test_update_todo_request_deserialize() {
         let json = r#"{"title":"Test","prompt":"Do this","status":"running","executor":"claudecode","scheduler_enabled":true,"scheduler_config":"0 0 * * *"}"#;
         let req: UpdateTodoRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.title, "Test");
+        assert_eq!(req.title, Some("Test".to_string()));
         assert_eq!(req.executor, Some("claudecode".to_string()));
         assert_eq!(req.scheduler_enabled, Some(true));
         assert_eq!(req.scheduler_config, Some("0 0 * * *".to_string()));
