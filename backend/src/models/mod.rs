@@ -195,6 +195,8 @@ pub struct CreateTodoRequest {
     pub prompt: String,
     #[serde(default)]
     pub tag_ids: Vec<i64>,
+    #[serde(default)]
+    pub executor: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
