@@ -88,6 +88,7 @@ pub async fn run_todo_execution(
         None => {
             tracing::error!("No executor available for type {:?} and no default registered", executor_type);
             let _ = db.finish_todo_execution(todo_id, false).await;
+            send_event(&tx, ExecEvent::Finished { task_id: task_id.clone(), todo_id, success: false, result: Some("No executor available".to_string()) });
             task_manager.remove(&task_id).await;
             return task_id;
         }
