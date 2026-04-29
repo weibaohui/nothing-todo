@@ -256,8 +256,7 @@ impl CodeExecutor for ClaudeCodeExecutor {
     }
 
     fn get_usage(&self, logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
-        // Usage is now captured directly in the ParsedLogEntry.usage field
-        logs.iter().rev().find(|l| l.log_type == "result")?.usage.clone()
+        super::get_usage_from_logs(logs)
     }
 
     fn get_model(&self) -> Option<String> {
