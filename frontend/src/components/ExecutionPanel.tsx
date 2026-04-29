@@ -1,4 +1,5 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
+import { ExpandOutlined, CompressOutlined } from '@ant-design/icons';
 import { useApp } from '../hooks/useApp';
 import { getExecutorOption } from '../types';
 
@@ -57,6 +58,7 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
   const { state, dispatch } = useApp();
   const { runningTasks, activeTaskId } = state;
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const [fullscreen, setFullscreen] = useState(false);
 
   const taskIds = Object.keys(runningTasks);
   const activeTask = activeTaskId ? runningTasks[activeTaskId] : null;
@@ -85,7 +87,7 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
   if (taskIds.length === 0) return null;
 
   return (
-    <div className={`execution-panel ${collapsed ? 'collapsed' : ''}`}>
+    <div className={`execution-panel ${collapsed ? 'collapsed' : ''} ${fullscreen ? 'fullscreen' : ''}`}>
       {/* Tab Bar */}
       <div className="execution-panel-tabs">
         <div className="execution-panel-tabs-scroll">
@@ -123,7 +125,25 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
           <span className="task-count">{taskIds.length} 个任务</span>
           <button
             className="panel-toggle-btn"
-            onClick={onToggleCollapse}
+            onClick={() => {
+              if (fullscreen) {
+                setFullscreen(false);
+              } else {
+                setFullscreen(true);
+                if (collapsed) onToggleCollapse();
+              }
+            }}
+            aria-label={fullscreen ? '退出全屏' : '全屏'}
+            title={fullscreen ? '退出全屏' : '全屏'}
+          >
+            {fullscreen ? <CompressOutlined /> : <ExpandOutlined />}
+          </button>
+          <button
+            className="panel-toggle-btn"
+            onClick={() => {
+              if (fullscreen) setFullscreen(false);
+              onToggleCollapse();
+            }}
             aria-label={collapsed ? '展开' : '收起'}
           >
             {collapsed ? '▲' : '▼'}
