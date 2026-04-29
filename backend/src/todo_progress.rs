@@ -1,6 +1,6 @@
 use crate::models::{ParsedLogEntry, TodoItem};
 
-const TODO_TOOL_NAMES: &[&str] = &["todowrite", "writetodo", "todo_write", "write_todo"];
+const TODO_TOOL_NAMES: &[&str] = &["todowrite", "writetodo", "todo_write", "write_todo", "settodolist", "set_todo_list"];
 
 fn is_todo_tool_name(name: &str) -> bool {
     let lower = name.to_lowercase();
@@ -37,6 +37,17 @@ fn extract_todos_from_input(input: &serde_json::Value) -> Option<Vec<TodoItem>> 
     None
 }
 
+fn normalize_status(raw: &str) -> String {
+    match raw.to_lowercase().as_str() {
+        "done" | "completed" | "complete" | "finished" => "completed".to_string(),
+        "in_progress" | "inprogress" | "in-progress" | "doing" | "active" => "in_progress".to_string(),
+        "cancelled" | "canceled" | "abort" | "aborted" => "cancelled".to_string(),
+        "failed" | "fail" | "error" => "failed".to_string(),
+        "running" => "running".to_string(),
+        _ => "pending".to_string(),
+    }
+}
+
 fn parse_todo_item(v: &serde_json::Value) -> Option<TodoItem> {
     let content = v
         .get("content")
@@ -48,13 +59,13 @@ fn parse_todo_item(v: &serde_json::Value) -> Option<TodoItem> {
     if content.is_empty() {
         return None;
     }
+    let raw_status = v
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("pending");
     Some(TodoItem {
         id: v.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()),
         content,
-        status: v
-            .get("status")
-            .and_then(|v| v.as_str())
-            .unwrap_or("pending")
-            .to_string(),
+        status: normalize_status(raw_status),
     })
 }
