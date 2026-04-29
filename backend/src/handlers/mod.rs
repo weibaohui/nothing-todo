@@ -7,6 +7,7 @@ use axum::{
 };
 use std::time::Duration;
 use tower_http::compression::CompressionLayer;
+use axum::extract::DefaultBodyLimit;
 use tower_http::cors::CorsLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
@@ -239,6 +240,7 @@ pub fn create_app(
         .route("/xyz/backup/export", get(backup::export_backup))
         .route("/xyz/backup/import", post(backup::import_backup))
         .route("/assets/{*path}", get(static_handler))
+        .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB max body size
         .layer(CompressionLayer::new())
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
