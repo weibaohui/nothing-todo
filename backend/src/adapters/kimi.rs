@@ -168,9 +168,19 @@ impl CodeExecutor for KimiExecutor {
         if trimmed.is_empty() || trimmed.starts_with("To resume this session:") {
             return None;
         }
+
+        // Classify stderr content by its nature
+        let log_type = if trimmed.starts_with("[tool-streaming") {
+            "tool".to_string()
+        } else if trimmed.contains("error") || trimmed.contains("Error") || trimmed.contains("ERROR") || trimmed.contains("failed") || trimmed.contains("Failed") {
+            "stderr".to_string()
+        } else {
+            "info".to_string()
+        };
+
         Some(ParsedLogEntry {
             timestamp: utc_timestamp(),
-            log_type: "stderr".to_string(),
+            log_type,
             content: trimmed.to_string(),
             usage: None,
         })
