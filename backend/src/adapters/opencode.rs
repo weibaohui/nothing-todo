@@ -53,19 +53,17 @@ impl CodeExecutor for OpencodeExecutor {
         ]
     }
 
-    fn command_args_with_session(&self, message: &str, session_id: Option<&str>) -> Vec<String> {
-        let mut args = vec![
+    fn command_args_with_session(&self, message: &str, _session_id: Option<&str>) -> Vec<String> {
+        // Note: opencode's --session parameter causes issues with JSON output,
+        // so we don't use it here. The task_id is still passed to create_execution_record
+        // for tracking purposes.
+        vec![
             "run".to_string(),
             "--format".to_string(),
             "json".to_string(),
-        ];
-        if let Some(sid) = session_id {
-            args.push("--session".to_string());
-            args.push(sid.to_string());
-        }
-        args.push("--dangerously-skip-permissions".to_string());
-        args.push(message.to_string());
-        args
+            "--dangerously-skip-permissions".to_string(),
+            message.to_string(),
+        ]
     }
 
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
@@ -77,7 +75,7 @@ impl CodeExecutor for OpencodeExecutor {
             .unwrap_or_else(utc_timestamp);
 
         match event.event_type.as_str() {
-            "step_start" => {
+            "step_start" | "step-start" => {
                 *self.has_successful_finish.lock() = false;
                 *self.usage.lock() = None;
                 Some(ParsedLogEntry {
@@ -87,7 +85,7 @@ impl CodeExecutor for OpencodeExecutor {
                     usage: None,
                 })
             }
-            "tool_use" => {
+            "tool_use" | "tool-use" => {
                 let part = event.part?;
                 let tool = part.tool.unwrap_or_default();
                 let status = part.state.as_ref().and_then(|s| s.status.clone()).unwrap_or_default();
@@ -123,7 +121,7 @@ impl CodeExecutor for OpencodeExecutor {
                     usage: None,
                 })
             }
-            "step_finish" => {
+            "step_finish" | "step-finish" => {
                 // Mark as successfully finished — opencode returns non-zero exit code
                 // even on successful execution, so we track success via the event stream.
                 *self.has_successful_finish.lock() = true;
@@ -302,6 +300,76 @@ mod tests {
         let line = r#"{"type":"step_finish","timestamp":1700000000000,"part":{"type":"step_finish","tokens":{"total":100,"input":50,"output":50,"cache":{"read":10,"write":5}},"cost":0.001}}"#;
         let _ = executor.parse_output_line(line);
         assert!(executor.check_success(144), "should succeed when step_finish was parsed even with non-zero exit code");
+    }
+
+    // Tests for the new opencode format with hyphenated type names (e.g., step-start, tool-use)
+    #[test]
+    fn test_parse_output_line_step_start_hyphenated() {
+        let executor = OpencodeExecutor::new("opencode".to_string());
+        let line = r#"{"type":"step-start","timestamp":1700000000000,"sessionID":"ses_xxx"}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "step_start");
+        assert_eq!(entry.content, "Step started");
+    }
+
+    #[test]
+    fn test_parse_output_line_tool_use_hyphenated() {
+        let executor = OpencodeExecutor::new("opencode".to_string());
+        let line = r#"{"type":"tool-use","timestamp":1700000000000,"part":{"type":"tool","tool":"bash","state":{"status":"completed","input":{"description":"list files"},"output":"file.txt"}}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "tool");
+        assert!(entry.content.contains("completed"), "content should contain status: {}", entry.content);
+    }
+
+    #[test]
+    fn test_parse_output_line_step_finish_hyphenated() {
+        let executor = OpencodeExecutor::new("opencode".to_string());
+        let line = r#"{"type":"step-finish","timestamp":1700000000000,"part":{"type":"step-finish","reason":"stop","tokens":{"total":100,"input":50,"output":50,"reasoning":0,"cache":{"read":10,"write":5}},"cost":0.001}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "step_finish");
+        assert_eq!(entry.content, "Step finished");
+
+        let usage = executor.get_usage(&[]).unwrap();
+        assert_eq!(usage.input_tokens, 50);
+        assert_eq!(usage.output_tokens, 50);
+    }
+
+    #[test]
+    fn test_check_success_with_step_finish_hyphenated() {
+        let executor = OpencodeExecutor::new("opencode".to_string());
+        let line = r#"{"type":"step-finish","timestamp":1700000000000,"part":{"type":"step-finish","tokens":{"total":100,"input":50,"output":50,"cache":{"read":10,"write":5}},"cost":0.001}}"#;
+        let _ = executor.parse_output_line(line);
+        assert!(executor.check_success(144), "should succeed when step-finish was parsed even with non-zero exit code");
+    }
+
+    #[test]
+    fn test_parse_actual_opencode_json_format() {
+        // Test with actual opencode output format (hyphenated types, sessionID)
+        let executor = OpencodeExecutor::new("opencode".to_string());
+
+        // Step start
+        let line = r#"{"type":"step-start","timestamp":1777471473403,"sessionID":"ses_xxx"}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "step_start");
+
+        // Text output
+        let line = r#"{"type":"text","timestamp":1777471505165,"sessionID":"ses_xxx","part":{"type":"text","text":"Hello, this is a test response"}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "text");
+        assert_eq!(entry.content, "Hello, this is a test response");
+
+        // Step finish
+        let line = r#"{"type":"step-finish","timestamp":1777471505168,"sessionID":"ses_xxx","part":{"type":"step-finish","reason":"stop","tokens":{"total":14155,"input":13862,"output":293,"reasoning":0,"cache":{"write":0,"read":0}},"cost":0}}"#;
+        let _ = executor.parse_output_line(line);
+
+        // Verify final result extraction
+        let logs = vec![
+            ParsedLogEntry::new("step_start", "Step started"),
+            ParsedLogEntry::new("text", "Hello, this is a test response"),
+            ParsedLogEntry::new("step_finish", "Step finished"),
+        ];
+        let result = executor.get_final_result(&logs);
+        assert_eq!(result, Some("Hello, this is a test response".to_string()));
     }
 }
 
