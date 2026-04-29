@@ -36,7 +36,8 @@ pub async fn update_scheduler(
     state
         .db
         .update_todo_scheduler(id, req.scheduler_enabled, req.scheduler_config.as_deref())
-        .await;
+        .await
+        .map_err(AppError::from)?;
 
     let todo = state.require_todo(id).await?;
     Ok(ApiResponse::ok(todo))

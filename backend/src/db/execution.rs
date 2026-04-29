@@ -121,7 +121,7 @@ impl Database {
         result: &str,
         usage: Option<&ExecutionUsage>,
         model: Option<&str>,
-    ) {
+    ) -> Result<(), sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = execution_records::ActiveModel {
             id: ActiveValue::Unchanged(id),
@@ -133,17 +133,17 @@ impl Database {
             finished_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
-        self.exec_update(am).await;
+        self.exec_update(am).await
     }
 
     /// 更新执行记录的 pid
-    pub async fn update_execution_record_pid(&self, id: i64, pid: Option<i32>) {
+    pub async fn update_execution_record_pid(&self, id: i64, pid: Option<i32>) -> Result<(), sea_orm::DbErr> {
         let am = execution_records::ActiveModel {
             id: ActiveValue::Unchanged(id),
             pid: ActiveValue::Set(pid),
             ..Default::default()
         };
-        self.exec_update(am).await;
+        self.exec_update(am).await
     }
 
     /// 根据 pid 获取执行记录
@@ -156,7 +156,7 @@ impl Database {
     }
 
     /// 根据 pid 停止执行记录
-    pub async fn stop_execution_by_pid(&self, pid: i32) -> bool {
+    pub async fn stop_execution_by_pid(&self, pid: i32) -> Result<bool, sea_orm::DbErr> {
         if let Some(record) = self.get_execution_record_by_pid(pid).await {
             // 只更新这一条执行记录，不影响 todo 的状态
             let now = crate::models::utc_timestamp();
@@ -168,12 +168,12 @@ impl Database {
                 pid: ActiveValue::Set(None),
                 ..Default::default()
             };
-            self.exec_update(am).await;
+            self.exec_update(am).await?;
 
             tracing::info!("Stopped execution record {} with pid {}", record.id, pid);
-            return true;
+            return Ok(true);
         }
-        false
+        Ok(false)
     }
 
     pub async fn get_dashboard_stats(&self) -> crate::models::DashboardStats {
@@ -585,7 +585,7 @@ impl Database {
                         result: ActiveValue::Set(Some("程序崩溃，任务被中断".to_string())),
                         ..Default::default()
                     };
-                    self.exec_update(am).await;
+                    let _ = self.exec_update(am).await;
                 }
             } else {
                 // todo不存在，直接标记执行记录为失败
@@ -602,7 +602,7 @@ impl Database {
                     result: ActiveValue::Set(Some("任务已被删除".to_string())),
                     ..Default::default()
                 };
-                self.exec_update(am).await;
+                let _ = self.exec_update(am).await;
             }
         }
     }
@@ -633,7 +633,7 @@ impl Database {
                     result: ActiveValue::Set(Some("任务已被手动停止".to_string())),
                     ..Default::default()
                 };
-                self.exec_update(am).await;
+                let _ = self.exec_update(am).await;
             }
 
             tracing::info!(
