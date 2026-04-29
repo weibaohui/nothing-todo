@@ -1,7 +1,8 @@
-use std::sync::{Arc, Mutex};
-use serde::Deserialize;
+use std::sync::Arc;
+use parking_lot::Mutex;
 
 use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
+use super::claude_protocol::{ClaudeMessage, ClaudeContentBlock};
 use crate::models::utc_timestamp;
 
 pub struct CodebuddyExecutor {
@@ -19,85 +20,6 @@ impl Clone for CodebuddyExecutor {
     fn clone(&self) -> Self {
         Self { path: self.path.clone(), model: self.model.clone() }
     }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type")]
-enum CodebuddyMessage {
-    #[serde(rename = "system")]
-    System {
-        subtype: Option<String>,
-        session_id: Option<String>,
-        model: Option<String>,
-    },
-    #[serde(rename = "assistant")]
-    Assistant {
-        message: CodebuddyMessageContent,
-        #[serde(default)]
-        parent_tool_use_id: Option<String>,
-        session_id: Option<String>,
-        uuid: Option<String>,
-    },
-    #[serde(rename = "user")]
-    User {
-        message: CodebuddyMessageContent,
-        #[serde(default)]
-        parent_tool_use_id: Option<String>,
-        session_id: Option<String>,
-        uuid: Option<String>,
-    },
-    #[serde(rename = "result")]
-    Result {
-        subtype: Option<String>,
-        is_error: bool,
-        duration_ms: Option<u64>,
-        result: Option<String>,
-        total_cost_usd: Option<f64>,
-        #[serde(default)]
-        usage: Option<CodebuddyUsage>,
-        session_id: Option<String>,
-    },
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct CodebuddyMessageContent {
-    id: Option<String>,
-    #[serde(rename = "type")]
-    content_type: Option<String>,
-    role: Option<String>,
-    #[serde(default)]
-    content: Vec<CodebuddyContentBlock>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type")]
-enum CodebuddyContentBlock {
-    #[serde(rename = "thinking")]
-    Thinking { thinking: Option<String> },
-    #[serde(rename = "text")]
-    Text { text: Option<String> },
-    #[serde(rename = "tool_use")]
-    ToolUse {
-        id: Option<String>,
-        name: Option<String>,
-        input: serde_json::Value,
-    },
-    #[serde(rename = "tool_result")]
-    ToolResult {
-        tool_use_id: Option<String>,
-        content: Option<String>,
-        is_error: Option<bool>,
-    },
-    #[serde(rename = "redacted")]
-    Redacted { redacted: Option<String> },
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct CodebuddyUsage {
-    input_tokens: u64,
-    output_tokens: u64,
-    cache_read_input_tokens: Option<u64>,
-    cache_creation_input_tokens: Option<u64>,
 }
 
 impl CodeExecutor for CodebuddyExecutor {
@@ -124,11 +46,11 @@ impl CodeExecutor for CodebuddyExecutor {
             return None;
         }
 
-        if let Ok(msg) = serde_json::from_str::<CodebuddyMessage>(line) {
+        if let Ok(msg) = serde_json::from_str::<ClaudeMessage>(line) {
             return match msg {
-                CodebuddyMessage::System { subtype, session_id, model } => {
+                ClaudeMessage::System { subtype, session_id, model } => {
                     if let Some(m) = model {
-                        *self.model.lock().unwrap() = Some(m.clone());
+                        *self.model.lock() = Some(m.clone());
                     }
                     Some(ParsedLogEntry {
                         timestamp: utc_timestamp(),
@@ -137,29 +59,29 @@ impl CodeExecutor for CodebuddyExecutor {
                         usage: None,
                     })
                 }
-                CodebuddyMessage::Assistant { message, .. } => {
+                ClaudeMessage::Assistant { message, .. } => {
                     let mut parts = Vec::new();
                     for block in message.content {
                         match block {
-                            CodebuddyContentBlock::Thinking { thinking } => {
+                            ClaudeContentBlock::Thinking { thinking } => {
                                 if let Some(t) = thinking {
                                     parts.push(format!("[thinking] {}", t.chars().take(200).collect::<String>()));
                                 }
                             }
-                            CodebuddyContentBlock::Text { text } => {
+                            ClaudeContentBlock::Text { text } => {
                                 if let Some(t) = text {
                                     parts.push(t);
                                 }
                             }
-                            CodebuddyContentBlock::ToolUse { name, input, .. } => {
+                            ClaudeContentBlock::ToolUse { name, input, .. } => {
                                 let input_str = serde_json::to_string(&input).unwrap_or_default();
                                 parts.push(format!("[tool] {}: {}", name.unwrap_or_default(), input_str.chars().take(100).collect::<String>()));
                             }
-                            CodebuddyContentBlock::ToolResult { content, is_error, .. } => {
+                            ClaudeContentBlock::ToolResult { content, is_error, .. } => {
                                 let err_str = if is_error.unwrap_or(false) { "[error] " } else { "" };
                                 parts.push(format!("{}{}", err_str, content.unwrap_or_default().chars().take(100).collect::<String>()));
                             }
-                            CodebuddyContentBlock::Redacted { redacted } => {
+                            ClaudeContentBlock::Redacted { redacted } => {
                                 parts.push(format!("[redacted] {}", redacted.unwrap_or_default()));
                             }
                         }
@@ -175,10 +97,10 @@ impl CodeExecutor for CodebuddyExecutor {
                         })
                     }
                 }
-                CodebuddyMessage::User { message, .. } => {
+                ClaudeMessage::User { message, .. } => {
                     let mut parts = Vec::new();
                     for block in message.content {
-                        if let CodebuddyContentBlock::ToolResult { content, is_error, .. } = block {
+                        if let ClaudeContentBlock::ToolResult { content, is_error, .. } = block {
                             let err_str = if is_error.unwrap_or(false) { "[error] " } else { "" };
                             parts.push(format!("{}{}", err_str, content.unwrap_or_default()));
                         }
@@ -194,7 +116,7 @@ impl CodeExecutor for CodebuddyExecutor {
                         })
                     }
                 }
-                CodebuddyMessage::Result { result, is_error, duration_ms, total_cost_usd, usage, .. } => {
+                ClaudeMessage::Result { result, is_error, duration_ms, total_cost_usd, usage, .. } => {
                     let err_str = if is_error { "[error] " } else { "" };
                     let result_str = result.unwrap_or_default();
 
@@ -230,7 +152,7 @@ impl CodeExecutor for CodebuddyExecutor {
     }
 
     fn get_model(&self) -> Option<String> {
-        self.model.lock().unwrap().clone()
+        self.model.lock().clone()
     }
 }
 

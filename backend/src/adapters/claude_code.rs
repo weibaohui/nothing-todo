@@ -1,7 +1,8 @@
-use std::sync::{Arc, Mutex};
-use serde::Deserialize;
+use std::sync::Arc;
+use parking_lot::Mutex;
 
 use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
+use super::claude_protocol::{ClaudeMessage, ClaudeContentBlock};
 use crate::models::utc_timestamp;
 
 pub struct ClaudeCodeExecutor {
@@ -19,85 +20,6 @@ impl Clone for ClaudeCodeExecutor {
     fn clone(&self) -> Self {
         Self { path: self.path.clone(), model: self.model.clone() }
     }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type")]
-enum ClaudeMessage {
-    #[serde(rename = "system")]
-    System {
-        subtype: Option<String>,
-        session_id: Option<String>,
-        model: Option<String>,
-    },
-    #[serde(rename = "assistant")]
-    Assistant {
-        message: ClaudeMessageContent,
-        #[serde(default)]
-        parent_tool_use_id: Option<String>,
-        session_id: Option<String>,
-        uuid: Option<String>,
-    },
-    #[serde(rename = "user")]
-    User {
-        message: ClaudeMessageContent,
-        #[serde(default)]
-        parent_tool_use_id: Option<String>,
-        session_id: Option<String>,
-        uuid: Option<String>,
-    },
-    #[serde(rename = "result")]
-    Result {
-        subtype: Option<String>,
-        is_error: bool,
-        duration_ms: Option<u64>,
-        result: Option<String>,
-        total_cost_usd: Option<f64>,
-        #[serde(default)]
-        usage: Option<ClaudeUsage>,
-        session_id: Option<String>,
-    },
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct ClaudeMessageContent {
-    id: Option<String>,
-    #[serde(rename = "type")]
-    content_type: Option<String>,
-    role: Option<String>,
-    #[serde(default)]
-    content: Vec<ClaudeContentBlock>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type")]
-enum ClaudeContentBlock {
-    #[serde(rename = "thinking")]
-    Thinking { thinking: Option<String> },
-    #[serde(rename = "text")]
-    Text { text: Option<String> },
-    #[serde(rename = "tool_use")]
-    ToolUse {
-        id: Option<String>,
-        name: Option<String>,
-        input: serde_json::Value,
-    },
-    #[serde(rename = "tool_result")]
-    ToolResult {
-        tool_use_id: Option<String>,
-        content: Option<String>,
-        is_error: Option<bool>,
-    },
-    #[serde(rename = "redacted")]
-    Redacted { redacted: Option<String> },
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct ClaudeUsage {
-    input_tokens: u64,
-    output_tokens: u64,
-    cache_read_input_tokens: Option<u64>,
-    cache_creation_input_tokens: Option<u64>,
 }
 
 impl CodeExecutor for ClaudeCodeExecutor {
@@ -147,7 +69,7 @@ impl CodeExecutor for ClaudeCodeExecutor {
                 ClaudeMessage::System { subtype, session_id, model } => {
                     // Store model if found
                     if let Some(m) = model {
-                        *self.model.lock().unwrap() = Some(m.clone());
+                        *self.model.lock() = Some(m.clone());
                     }
                     Some(ParsedLogEntry {
                         timestamp: utc_timestamp(),
@@ -282,7 +204,7 @@ impl CodeExecutor for ClaudeCodeExecutor {
     }
 
     fn get_model(&self) -> Option<String> {
-        self.model.lock().unwrap().clone()
+        self.model.lock().clone()
     }
 }
 
