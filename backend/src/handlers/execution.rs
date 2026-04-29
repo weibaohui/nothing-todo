@@ -2,7 +2,6 @@ use axum::{
     extract::{Path, Query, State},
 };
 use serde::Deserialize;
-use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
 
 use crate::executor_service::run_todo_execution;
 use crate::handlers::{ApiJson, AppError, AppState};
@@ -69,35 +68,18 @@ pub async fn stop_execution_handler(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<StopExecutionRequest>,
 ) -> Result<ApiResponse<()>, AppError> {
-    use crate::db::entity::execution_records;
-
     tracing::info!("Stopping execution record: {}", req.record_id);
 
-    // 根据 record_id 查询执行记录
-    let record = execution_records::Entity::find()
-        .filter(execution_records::Column::Id.eq(req.record_id))
-        .one(&state.db.conn)
-        .await
-        .map_err(|_| AppError::BadRequest("Failed to query execution record".to_string()))?;
+    let record = state.db.get_execution_record(req.record_id).await
+        .ok_or(AppError::BadRequest("Execution record not found".to_string()))?;
 
-    let record = match record {
-        Some(r) => r,
-        None => return Err(AppError::BadRequest("Execution record not found".to_string())),
-    };
-
-    // 检查记录状态是否为 running
-    if record.status.as_deref() != Some("running") {
+    if record.status != "running" {
         return Err(AppError::BadRequest("Execution record is not running".to_string()));
     }
 
-    // 获取 task_id 并通过 TaskManager 取消
     if let Some(task_id) = &record.task_id {
         tracing::info!("Stopping execution record {} with task_id: {}", req.record_id, task_id);
-
-        // 通过 TaskManager 取消任务，这会触发 cancel_rx.recv() 分支
-        // 该分支会：kill_process_group + child.kill + 更新 todo 状态 + 发 Finished 事件
         state.task_manager.cancel(task_id).await;
-
         tracing::info!("Successfully stopped execution record {}", req.record_id);
         Ok(ApiResponse::ok(()))
     } else {
