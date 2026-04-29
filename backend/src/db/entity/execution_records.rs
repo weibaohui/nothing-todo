@@ -21,6 +21,7 @@ pub struct Model {
     pub trigger_type: Option<String>,
     pub pid: Option<i32>,
     pub task_id: Option<String>,
+    pub todo_progress: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

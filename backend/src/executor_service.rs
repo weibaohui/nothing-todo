@@ -198,11 +198,23 @@ pub async fn run_todo_execution(
             let tid = task_id.clone();
             let executor_clone = executor_for_parse.clone();
             let logs_for_db = logs_for_db.clone();
+            let db_for_todo = db_clone.clone();
+            let rid = record_id;
 
             Some(tokio::spawn(async move {
                 let mut reader = BufReader::new(stdout_reader).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
                     if let Some(parsed) = executor_clone.parse_output_line(&line) {
+                        // Detect todo progress updates
+                        if let Some(progress) = crate::todo_progress::try_extract_todo_progress(&parsed) {
+                            if let Ok(progress_json) = serde_json::to_string(&progress) {
+                                let _ = db_for_todo.update_execution_record_todo_progress(rid, &progress_json).await;
+                            }
+                            send_event(&tx_clone, ExecEvent::TodoProgress {
+                                task_id: tid.clone(),
+                                progress,
+                            });
+                        }
                         logs_for_db.lock().await.push(parsed.clone());
                         send_event(&tx_clone, ExecEvent::Output { task_id: tid.clone(), entry: parsed });
                     }

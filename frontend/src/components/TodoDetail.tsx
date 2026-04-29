@@ -11,7 +11,8 @@ import { formatLocalDateTime } from '../utils/datetime';
 import { AnimatedNumber } from './AnimatedNumber';
 import { getExecutorOption } from '../types';
 import XMarkdown from '@ant-design/x-markdown';
-import type { ExecutionSummary, Todo } from '../types';
+import { TodoProgressControl } from './TodoProgressControl';
+import type { ExecutionSummary, Todo, TodoItem } from '../types';
 
 function PromptDisplay({ content }: { content: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -604,6 +605,19 @@ export function TodoDetail() {
                       </div>
                     )}
                     {(() => {
+                      const progress: TodoItem[] | null = (() => {
+                        if (isRunning && currentRunningTask?.todoProgress?.length) {
+                          return currentRunningTask.todoProgress;
+                        }
+                        if (record.todo_progress) {
+                          try { return JSON.parse(record.todo_progress); } catch { return null; }
+                        }
+                        return null;
+                      })();
+                      if (!progress || progress.length === 0) return null;
+                      return <TodoProgressControl todoProgress={progress} />;
+                    })()}
+                    {(() => {
                       if (!isRunning && displayLogs.length === 0) return null;
                       return (
                         <div>
@@ -759,6 +773,20 @@ export function TodoDetail() {
                     )}
                   </div>
                 )}
+                {(() => {
+                  const isRunning = record.status === 'running';
+                  const progress: TodoItem[] | null = (() => {
+                    if (isRunning && currentRunningTask?.todoProgress?.length) {
+                      return currentRunningTask.todoProgress;
+                    }
+                    if (record.todo_progress) {
+                      try { return JSON.parse(record.todo_progress); } catch { return null; }
+                    }
+                    return null;
+                  })();
+                  if (!progress || progress.length === 0) return null;
+                  return <TodoProgressControl todoProgress={progress} />;
+                })()}
 
                 {(() => {
                   const isRunning = record.status === 'running';

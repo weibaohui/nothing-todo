@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
-import { Todo, Tag, ExecutionRecord, RunningTask, LogEntry } from '../types';
+import { Todo, Tag, ExecutionRecord, RunningTask, LogEntry, TodoItem } from '../types';
 import * as db from '../utils/database';
 
 interface AppState {
@@ -33,7 +33,8 @@ type Action =
   | { type: 'FINISH_TASK'; payload: { taskId: string; success: boolean; result: string | null } }
   | { type: 'REMOVE_RUNNING_TASK'; payload: string }
   | { type: 'CLEAR_RUNNING_TASKS' }
-  | { type: 'SET_ACTIVE_TASK'; payload: string | null };
+  | { type: 'SET_ACTIVE_TASK'; payload: string | null }
+  | { type: 'UPDATE_TASK_TODO_PROGRESS'; payload: { taskId: string; progress: TodoItem[] } };
 
 const initialState: AppState = {
   todos: [],
@@ -169,6 +170,17 @@ function reducer(state: AppState, action: Action): AppState {
     }
     case 'SET_ACTIVE_TASK':
       return { ...state, activeTaskId: action.payload };
+    case 'UPDATE_TASK_TODO_PROGRESS': {
+      const task = state.runningTasks[action.payload.taskId];
+      if (!task) return state;
+      return {
+        ...state,
+        runningTasks: {
+          ...state.runningTasks,
+          [action.payload.taskId]: { ...task, todoProgress: action.payload.progress },
+        },
+      };
+    }
     default:
       return state;
   }

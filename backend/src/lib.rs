@@ -7,6 +7,7 @@ pub mod handlers;
 pub mod models;
 pub mod scheduler;
 pub mod task_manager;
+pub mod todo_progress;
 pub mod tunnel;
 
 use rust_embed::RustEmbed;

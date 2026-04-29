@@ -57,6 +57,8 @@ impl CodeExecutor for AtomcodeExecutor {
             log_type: "text".to_string(),
             content: trimmed.to_string(),
             usage: None,
+                tool_name: None,
+                tool_input_json: None,
         })
     }
 
@@ -102,6 +104,8 @@ impl CodeExecutor for AtomcodeExecutor {
                 log_type: "tokens".to_string(),
                 content: trimmed.to_string(),
                 usage: None,
+                tool_name: None,
+                tool_input_json: None,
             });
         }
 
@@ -150,16 +154,21 @@ impl CodeExecutor for AtomcodeExecutor {
                 log_type: "step_finish".to_string(),
                 content: format!("Execution finished: {} turns, {} tool calls", turns, tool_calls),
                 usage: None,
+                tool_name: None,
+                tool_input_json: None,
             });
         }
 
         // [tool→ write_file args={...}]
         if trimmed.starts_with("[tool→") {
+            let (tool_name, tool_input_json) = parse_atomcode_tool_call(trimmed);
             return Some(ParsedLogEntry {
                 timestamp: utc_timestamp(),
                 log_type: "tool".to_string(),
                 content: trimmed.to_string(),
                 usage: None,
+                tool_name,
+                tool_input_json,
             });
         }
 
@@ -170,6 +179,8 @@ impl CodeExecutor for AtomcodeExecutor {
                 log_type: "tool".to_string(),
                 content: trimmed.to_string(),
                 usage: None,
+                tool_name: None,
+                tool_input_json: None,
             });
         }
 
@@ -180,6 +191,8 @@ impl CodeExecutor for AtomcodeExecutor {
                 log_type: "error".to_string(),
                 content: trimmed.to_string(),
                 usage: None,
+                tool_name: None,
+                tool_input_json: None,
             });
         }
 
@@ -197,6 +210,24 @@ impl CodeExecutor for AtomcodeExecutor {
     fn get_model(&self) -> Option<String> {
         None
     }
+}
+
+/// Parse tool name and args JSON from atomcode stderr format: [tool→ name args={...}]
+fn parse_atomcode_tool_call(line: &str) -> (Option<String>, Option<String>) {
+    let trimmed = line.trim_start_matches("[tool→").trim_start_matches("[tool->").trim();
+    let (name_part, args_part) = if let Some(idx) = trimmed.find(" args=") {
+        (&trimmed[..idx], Some(trimmed[idx + 6..].trim()))
+    } else if let Some(idx) = trimmed.find(" args:") {
+        (&trimmed[..idx], Some(trimmed[idx + 6..].trim()))
+    } else {
+        (trimmed, None)
+    };
+    let name = name_part.split_whitespace().next().map(|s| s.to_string()).filter(|s| !s.is_empty());
+    let args_json = args_part.and_then(|a| {
+        let a = a.trim_matches(|c| c == '{' || c == '}');
+        if a.is_empty() { None } else { Some(format!("{{{}}}", a)) }
+    });
+    (name, args_json)
 }
 
 #[cfg(test)]
