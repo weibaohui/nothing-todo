@@ -1,12 +1,8 @@
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
-
-/// Maximum execution time: 30 minutes
-const MAX_EXECUTION_DURATION: Duration = Duration::from_secs(30 * 60);
 
 use crate::adapters::{ExecutorRegistry, parse_executor_type};
 use crate::db::Database;
@@ -320,65 +316,21 @@ pub async fn run_todo_execution(
                 task_manager_spawn.remove(&task_id).await;
                 return;
             }
-            result = tokio::time::timeout(MAX_EXECUTION_DURATION, child.wait()) => {
-                match result {
-                    Ok(status) => {
-                        // Process completed within timeout
-                        if let Some(handle) = stdout_task {
-                            let _ = handle.await;
-                        }
-                        if let Some(handle) = stderr_task {
-                            let _ = handle.await;
-                        }
-
-                        // Clean up the process group to ensure no grandchild processes are left behind
-                        kill_process_group(child_id);
-
-                        // Also kill any orphaned child processes spawned by the executor
-                        kill_processes_by_message(&message_clone);
-
-                        status
-                    }
-                    Err(_) => {
-                        // Timeout: process exceeded maximum execution time
-                        tracing::warn!("Execution timed out after {:?} for todo {}, killing process", MAX_EXECUTION_DURATION, todo_id);
-
-                        // Kill the process group
-                        kill_process_group(child_id);
-                        let _ = child.kill().await;
-                        let _status = child.wait().await;
-
-                        if let Some(handle) = stdout_task {
-                            let _ = handle.await;
-                        }
-                        if let Some(handle) = stderr_task {
-                            let _ = handle.await;
-                        }
-
-                        // Also kill any orphaned child processes spawned by the executor
-                        kill_processes_by_message(&message_clone);
-
-                        // Mark as failed due to timeout
-                        let _ = db_clone.update_todo_status(todo_id, crate::models::TodoStatus::Failed).await;
-                        let _ = db_clone.update_todo_task_id(todo_id, None).await;
-
-                        let logs_json = serde_json::to_string(&*logs.lock().await).unwrap_or_default();
-                        let _ = db_clone.update_execution_record(
-                            record_id,
-                            crate::models::ExecutionStatus::Failed.as_str(),
-                            &logs_json,
-                            &format!("执行超时，已超过最大执行时间 {:?}", MAX_EXECUTION_DURATION),
-                            None,
-                            None,
-                        ).await;
-
-                        let entry = ParsedLogEntry::error(format!("Execution timed out after {:?}", MAX_EXECUTION_DURATION));
-                        send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
-                        send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, success: false, result: Some(format!("执行超时，已超过最大执行时间 {:?}", MAX_EXECUTION_DURATION)) });
-                        task_manager_spawn.remove(&task_id).await;
-                        return;
-                    }
+            status = child.wait() => {
+                if let Some(handle) = stdout_task {
+                    let _ = handle.await;
                 }
+                if let Some(handle) = stderr_task {
+                    let _ = handle.await;
+                }
+
+                // Clean up the process group to ensure no grandchild processes are left behind
+                kill_process_group(child_id);
+
+                // Also kill any orphaned child processes spawned by the executor
+                kill_processes_by_message(&message_clone);
+
+                status
             }
         };
 
