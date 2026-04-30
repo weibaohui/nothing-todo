@@ -19,6 +19,7 @@
   --color-error: #ef4444;
   --color-error-bg: #fef2f2;
   --color-info: #3b82f6;
+  --color-info-bg: #eff6ff;
 
   /* Neutrals */
   --color-bg: #f8fafc;
@@ -632,6 +633,10 @@ body {
   font-weight: 500;
   color: var(--color-text-secondary);
   user-select: none;
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
 }
 
 .chat-thinking-header:hover {
@@ -673,6 +678,10 @@ body {
   font-weight: 500;
   color: var(--color-text-secondary);
   user-select: none;
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
 }
 
 .chat-tool-header:hover {
