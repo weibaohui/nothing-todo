@@ -89,16 +89,25 @@ export function TodoDetail() {
     ? records.find(r => r.id === selectedHistoryRecordId) || null
     : null;
 
-  // Check if current todo is running in the global panel
-  const currentRunningTask = Object.values(runningTasks).find(
-    t => t.todoId === selectedTodoId
+  // Check if current todo is executing (has any running task)
+  const isExecuting = Object.values(runningTasks).some(
+    t => t.todoId === selectedTodoId && t.status === 'running'
   );
-  const isExecuting = !!currentRunningTask && currentRunningTask.status === 'running';
+
+  // Find the running task that matches a specific execution record by task_id
+  const getRunningTaskForRecord = (record: ExecutionRecord) => {
+    if (record.task_id) {
+      return runningTasks[record.task_id] || null;
+    }
+    // Fallback: match by todoId for records without task_id
+    return Object.values(runningTasks).find(t => t.todoId === record.todo_id) || null;
+  };
 
   // Helper to resolve todo progress from record or running task
   const resolveTodoProgress = (record: ExecutionRecord, isRunning: boolean): TodoItem[] | null => {
-    if (isRunning && currentRunningTask?.todoProgress?.length) {
-      return currentRunningTask.todoProgress;
+    if (isRunning) {
+      const task = getRunningTaskForRecord(record);
+      if (task?.todoProgress?.length) return task.todoProgress;
     }
     if (record.todo_progress) {
       try {
@@ -113,8 +122,9 @@ export function TodoDetail() {
 
   // Helper to resolve execution stats from record or running task
   const resolveExecutionStats = (record: ExecutionRecord, isRunning: boolean) => {
-    if (isRunning && currentRunningTask?.executionStats) {
-      return currentRunningTask.executionStats;
+    if (isRunning) {
+      const task = getRunningTaskForRecord(record);
+      if (task?.executionStats) return task.executionStats;
     }
     return record.execution_stats;
   };
@@ -556,7 +566,8 @@ export function TodoDetail() {
               {selectedHistoryRecord ? (() => {
                 const record = selectedHistoryRecord;
                 const isRunning = record.status === 'running';
-                const liveLogs = isRunning && currentRunningTask ? currentRunningTask.logs : null;
+                const runningTask = isRunning ? getRunningTaskForRecord(record) : null;
+                const liveLogs = runningTask ? runningTask.logs : null;
                 const restLogs: Array<{ timestamp?: string; type?: string; content?: string }> = (() => {
                   try { return record.logs && record.logs !== '[]' ? JSON.parse(record.logs) : []; }
                   catch { return []; }
@@ -830,7 +841,8 @@ export function TodoDetail() {
 
                 {(() => {
                   const isRunning = record.status === 'running';
-                  const liveLogs = isRunning && currentRunningTask ? currentRunningTask.logs : null;
+                  const runningTask = isRunning ? getRunningTaskForRecord(record) : null;
+                const liveLogs = runningTask ? runningTask.logs : null;
                   const restLogs: Array<{ timestamp?: string; type?: string; content?: string }> = (() => {
                     try { return record.logs && record.logs !== '[]' ? JSON.parse(record.logs) : []; }
                     catch { return []; }
