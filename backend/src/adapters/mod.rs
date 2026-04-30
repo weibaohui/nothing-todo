@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use crate::models::{ExecutorType, ParsedLogEntry, ExecutionUsage};
+use crate::models::{ExecutorType, ParsedLogEntry, ExecutionUsage, TodoItem};
 
 /// Parse executor string (with aliases) into `ExecutorType`.
 /// Returns `None` for unrecognized names.
@@ -100,6 +100,16 @@ pub trait CodeExecutor: Send + Sync {
     /// 从日志列表中提取 usage 信息
     fn get_usage(&self, logs: &[ParsedLogEntry]) -> Option<ExecutionUsage>;
     fn get_model(&self) -> Option<String>;
+
+    /// 执行完成后从外部数据源提取 todo 进度（用于无法从 stdout 获取工具调用的执行器）
+    fn post_execution_todo_progress(&self) -> Option<Vec<TodoItem>> {
+        None
+    }
+
+    /// 获取工具调用次数（用于从输出摘要中提取的执行器，如 hermes）
+    fn get_tool_calls_count(&self) -> Option<u64> {
+        None
+    }
 }
 
 /// 代码执行器注册表

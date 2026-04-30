@@ -33,6 +33,12 @@ export interface LogEntry {
   content: string;
 }
 
+export interface TodoItem {
+  id?: string;
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
 export interface ExecutionRecord {
   id: number;
   todo_id: number;
@@ -49,6 +55,8 @@ export interface ExecutionRecord {
   model: string | null;
   trigger_type: string;
   pid: number | null;
+  todo_progress?: string | null;
+  execution_stats?: ExecutionStats | null;
 }
 
 export interface ExecutionUsage {
@@ -58,6 +66,12 @@ export interface ExecutionUsage {
   cache_creation_input_tokens: number | null;
   total_cost_usd: number | null;
   duration_ms: number | null;
+}
+
+export interface ExecutionStats {
+  tool_calls: number;
+  conversation_turns: number;
+  thinking_count: number;
 }
 
 export interface ExecutionSummary {
@@ -175,6 +189,8 @@ export interface RunningTask {
   result?: string | null;
   startedAt: string;
   finishedAt?: string;
+  todoProgress?: TodoItem[];
+  executionStats?: ExecutionStats;
 }
 
 export interface ExecutorOption {
