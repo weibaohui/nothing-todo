@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { RobotOutlined, UserOutlined, ToolOutlined, BulbOutlined, CheckCircleOutlined, InfoCircleOutlined, LoadingOutlined } from '@ant-design/icons';
 import XMarkdown from '@ant-design/x-markdown';
 import type { LogEntry } from '../types';
@@ -258,21 +258,7 @@ function ChatBubble({ message }: { message: ChatMessage }) {
 }
 
 export function ChatView({ logs, isRunning }: ChatViewProps) {
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const messages = parseLogsToMessages(logs);
-  const isInitialMount = useRef(true);
-
-  useEffect(() => {
-    // 跳过初始挂载时的自动滚动
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
-    // 只在有新消息时才滚动到底部
-    if (messages.length > 0) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages.length]);
 
   if (messages.length === 0) {
     return (
@@ -302,7 +288,6 @@ export function ChatView({ logs, isRunning }: ChatViewProps) {
             <div className="chat-typing-dot" />
           </div>
         )}
-        <div ref={messagesEndRef} />
       </div>
     </div>
   );
