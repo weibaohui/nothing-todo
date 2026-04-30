@@ -22,34 +22,12 @@ test.describe('Executor UI Tests', () => {
     }
 
     // Find the title input and fill it
-    const titleInput = page.locator('input').filter({ hasText: /标题|title/i }).first();
-    if (await titleInput.isVisible({ timeout: 2000 })) {
-      await titleInput.fill('Test task for UI');
-    }
+    await page.getByPlaceholder('输入 Todo 标题').fill('Test task for UI');
 
     // Find prompt textarea and fill with simple prompt
-    const promptTextarea = page.locator('textarea').first();
-    if (await promptTextarea.isVisible({ timeout: 2000 })) {
-      await promptTextarea.fill('Say hello in 3 words');
-    }
+    await page.getByPlaceholder('输入 Prompt（会作为任务执行的内容，留空则使用标题）').fill('Say hello in 3 words');
 
-    // Find and click executor dropdown to select different executors
-    const executorSelect = page.locator('.ant-select').filter({ hasText: /executor|执行器/i }).first();
-    if (await executorSelect.isVisible({ timeout: 2000 })) {
-      await executorSelect.click();
-      await page.waitForTimeout(300);
-
-      // Try to select each available executor
-      const options = page.locator('.ant-select-item');
-      const optionCount = await options.count();
-      console.log(`Found ${optionCount} executor options`);
-
-      for (let i = 0; i < Math.min(optionCount, 5); i++) {
-        await options.nth(i).click();
-        await page.waitForTimeout(200);
-        console.log(`Selected executor option ${i}`);
-      }
-    }
+    // 这里当前 UI 没有 executor 选择器；如果后续补了控件，再加稳定的 locator。
 
     // Submit the form if there's a submit button
     const submitButton = page.locator('button').filter({ hasText: /提交|确定|submit|create/i }).first();
@@ -64,13 +42,13 @@ test.describe('Executor UI Tests', () => {
 
   test('should list todos', async ({ page }) => {
     // Check if todo list exists
-    const todoList = page.locator('[class*="todo"], [class*="list"]').first();
+    const todoList = page.locator('.todo-list-container');
     if (await todoList.isVisible({ timeout: 3000 })) {
       console.log('Todo list is visible');
     }
 
     // Count todo items
-    const todoItems = page.locator('[class*="item"], tr, [class*="card"]');
+    const todoItems = todoList.locator('[role="listitem"], li, tr');
     const count = await todoItems.count();
     console.log(`Found ${count} todo items`);
   });
