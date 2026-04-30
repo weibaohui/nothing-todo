@@ -175,6 +175,10 @@ pub async fn run_todo_execution(
 
         let child_id = child.id().unwrap_or(0);
 
+        // Close stdin immediately so child processes get EOF when they try to read it.
+        // Without this, processes that read stdin after finishing work will hang forever.
+        drop(child.stdin.take());
+
         #[cfg(unix)]
         {
             // 在 spawn 后立即设置进程组
