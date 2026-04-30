@@ -4,11 +4,12 @@ use sea_orm::{
 
 use crate::db::Database;
 use crate::db::entity::execution_records;
-use crate::models::{ExecutionRecord, ExecutionSummary, ExecutionUsage};
+use crate::models::{ExecutionRecord, ExecutionStats, ExecutionSummary, ExecutionUsage};
 
 impl From<execution_records::Model> for ExecutionRecord {
     fn from(m: execution_records::Model) -> Self {
         let usage = m.usage.as_deref().and_then(|u| serde_json::from_str(u).ok());
+        let execution_stats = m.execution_stats.as_deref().and_then(|s| serde_json::from_str(s).ok());
         ExecutionRecord {
             id: m.id,
             todo_id: m.todo_id.unwrap_or(0),
@@ -26,6 +27,8 @@ impl From<execution_records::Model> for ExecutionRecord {
             trigger_type: m.trigger_type.unwrap_or_else(|| "manual".to_string()),
             pid: m.pid,
             task_id: m.task_id,
+            todo_progress: m.todo_progress,
+            execution_stats,
         }
     }
 }
@@ -131,6 +134,26 @@ impl Database {
         let am = execution_records::ActiveModel {
             id: ActiveValue::Unchanged(id),
             pid: ActiveValue::Set(pid),
+            ..Default::default()
+        };
+        self.exec_update(am).await
+    }
+
+    /// 更新执行记录的 todo_progress
+    pub async fn update_execution_record_todo_progress(&self, id: i64, todo_progress_json: &str) -> Result<(), sea_orm::DbErr> {
+        let am = execution_records::ActiveModel {
+            id: ActiveValue::Unchanged(id),
+            todo_progress: ActiveValue::Set(Some(todo_progress_json.to_string())),
+            ..Default::default()
+        };
+        self.exec_update(am).await
+    }
+
+    /// 更新执行记录的 execution_stats
+    pub async fn update_execution_record_stats(&self, id: i64, stats_json: &str) -> Result<(), sea_orm::DbErr> {
+        let am = execution_records::ActiveModel {
+            id: ActiveValue::Unchanged(id),
+            execution_stats: ActiveValue::Set(Some(stats_json.to_string())),
             ..Default::default()
         };
         self.exec_update(am).await

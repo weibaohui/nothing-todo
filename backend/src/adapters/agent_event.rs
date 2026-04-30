@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -54,6 +55,24 @@ pub struct AgentToolInput {
     pub command: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+impl AgentToolInput {
+    pub fn to_full_json(&self) -> String {
+        let mut map = serde_json::Map::new();
+        if let Some(ref cmd) = self.command {
+            map.insert("command".into(), serde_json::Value::String(cmd.clone()));
+        }
+        if let Some(ref desc) = self.description {
+            map.insert("description".into(), serde_json::Value::String(desc.clone()));
+        }
+        for (k, v) in &self.extra {
+            map.insert(k.clone(), v.clone());
+        }
+        serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

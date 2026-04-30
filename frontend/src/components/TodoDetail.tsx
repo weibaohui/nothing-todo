@@ -11,7 +11,8 @@ import { formatLocalDateTime } from '../utils/datetime';
 import { AnimatedNumber } from './AnimatedNumber';
 import { getExecutorOption } from '../types';
 import XMarkdown from '@ant-design/x-markdown';
-import type { ExecutionSummary, Todo } from '../types';
+import { TodoProgressControl } from './TodoProgressControl';
+import type { ExecutionSummary, Todo, TodoItem, ExecutionRecord } from '../types';
 
 function PromptDisplay({ content }: { content: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -93,6 +94,30 @@ export function TodoDetail() {
     t => t.todoId === selectedTodoId
   );
   const isExecuting = !!currentRunningTask && currentRunningTask.status === 'running';
+
+  // Helper to resolve todo progress from record or running task
+  const resolveTodoProgress = (record: ExecutionRecord, isRunning: boolean): TodoItem[] | null => {
+    if (isRunning && currentRunningTask?.todoProgress?.length) {
+      return currentRunningTask.todoProgress;
+    }
+    if (record.todo_progress) {
+      try {
+        const parsed = JSON.parse(record.todo_progress);
+        return Array.isArray(parsed) ? parsed : null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  // Helper to resolve execution stats from record or running task
+  const resolveExecutionStats = (record: ExecutionRecord, isRunning: boolean) => {
+    if (isRunning && currentRunningTask?.executionStats) {
+      return currentRunningTask.executionStats;
+    }
+    return record.execution_stats;
+  };
 
   const loadExecutionRecords = async (page = 1, limit = historyLimit) => {
     if (!selectedTodo) return;
@@ -494,6 +519,11 @@ export function TodoDetail() {
                             {(record.usage.duration_ms / 1000).toFixed(2)}s
                           </span>
                         )}
+                        {record.execution_stats && (
+                          <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>
+                            🔧{record.execution_stats.tool_calls} 💬{record.execution_stats.conversation_turns}
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
@@ -603,6 +633,24 @@ export function TodoDetail() {
                         )}
                       </div>
                     )}
+                    {(() => {
+                      const stats = resolveExecutionStats(record, isRunning);
+                      if (!stats) return null;
+                      return (
+                        <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 12, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                          <span>工具调用: <b style={{ color: 'var(--color-primary)' }}>{stats.tool_calls}</b></span>
+                          <span>对话轮次: <b style={{ color: 'var(--color-primary)' }}>{stats.conversation_turns}</b></span>
+                          {stats.thinking_count > 0 && (
+                            <span>思考次数: <b style={{ color: 'var(--color-primary)' }}>{stats.thinking_count}</b></span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    {(() => {
+                      const progress = resolveTodoProgress(record, isRunning);
+                      if (!progress || progress.length === 0) return null;
+                      return <TodoProgressControl todoProgress={progress} />;
+                    })()}
                     {(() => {
                       if (!isRunning && displayLogs.length === 0) return null;
                       return (
@@ -759,6 +807,26 @@ export function TodoDetail() {
                     )}
                   </div>
                 )}
+                {(() => {
+                  const isRunning = record.status === 'running';
+                  const stats = resolveExecutionStats(record, isRunning);
+                  if (!stats) return null;
+                  return (
+                    <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                      <span>工具调用: <b style={{ color: 'var(--color-primary)' }}>{stats.tool_calls}</b></span>
+                      <span>对话轮次: <b style={{ color: 'var(--color-primary)' }}>{stats.conversation_turns}</b></span>
+                      {stats.thinking_count > 0 && (
+                        <span>思考次数: <b style={{ color: 'var(--color-primary)' }}>{stats.thinking_count}</b></span>
+                      )}
+                    </div>
+                  );
+                })()}
+                {(() => {
+                  const isRunning = record.status === 'running';
+                  const progress = resolveTodoProgress(record, isRunning);
+                  if (!progress || progress.length === 0) return null;
+                  return <TodoProgressControl todoProgress={progress} />;
+                })()}
 
                 {(() => {
                   const isRunning = record.status === 'running';
