@@ -318,6 +318,31 @@ pub async fn run_todo_execution(
         let all_logs_snapshot = logs_for_result.lock().await.clone();
         let result_str = executor_spawn.get_final_result(&all_logs_snapshot).unwrap_or_default();
 
+        // Extract execution stats from logs
+        // tool_calls: tool_use (claudecode), tool_call (kimi), tool (atomcode, opencode)
+        // For hermes, use get_tool_calls_count() which parses from output summary
+        let tool_calls = executor_spawn.get_tool_calls_count().unwrap_or_else(|| {
+            all_logs_snapshot.iter()
+                .filter(|l| l.log_type == "tool_use" || l.log_type == "tool_call" || l.log_type == "tool")
+                .count() as u64
+        });
+        // conversation_turns: assistant/result (claudecode), text (kimi, atomcode, hermes)
+        let conversation_turns = all_logs_snapshot.iter()
+            .filter(|l| l.log_type == "assistant" || l.log_type == "result" || l.log_type == "text")
+            .count() as u64;
+        // thinking_count: thinking (claudecode)
+        let thinking_count = all_logs_snapshot.iter()
+            .filter(|l| l.log_type == "thinking")
+            .count() as u64;
+        let execution_stats = crate::models::ExecutionStats {
+            tool_calls,
+            conversation_turns,
+            thinking_count,
+        };
+        if let Ok(stats_json) = serde_json::to_string(&execution_stats) {
+            let _ = db_clone.update_execution_record_stats(record_id, &stats_json).await;
+        }
+
         let final_status = if success { crate::models::ExecutionStatus::Success.as_str() } else { crate::models::ExecutionStatus::Failed.as_str() };
         let logs_json = serde_json::to_string(&all_logs_snapshot).unwrap_or_default();
         let usage = executor_spawn.get_usage(&all_logs_snapshot);

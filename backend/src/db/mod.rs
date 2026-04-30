@@ -153,6 +153,12 @@ impl Database {
         )
         .await.ok(); // 忽略错误，因为字段可能已存在
 
+        // 添加 execution_stats 字段的迁移（向后兼容）
+        self.exec(
+            "ALTER TABLE execution_records ADD COLUMN execution_stats TEXT"
+        )
+        .await.ok(); // 忽略错误，因为字段可能已存在
+
         // Trigger: fill created_at with UTC time on INSERT if not set
         self.exec(
             "CREATE TRIGGER IF NOT EXISTS set_todos_created_at_utc AFTER INSERT ON todos
