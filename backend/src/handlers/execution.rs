@@ -44,19 +44,35 @@ pub async fn execute_handler(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<ExecuteRequest>,
 ) -> Result<ApiResponse<serde_json::Value>, AppError> {
-    let task_id = run_todo_execution(
+    // Get the todo to use its prompt as fallback when message is not provided
+    let todo = state.db.get_todo(req.todo_id).await
+        .ok_or_else(|| AppError::BadRequest(format!("Todo {} not found", req.todo_id)))?;
+
+    // Fall back to todo.prompt if message is None or whitespace-only
+    let message = req.message
+        .as_ref()
+        .map(|m| m.trim())
+        .filter(|m| !m.is_empty())
+        .map(|m| m.to_string())
+        .unwrap_or_else(|| todo.prompt.clone());
+
+    let result = run_todo_execution(
         state.db.clone(),
         state.executor_registry.clone(),
         state.tx.clone(),
         req.todo_id,
-        req.message,
+        message,
         req.executor,
         "manual",
         state.task_manager.clone(),
     )
     .await;
 
-    Ok(ApiResponse::ok(serde_json::json!({ "task_id": task_id })))
+    // If record_id is None, execution failed to start
+    let record_id = result.record_id
+        .ok_or_else(|| AppError::Internal("Failed to start execution".to_string()))?;
+
+    Ok(ApiResponse::ok(serde_json::json!({ "task_id": result.task_id, "record_id": record_id })))
 }
 
 #[derive(Debug, Deserialize)]
