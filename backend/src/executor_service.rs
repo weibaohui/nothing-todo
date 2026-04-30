@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::adapters::{ExecutorRegistry, parse_executor_type};
 use crate::db::Database;
 use crate::handlers::ExecEvent;
-use crate::models::{ParsedLogEntry, ExecutorType};
+use crate::models::ParsedLogEntry;
 use crate::task_manager::TaskManager;
 
 fn send_event(tx: &broadcast::Sender<ExecEvent>, event: ExecEvent) {
@@ -139,6 +139,8 @@ pub async fn run_todo_execution(
     }).await;
 
     tokio::spawn(async move {
+        let execution_start = std::time::Instant::now();
+
         send_event(&tx_clone, ExecEvent::Started { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string() });
 
         let entry = ParsedLogEntry::info(format!("Starting {}", executor_spawn.executor_type()));
@@ -168,6 +170,10 @@ pub async fn run_todo_execution(
         };
 
         let child_id = child.id().unwrap_or(0);
+
+        // Close stdin immediately so child processes get EOF when they try to read it.
+        // Without this, processes that read stdin after finishing work will hang forever.
+        drop(child.stdin.take());
 
         #[cfg(unix)]
         {
@@ -311,18 +317,17 @@ pub async fn run_todo_execution(
                 return;
             }
             status = child.wait() => {
+                // Kill process group first to close any pipes held by grandchild processes,
+                // otherwise reader tasks may hang forever on BufReader::lines()
+                kill_process_group(child_id);
+                kill_processes_by_message(&message_clone);
+
                 if let Some(handle) = stdout_task {
                     let _ = handle.await;
                 }
                 if let Some(handle) = stderr_task {
                     let _ = handle.await;
                 }
-
-                // Clean up the process group to ensure no grandchild processes are left behind
-                kill_process_group(child_id);
-
-                // Also kill any orphaned child processes spawned by the executor
-                kill_processes_by_message(&message_clone);
 
                 status
             }
@@ -372,8 +377,29 @@ pub async fn run_todo_execution(
 
         let final_status = if success { crate::models::ExecutionStatus::Success.as_str() } else { crate::models::ExecutionStatus::Failed.as_str() };
         let logs_json = serde_json::to_string(&all_logs_snapshot).unwrap_or_default();
-        let usage = executor_spawn.get_usage(&all_logs_snapshot);
+        let mut usage = executor_spawn.get_usage(&all_logs_snapshot);
         let model = executor_spawn.get_model();
+
+        // Always use wall-clock duration (start to end of execution)
+        // This ensures duration is always available, regardless of executor support
+        let wall_clock_duration_ms = execution_start.elapsed().as_millis() as u64;
+        match usage.as_mut() {
+            Some(u) => {
+                // Override executor-reported duration with actual wall-clock time
+                u.duration_ms = Some(wall_clock_duration_ms);
+            }
+            None => {
+                usage = Some(crate::models::ExecutionUsage {
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cache_read_input_tokens: None,
+                    cache_creation_input_tokens: None,
+                    total_cost_usd: None,
+                    duration_ms: Some(wall_clock_duration_ms),
+                });
+            }
+        }
+
         let _ = db_clone.update_execution_record(record_id, final_status, &logs_json, &result_str, usage.as_ref(), model.as_deref()).await;
 
         let _ = db_clone.finish_todo_execution(todo_id, success).await;
