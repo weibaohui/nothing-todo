@@ -49,8 +49,8 @@ function parseLogsToMessages(logs: LogEntry[]): ChatMessage[] {
       case 'tool':
       case 'tool_use':
       case 'tool_call':
-        if (isCollectingTool && currentToolName) {
-          messages.push({ role: 'tool', content: '', timestamp: log.timestamp, toolName: currentToolName, toolInput: currentToolInput, isCollapsed: true });
+        if (isCollectingTool && (currentToolName || currentToolInput)) {
+          messages.push({ role: 'tool', content: '', timestamp: log.timestamp, toolName: currentToolName || '工具调用', toolInput: currentToolInput, isCollapsed: true });
           currentToolName = '';
           currentToolInput = '';
           isCollectingTool = false;
@@ -61,23 +61,23 @@ function parseLogsToMessages(logs: LogEntry[]): ChatMessage[] {
         }
         try {
           const toolData = JSON.parse(log.content);
-          currentToolName = toolData.name || toolData.tool || '';
+          currentToolName = toolData.name || toolData.tool || '工具调用';
           currentToolInput = toolData.input ? JSON.stringify(toolData.input, null, 2) : log.content;
           isCollectingTool = true;
         } catch {
-          currentToolName = log.content;
-          currentToolInput = '';
+          currentToolName = '工具调用';
+          currentToolInput = log.content;
           isCollectingTool = true;
         }
         break;
       case 'tool_result':
-        if (isCollectingTool && currentToolName) {
-          messages.push({ role: 'tool', content: '', timestamp: log.timestamp, toolName: currentToolName, toolInput: currentToolInput, toolResult: log.content, isCollapsed: true });
+        if (isCollectingTool && (currentToolName || currentToolInput)) {
+          messages.push({ role: 'tool', content: '', timestamp: log.timestamp, toolName: currentToolName || '工具调用', toolInput: currentToolInput, toolResult: log.content, isCollapsed: true });
           currentToolName = '';
           currentToolInput = '';
           isCollectingTool = false;
         } else {
-          messages.push({ role: 'tool', content: log.content, timestamp: log.timestamp, isCollapsed: true });
+          messages.push({ role: 'tool', content: '', timestamp: log.timestamp, toolName: '工具调用', toolResult: log.content, isCollapsed: true });
         }
         break;
       case 'result':
@@ -85,8 +85,8 @@ function parseLogsToMessages(logs: LogEntry[]): ChatMessage[] {
           messages.push({ role: 'thinking', content: currentThinking, timestamp: log.timestamp, isCollapsed: true });
           currentThinking = '';
         }
-        if (isCollectingTool && currentToolName) {
-          messages.push({ role: 'tool', content: '', timestamp: log.timestamp, toolName: currentToolName, toolInput: currentToolInput, isCollapsed: true });
+        if (isCollectingTool && (currentToolName || currentToolInput)) {
+          messages.push({ role: 'tool', content: '', timestamp: log.timestamp, toolName: currentToolName || '工具调用', toolInput: currentToolInput, isCollapsed: true });
           currentToolName = '';
           currentToolInput = '';
           isCollectingTool = false;
@@ -111,8 +111,8 @@ function parseLogsToMessages(logs: LogEntry[]): ChatMessage[] {
   if (currentThinking) {
     messages.push({ role: 'thinking', content: currentThinking });
   }
-  if (isCollectingTool && currentToolName) {
-    messages.push({ role: 'tool', content: '', toolName: currentToolName, toolInput: currentToolInput });
+  if (isCollectingTool && (currentToolName || currentToolInput)) {
+    messages.push({ role: 'tool', content: '', toolName: currentToolName || '工具调用', toolInput: currentToolInput });
   }
 
   return messages;
@@ -122,6 +122,7 @@ function formatTime(iso?: string): string {
   if (!iso) return '';
   try {
     const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
     return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
   } catch {
     return '';
