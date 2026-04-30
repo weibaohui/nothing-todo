@@ -105,6 +105,11 @@ pub trait CodeExecutor: Send + Sync {
     fn post_execution_todo_progress(&self) -> Option<Vec<TodoItem>> {
         None
     }
+
+    /// 获取工具调用次数（用于从输出摘要中提取的执行器，如 hermes）
+    fn get_tool_calls_count(&self) -> Option<u64> {
+        None
+    }
 }
 
 /// 代码执行器注册表

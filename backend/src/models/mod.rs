@@ -126,6 +126,8 @@ pub struct ExecutionRecord {
     pub task_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub todo_progress: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_stats: Option<ExecutionStats>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,6 +138,13 @@ pub struct ExecutionUsage {
     pub cache_creation_input_tokens: Option<u64>,
     pub total_cost_usd: Option<f64>,
     pub duration_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionStats {
+    pub tool_calls: u64,
+    pub conversation_turns: u64,
+    pub thinking_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

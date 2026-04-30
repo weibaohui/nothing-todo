@@ -9,6 +9,7 @@ pub struct HermesExecutor {
     usage: Arc<Mutex<Option<ExecutionUsage>>>,
     has_done: Arc<Mutex<bool>>,
     session_id: Arc<Mutex<Option<String>>>,
+    tool_calls_count: Arc<Mutex<u64>>,
 }
 
 impl HermesExecutor {
@@ -18,6 +19,7 @@ impl HermesExecutor {
             usage: Arc::new(Mutex::new(None)),
             has_done: Arc::new(Mutex::new(false)),
             session_id: Arc::new(Mutex::new(None)),
+            tool_calls_count: Arc::new(Mutex::new(0)),
         }
     }
 }
@@ -29,6 +31,7 @@ impl Clone for HermesExecutor {
             usage: self.usage.clone(),
             has_done: self.has_done.clone(),
             session_id: self.session_id.clone(),
+            tool_calls_count: self.tool_calls_count.clone(),
         }
     }
 }
@@ -45,10 +48,9 @@ impl CodeExecutor for HermesExecutor {
     fn command_args(&self, message: &str) -> Vec<String> {
         vec![
             "chat".to_string(),
-            "-Q".to_string(),
-            "--yolo".to_string(),
             "-q".to_string(),
             message.to_string(),
+            "--yolo".to_string(),
         ]
     }
 
@@ -103,6 +105,21 @@ impl CodeExecutor for HermesExecutor {
             return None;
         }
 
+        // Parse "Messages: X (Y user, Z tool calls)" to extract tool calls count
+        if trimmed.starts_with("Messages:") {
+            // Example: "Messages: 4 (1 user, 2 tool calls)"
+            if let Some(calls_part) = trimmed.split("tool calls").next() {
+                // calls_part = "Messages: 4 (1 user, 2 "
+                if let Some(num_part) = calls_part.rsplit(',').next() {
+                    // num_part = " 2 "
+                    let num_str = num_part.trim();
+                    if let Ok(count) = num_str.parse::<u64>() {
+                        *self.tool_calls_count.lock() = count;
+                    }
+                }
+            }
+        }
+
         Some(ParsedLogEntry {
             timestamp: utc_timestamp(),
             log_type: "text".to_string(),
@@ -146,6 +163,15 @@ impl CodeExecutor for HermesExecutor {
 
     fn get_model(&self) -> Option<String> {
         None
+    }
+
+    fn get_tool_calls_count(&self) -> Option<u64> {
+        let count = *self.tool_calls_count.lock();
+        if count > 0 {
+            Some(count)
+        } else {
+            None
+        }
     }
 
     fn post_execution_todo_progress(&self) -> Option<Vec<TodoItem>> {
@@ -256,7 +282,7 @@ mod tests {
     fn test_command_args() {
         let executor = HermesExecutor::new("hermes".to_string());
         let args = executor.command_args("do something");
-        assert_eq!(args, vec!["chat", "-Q", "--yolo", "-q", "do something"]);
+        assert_eq!(args, vec!["chat", "-q", "do something", "--yolo"]);
     }
 
     #[test]

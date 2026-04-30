@@ -22,6 +22,7 @@ pub struct Model {
     pub pid: Option<i32>,
     pub task_id: Option<String>,
     pub todo_progress: Option<String>,
+    pub execution_stats: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
