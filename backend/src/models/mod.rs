@@ -255,7 +255,7 @@ pub struct CreateTagRequest {
 #[derive(Deserialize, Serialize)]
 pub struct ExecuteRequest {
     pub todo_id: i64,
-    pub message: String,
+    pub message: Option<String>,
     pub executor: Option<String>,
 }
 

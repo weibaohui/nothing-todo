@@ -110,7 +110,8 @@ async fn test_manual_stop_cleans_up_processes() {
 
     let exec_body: serde_json::Value = exec_resp.json().await.unwrap();
     assert_eq!(exec_body["code"], 0, "execute should succeed");
-    let task_id = exec_body["data"]["task_id"].as_str().unwrap();
+    let _task_id = exec_body["data"]["task_id"].as_str().unwrap();
+    let record_id = exec_body["data"]["record_id"].as_i64().unwrap();
 
     tokio::time::sleep(Duration::from_secs(2)).await;
     let during = count_opencode_processes(unique_msg);
@@ -123,7 +124,7 @@ async fn test_manual_stop_cleans_up_processes() {
 
     let stop_resp = client
         .post(format!("{}/xyz/execute/stop", server.base_url))
-        .json(&serde_json::json!({ "task_id": task_id }))
+        .json(&serde_json::json!({ "record_id": record_id }))
         .send()
         .await
         .unwrap();

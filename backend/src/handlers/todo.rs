@@ -87,7 +87,11 @@ pub async fn update_todo(
     let current = state.require_todo(id).await?;
 
     let title = req.title.unwrap_or(current.title);
-    let prompt = req.prompt.unwrap_or(current.prompt);
+    // Apply same fallback logic as create_todo: if prompt is empty, use title
+    let prompt = req.prompt.as_ref()
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .unwrap_or_else(|| title.clone());
     let status = req.status.unwrap_or(current.status);
     let executor = req.executor.or(current.executor);
     let workspace = req.workspace.or(current.workspace);
