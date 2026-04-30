@@ -317,18 +317,17 @@ pub async fn run_todo_execution(
                 return;
             }
             status = child.wait() => {
+                // Kill process group first to close any pipes held by grandchild processes,
+                // otherwise reader tasks may hang forever on BufReader::lines()
+                kill_process_group(child_id);
+                kill_processes_by_message(&message_clone);
+
                 if let Some(handle) = stdout_task {
                     let _ = handle.await;
                 }
                 if let Some(handle) = stderr_task {
                     let _ = handle.await;
                 }
-
-                // Clean up the process group to ensure no grandchild processes are left behind
-                kill_process_group(child_id);
-
-                // Also kill any orphaned child processes spawned by the executor
-                kill_processes_by_message(&message_clone);
 
                 status
             }
