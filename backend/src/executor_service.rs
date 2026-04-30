@@ -15,9 +15,9 @@ fn send_event(tx: &broadcast::Sender<ExecEvent>, event: ExecEvent) {
     let _ = tx.send(event);
 }
 
-/// 递归获取指定 PID 的所有后代进程
+/// 递归获取指定 PID 的所有后代进程（异步版本，避免阻塞 tokio 运行时）
 #[cfg(unix)]
-fn get_descendant_pids(parent_pid: u32) -> Vec<u32> {
+async fn get_descendant_pids_async(parent_pid: u32) -> Vec<u32> {
     let mut result = Vec::new();
     let mut to_process = vec![parent_pid];
     let mut visited = HashSet::new();
@@ -37,18 +37,24 @@ fn get_descendant_pids(parent_pid: u32) -> Vec<u32> {
 
         result.push(current_pid);
 
-        // 查找该进程的所有子进程
-        if let Ok(output) = std::process::Command::new("pgrep")
+        // 使用 tokio::process::Command 避免阻塞异步运行时
+        match tokio::process::Command::new("pgrep")
             .args(["-P", &current_pid.to_string()])
             .output()
+            .await
         {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
-                if let Ok(child_pid) = line.trim().parse::<u32>() {
-                    if child_pid > 1 && !visited.contains(&child_pid) {
-                        to_process.push(child_pid);
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    if let Ok(child_pid) = line.trim().parse::<u32>() {
+                        if child_pid > 1 && !visited.contains(&child_pid) {
+                            to_process.push(child_pid);
+                        }
                     }
                 }
+            }
+            Err(e) => {
+                tracing::warn!("pgrep -P {} 执行失败: {}", current_pid, e);
             }
         }
     }
@@ -56,48 +62,55 @@ fn get_descendant_pids(parent_pid: u32) -> Vec<u32> {
     result
 }
 
-/// 安全地杀死进程及其所有后代进程，通过递归查找子进程来避免误杀
+/// 安全地杀死进程及其所有后代进程，通过递归查找子进程来避免误杀（异步版本）
 #[cfg(unix)]
-pub fn kill_process_tree_safe(root_pid: u32) {
+pub async fn kill_process_tree_safe_async(root_pid: u32) {
     if root_pid <= 1 {
-        tracing::warn!("Refusing to kill PID {}, which is a system critical process", root_pid);
+        tracing::warn!("拒绝杀死 PID {}，这是系统关键进程", root_pid);
         return;
     }
 
-    let pids_to_kill = get_descendant_pids(root_pid);
+    let pids_to_kill = get_descendant_pids_async(root_pid).await;
 
     if pids_to_kill.is_empty() {
-        tracing::warn!("PID {} and its descendants do not exist, skipping cleanup", root_pid);
+        tracing::warn!("PID {} 及其后代进程不存在，跳过清理", root_pid);
         return;
     }
 
-    tracing::info!("Preparing to kill process tree: root={}, total {} processes", root_pid, pids_to_kill.len());
+    tracing::info!("准备杀死进程树: root={}, 总共 {} 个进程", root_pid, pids_to_kill.len());
 
     // 先发送 SIGTERM，给进程优雅退出的机会
     for &pid in &pids_to_kill {
         unsafe {
-            let _ = libc::kill(pid as i32, libc::SIGTERM);
+            let result = libc::kill(pid as i32, libc::SIGTERM);
+            if result != 0 {
+                tracing::debug!("发送 SIGTERM 到 PID {} 失败", pid);
+            }
         }
     }
 
-    // 等待 500ms
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    // 使用 tokio::time::sleep 避免阻塞线程
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // 再发送 SIGKILL 强制杀死残留进程
     for &pid in &pids_to_kill {
         unsafe {
-            let _ = libc::kill(pid as i32, libc::SIGKILL);
+            let result = libc::kill(pid as i32, libc::SIGKILL);
+            if result != 0 {
+                tracing::debug!("发送 SIGKILL 到 PID {} 失败", pid);
+            }
         }
     }
 }
 
 #[cfg(not(unix))]
-pub fn kill_process_tree_safe(root_pid: u32) {
+pub async fn kill_process_tree_safe_async(root_pid: u32) {
     if root_pid <= 1 { return; }
     // /T kills the process tree, /F forces termination
-    let _ = std::process::Command::new("taskkill")
+    let _ = tokio::process::Command::new("taskkill")
         .args(["/T", "/F", "/PID", &root_pid.to_string()])
-        .output();
+        .output()
+        .await;
 }
 
 /// Run a todo execution. Priority: explicit executor > todo stored executor > default.
@@ -329,7 +342,7 @@ pub async fn run_todo_execution(
             biased;
             Some(()) = cancel_rx.recv() => {
                 // Cancelled: safely kill the process tree to ensure all descendant processes are terminated
-                kill_process_tree_safe(child_id);
+                kill_process_tree_safe_async(child_id).await;
 
                 let _ = child.kill().await;
                 let _status = child.wait().await;
@@ -363,7 +376,7 @@ pub async fn run_todo_execution(
             }
             status = child.wait() => {
                 // Safely kill the process tree to close any pipes held by grandchild processes
-                kill_process_tree_safe(child_id);
+                kill_process_tree_safe_async(child_id).await;
 
                 if let Some(handle) = stdout_task {
                     let _ = handle.await;
