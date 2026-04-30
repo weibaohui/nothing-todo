@@ -26,7 +26,7 @@ async fn kill_process_tree(child: &mut command_group::AsyncGroupChild) {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ExecutionResult {
     pub task_id: String,
-    pub record_id: i64,
+    pub record_id: Option<i64>,
 }
 
 /// Run a todo execution. Priority: explicit executor > todo stored executor > default.
@@ -75,7 +75,7 @@ pub async fn run_todo_execution(
             let _ = db.finish_todo_execution(todo_id, false).await;
             send_event(&tx, ExecEvent::Finished { task_id: task_id.clone(), todo_id, success: false, result: Some("No executor available".to_string()) });
             task_manager.remove(&task_id).await;
-            return ExecutionResult { task_id, record_id: 0 };
+            return ExecutionResult { task_id, record_id: None };
         }
     };
 
@@ -96,7 +96,7 @@ pub async fn run_todo_execution(
             tracing::error!("Failed to create execution record: {}", e);
             let _ = db.finish_todo_execution(todo_id, false).await;
             task_manager.remove(&task_id).await;
-            return ExecutionResult { task_id, record_id: 0 };
+            return ExecutionResult { task_id, record_id: None };
         }
     };
 
@@ -386,5 +386,5 @@ pub async fn run_todo_execution(
         task_manager_spawn.remove(&task_id).await;
     });
 
-    ExecutionResult { task_id: task_id_return, record_id }
+    ExecutionResult { task_id: task_id_return, record_id: Some(record_id) }
 }
