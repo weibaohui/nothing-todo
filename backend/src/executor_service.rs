@@ -341,7 +341,7 @@ pub async fn run_todo_execution(
         let status = tokio::select! {
             biased;
             Some(()) = cancel_rx.recv() => {
-                // Cancelled: safely kill the process tree to ensure all descendant processes are terminated
+                // Cancelled: 先安全杀死进程树（在 child.wait() 之前），避免 PID 被回收后误杀
                 kill_process_tree_safe_async(child_id).await;
 
                 let _ = child.kill().await;
@@ -375,7 +375,8 @@ pub async fn run_todo_execution(
                 return;
             }
             status = child.wait() => {
-                // Safely kill the process tree to close any pipes held by grandchild processes
+                // 子进程已自然退出，此时 child_id 可能已不存在
+                // get_descendant_pids_async 会检查进程是否存在，避免误杀回收的 PID
                 kill_process_tree_safe_async(child_id).await;
 
                 if let Some(handle) = stdout_task {
