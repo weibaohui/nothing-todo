@@ -143,7 +143,7 @@ pub async fn force_update_todo_status(
     ApiJson(req): ApiJson<UpdateTodoRequest>,
 ) -> Result<ApiResponse<Todo>, AppError> {
     if let Some(status) = req.status {
-        state.db.force_update_todo_status(id, status).await;
+        let _ = state.db.force_update_todo_status(id, status).await;
     }
     let todo = state.require_todo(id).await?;
     Ok(ApiResponse::ok(todo))
