@@ -342,8 +342,15 @@ body {
   padding: var(--space-xl);
 }
 
-.title-card {
-  padding: var(--space-lg) var(--space-xl);
+.header-card {
+  padding: 12px 20px;
+}
+
+.btn-execute-compact {
+  height: 36px;
+  font-size: 14px;
+  margin-top: 10px;
+  border-radius: var(--radius-sm);
 }
 
 .card-title {
