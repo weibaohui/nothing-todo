@@ -76,8 +76,8 @@ impl CodeExecutor for ClaudeCodeExecutor {
                         log_type: "system".to_string(),
                         content: format!("Session init: {:?}", session_id.or(subtype)),
                         usage: None,
-                tool_name: None,
-                tool_input_json: None,
+            tool_name: None,
+            tool_input_json: None,
                     })
                 }
                 ClaudeMessage::Assistant { message, .. } => {
@@ -105,8 +105,8 @@ impl CodeExecutor for ClaudeCodeExecutor {
                                     log_type: "thinking".to_string(),
                                     content: t.chars().take(500).collect::<String>(),
                                     usage: None,
-                tool_name: None,
-                tool_input_json: None,
+            tool_name: None,
+            tool_input_json: None,
                                 });
                             }
                         }
@@ -121,8 +121,8 @@ impl CodeExecutor for ClaudeCodeExecutor {
                                 log_type: "tool_result".to_string(),
                                 content: format!("{}{}", err_str, content.as_ref().unwrap_or(&String::new()).chars().take(300).collect::<String>()),
                                 usage: None,
-                tool_name: None,
-                tool_input_json: None,
+            tool_name: None,
+            tool_input_json: None,
                             });
                         }
                     }
@@ -142,8 +142,8 @@ impl CodeExecutor for ClaudeCodeExecutor {
                             log_type: "assistant".to_string(),
                             content: text_parts.join("\n"),
                             usage: None,
-                tool_name: None,
-                tool_input_json: None,
+            tool_name: None,
+            tool_input_json: None,
                         });
                     }
 
@@ -155,8 +155,8 @@ impl CodeExecutor for ClaudeCodeExecutor {
                                 log_type: "assistant".to_string(),
                                 content: format!("[redacted] {}", redacted.as_ref().unwrap_or(&String::new())),
                                 usage: None,
-                tool_name: None,
-                tool_input_json: None,
+            tool_name: None,
+            tool_input_json: None,
                             });
                         }
                     }
@@ -173,8 +173,8 @@ impl CodeExecutor for ClaudeCodeExecutor {
                                 log_type: "tool_result".to_string(),
                                 content: format!("{}{}", err_str, content.as_ref().unwrap_or(&String::new()).chars().take(300).collect::<String>()),
                                 usage: None,
-                tool_name: None,
-                tool_input_json: None,
+            tool_name: None,
+            tool_input_json: None,
                             });
                         }
                     }
@@ -199,8 +199,8 @@ impl CodeExecutor for ClaudeCodeExecutor {
                         log_type: if is_error { "error".to_string() } else { "result".to_string() },
                         content: format!("{}{}", err_str, result_str),
                         usage,
-                        tool_name: None,
-                        tool_input_json: None,
+                    tool_name: None,
+                    tool_input_json: None,
                     })
                 }
             };
@@ -212,8 +212,8 @@ impl CodeExecutor for ClaudeCodeExecutor {
             log_type: "text".to_string(),
             content: line.to_string(),
             usage: None,
-                tool_name: None,
-                tool_input_json: None,
+            tool_name: None,
+            tool_input_json: None,
         })
     }
 
@@ -324,8 +324,8 @@ mod tests {
                     total_cost_usd: Some(0.001),
                     duration_ms: Some(100),
                 }),
-                tool_name: None,
-                tool_input_json: None,
+            tool_name: None,
+            tool_input_json: None,
             },
         ];
         let usage = executor.get_usage(&logs).unwrap();

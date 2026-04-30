@@ -76,8 +76,8 @@ impl CodeExecutor for HermesExecutor {
                 log_type: "info".to_string(),
                 content: trimmed.to_string(),
                 usage: None,
-                tool_name: None,
-                tool_input_json: None,
+            tool_name: None,
+            tool_input_json: None,
             });
         }
         if trimmed.starts_with("session_id:") {
@@ -90,8 +90,8 @@ impl CodeExecutor for HermesExecutor {
                 log_type: "info".to_string(),
                 content: trimmed.to_string(),
                 usage: None,
-                tool_name: None,
-                tool_input_json: None,
+            tool_name: None,
+            tool_input_json: None,
             });
         }
 
@@ -208,7 +208,7 @@ impl CodeExecutor for HermesExecutor {
                     let status = match raw_status.to_lowercase().as_str() {
                         "done" | "completed" | "complete" | "finished" => "completed".to_string(),
                         "in_progress" | "inprogress" | "in-progress" | "doing" | "active" => "in_progress".to_string(),
-                        "cancelled" | "canceled" => "cancelled".to_string(),
+                        "cancelled" | "canceled" | "abort" | "aborted" => "cancelled".to_string(),
                         "failed" | "fail" | "error" => "failed".to_string(),
                         "running" => "running".to_string(),
                         _ => "pending".to_string(),

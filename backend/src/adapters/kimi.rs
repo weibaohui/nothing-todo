@@ -121,8 +121,8 @@ impl CodeExecutor for KimiExecutor {
                         log_type: "text".to_string(),
                         content: text,
                         usage: None,
-                tool_name: None,
-                tool_input_json: None,
+            tool_name: None,
+            tool_input_json: None,
                     });
                 }
                 // Fall back to thinking
@@ -132,8 +132,8 @@ impl CodeExecutor for KimiExecutor {
                         log_type: "thinking".to_string(),
                         content: think,
                         usage: None,
-                tool_name: None,
-                tool_input_json: None,
+            tool_name: None,
+            tool_input_json: None,
                     });
                 }
             }
@@ -151,8 +151,8 @@ impl CodeExecutor for KimiExecutor {
                                 log_type: "tool_result".to_string(),
                                 content: text.to_string(),
                                 usage: None,
-                tool_name: None,
-                tool_input_json: None,
+            tool_name: None,
+            tool_input_json: None,
                             });
                         }
                     }
@@ -183,8 +183,8 @@ impl CodeExecutor for KimiExecutor {
             log_type,
             content: trimmed.to_string(),
             usage: None,
-                tool_name: None,
-                tool_input_json: None,
+            tool_name: None,
+            tool_input_json: None,
         })
     }
 

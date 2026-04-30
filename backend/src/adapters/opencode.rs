@@ -83,8 +83,8 @@ impl CodeExecutor for OpencodeExecutor {
                     log_type: "step_start".to_string(),
                     content: "Step started".to_string(),
                     usage: None,
-                tool_name: None,
-                tool_input_json: None,
+            tool_name: None,
+            tool_input_json: None,
                 })
             }
             "tool_use" | "tool-use" => {
@@ -126,8 +126,8 @@ impl CodeExecutor for OpencodeExecutor {
                     log_type: "text".to_string(),
                     content: text,
                     usage: None,
-                tool_name: None,
-                tool_input_json: None,
+            tool_name: None,
+            tool_input_json: None,
                 })
             }
             "step_finish" | "step-finish" => {
@@ -154,8 +154,8 @@ impl CodeExecutor for OpencodeExecutor {
                     log_type: "step_finish".to_string(),
                     content: "Step finished".to_string(),
                     usage: None,
-                tool_name: None,
-                tool_input_json: None,
+            tool_name: None,
+            tool_input_json: None,
                 })
             }
             _ => None,
