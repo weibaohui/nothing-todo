@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination } from 'antd';
-import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined, DownOutlined, UpOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
-import { PieChart, PieChartLegend } from './PieChart';
+import { PieChart } from './PieChart';
 import { TodoSettingsDrawer } from './TodoSettingsDrawer';
 import { TodoEditDrawer } from './TodoEditDrawer';
 import * as db from '../utils/database';
@@ -11,7 +11,6 @@ import { formatLocalDateTime } from '../utils/datetime';
 import { AnimatedNumber } from './AnimatedNumber';
 import { getExecutorOption } from '../types';
 import XMarkdown from '@ant-design/x-markdown';
-import { TodoProgressControl } from './TodoProgressControl';
 import type { ExecutionSummary, Todo, TodoItem, ExecutionRecord } from '../types';
 
 function PromptDisplay({ content }: { content: string }) {
@@ -46,6 +45,138 @@ function PromptDisplay({ content }: { content: string }) {
           }}
         >
           <XMarkdown content={content} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InlineTokenStats({ input, output, cacheRead, cacheCreate, totalTokens, summary }: {
+  input: number; output: number; cacheRead: number; cacheCreate: number; totalTokens: number; summary: ExecutionSummary;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const tokenSegments = [
+    { value: input, color: '#3b82f6', label: '输入' },
+    { value: output, color: '#22c55e', label: '输出' },
+    { value: cacheRead, color: '#f59e0b', label: '缓存读' },
+    { value: cacheCreate, color: '#a78bfa', label: '缓存写' },
+  ];
+  return (
+    <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-label="Token 统计摘要，点击展开详情"
+        onClick={() => setExpanded(!expanded)}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none', fontSize: 11, color: 'var(--color-text-secondary)', background: 'none', border: 'none', padding: 0 }}
+      >
+        <PieChart segments={tokenSegments.filter(s => s.value > 0)} size={20} />
+        <span style={{ fontWeight: 700, color: 'var(--color-text)', fontSize: 13 }}><AnimatedNumber value={totalTokens} duration={1.2} chineseFormat /></span>
+        <span>Tokens</span>
+        <span style={{ color: 'var(--color-border)' }}>|</span>
+        <span>执行 <strong style={{ color: 'var(--color-text)' }}>{summary.total_executions}</strong> 次</span>
+        <span style={{ color: 'var(--color-success)' }}>成功 {summary.success_count}</span>
+        <span style={{ color: 'var(--color-error)' }}>失败 {summary.failed_count}</span>
+        {summary.total_cost_usd != null && (
+          <span style={{ color: 'var(--color-warning)', fontWeight: 600 }}>${summary.total_cost_usd.toFixed(4)}</span>
+        )}
+        {expanded ? <UpOutlined style={{ fontSize: 10 }} /> : <DownOutlined style={{ fontSize: 10 }} />}
+      </button>
+      {expanded && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 10, marginTop: 4, background: '#fff', border: '1px solid var(--color-border-light)', borderRadius: 8, padding: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 200 }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11 }}>
+            {tokenSegments.filter(s => s.value > 0).map(s => (
+              <span key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color }} />
+                {s.label}: {s.value.toLocaleString()}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProgressWidget({ items }: { items: TodoItem[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const total = items.length;
+  const completed = items.filter(t => t.status === 'completed').length;
+  const pct = Math.round((completed / total) * 100);
+
+  return (
+    <div style={{ position: 'relative', flexShrink: 0 }}>
+      <div
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          background: 'var(--color-bg-elevated)',
+          borderRadius: 6,
+          padding: '4px 10px',
+          border: `1px solid ${expanded ? 'var(--color-primary)' : 'var(--color-border-light)'}`,
+          minWidth: 120,
+          cursor: 'pointer',
+          userSelect: 'none',
+          transition: 'border-color 0.2s',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-secondary)' }}>进度</span>
+          <span style={{ fontSize: 10, color: 'var(--color-primary)', fontWeight: 600 }}>{completed}/{total} ({pct}%)</span>
+        </div>
+        <div style={{ height: 3, borderRadius: 2, background: 'var(--color-border-light)', marginBottom: 3 }}>
+          <div style={{ height: '100%', borderRadius: 2, background: 'var(--color-primary)', width: `${pct}%`, transition: 'width 0.3s' }} />
+        </div>
+        <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+          {items.map((item, idx) => (
+            <span key={item.id || idx} style={{ fontSize: 10, lineHeight: '14px', color: item.status === 'completed' ? 'var(--color-text-tertiary)' : item.status === 'in_progress' ? 'var(--color-primary)' : 'var(--color-text-secondary)', textDecoration: item.status === 'completed' ? 'line-through' : 'none', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {item.status === 'completed' ? '✓' : item.status === 'in_progress' ? '●' : '○'} {item.content}
+            </span>
+          ))}
+        </div>
+      </div>
+      {expanded && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          right: 0,
+          zIndex: 20,
+          marginTop: 4,
+          background: '#fff',
+          border: '1px solid var(--color-border-light)',
+          borderRadius: 8,
+          padding: 12,
+          boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
+          minWidth: 260,
+          maxWidth: 360,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text)' }}>任务进度</span>
+            <span style={{ fontSize: 11, color: 'var(--color-primary)', fontWeight: 600 }}>{completed}/{total} ({pct}%)</span>
+          </div>
+          <div style={{ height: 4, borderRadius: 2, background: 'var(--color-border-light)', marginBottom: 10 }}>
+            <div style={{ height: '100%', borderRadius: 2, background: 'var(--color-primary)', width: `${pct}%`, transition: 'width 0.3s' }} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflow: 'auto' }}>
+            {items.map((item, idx) => (
+              <div key={item.id || idx} style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 8,
+                fontSize: 12,
+                lineHeight: '18px',
+                color: item.status === 'completed' ? 'var(--color-text-tertiary)' : item.status === 'in_progress' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                textDecoration: item.status === 'completed' ? 'line-through' : 'none',
+                padding: '4px 8px',
+                borderRadius: 4,
+                background: item.status === 'in_progress' ? 'var(--color-primary-bg)' : 'transparent',
+              }}>
+                <span style={{ flexShrink: 0, marginTop: 2 }}>
+                  {item.status === 'completed' ? '✓' : item.status === 'in_progress' ? '●' : '○'}
+                </span>
+                <span style={{ wordBreak: 'break-word' }}>{item.content}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -101,23 +232,6 @@ export function TodoDetail() {
     }
     // Fallback: match by todoId for records without task_id
     return Object.values(runningTasks).find(t => t.todoId === record.todo_id) || null;
-  };
-
-  // Helper to resolve todo progress from record or running task
-  const resolveTodoProgress = (record: ExecutionRecord, isRunning: boolean): TodoItem[] | null => {
-    if (isRunning) {
-      const task = getRunningTaskForRecord(record);
-      if (task?.todoProgress?.length) return task.todoProgress;
-    }
-    if (record.todo_progress) {
-      try {
-        const parsed = JSON.parse(record.todo_progress);
-        return Array.isArray(parsed) ? parsed : null;
-      } catch {
-        return null;
-      }
-    }
-    return null;
   };
 
   // Helper to resolve execution stats from record or running task
@@ -253,6 +367,26 @@ export function TodoDetail() {
   const executor = selectedTodo.executor || 'claudecode';
   const executorOpt = getExecutorOption(executor);
 
+  // Resolve current todo progress for header widget — follows selected execution record
+  const currentTodoProgress = (() => {
+    // Try to find the record by selectedHistoryRecordId first, then fallback to first record
+    const source = selectedHistoryRecord
+      || (selectedHistoryRecordId ? records.find(r => r.id === selectedHistoryRecordId) : null)
+      || (records.length > 0 ? records[0] : null);
+    if (!source) return null;
+    if (source.status === 'running') {
+      const task = getRunningTaskForRecord(source);
+      if (task?.todoProgress?.length) return task.todoProgress;
+    }
+    if (source.todo_progress) {
+      try {
+        const parsed = JSON.parse(source.todo_progress);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch { /* ignore */ }
+    }
+    return null;
+  })();
+
   return (
     <div className={`detail-panel${isWide ? ' detail-panel-wide' : ''}`}>
       {/* Mobile Back Button */}
@@ -268,197 +402,80 @@ export function TodoDetail() {
           返回
         </Button>
       )}
-      {/* Title Card */}
-      <div className="detail-card title-card">
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-              <StatusPicker
-                value={selectedTodo.status}
-                onChange={handleStatusChange}
-                disabled={isExecuting}
-              />
-              <h2 className="card-title" style={{ margin: 0 }}>{selectedTodo.title}</h2>
-            </div>
-            {selectedTodo.prompt && (
-              <PromptDisplay content={selectedTodo.prompt} />
-            )}
-            {/* Info tags: executor + scheduler */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-              <Tag color={executorOpt.color} style={{ fontWeight: 600 }}>
-                {executorOpt.icon} {executorOpt.label}
-              </Tag>
-              {selectedTodo.scheduler_enabled ? (
-                <Tag color="var(--color-primary)" style={{ fontWeight: 600 }}>
-                  调度: {selectedTodo.scheduler_config}
-                </Tag>
-              ) : (
-                <Tag style={{ fontWeight: 600, color: 'var(--color-text-tertiary)', borderColor: 'var(--color-border)' }}>
-                  调度: 关闭
-                </Tag>
-              )}
-              {records.length > 0 && (
-                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                  上次: {formatLocalDateTime(records[0].started_at)}
-                </span>
-              )}
-              {selectedTodo.scheduler_next_run_at && (
-                <span style={{ fontSize: 12, color: 'var(--color-success)' }}>
-                  下次: {formatLocalDateTime(selectedTodo.scheduler_next_run_at)}
-                </span>
-              )}
-            </div>
-            {/* Running status indicator */}
-            {isExecuting && (
-              <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Badge status="processing" />
-                <span style={{ fontSize: 13, color: 'var(--color-primary)', fontWeight: 500 }}>
-                  正在执行中...（查看底部面板）
-                </span>
-              </div>
-            )}
-          </div>
+      {/* Unified Header: Title + Stats + Execute */}
+      <div className="detail-card header-card">
+        {/* Row 1: Title + Action Buttons */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <StatusPicker value={selectedTodo.status} onChange={handleStatusChange} disabled={isExecuting} />
+          <h2 className="card-title" style={{ margin: 0, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedTodo.title}</h2>
           <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-            <Button
-              type="text"
-              icon={<SettingOutlined />}
-              onClick={() => setSettingsOpen(true)}
-              className="icon-btn"
-              aria-label="任务设置"
-            />
-            <Button
-              type="text"
-              icon={<EditOutlined />}
-              onClick={() => setIsEditing(true)}
-              className="icon-btn"
-              aria-label="编辑任务"
-            />
+            <Button type="text" icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)} className="icon-btn" aria-label="任务设置" />
+            <Button type="text" icon={<EditOutlined />} onClick={() => setIsEditing(true)} className="icon-btn" aria-label="编辑任务" />
             <Popconfirm title="删除任务" description="确定要删除吗？" onConfirm={handleDelete}>
-              <Button
-                type="text"
-                danger
-                icon={<DeleteOutlined />}
-                className="icon-btn"
-                aria-label="删除任务"
-              />
+              <Button type="text" danger icon={<DeleteOutlined />} className="icon-btn" aria-label="删除任务" />
             </Popconfirm>
           </div>
         </div>
-      </div>
-
-      {/* Execution Stats */}
-      {summary && summary.total_executions > 0 && (
-        <div className="detail-card" style={{ padding: '16px 20px' }}>
-          {(() => {
+        {/* Row 2: Tags + Inline Token Stats + Progress Widget */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
+          {/* Tags & Meta */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <Tag color={executorOpt.color} style={{ fontWeight: 600, fontSize: 11 }}>
+              {executorOpt.icon} {executorOpt.label}
+            </Tag>
+            {selectedTodo.scheduler_enabled ? (
+              <Tag color="var(--color-primary)" style={{ fontWeight: 600, fontSize: 11 }}>
+                调度: {selectedTodo.scheduler_config}
+              </Tag>
+            ) : (
+              <Tag style={{ fontWeight: 600, fontSize: 11, color: 'var(--color-text-tertiary)', borderColor: 'var(--color-border)' }}>
+                调度: 关闭
+              </Tag>
+            )}
+            {records.length > 0 && (
+              <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+                上次: {formatLocalDateTime(records[0].started_at)}
+              </span>
+            )}
+            {selectedTodo.scheduler_next_run_at && (
+              <span style={{ fontSize: 11, color: 'var(--color-success)' }}>
+                下次: {formatLocalDateTime(selectedTodo.scheduler_next_run_at)}
+              </span>
+            )}
+            {isExecuting && (
+              <>
+                <span style={{ color: 'var(--color-border)' }}>|</span>
+                <Badge status="processing" />
+                <span style={{ fontSize: 12, color: 'var(--color-primary)', fontWeight: 500 }}>执行中...</span>
+              </>
+            )}
+          </div>
+          {/* Inline Token Stats */}
+          {summary && summary.total_executions > 0 && (() => {
             const input = summary.total_input_tokens;
             const output = summary.total_output_tokens;
             const cacheRead = (summary as any).total_cache_read_tokens ?? 0;
             const cacheCreate = (summary as any).total_cache_creation_tokens ?? 0;
             const totalTokens = input + output + cacheRead + cacheCreate;
-
-            const tokenSegments = [
-              { value: input, color: '#3b82f6', label: '输入' },
-              { value: output, color: '#22c55e', label: '输出' },
-              { value: cacheRead, color: '#f59e0b', label: '缓存读' },
-              { value: cacheCreate, color: '#a78bfa', label: '缓存写' },
-            ];
-
             return (
-              <div>
-                {/* Top row: pie + big number */}
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 20,
-                    flexWrap: 'wrap',
-                    marginBottom: 12,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <PieChart
-                      segments={tokenSegments.filter((s) => s.value > 0)}
-                      size={90}
-                    />
-                    <div>
-                      <div
-                        style={{
-                          fontSize: 28,
-                          fontWeight: 700,
-                          color: 'var(--color-text)',
-                          lineHeight: 1.2,
-                          letterSpacing: '-0.02em',
-                        }}
-                      >
-                        <AnimatedNumber value={totalTokens} duration={1.2} chineseFormat />
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: 'var(--color-text-tertiary)',
-                          fontWeight: 500,
-                        }}
-                      >
-                        Tokens
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ flex: 1, minWidth: 180 }}>
-                    <PieChartLegend segments={tokenSegments} />
-                  </div>
-                </div>
-
-                {/* Bottom row: execution summary + cost */}
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    flexWrap: 'wrap',
-                    paddingTop: 12,
-                    borderTop: '1px solid var(--color-border-light)',
-                    fontSize: 12,
-                    color: 'var(--color-text-secondary)',
-                  }}
-                >
-                  <span>
-                    执行{' '}
-                    <strong style={{ color: 'var(--color-text)' }}>
-                      <AnimatedNumber value={summary.total_executions} duration={0.8} />
-                    </strong>{' '}
-                    次
-                  </span>
-                  <span style={{ color: 'var(--color-border)' }}>|</span>
-                  <span style={{ color: 'var(--color-success)' }}>
-                    成功 <AnimatedNumber value={summary.success_count} duration={0.8} />
-                  </span>
-                  <span style={{ color: 'var(--color-error)' }}>
-                    失败 <AnimatedNumber value={summary.failed_count} duration={0.8} />
-                  </span>
-                  {summary.total_cost_usd !== null &&
-                    summary.total_cost_usd !== undefined && (
-                      <>
-                        <span style={{ color: 'var(--color-border)' }}>|</span>
-                        <span style={{ color: 'var(--color-warning)', fontWeight: 600 }}>
-                          $<AnimatedNumber value={summary.total_cost_usd} duration={0.8} decimals={4} />
-                        </span>
-                      </>
-                    )}
-                </div>
-              </div>
+              <InlineTokenStats input={input} output={output} cacheRead={cacheRead} cacheCreate={cacheCreate} totalTokens={totalTokens} summary={summary} />
             );
           })()}
+          {/* Progress Widget (rightmost) */}
+          {currentTodoProgress && (
+            <div style={{ marginLeft: 'auto', flexShrink: 0 }}>
+              <ProgressWidget items={currentTodoProgress} />
+            </div>
+          )}
         </div>
-      )}
-
-      {/* Action Card */}
-      <div className="detail-card action-card">
+        {selectedTodo.prompt && <PromptDisplay content={selectedTodo.prompt} />}
+        {/* Execute Button Row */}
         <Button
           type="primary"
           icon={<PlayCircleOutlined />}
           onClick={handleExecute}
           block
-          className="btn-execute"
+          className="btn-execute btn-execute-compact"
         >
           执行任务
         </Button>
@@ -658,11 +675,6 @@ export function TodoDetail() {
                       );
                     })()}
                     {(() => {
-                      const progress = resolveTodoProgress(record, isRunning);
-                      if (!progress || progress.length === 0) return null;
-                      return <TodoProgressControl todoProgress={progress} />;
-                    })()}
-                    {(() => {
                       if (!isRunning && displayLogs.length === 0) return null;
                       return (
                         <div>
@@ -831,12 +843,6 @@ export function TodoDetail() {
                       )}
                     </div>
                   );
-                })()}
-                {(() => {
-                  const isRunning = record.status === 'running';
-                  const progress = resolveTodoProgress(record, isRunning);
-                  if (!progress || progress.length === 0) return null;
-                  return <TodoProgressControl todoProgress={progress} />;
                 })()}
 
                 {(() => {
