@@ -12,7 +12,7 @@ import { AnimatedNumber } from './AnimatedNumber';
 import { getExecutorOption } from '../types';
 import XMarkdown from '@ant-design/x-markdown';
 import { TodoProgressControl } from './TodoProgressControl';
-import type { ExecutionSummary, Todo, TodoItem } from '../types';
+import type { ExecutionSummary, Todo, TodoItem, ExecutionRecord } from '../types';
 
 function PromptDisplay({ content }: { content: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -94,6 +94,30 @@ export function TodoDetail() {
     t => t.todoId === selectedTodoId
   );
   const isExecuting = !!currentRunningTask && currentRunningTask.status === 'running';
+
+  // Helper to resolve todo progress from record or running task
+  const resolveTodoProgress = (record: ExecutionRecord, isRunning: boolean): TodoItem[] | null => {
+    if (isRunning && currentRunningTask?.todoProgress?.length) {
+      return currentRunningTask.todoProgress;
+    }
+    if (record.todo_progress) {
+      try {
+        const parsed = JSON.parse(record.todo_progress);
+        return Array.isArray(parsed) ? parsed : null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  // Helper to resolve execution stats from record or running task
+  const resolveExecutionStats = (record: ExecutionRecord, isRunning: boolean) => {
+    if (isRunning && currentRunningTask?.executionStats) {
+      return currentRunningTask.executionStats;
+    }
+    return record.execution_stats;
+  };
 
   const loadExecutionRecords = async (page = 1, limit = historyLimit) => {
     if (!selectedTodo) return;
@@ -610,9 +634,7 @@ export function TodoDetail() {
                       </div>
                     )}
                     {(() => {
-                      const stats = isRunning && currentRunningTask?.executionStats
-                        ? currentRunningTask.executionStats
-                        : record.execution_stats;
+                      const stats = resolveExecutionStats(record, isRunning);
                       if (!stats) return null;
                       return (
                         <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 12, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -625,15 +647,7 @@ export function TodoDetail() {
                       );
                     })()}
                     {(() => {
-                      const progress: TodoItem[] | null = (() => {
-                        if (isRunning && currentRunningTask?.todoProgress?.length) {
-                          return currentRunningTask.todoProgress;
-                        }
-                        if (record.todo_progress) {
-                          try { return JSON.parse(record.todo_progress); } catch { return null; }
-                        }
-                        return null;
-                      })();
+                      const progress = resolveTodoProgress(record, isRunning);
                       if (!progress || progress.length === 0) return null;
                       return <TodoProgressControl todoProgress={progress} />;
                     })()}
@@ -795,9 +809,7 @@ export function TodoDetail() {
                 )}
                 {(() => {
                   const isRunning = record.status === 'running';
-                  const stats = isRunning && currentRunningTask?.executionStats
-                    ? currentRunningTask.executionStats
-                    : record.execution_stats;
+                  const stats = resolveExecutionStats(record, isRunning);
                   if (!stats) return null;
                   return (
                     <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -811,15 +823,7 @@ export function TodoDetail() {
                 })()}
                 {(() => {
                   const isRunning = record.status === 'running';
-                  const progress: TodoItem[] | null = (() => {
-                    if (isRunning && currentRunningTask?.todoProgress?.length) {
-                      return currentRunningTask.todoProgress;
-                    }
-                    if (record.todo_progress) {
-                      try { return JSON.parse(record.todo_progress); } catch { return null; }
-                    }
-                    return null;
-                  })();
+                  const progress = resolveTodoProgress(record, isRunning);
                   if (!progress || progress.length === 0) return null;
                   return <TodoProgressControl todoProgress={progress} />;
                 })()}
