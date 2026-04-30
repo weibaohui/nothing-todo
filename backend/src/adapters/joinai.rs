@@ -2,7 +2,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
-use super::agent_event::{AgentEvent, AgentPart, AgentToolState, AgentTokens};
+use super::agent_event::AgentEvent;
 use crate::models::utc_timestamp;
 
 pub struct JoinaiExecutor {
