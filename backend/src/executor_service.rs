@@ -1,9 +1,10 @@
-use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
+
+use command_group::AsyncCommandGroup;
 
 use crate::adapters::{ExecutorRegistry, parse_executor_type};
 use crate::db::Database;
@@ -15,102 +16,12 @@ fn send_event(tx: &broadcast::Sender<ExecEvent>, event: ExecEvent) {
     let _ = tx.send(event);
 }
 
-/// 递归获取指定 PID 的所有后代进程（异步版本，避免阻塞 tokio 运行时）
-#[cfg(unix)]
-async fn get_descendant_pids_async(parent_pid: u32) -> Vec<u32> {
-    let mut result = Vec::new();
-    let mut to_process = vec![parent_pid];
-    let mut visited = HashSet::new();
-
-    while let Some(current_pid) = to_process.pop() {
-        if visited.contains(&current_pid) {
-            continue;
-        }
-        visited.insert(current_pid);
-
-        // 检查进程是否存在
-        unsafe {
-            if libc::kill(current_pid as i32, 0) != 0 {
-                continue;
-            }
-        }
-
-        result.push(current_pid);
-
-        // 使用 tokio::process::Command 避免阻塞异步运行时
-        match tokio::process::Command::new("pgrep")
-            .args(["-P", &current_pid.to_string()])
-            .output()
-            .await
-        {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                for line in stdout.lines() {
-                    if let Ok(child_pid) = line.trim().parse::<u32>() {
-                        if child_pid > 1 && !visited.contains(&child_pid) {
-                            to_process.push(child_pid);
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::warn!("pgrep -P {} 执行失败: {}", current_pid, e);
-            }
-        }
+/// 使用 command-group 安全地杀死进程树
+/// command-group 会自动创建进程组，kill() 时会杀死整个进程组
+async fn kill_process_tree(child: &mut command_group::AsyncGroupChild) {
+    if let Err(e) = child.kill().await {
+        tracing::warn!("杀死进程组失败: {}", e);
     }
-
-    result
-}
-
-/// 安全地杀死进程及其所有后代进程，通过递归查找子进程来避免误杀（异步版本）
-#[cfg(unix)]
-pub async fn kill_process_tree_safe_async(root_pid: u32) {
-    if root_pid <= 1 {
-        tracing::warn!("拒绝杀死 PID {}，这是系统关键进程", root_pid);
-        return;
-    }
-
-    let pids_to_kill = get_descendant_pids_async(root_pid).await;
-
-    if pids_to_kill.is_empty() {
-        tracing::warn!("PID {} 及其后代进程不存在，跳过清理", root_pid);
-        return;
-    }
-
-    tracing::info!("准备杀死进程树: root={}, 总共 {} 个进程", root_pid, pids_to_kill.len());
-
-    // 先发送 SIGTERM，给进程优雅退出的机会
-    for &pid in &pids_to_kill {
-        unsafe {
-            let result = libc::kill(pid as i32, libc::SIGTERM);
-            if result != 0 {
-                tracing::debug!("发送 SIGTERM 到 PID {} 失败", pid);
-            }
-        }
-    }
-
-    // 使用 tokio::time::sleep 避免阻塞线程
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    // 再发送 SIGKILL 强制杀死残留进程
-    for &pid in &pids_to_kill {
-        unsafe {
-            let result = libc::kill(pid as i32, libc::SIGKILL);
-            if result != 0 {
-                tracing::debug!("发送 SIGKILL 到 PID {} 失败", pid);
-            }
-        }
-    }
-}
-
-#[cfg(not(unix))]
-pub async fn kill_process_tree_safe_async(root_pid: u32) {
-    if root_pid <= 1 { return; }
-    // /T kills the process tree, /F forces termination
-    let _ = tokio::process::Command::new("taskkill")
-        .args(["/T", "/F", "/PID", &root_pid.to_string()])
-        .output()
-        .await;
 }
 
 /// Run a todo execution. Priority: explicit executor > todo stored executor > default.
@@ -214,7 +125,8 @@ pub async fn run_todo_execution(
         let entry = ParsedLogEntry::info(format!("Starting {}", executor_spawn.executor_type()));
         send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
 
-        let mut cmd = Command::new(&executable_path);
+        // 使用 command-group 创建进程组，自动管理进程树
+        let mut cmd = tokio::process::Command::new(&executable_path);
         cmd.args(&command_args)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -225,7 +137,8 @@ pub async fn run_todo_execution(
             cmd.current_dir(ws);
         }
 
-        let mut child = match cmd.spawn() {
+        // 使用 command-group 的 group_spawn 创建进程组
+        let mut child = match cmd.group_spawn() {
             Ok(c) => c,
             Err(e) => {
                 let entry = ParsedLogEntry::error(format!("Failed to spawn executor: {}", e));
@@ -241,15 +154,15 @@ pub async fn run_todo_execution(
 
         // Close stdin immediately so child processes get EOF when they try to read it.
         // Without this, processes that read stdin after finishing work will hang forever.
-        drop(child.stdin.take());
+        drop(child.inner().stdin.take());
 
-        // 保存 pid 到 execution_records 表
+        // 保存 pid 到 execution_records 表 (使用进程组 leader 的 pid)
         if child_id > 0 {
             let _ = db_clone.update_execution_record_pid(record_id, Some(child_id as i32)).await;
         }
 
-        let stdout_handle = child.stdout.take();
-        let stderr_handle = child.stderr.take();
+        let stdout_handle = child.inner().stdout.take();
+        let stderr_handle = child.inner().stderr.take();
 
         let logs = Arc::new(Mutex::new(Vec::<ParsedLogEntry>::new()));
         let logs_for_db = logs.clone();
@@ -341,10 +254,10 @@ pub async fn run_todo_execution(
         let status = tokio::select! {
             biased;
             Some(()) = cancel_rx.recv() => {
-                // Cancelled: 先安全杀死进程树（在 child.wait() 之前），避免 PID 被回收后误杀
-                kill_process_tree_safe_async(child_id).await;
+                // Cancelled: 使用 command-group 安全杀死整个进程组
+                kill_process_tree(&mut child).await;
 
-                let _ = child.kill().await;
+                // 收割僵尸进程
                 let _status = child.wait().await;
 
                 if let Some(handle) = stdout_task {
@@ -375,10 +288,7 @@ pub async fn run_todo_execution(
                 return;
             }
             status = child.wait() => {
-                // 子进程已自然退出，此时 child_id 可能已不存在
-                // get_descendant_pids_async 会检查进程是否存在，避免误杀回收的 PID
-                kill_process_tree_safe_async(child_id).await;
-
+                // 子进程已自然退出，command-group 会自动处理进程组
                 if let Some(handle) = stdout_task {
                     let _ = handle.await;
                 }
