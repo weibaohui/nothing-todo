@@ -39,37 +39,12 @@ pub fn handle_tunnel_command(action: &TunnelAction) {
             let tunnel_type = tunnel_type.clone();
             fs::create_dir_all(&ntd_dir).expect("Failed to create .ntd directory");
 
+            // 停止已存在的 tunnel
             if let Ok(old_pid_str) = fs::read_to_string(&pid_file) {
                 if let Ok(old_pid) = old_pid_str.trim().parse::<u32>() {
                     if is_process_running(old_pid as i32) {
                         println!("Stopping old tunnel (PID: {})", old_pid);
-                        #[cfg(unix)]
-                        {
-                            if is_process_group_leader(old_pid as i32) {
-                                kill_process_group(old_pid as i32);
-                                thread::sleep(Duration::from_millis(500));
-                                if is_process_running(old_pid as i32) {
-                                    kill_process_group_force(old_pid as i32);
-                                }
-                            } else {
-                                kill_process(old_pid as i32);
-                                thread::sleep(Duration::from_millis(500));
-                                if is_process_running(old_pid as i32) {
-                                    kill_process_force(old_pid as i32);
-                                }
-                            }
-                        }
-                        #[cfg(windows)]
-                        {
-                            kill_process(old_pid as i32);
-                            for _ in 0..3 {
-                                if !is_process_running(old_pid as i32) {
-                                    break;
-                                }
-                                thread::sleep(Duration::from_secs(1));
-                            }
-                            kill_process_force(old_pid as i32);
-                        }
+                        kill_process_safe(old_pid as i32);
                     }
                 }
             }
@@ -91,34 +66,13 @@ pub fn handle_tunnel_command(action: &TunnelAction) {
                 if let Ok(pid) = pid_str.trim().parse::<u32>() {
                     if is_process_running(pid as i32) {
                         println!("Stopping tunnel (PID: {})", pid);
-                        #[cfg(unix)]
-                        {
-                            if is_process_group_leader(pid as i32) {
-                                kill_process_group(pid as i32);
-                                thread::sleep(Duration::from_millis(500));
-                                if is_process_running(pid as i32) {
-                                    kill_process_group_force(pid as i32);
-                                }
-                            } else {
-                                kill_process(pid as i32);
-                                thread::sleep(Duration::from_millis(500));
-                                if is_process_running(pid as i32) {
-                                    kill_process_force(pid as i32);
-                                }
-                            }
-                        }
-                        #[cfg(windows)]
-                        {
-                            kill_process(pid as i32);
-                            thread::sleep(Duration::from_secs(1));
-                            if is_process_running(pid as i32) {
-                                kill_process_force(pid as i32);
-                            }
-                        }
+                        kill_process_safe(pid as i32);
+                        fs::remove_file(&pid_file).ok();
+                        fs::remove_file(&url_file).ok();
+                        println!("Tunnel stopped");
+                    } else {
+                        eprintln!("No tunnel is running");
                     }
-                    fs::remove_file(&pid_file).ok();
-                    fs::remove_file(&url_file).ok();
-                    println!("Tunnel stopped");
                 } else {
                     eprintln!("No tunnel is running");
                 }
@@ -165,18 +119,15 @@ fn start_hostc_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
         .stdout(output.try_clone().expect("Failed to clone output file"))
         .stderr(output);
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
+    // 使用 command-group 创建进程组，确保可以安全清理进程树
+    let mut child = match command_group::CommandGroup::group_spawn(&mut cmd) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to start hostc. Is hostc installed? Error: {}", e);
+            std::process::exit(1);
         }
-    }
+    };
 
-    let mut child = cmd.spawn().expect("Failed to start hostc. Is hostc installed?");
     let hostc_pid = child.id();
     fs::write(pid_file, hostc_pid.to_string()).expect("Failed to write PID file");
 
@@ -196,7 +147,8 @@ fn start_hostc_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
     }
 
     if public_url.is_empty() {
-        cleanup_child_process(&mut child, hostc_pid);
+        // 使用 command-group 安全杀死进程组
+        let _ = child.kill();
         fs::remove_file(pid_file).ok();
         fs::remove_file(url_file).ok();
         eprintln!("Error: failed to capture Public URL within 60s");
@@ -226,18 +178,15 @@ fn start_cloudflare_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
         .stdout(output.try_clone().expect("Failed to clone output file"))
         .stderr(output);
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
+    // 使用 command-group 创建进程组，确保可以安全清理进程树
+    let mut child = match command_group::CommandGroup::group_spawn(&mut cmd) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to start cloudflared. Is cloudflared installed? Error: {}", e);
+            std::process::exit(1);
         }
-    }
+    };
 
-    let mut child = cmd.spawn().expect("Failed to start cloudflared. Is cloudflared installed?");
     let cloudflared_pid = child.id();
     fs::write(pid_file, cloudflared_pid.to_string()).expect("Failed to write PID file");
 
@@ -255,7 +204,8 @@ fn start_cloudflare_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
     }
 
     if public_url.is_empty() {
-        cleanup_child_process(&mut child, cloudflared_pid);
+        // 使用 command-group 安全杀死进程组
+        let _ = child.kill();
         fs::remove_file(pid_file).ok();
         fs::remove_file(url_file).ok();
         eprintln!("Error: failed to capture Public URL within 60s");
@@ -286,29 +236,36 @@ fn poll_for_url(output_file: &str, extract: impl Fn(&str) -> String) -> String {
     String::new()
 }
 
-fn cleanup_child_process(child: &mut std::process::Child, pid: u32) {
+/// 安全地杀死进程及其进程组
+/// 使用 SIGTERM 优雅退出，等待后如果仍在运行则使用 SIGKILL
+fn kill_process_safe(pid: i32) {
     #[cfg(unix)]
     {
-        if is_process_group_leader(pid as i32) {
-            kill_process_group(pid as i32);
-        } else {
-            let _ = child.kill();
+        // 先发送 SIGTERM
+        unsafe {
+            libc::kill(pid, libc::SIGTERM);
+        }
+        thread::sleep(Duration::from_millis(500));
+
+        // 如果仍在运行，发送 SIGKILL
+        if is_process_running(pid) {
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+            }
+            thread::sleep(Duration::from_millis(200));
         }
     }
     #[cfg(windows)]
     {
-        let _ = child.kill();
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .output();
     }
 }
 
 #[cfg(unix)]
 pub fn is_process_running(pid: i32) -> bool {
     unsafe { libc::kill(pid, 0) == 0 }
-}
-
-#[cfg(unix)]
-fn is_process_group_leader(pid: i32) -> bool {
-    unsafe { libc::getpgid(pid) == pid as libc::pid_t }
 }
 
 #[cfg(windows)]
@@ -318,46 +275,6 @@ pub fn is_process_running(pid: i32) -> bool {
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
         .unwrap_or(false)
-}
-
-#[cfg(unix)]
-fn kill_process(pid: i32) {
-    unsafe {
-        libc::kill(pid, libc::SIGTERM);
-    }
-}
-
-#[cfg(unix)]
-fn kill_process_group(pid: i32) {
-    unsafe {
-        libc::kill(-pid, libc::SIGTERM);
-    }
-}
-
-#[cfg(unix)]
-fn kill_process_group_force(pid: i32) {
-    unsafe {
-        libc::kill(-pid, libc::SIGKILL);
-    }
-}
-
-#[cfg(windows)]
-fn kill_process(pid: i32) {
-    let _ = std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/F"])
-        .output();
-}
-
-#[cfg(unix)]
-fn kill_process_force(pid: i32) {
-    unsafe {
-        libc::kill(pid, libc::SIGKILL);
-    }
-}
-
-#[cfg(windows)]
-fn kill_process_force(pid: i32) {
-    kill_process(pid);
 }
 
 #[cfg(unix)]
@@ -372,7 +289,7 @@ fn cleanup_orphan_processes() {
         for pid_str in pids.lines() {
             if let Ok(pid) = pid_str.trim().parse::<i32>() {
                 if is_orphan_process(pid) {
-                    kill_process(pid);
+                    kill_process_safe(pid);
                 }
             }
         }
@@ -386,7 +303,7 @@ fn cleanup_orphan_processes() {
         for pid_str in pids.lines() {
             if let Ok(pid) = pid_str.trim().parse::<i32>() {
                 if is_orphan_process(pid) {
-                    kill_process(pid);
+                    kill_process_safe(pid);
                 }
             }
         }
@@ -420,7 +337,7 @@ fn cleanup_orphan_processes() {
         let text = String::from_utf8_lossy(&output.stdout);
         for line in text.lines().skip(1) {
             if let Ok(pid) = line.trim().parse::<i32>() {
-                kill_process(pid);
+                kill_process_safe(pid);
             }
         }
     }
@@ -432,7 +349,7 @@ fn cleanup_orphan_processes() {
         let text = String::from_utf8_lossy(&output.stdout);
         for line in text.lines().skip(1) {
             if let Ok(pid) = line.trim().parse::<i32>() {
-                kill_process(pid);
+                kill_process_safe(pid);
             }
         }
     }

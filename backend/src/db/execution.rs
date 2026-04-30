@@ -4,7 +4,7 @@ use sea_orm::{
 
 use crate::db::Database;
 use crate::db::entity::execution_records;
-use crate::models::{ExecutionRecord, ExecutionStats, ExecutionSummary, ExecutionUsage};
+use crate::models::{ExecutionRecord, ExecutionSummary, ExecutionUsage};
 
 impl From<execution_records::Model> for ExecutionRecord {
     fn from(m: execution_records::Model) -> Self {

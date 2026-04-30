@@ -253,7 +253,7 @@ pub async fn run_command(cli: &Cli) -> anyhow::Result<()> {
 
 async fn handle_todo(client: &ApiClient, action: &TodoAction, output: &OutputFormat) -> anyhow::Result<()> {
     match action {
-        TodoAction::Create { title, prompt, file, executor, workspace, tags, schedule } => {
+        TodoAction::Create { title, prompt, file, executor, workspace: _, tags, schedule: _ } => {
             let prompt_content = if let Some(p) = prompt {
                 p.clone()
             } else {
@@ -296,7 +296,7 @@ async fn handle_todo(client: &ApiClient, action: &TodoAction, output: &OutputFor
             let resp: ClientResponse<Todo> = client.get(&format!("/todos/{}", id)).await?;
             print_response(resp, output);
         }
-	        TodoAction::Update { id, title, prompt, file, status, executor, workspace, tags, schedule } => {
+	        TodoAction::Update { id, title, prompt, file: _, status, executor, workspace, tags: _, schedule } => {
             let req = serde_json::json!({
                 "title": title,
                 "prompt": prompt,

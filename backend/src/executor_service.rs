@@ -1,8 +1,9 @@
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
 use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
+
+use command_group::AsyncCommandGroup;
 
 use crate::adapters::{ExecutorRegistry, parse_executor_type};
 use crate::db::Database;
@@ -14,35 +15,13 @@ fn send_event(tx: &broadcast::Sender<ExecEvent>, event: ExecEvent) {
     let _ = tx.send(event);
 }
 
-#[cfg(unix)]
-pub fn kill_process_group(child_id: u32) {
-    if child_id > 0 {
-        unsafe {
-            libc::kill(-(child_id as i32), libc::SIGKILL);
-        }
+/// 使用 command-group 安全地杀死进程树
+/// command-group 会自动创建进程组，kill() 时会杀死整个进程组
+async fn kill_process_tree(child: &mut command_group::AsyncGroupChild) {
+    if let Err(e) = child.kill().await {
+        tracing::warn!("杀死进程组失败: {}", e);
     }
 }
-
-#[cfg(not(unix))]
-pub fn kill_process_group(_child_id: u32) {}
-
-#[cfg(unix)]
-fn kill_processes_by_message(message: &str) {
-    let output = std::process::Command::new("pkill")
-        .args(["-f", &format!("opencode run.*{}", message)])
-        .output();
-
-    if let Ok(output) = output {
-        if output.status.success() {
-            let _ = std::process::Command::new("pkill")
-                .args(["-9", "-f", &format!("opencode run.*{}", message)])
-                .output();
-        }
-    }
-}
-
-#[cfg(not(unix))]
-fn kill_processes_by_message(_message: &str) {}
 
 /// Run a todo execution. Priority: explicit executor > todo stored executor > default.
 pub async fn run_todo_execution(
@@ -124,7 +103,6 @@ pub async fn run_todo_execution(
     let db_clone = db.clone();
     let tx_clone = tx.clone();
     let executor_spawn = executor.clone();
-    let message_clone = message.clone();
     let task_manager_spawn = task_manager.clone();
 
     let todo_title = todo.as_ref().map(|t| t.title.clone()).unwrap_or_default();
@@ -146,7 +124,8 @@ pub async fn run_todo_execution(
         let entry = ParsedLogEntry::info(format!("Starting {}", executor_spawn.executor_type()));
         send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
 
-        let mut cmd = Command::new(&executable_path);
+        // 使用 command-group 创建进程组，自动管理进程树
+        let mut cmd = tokio::process::Command::new(&executable_path);
         cmd.args(&command_args)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -157,7 +136,8 @@ pub async fn run_todo_execution(
             cmd.current_dir(ws);
         }
 
-        let mut child = match cmd.spawn() {
+        // 使用 command-group 的 group_spawn 创建进程组
+        let mut child = match cmd.group_spawn() {
             Ok(c) => c,
             Err(e) => {
                 let entry = ParsedLogEntry::error(format!("Failed to spawn executor: {}", e));
@@ -173,24 +153,15 @@ pub async fn run_todo_execution(
 
         // Close stdin immediately so child processes get EOF when they try to read it.
         // Without this, processes that read stdin after finishing work will hang forever.
-        drop(child.stdin.take());
+        drop(child.inner().stdin.take());
 
-        #[cfg(unix)]
-        {
-            // 在 spawn 后立即设置进程组
-            // 这样可以确保每个进程都在独立的进程组中
-            unsafe {
-                libc::setpgid(child_id as i32, child_id as i32);
-            }
-        }
-
-        // 保存 pid 到 execution_records 表
+        // 保存 pid 到 execution_records 表 (使用进程组 leader 的 pid)
         if child_id > 0 {
             let _ = db_clone.update_execution_record_pid(record_id, Some(child_id as i32)).await;
         }
 
-        let stdout_handle = child.stdout.take();
-        let stderr_handle = child.stderr.take();
+        let stdout_handle = child.inner().stdout.take();
+        let stderr_handle = child.inner().stderr.take();
 
         let logs = Arc::new(Mutex::new(Vec::<ParsedLogEntry>::new()));
         let logs_for_db = logs.clone();
@@ -282,11 +253,10 @@ pub async fn run_todo_execution(
         let status = tokio::select! {
             biased;
             Some(()) = cancel_rx.recv() => {
-                // Cancelled: kill the process group to ensure all child processes are terminated
-                kill_process_group(child_id);
+                // Cancelled: 使用 command-group 安全杀死整个进程组
+                kill_process_tree(&mut child).await;
 
-                // Also try to kill the direct child
-                let _ = child.kill().await;
+                // 收割僵尸进程
                 let _status = child.wait().await;
 
                 if let Some(handle) = stdout_task {
@@ -317,11 +287,7 @@ pub async fn run_todo_execution(
                 return;
             }
             status = child.wait() => {
-                // Kill process group first to close any pipes held by grandchild processes,
-                // otherwise reader tasks may hang forever on BufReader::lines()
-                kill_process_group(child_id);
-                kill_processes_by_message(&message_clone);
-
+                // 子进程已自然退出，command-group 会自动处理进程组
                 if let Some(handle) = stdout_task {
                     let _ = handle.await;
                 }
