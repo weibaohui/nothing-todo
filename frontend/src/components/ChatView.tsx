@@ -260,9 +260,18 @@ function ChatBubble({ message }: { message: ChatMessage }) {
 export function ChatView({ logs, isRunning }: ChatViewProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messages = parseLogsToMessages(logs);
+  const isInitialMount = useRef(true);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // 跳过初始挂载时的自动滚动
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    // 只在有新消息时才滚动到底部
+    if (messages.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages.length]);
 
   if (messages.length === 0) {
