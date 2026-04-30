@@ -56,6 +56,7 @@ export interface ExecutionRecord {
   trigger_type: string;
   pid: number | null;
   todo_progress?: string | null;
+  execution_stats?: ExecutionStats | null;
 }
 
 export interface ExecutionUsage {
@@ -65,6 +66,12 @@ export interface ExecutionUsage {
   cache_creation_input_tokens: number | null;
   total_cost_usd: number | null;
   duration_ms: number | null;
+}
+
+export interface ExecutionStats {
+  tool_calls: number;
+  conversation_turns: number;
+  thinking_count: number;
 }
 
 export interface ExecutionSummary {
@@ -183,6 +190,7 @@ export interface RunningTask {
   startedAt: string;
   finishedAt?: string;
   todoProgress?: TodoItem[];
+  executionStats?: ExecutionStats;
 }
 
 export interface ExecutorOption {

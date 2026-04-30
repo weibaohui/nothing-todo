@@ -203,6 +203,7 @@ pub async fn run_todo_execution(
 
             Some(tokio::spawn(async move {
                 let mut reader = BufReader::new(stdout_reader).lines();
+                let mut log_count = 0u64;
                 while let Ok(Some(line)) = reader.next_line().await {
                     if let Some(parsed) = executor_clone.parse_output_line(&line) {
                         // Detect todo progress updates
@@ -215,6 +216,32 @@ pub async fn run_todo_execution(
                                 progress,
                             });
                         }
+
+                        // Send stats update after tool calls or every 10 log entries
+                        let is_tool_call = parsed.log_type == "tool_use" || parsed.log_type == "tool_call" || parsed.log_type == "tool";
+                        log_count += 1;
+                        if is_tool_call || log_count % 10 == 0 {
+                            let current_logs = logs_for_db.lock().await;
+                            let tool_calls = current_logs.iter()
+                                .filter(|l| l.log_type == "tool_use" || l.log_type == "tool_call" || l.log_type == "tool")
+                                .count() as u64;
+                            let conversation_turns = current_logs.iter()
+                                .filter(|l| l.log_type == "assistant" || l.log_type == "result" || l.log_type == "text")
+                                .count() as u64;
+                            let thinking_count = current_logs.iter()
+                                .filter(|l| l.log_type == "thinking")
+                                .count() as u64;
+                            let stats = crate::models::ExecutionStats {
+                                tool_calls,
+                                conversation_turns,
+                                thinking_count,
+                            };
+                            send_event(&tx_clone, ExecEvent::ExecutionStats {
+                                task_id: tid.clone(),
+                                stats,
+                            });
+                        }
+
                         logs_for_db.lock().await.push(parsed.clone());
                         send_event(&tx_clone, ExecEvent::Output { task_id: tid.clone(), entry: parsed });
                     }
