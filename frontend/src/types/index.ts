@@ -29,7 +29,7 @@ export interface TodoTag {
 
 export interface LogEntry {
   timestamp: string;
-  type: 'info' | 'stdout' | 'stderr' | 'error' | 'text' | 'tool' | 'step_start' | 'step_finish' | 'result' | 'assistant' | 'user' | 'system' | 'thinking';
+  type: 'info' | 'stdout' | 'stderr' | 'error' | 'text' | 'tool' | 'tool_use' | 'tool_call' | 'tool_result' | 'step_start' | 'step_finish' | 'result' | 'assistant' | 'user' | 'system' | 'thinking' | 'tokens';
   content: string;
 }
 

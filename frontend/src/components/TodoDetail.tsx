@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../hooks/useApp';
-import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination } from 'antd';
-import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined, DownOutlined, UpOutlined } from '@ant-design/icons';
+import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination, Segmented } from 'antd';
+import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined, DownOutlined, UpOutlined, UnorderedListOutlined, MessageOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import { PieChart } from './PieChart';
 import { TodoSettingsDrawer } from './TodoSettingsDrawer';
 import { TodoEditDrawer } from './TodoEditDrawer';
+import { ChatView } from './ChatView';
 import * as db from '../utils/database';
 import { formatLocalDateTime } from '../utils/datetime';
 import { AnimatedNumber } from './AnimatedNumber';
 import { getExecutorOption } from '../types';
 import XMarkdown from '@ant-design/x-markdown';
-import type { ExecutionSummary, Todo, TodoItem, ExecutionRecord } from '../types';
+import type { ExecutionSummary, Todo, TodoItem, ExecutionRecord, LogEntry } from '../types';
 
 function PromptDisplay({ content }: { content: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -190,6 +191,7 @@ export function TodoDetail() {
   const [isMobile, setIsMobile] = useState(false);
   const [isWide, setIsWide] = useState(false);
   const [selectedHistoryRecordId, setSelectedHistoryRecordId] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<'log' | 'chat'>('log');
   const selectedTodo = todos.find(t => t.id === selectedTodoId);
 
   useEffect(() => {
@@ -490,15 +492,26 @@ export function TodoDetail() {
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, ...(isWide ? { flexShrink: 0 } : {}) }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>执行历史</h4>
-          <Button
-            type="text"
-            size="small"
-            icon={<ReloadOutlined />}
-            onClick={() => loadExecutionRecords(historyPage, historyLimit)}
-            loading={isExecuting}
-          >
-            刷新
-          </Button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Segmented
+              size="small"
+              value={viewMode}
+              onChange={(value) => setViewMode(value as 'log' | 'chat')}
+              options={[
+                { value: 'log', icon: <UnorderedListOutlined />, label: '日志' },
+                { value: 'chat', icon: <MessageOutlined />, label: '对话' },
+              ]}
+            />
+            <Button
+              type="text"
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={() => loadExecutionRecords(historyPage, historyLimit)}
+              loading={isExecuting}
+            >
+              刷新
+            </Button>
+          </div>
         </div>
         {records.length === 0 ? (
           <Empty description="暂无执行记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
@@ -676,6 +689,22 @@ export function TodoDetail() {
                     })()}
                     {(() => {
                       if (!isRunning && displayLogs.length === 0) return null;
+                      if (viewMode === 'chat') {
+                        return (
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexShrink: 0 }}>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-primary)' }}>
+                                对话视图 ({displayLogs.length} 条){isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}
+                              </span>
+                              <ReloadOutlined
+                                style={{ fontSize: 12, color: 'var(--color-text-tertiary)', cursor: 'pointer' }}
+                                onClick={() => refreshSingleRecord(record.id)}
+                              />
+                            </div>
+                            <ChatView logs={displayLogs as LogEntry[]} isRunning={isRunning} />
+                          </div>
+                        );
+                      }
                       return (
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -856,6 +885,25 @@ export function TodoDetail() {
                   const displayLogs = liveLogs && liveLogs.length > 0 ? liveLogs : restLogs;
 
                   if (!isRunning && displayLogs.length === 0) return null;
+
+                  if (viewMode === 'chat') {
+                    return (
+                      <div style={{ marginTop: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-primary)' }}>
+                            对话视图 ({displayLogs.length} 条){isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}
+                          </span>
+                          <ReloadOutlined
+                            style={{ fontSize: 11 }}
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); refreshSingleRecord(record.id); }}
+                          />
+                        </div>
+                        <div style={{ maxHeight: 400, overflow: 'auto' }}>
+                          <ChatView logs={displayLogs as LogEntry[]} isRunning={isRunning} />
+                        </div>
+                      </div>
+                    );
+                  }
 
                   return (
                     <details style={{ marginTop: 8 }} open={isRunning}>
