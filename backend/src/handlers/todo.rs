@@ -86,8 +86,15 @@ pub async fn update_todo(
     // 获取当前值用于填充
     let current = state.require_todo(id).await?;
 
-    let title = req.title.unwrap_or(current.title);
-    let prompt = req.prompt.unwrap_or(current.prompt);
+    let title = req.title.unwrap_or_else(|| current.title.clone());
+    // None: keep current prompt; Some(empty): fallback to title; Some(value): use value
+    let prompt = match req.prompt {
+        Some(p) => {
+            let p = p.trim();
+            if p.is_empty() { title.clone() } else { p.to_string() }
+        }
+        None => current.prompt.clone(),
+    };
     let status = req.status.unwrap_or(current.status);
     let executor = req.executor.or(current.executor);
     let workspace = req.workspace.or(current.workspace);

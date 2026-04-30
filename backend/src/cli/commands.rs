@@ -318,7 +318,7 @@ async fn handle_todo(client: &ApiClient, action: &TodoAction, output: &OutputFor
         TodoAction::Execute { id, message, executor } => {
             let req = ExecuteRequest {
                 todo_id: *id,
-                message: message.clone().unwrap_or_default(),
+                message: message.clone(),
                 executor: executor.clone(),
             };
             let resp: ClientResponse<serde_json::Value> = client.post("/execute", &req).await?;
