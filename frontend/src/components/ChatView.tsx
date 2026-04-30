@@ -49,6 +49,12 @@ function parseLogsToMessages(logs: LogEntry[]): ChatMessage[] {
       case 'tool':
       case 'tool_use':
       case 'tool_call':
+        if (isCollectingTool && currentToolName) {
+          messages.push({ role: 'tool', content: '', timestamp: log.timestamp, toolName: currentToolName, toolInput: currentToolInput, isCollapsed: true });
+          currentToolName = '';
+          currentToolInput = '';
+          isCollectingTool = false;
+        }
         if (currentThinking) {
           messages.push({ role: 'thinking', content: currentThinking, timestamp: log.timestamp, isCollapsed: true });
           currentThinking = '';
@@ -126,12 +132,17 @@ function ThinkingBlock({ content, timestamp }: { content: string; timestamp?: st
   const [expanded, setExpanded] = useState(false);
   return (
     <div className="chat-thinking-block">
-      <div className="chat-thinking-header" onClick={() => setExpanded(!expanded)}>
+      <button
+        type="button"
+        className="chat-thinking-header"
+        aria-expanded={expanded}
+        onClick={() => setExpanded(!expanded)}
+      >
         <BulbOutlined style={{ color: '#f59e0b' }} />
         <span>思考过程</span>
         <span className="chat-thinking-toggle">{expanded ? '收起' : '展开'}</span>
         {timestamp && <span className="chat-time">{formatTime(timestamp)}</span>}
-      </div>
+      </button>
       {expanded && (
         <div className="chat-thinking-content">
           <XMarkdown content={content} />
@@ -160,7 +171,12 @@ function ToolBlock({ toolName, toolInput, toolResult, timestamp }: { toolName?: 
 
   return (
     <div className="chat-tool-block">
-      <div className="chat-tool-header" onClick={() => setExpanded(!expanded)}>
+      <button
+        type="button"
+        className="chat-tool-header"
+        aria-expanded={expanded}
+        onClick={() => setExpanded(!expanded)}
+      >
         <ToolOutlined style={{ color: '#3b82f6' }} />
         <span className="chat-tool-name">{toolName || '工具调用'}</span>
         {!expanded && toolInput && (
@@ -168,7 +184,7 @@ function ToolBlock({ toolName, toolInput, toolResult, timestamp }: { toolName?: 
         )}
         <span className="chat-tool-toggle">{expanded ? '收起' : '展开'}</span>
         {timestamp && <span className="chat-time">{formatTime(timestamp)}</span>}
-      </div>
+      </button>
       {expanded && (
         <div className="chat-tool-content">
           {toolInput && (
