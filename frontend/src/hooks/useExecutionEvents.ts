@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useApp } from './useApp';
-import type { LogEntry, TodoItem } from '../types';
+import type { LogEntry, TodoItem, ExecutionStats } from '../types';
 
 interface ExecEventStarted {
   type: 'Started';
@@ -41,7 +41,13 @@ interface ExecEventTodoProgress {
   progress: TodoItem[];
 }
 
-type ExecEvent = ExecEventStarted | ExecEventOutput | ExecEventFinished | ExecEventSync | ExecEventTodoProgress;
+interface ExecEventExecutionStats {
+  type: 'ExecutionStats';
+  task_id: string;
+  stats: ExecutionStats;
+}
+
+type ExecEvent = ExecEventStarted | ExecEventOutput | ExecEventFinished | ExecEventSync | ExecEventTodoProgress | ExecEventExecutionStats;
 
 export function useExecutionEvents() {
   const { dispatch } = useApp();
@@ -138,6 +144,13 @@ export function useExecutionEvents() {
               dispatch({
                 type: 'UPDATE_TASK_TODO_PROGRESS',
                 payload: { taskId: data.task_id, progress: data.progress },
+              });
+              break;
+            }
+            case 'ExecutionStats': {
+              dispatch({
+                type: 'UPDATE_TASK_EXECUTION_STATS',
+                payload: { taskId: data.task_id, stats: data.stats },
               });
               break;
             }

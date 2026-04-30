@@ -66,6 +66,10 @@ pub enum ExecEvent {
         task_id: String,
         progress: Vec<crate::models::TodoItem>,
     },
+    ExecutionStats {
+        task_id: String,
+        stats: crate::models::ExecutionStats,
+    },
 }
 
 #[derive(Debug)]

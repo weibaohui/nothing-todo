@@ -495,6 +495,11 @@ export function TodoDetail() {
                             {(record.usage.duration_ms / 1000).toFixed(2)}s
                           </span>
                         )}
+                        {record.execution_stats && (
+                          <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>
+                            🔧{record.execution_stats.tool_calls} 💬{record.execution_stats.conversation_turns}
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
@@ -604,6 +609,21 @@ export function TodoDetail() {
                         )}
                       </div>
                     )}
+                    {(() => {
+                      const stats = isRunning && currentRunningTask?.executionStats
+                        ? currentRunningTask.executionStats
+                        : record.execution_stats;
+                      if (!stats) return null;
+                      return (
+                        <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 12, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                          <span>工具调用: <b style={{ color: 'var(--color-primary)' }}>{stats.tool_calls}</b></span>
+                          <span>对话轮次: <b style={{ color: 'var(--color-primary)' }}>{stats.conversation_turns}</b></span>
+                          {stats.thinking_count > 0 && (
+                            <span>思考次数: <b style={{ color: 'var(--color-primary)' }}>{stats.thinking_count}</b></span>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {(() => {
                       const progress: TodoItem[] | null = (() => {
                         if (isRunning && currentRunningTask?.todoProgress?.length) {
@@ -773,6 +793,22 @@ export function TodoDetail() {
                     )}
                   </div>
                 )}
+                {(() => {
+                  const isRunning = record.status === 'running';
+                  const stats = isRunning && currentRunningTask?.executionStats
+                    ? currentRunningTask.executionStats
+                    : record.execution_stats;
+                  if (!stats) return null;
+                  return (
+                    <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                      <span>工具调用: <b style={{ color: 'var(--color-primary)' }}>{stats.tool_calls}</b></span>
+                      <span>对话轮次: <b style={{ color: 'var(--color-primary)' }}>{stats.conversation_turns}</b></span>
+                      {stats.thinking_count > 0 && (
+                        <span>思考次数: <b style={{ color: 'var(--color-primary)' }}>{stats.thinking_count}</b></span>
+                      )}
+                    </div>
+                  );
+                })()}
                 {(() => {
                   const isRunning = record.status === 'running';
                   const progress: TodoItem[] | null = (() => {
