@@ -685,6 +685,16 @@ body {
   font-weight: 600;
 }
 
+.chat-tool-preview {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chat-tool-toggle {
   margin-left: auto;
   font-size: 12px;

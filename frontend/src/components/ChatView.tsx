@@ -143,11 +143,29 @@ function ThinkingBlock({ content, timestamp }: { content: string; timestamp?: st
 
 function ToolBlock({ toolName, toolInput, toolResult, timestamp }: { toolName?: string; toolInput?: string; toolResult?: string; timestamp?: string }) {
   const [expanded, setExpanded] = useState(false);
+
+  // 生成参数预览（截取前50个字符）
+  const getInputPreview = () => {
+    if (!toolInput) return '';
+    try {
+      const parsed = JSON.parse(toolInput);
+      const keys = Object.keys(parsed);
+      if (keys.length === 0) return '{}';
+      const preview = keys.map(k => `${k}: ${typeof parsed[k] === 'string' ? `"${parsed[k].substring(0, 20)}${parsed[k].length > 20 ? '...' : ''}"` : parsed[k]}`).join(', ');
+      return preview.length > 60 ? preview.substring(0, 60) + '...' : preview;
+    } catch {
+      return toolInput.length > 50 ? toolInput.substring(0, 50) + '...' : toolInput;
+    }
+  };
+
   return (
     <div className="chat-tool-block">
       <div className="chat-tool-header" onClick={() => setExpanded(!expanded)}>
         <ToolOutlined style={{ color: '#3b82f6' }} />
         <span className="chat-tool-name">{toolName || '工具调用'}</span>
+        {!expanded && toolInput && (
+          <span className="chat-tool-preview">{getInputPreview()}</span>
+        )}
         <span className="chat-tool-toggle">{expanded ? '收起' : '展开'}</span>
         {timestamp && <span className="chat-time">{formatTime(timestamp)}</span>}
       </div>
