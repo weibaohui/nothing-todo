@@ -346,13 +346,6 @@ body {
   padding: 12px 20px;
 }
 
-.btn-execute-compact {
-  height: 36px;
-  font-size: 14px;
-  margin-top: 10px;
-  border-radius: var(--radius-sm);
-}
-
 .card-title {
   font-size: 18px;
   font-weight: 700;
@@ -385,6 +378,13 @@ body {
 .btn-execute:hover {
   background: var(--color-primary-hover);
   border-color: var(--color-primary-hover);
+}
+
+.btn-execute.btn-execute-compact {
+  height: 36px;
+  font-size: 14px;
+  margin-top: 10px;
+  border-radius: var(--radius-sm);
 }
 
 .btn-stop {

@@ -62,18 +62,26 @@ function InlineTokenStats({ input, output, cacheRead, cacheCreate, totalTokens, 
     { value: cacheCreate, color: '#a78bfa', label: '缓存写' },
   ];
   return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none', fontSize: 11, color: 'var(--color-text-secondary)' }} onClick={() => setExpanded(!expanded)}>
-      <PieChart segments={tokenSegments.filter(s => s.value > 0)} size={20} />
-      <span style={{ fontWeight: 700, color: 'var(--color-text)', fontSize: 13 }}><AnimatedNumber value={totalTokens} duration={1.2} chineseFormat /></span>
-      <span>Tokens</span>
-      <span style={{ color: 'var(--color-border)' }}>|</span>
-      <span>执行 <strong style={{ color: 'var(--color-text)' }}>{summary.total_executions}</strong> 次</span>
-      <span style={{ color: 'var(--color-success)' }}>成功 {summary.success_count}</span>
-      <span style={{ color: 'var(--color-error)' }}>失败 {summary.failed_count}</span>
-      {summary.total_cost_usd != null && (
-        <span style={{ color: 'var(--color-warning)', fontWeight: 600 }}>${summary.total_cost_usd.toFixed(4)}</span>
-      )}
-      {expanded ? <UpOutlined style={{ fontSize: 10 }} /> : <DownOutlined style={{ fontSize: 10 }} />}
+    <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-label="Token 统计摘要，点击展开详情"
+        onClick={() => setExpanded(!expanded)}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none', fontSize: 11, color: 'var(--color-text-secondary)', background: 'none', border: 'none', padding: 0 }}
+      >
+        <PieChart segments={tokenSegments.filter(s => s.value > 0)} size={20} />
+        <span style={{ fontWeight: 700, color: 'var(--color-text)', fontSize: 13 }}><AnimatedNumber value={totalTokens} duration={1.2} chineseFormat /></span>
+        <span>Tokens</span>
+        <span style={{ color: 'var(--color-border)' }}>|</span>
+        <span>执行 <strong style={{ color: 'var(--color-text)' }}>{summary.total_executions}</strong> 次</span>
+        <span style={{ color: 'var(--color-success)' }}>成功 {summary.success_count}</span>
+        <span style={{ color: 'var(--color-error)' }}>失败 {summary.failed_count}</span>
+        {summary.total_cost_usd != null && (
+          <span style={{ color: 'var(--color-warning)', fontWeight: 600 }}>${summary.total_cost_usd.toFixed(4)}</span>
+        )}
+        {expanded ? <UpOutlined style={{ fontSize: 10 }} /> : <DownOutlined style={{ fontSize: 10 }} />}
+      </button>
       {expanded && (
         <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 10, marginTop: 4, background: '#fff', border: '1px solid var(--color-border-light)', borderRadius: 8, padding: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 200 }}>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11 }}>
@@ -361,7 +369,10 @@ export function TodoDetail() {
 
   // Resolve current todo progress for header widget — follows selected execution record
   const currentTodoProgress = (() => {
-    const source = selectedHistoryRecord || (records.length > 0 ? records[0] : null);
+    // Try to find the record by selectedHistoryRecordId first, then fallback to first record
+    const source = selectedHistoryRecord
+      || (selectedHistoryRecordId ? records.find(r => r.id === selectedHistoryRecordId) : null)
+      || (records.length > 0 ? records[0] : null);
     if (!source) return null;
     if (source.status === 'running') {
       const task = getRunningTaskForRecord(source);
