@@ -55,6 +55,7 @@ export interface ExecutionRecord {
   model: string | null;
   trigger_type: string;
   pid: number | null;
+  task_id?: string | null;
   todo_progress?: string | null;
   execution_stats?: ExecutionStats | null;
 }
