@@ -20,7 +20,7 @@ const DEFAULT_CONFIG_TEMPLATE: &str = r#"# ntd configuration file
 
 port: 8088
 host: "0.0.0.0"
-db_path: "~/.ntd/data.db"
+db_path: "__DB_PATH__"
 log_level: "INFO"
 
 # Executor paths configuration
@@ -107,7 +107,10 @@ impl Config {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).ok();
             }
-            std::fs::write(&path, DEFAULT_CONFIG_TEMPLATE).ok();
+            let rendered = DEFAULT_CONFIG_TEMPLATE.replace("__DB_PATH__", &cfg.db_path);
+            if let Err(e) = std::fs::write(&path, rendered) {
+                eprintln!("Warning: failed to write config.yaml ({}), using in-memory defaults", e);
+            }
             return cfg;
         }
 
