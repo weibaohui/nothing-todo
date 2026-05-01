@@ -132,8 +132,13 @@ pub async fn run_todo_execution(
 
         // 使用 command-group 创建进程组，自动管理进程树
         tracing::info!("Spawning executor: path={}, args={:?}", executable_path, command_args);
+
+        // 透传当前进程的 PATH，确保执行器能找到系统命令
+        let current_path = std::env::var("PATH").unwrap_or_default();
+
         let mut cmd = tokio::process::Command::new(&executable_path);
-        cmd.args(&command_args)
+        cmd.env("PATH", current_path)
+            .args(&command_args)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .stdin(std::process::Stdio::piped());
