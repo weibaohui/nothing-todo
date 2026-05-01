@@ -644,6 +644,11 @@ export function TodoDetail() {
                         )}
                       </div>
                     </div>
+                    {record.command && (
+                      <div style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginBottom: 12, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {record.command}
+                      </div>
+                    )}
                     {record.result !== null && record.result !== '' && (
                       <div className={`history-result ${record.status === 'success' ? 'history-result-success' : 'history-result-failed'}`} style={{ marginBottom: 12 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
