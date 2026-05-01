@@ -1,0 +1,362 @@
+use std::sync::Arc;
+
+use parking_lot::Mutex;
+use serde_json::Value;
+
+use super::{CodeExecutor, ExecutionUsage, ExecutorType, ParsedLogEntry};
+use crate::models::utc_timestamp;
+
+pub struct CodexExecutor {
+    path: String,
+    model: Arc<Mutex<Option<String>>>,
+    usage: Arc<Mutex<Option<ExecutionUsage>>>,
+}
+
+impl CodexExecutor {
+    pub fn new(path: String) -> Self {
+        Self {
+            path,
+            model: Arc::new(Mutex::new(None)),
+            usage: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+impl Clone for CodexExecutor {
+    fn clone(&self) -> Self {
+        Self {
+            path: self.path.clone(),
+            model: self.model.clone(),
+            usage: self.usage.clone(),
+        }
+    }
+}
+
+impl CodeExecutor for CodexExecutor {
+    fn executor_type(&self) -> ExecutorType {
+        ExecutorType::Codex
+    }
+
+    fn executable_path(&self) -> &str {
+        &self.path
+    }
+
+    fn command_args(&self, message: &str) -> Vec<String> {
+        vec![
+            "exec".to_string(),
+            "--json".to_string(),
+            "--dangerously-bypass-approvals-and-sandbox".to_string(),
+            "--skip-git-repo-check".to_string(),
+            message.to_string(),
+        ]
+    }
+
+    fn command_args_with_session(&self, message: &str, _session_id: Option<&str>) -> Vec<String> {
+        self.command_args(message)
+    }
+
+    fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        let json = serde_json::from_str::<Value>(trimmed).ok()?;
+        let event = json.get("msg").unwrap_or(&json);
+        let event_type = event
+            .get("type")
+            .or_else(|| json.get("type"))
+            .and_then(Value::as_str)?;
+
+        if let Some(model) = first_string(event, &["model", "model_slug"]) {
+            *self.model.lock() = Some(model);
+        }
+
+        if let Some(usage) = parse_usage(event) {
+            *self.usage.lock() = Some(usage.clone());
+            return Some(ParsedLogEntry {
+                timestamp: utc_timestamp(),
+                log_type: "tokens".to_string(),
+                content: format!(
+                    "Tokens: input={}, output={}",
+                    usage.input_tokens, usage.output_tokens
+                ),
+                usage: Some(usage),
+                tool_name: None,
+                tool_input_json: None,
+            });
+        }
+
+        match event_type {
+            "session_configured" | "task_started" | "turn_started" => Some(ParsedLogEntry {
+                timestamp: utc_timestamp(),
+                log_type: "system".to_string(),
+                content: format!("Codex {}", event_type.replace('_', " ")),
+                usage: None,
+                tool_name: None,
+                tool_input_json: None,
+            }),
+            "agent_message" | "agent_message_delta" | "assistant_message" => {
+                let text = first_string(event, &["message", "delta", "text", "content"])?;
+                if text.is_empty() {
+                    return None;
+                }
+                Some(ParsedLogEntry {
+                    timestamp: utc_timestamp(),
+                    log_type: "text".to_string(),
+                    content: text,
+                    usage: None,
+                    tool_name: None,
+                    tool_input_json: None,
+                })
+            }
+            "agent_reasoning" | "agent_reasoning_delta" | "reasoning" | "reasoning_delta" => {
+                let text = first_string(event, &["message", "delta", "text", "content"])?;
+                if text.is_empty() {
+                    return None;
+                }
+                Some(ParsedLogEntry {
+                    timestamp: utc_timestamp(),
+                    log_type: "thinking".to_string(),
+                    content: text,
+                    usage: None,
+                    tool_name: None,
+                    tool_input_json: None,
+                })
+            }
+            "exec_command_begin" | "tool_call_begin" | "tool_call" => {
+                let tool_name = first_string(event, &["tool_name", "name"])
+                    .unwrap_or_else(|| "exec".to_string());
+                let command = command_to_string(event.get("command"))
+                    .or_else(|| first_string(event, &["cmd", "arguments", "input"]))
+                    .unwrap_or_default();
+                Some(ParsedLogEntry {
+                    timestamp: utc_timestamp(),
+                    log_type: "tool_call".to_string(),
+                    content: if command.is_empty() {
+                        format!("Calling tool: {}", tool_name)
+                    } else {
+                        format!("Calling tool: {} with args: {}", tool_name, command)
+                    },
+                    usage: None,
+                    tool_name: Some(tool_name),
+                    tool_input_json: event
+                        .get("command")
+                        .or_else(|| event.get("arguments"))
+                        .and_then(|v| serde_json::to_string(v).ok()),
+                })
+            }
+            "exec_command_end" | "tool_call_end" | "tool_result" => {
+                let stdout =
+                    first_string(event, &["stdout", "output", "result"]).unwrap_or_default();
+                let stderr = first_string(event, &["stderr"]).unwrap_or_default();
+                let exit_code = event.get("exit_code").and_then(Value::as_i64);
+                let mut content = String::new();
+                if let Some(code) = exit_code {
+                    content.push_str(&format!("exit_code={}", code));
+                }
+                if !stdout.is_empty() {
+                    if !content.is_empty() {
+                        content.push('\n');
+                    }
+                    content.push_str(&stdout);
+                }
+                if !stderr.is_empty() {
+                    if !content.is_empty() {
+                        content.push('\n');
+                    }
+                    content.push_str(&stderr);
+                }
+                if content.is_empty() {
+                    content = "Tool finished".to_string();
+                }
+                Some(ParsedLogEntry {
+                    timestamp: utc_timestamp(),
+                    log_type: "tool_result".to_string(),
+                    content,
+                    usage: None,
+                    tool_name: None,
+                    tool_input_json: None,
+                })
+            }
+            "task_complete" | "turn_completed" => Some(ParsedLogEntry {
+                timestamp: utc_timestamp(),
+                log_type: "step_finish".to_string(),
+                content: "Codex finished".to_string(),
+                usage: None,
+                tool_name: None,
+                tool_input_json: None,
+            }),
+            "error" => Some(ParsedLogEntry {
+                timestamp: utc_timestamp(),
+                log_type: "error".to_string(),
+                content: first_string(event, &["message", "error"])
+                    .unwrap_or_else(|| event.to_string()),
+                usage: None,
+                tool_name: None,
+                tool_input_json: None,
+            }),
+            _ => None,
+        }
+    }
+
+    fn parse_stderr_line(&self, line: &str) -> Option<ParsedLogEntry> {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        Some(ParsedLogEntry {
+            timestamp: utc_timestamp(),
+            log_type: if trimmed.to_lowercase().contains("error") {
+                "stderr".to_string()
+            } else {
+                "info".to_string()
+            },
+            content: trimmed.to_string(),
+            usage: None,
+            tool_name: None,
+            tool_input_json: None,
+        })
+    }
+
+    fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
+        super::default_final_result_with_think_stripping(logs)
+    }
+
+    fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
+        self.usage.lock().clone()
+    }
+
+    fn get_model(&self) -> Option<String> {
+        self.model.lock().clone()
+    }
+}
+
+fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_str))
+        .map(str::to_string)
+}
+
+fn command_to_string(value: Option<&Value>) -> Option<String> {
+    match value? {
+        Value::String(s) => Some(s.clone()),
+        Value::Array(items) => {
+            let parts: Vec<String> = items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect();
+            if parts.is_empty() {
+                None
+            } else {
+                Some(parts.join(" "))
+            }
+        }
+        other => Some(other.to_string()),
+    }
+}
+
+fn parse_usage(event: &Value) -> Option<ExecutionUsage> {
+    let usage = event
+        .get("usage")
+        .or_else(|| event.get("token_usage"))
+        .or_else(|| event.pointer("/info/total_token_usage"))?;
+
+    let input_tokens = usage
+        .get("input_tokens")
+        .or_else(|| usage.get("prompt_tokens"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let output_tokens = usage
+        .get("output_tokens")
+        .or_else(|| usage.get("completion_tokens"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+
+    if input_tokens == 0 && output_tokens == 0 {
+        return None;
+    }
+
+    Some(ExecutionUsage {
+        input_tokens,
+        output_tokens,
+        cache_read_input_tokens: usage
+            .get("cached_input_tokens")
+            .or_else(|| usage.get("cache_read_input_tokens"))
+            .and_then(Value::as_u64),
+        cache_creation_input_tokens: usage
+            .get("cache_creation_input_tokens")
+            .and_then(Value::as_u64),
+        total_cost_usd: usage.get("total_cost_usd").and_then(Value::as_f64),
+        duration_ms: event.get("duration_ms").and_then(Value::as_u64),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_command_args() {
+        let executor = CodexExecutor::new("codex".to_string());
+        let args = executor.command_args("say hello");
+        assert_eq!(
+            args,
+            vec![
+                "exec",
+                "--json",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "--skip-git-repo-check",
+                "say hello"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_executor_type() {
+        let executor = CodexExecutor::new("codex".to_string());
+        assert_eq!(executor.executor_type(), ExecutorType::Codex);
+    }
+
+    #[test]
+    fn test_parse_session_configured_stores_model() {
+        let executor = CodexExecutor::new("codex".to_string());
+        let line = r#"{"id":"0","msg":{"type":"session_configured","model":"gpt-5.1-codex"}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "system");
+        assert_eq!(executor.get_model(), Some("gpt-5.1-codex".to_string()));
+    }
+
+    #[test]
+    fn test_parse_agent_message() {
+        let executor = CodexExecutor::new("codex".to_string());
+        let line = r#"{"msg":{"type":"agent_message","message":"done"}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "text");
+        assert_eq!(entry.content, "done");
+    }
+
+    #[test]
+    fn test_parse_exec_command_begin() {
+        let executor = CodexExecutor::new("codex".to_string());
+        let line = r#"{"msg":{"type":"exec_command_begin","command":["ls","-la"]}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "tool_call");
+        assert_eq!(entry.tool_name, Some("exec".to_string()));
+        assert!(entry.content.contains("ls -la"));
+    }
+
+    #[test]
+    fn test_parse_token_count() {
+        let executor = CodexExecutor::new("codex".to_string());
+        let line = r#"{"msg":{"type":"token_count","info":{"total_token_usage":{"input_tokens":12,"cached_input_tokens":3,"output_tokens":4}}}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "tokens");
+        let usage = executor.get_usage(&[]).unwrap();
+        assert_eq!(usage.input_tokens, 12);
+        assert_eq!(usage.output_tokens, 4);
+        assert_eq!(usage.cache_read_input_tokens, Some(3));
+    }
+}

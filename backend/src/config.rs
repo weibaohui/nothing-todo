@@ -42,6 +42,7 @@ pub struct ExecutorPaths {
     pub codebuddy: String,
     pub kimi: String,
     pub atomcode: String,
+    pub codex: String,
 }
 
 impl Default for ExecutorPaths {
@@ -54,6 +55,7 @@ impl Default for ExecutorPaths {
             codebuddy: "codebuddy".to_string(),
             kimi: "kimi".to_string(),
             atomcode: "atomcode".to_string(),
+            codex: "codex".to_string(),
         }
     }
 }

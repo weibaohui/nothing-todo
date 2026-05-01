@@ -65,7 +65,7 @@ pub enum TodoAction {
         #[arg(short, long)]
         file: Option<String>,
 
-        /// Executor type (claudecode, joinai, codebuddy, opencode, atomcode, hermes)
+        /// Executor type (claudecode, joinai, codebuddy, opencode, atomcode, hermes, kimi, codex)
         #[arg(short, long)]
         executor: Option<String>,
 

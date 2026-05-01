@@ -209,6 +209,7 @@ export const EXECUTORS: ExecutorOption[] = [
   { value: 'atomcode',   label: 'AtomCode',   color: '#dc2626', icon: '🔴' },
   { value: 'hermes',     label: 'Hermes',    color: '#ea580c', icon: '🟠' },
   { value: 'kimi',      label: 'Kimi',      color: '#6366f1', icon: '🟪' },
+  { value: 'codex',     label: 'Codex',     color: '#111827', icon: '⬛' },
 ];
 
 export function getExecutorOption(value: string): ExecutorOption {
