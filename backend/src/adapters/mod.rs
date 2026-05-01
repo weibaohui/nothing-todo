@@ -15,6 +15,7 @@ pub fn parse_executor_type(executor: &str) -> Option<ExecutorType> {
         "hermes" => Some(ExecutorType::Hermes),
         "kimi" => Some(ExecutorType::Kimi),
         "joinai" => Some(ExecutorType::Joinai),
+        "codex" => Some(ExecutorType::Codex),
         _ => None,
     }
 }
@@ -59,6 +60,7 @@ pub mod opencode;
 pub mod atomcode;
 pub mod hermes;
 pub mod kimi;
+pub mod codex;
 
 #[async_trait]
 pub trait CodeExecutor: Send + Sync {
@@ -180,6 +182,12 @@ mod tests {
     #[test]
     fn test_parse_executor_type_joinai() {
         assert_eq!(parse_executor_type("joinai"), Some(ExecutorType::Joinai));
+    }
+
+    #[test]
+    fn test_parse_executor_type_codex() {
+        assert_eq!(parse_executor_type("codex"), Some(ExecutorType::Codex));
+        assert_eq!(parse_executor_type("CODEX"), Some(ExecutorType::Codex));
     }
 
     #[test]
@@ -310,4 +318,3 @@ mod tests {
         assert_eq!(exec.get_final_result(&logs), None);
     }
 }
-

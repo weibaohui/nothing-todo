@@ -121,6 +121,7 @@ mod config_parsing_tests {
         assert_eq!(paths.codebuddy, "codebuddy");
         assert_eq!(paths.kimi, "kimi");
         assert_eq!(paths.atomcode, "atomcode");
+        assert_eq!(paths.codex, "codex");
     }
 
     #[test]
@@ -141,6 +142,7 @@ mod config_parsing_tests {
             codebuddy: "codebuddy".to_string(),
             kimi: "kimi".to_string(),
             atomcode: "atomcode".to_string(),
+            codex: "codex".to_string(),
         };
         assert_eq!(paths.opencode, "custom-opencode");
         assert_eq!(paths.hermes, "custom-hermes");

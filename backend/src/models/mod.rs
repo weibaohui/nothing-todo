@@ -376,6 +376,7 @@ pub enum ExecutorType {
     Atomcode,
     Hermes,
     Kimi,
+    Codex,
 }
 
 impl Default for ExecutorType {
@@ -394,6 +395,7 @@ impl ExecutorType {
             ExecutorType::Atomcode => "atomcode",
             ExecutorType::Hermes => "hermes",
             ExecutorType::Kimi => "kimi",
+            ExecutorType::Codex => "codex",
         }
     }
 }

@@ -5,6 +5,7 @@ use ntd::adapters::hermes::HermesExecutor;
 use ntd::adapters::opencode::OpencodeExecutor;
 use ntd::adapters::atomcode::AtomcodeExecutor;
 use ntd::adapters::joinai::JoinaiExecutor;
+use ntd::adapters::codex::CodexExecutor;
 use ntd::models::{ParsedLogEntry, ExecutorType};
 
 #[cfg(test)]
@@ -118,6 +119,52 @@ mod kimi_executor_tests {
         assert!(executor.check_success(0));
         assert!(!executor.check_success(1));
         assert!(!executor.check_success(130)); // SIGINT - not success for default impl
+    }
+}
+
+#[cfg(test)]
+mod codex_executor_tests {
+    use super::*;
+
+    #[test]
+    fn test_codex_command_args() {
+        let executor = CodexExecutor::new("codex".to_string());
+        let args = executor.command_args("say hello");
+        assert_eq!(
+            args,
+            vec![
+                "exec",
+                "--json",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "--skip-git-repo-check",
+                "say hello"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_codex_executor_type() {
+        let executor = CodexExecutor::new("codex".to_string());
+        assert_eq!(executor.executor_type(), ExecutorType::Codex);
+    }
+
+    #[test]
+    fn test_codex_parse_agent_message() {
+        let executor = CodexExecutor::new("codex".to_string());
+        let json = r#"{"msg":{"type":"agent_message","message":"done"}}"#;
+        let entry = executor.parse_output_line(json).unwrap();
+        assert_eq!(entry.log_type, "text");
+        assert_eq!(entry.content, "done");
+    }
+
+    #[test]
+    fn test_codex_parse_exec_command_begin() {
+        let executor = CodexExecutor::new("codex".to_string());
+        let json = r#"{"msg":{"type":"exec_command_begin","command":["date"]}}"#;
+        let entry = executor.parse_output_line(json).unwrap();
+        assert_eq!(entry.log_type, "tool_call");
+        assert_eq!(entry.tool_name, Some("exec".to_string()));
+        assert!(entry.content.contains("date"));
     }
 }
 

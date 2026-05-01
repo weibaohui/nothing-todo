@@ -191,6 +191,7 @@ async fn run_server(cli_port: Option<u16>) {
     executor_registry.register(adapters::atomcode::AtomcodeExecutor::new(cfg.executors.atomcode.clone()));
     executor_registry.register(adapters::hermes::HermesExecutor::new(cfg.executors.hermes.clone()));
     executor_registry.register(adapters::kimi::KimiExecutor::new(cfg.executors.kimi.clone()));
+    executor_registry.register(adapters::codex::CodexExecutor::new(cfg.executors.codex.clone()));
 
     let executors = executor_registry.list_executors();
     info!("Available executors: {:?}", executors);
