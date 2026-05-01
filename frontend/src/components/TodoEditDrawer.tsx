@@ -22,7 +22,7 @@ export function TodoEditDrawer({ open, todo, onClose, onSave }: TodoEditDrawerPr
       setTitle(todo.title || '');
       setPrompt(todo.prompt || '');
     }
-  }, [open, todo]);
+  }, [open, todo?.title, todo?.prompt]);
 
   const handleSave = async () => {
     if (!title.trim()) {

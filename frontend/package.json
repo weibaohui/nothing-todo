@@ -20,6 +20,8 @@
     "axios": "^1.15.2",
     "cherry-markdown": "^0.11.0",
     "cron-parser": "^5.5.0",
+    "dompurify": "^3.4.2",
+    "marked": "^18.0.3",
     "rc-field-form": "^2.7.1",
     "react": "^19.1.0",
     "react-countup": "^6.5.3",
@@ -28,6 +30,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
+    "@types/dompurify": "^3.0.5",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",

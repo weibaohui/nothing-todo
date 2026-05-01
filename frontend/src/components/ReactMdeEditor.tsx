@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import ReactMde from 'react-mde';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import 'react-mde/lib/styles/css/react-mde-editor.css';
 import 'react-mde/lib/styles/css/react-mde-preview.css';
 import 'react-mde/lib/styles/css/react-mde-toolbar.css';
@@ -26,9 +28,12 @@ export function ReactMdeEditor({
         onChange={onChange}
         selectedTab={selectedTab}
         onTabChange={setSelectedTab}
-        generateMarkdownPreview={(markdown: string) =>
-          Promise.resolve(<div dangerouslySetInnerHTML={{ __html: markdown }} />)
-        }
+        generateMarkdownPreview={(markdown: string) => {
+          const html = marked.parse(markdown) as string;
+          return Promise.resolve(
+            <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }} />
+          );
+        }}
       />
     </div>
   );
