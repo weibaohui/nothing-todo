@@ -5,14 +5,12 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: 'dist',
-    assetsInlineLimit: 4096, // 4kb以下的资源内联
+    assetsInlineLimit: 4096,
     rollupOptions: {
       output: {
         manualChunks: {
-          // 第三方库分割
           'vendor-react': ['react', 'react-dom'],
           'vendor-antd': ['antd', '@ant-design/icons', '@ant-design/pro-components'],
-          'vendor-markdown': ['cherry-markdown'],
         },
       },
     },
