@@ -141,31 +141,32 @@ impl CodeExecutor for CodexExecutor {
             }
         }
 
-        // Handle turn events with usage
+        // Handle turn events
         if event_type == "turn.completed" || event_type == "turn.started" {
-            if event_type == "turn.completed" {
-                // Parse usage from turn.completed
-                if let Some(usage_obj) = json.get("usage") {
-                    if let Some(usage) = parse_usage(usage_obj) {
-                        *self.usage.lock() = Some(usage.clone());
-                        return Some(ParsedLogEntry {
-                            timestamp: utc_timestamp(),
-                            log_type: "tokens".to_string(),
-                            content: format!(
-                                "Tokens: input={}, output={}",
-                                usage.input_tokens, usage.output_tokens
-                            ),
-                            usage: Some(usage),
-                            tool_name: None,
-                            tool_input_json: None,
-                        });
-                    }
+            let log_type = if event_type == "turn.completed" {
+                // Try to parse usage from turn.completed (pass full json, not usage_obj)
+                if let Some(usage) = parse_usage(&json) {
+                    *self.usage.lock() = Some(usage.clone());
+                    return Some(ParsedLogEntry {
+                        timestamp: utc_timestamp(),
+                        log_type: "tokens".to_string(),
+                        content: format!(
+                            "Tokens: input={}, output={}",
+                            usage.input_tokens, usage.output_tokens
+                        ),
+                        usage: Some(usage),
+                        tool_name: None,
+                        tool_input_json: None,
+                    });
                 }
-            }
+                "step_finish"
+            } else {
+                "system"
+            };
             return Some(ParsedLogEntry {
                 timestamp: utc_timestamp(),
-                log_type: "system".to_string(),
-                content: format!("Codex {}", event_type.replace('_', " ")),
+                log_type: log_type.to_string(),
+                content: format!("Codex {}", event_type.replace('.', " ").replace('_', " ")),
                 usage: None,
                 tool_name: None,
                 tool_input_json: None,
@@ -382,16 +383,8 @@ fn parse_usage(event: &Value) -> Option<ExecutionUsage> {
         .or_else(|| event.get("token_usage"))
         .or_else(|| event.pointer("/info/total_token_usage"))?;
 
-    let input_tokens = usage
-        .get("input_tokens")
-        .or_else(|| usage.get("prompt_tokens"))
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    let output_tokens = usage
-        .get("output_tokens")
-        .or_else(|| usage.get("completion_tokens"))
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
+    let input_tokens = usage.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+    let output_tokens = usage.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
 
     if input_tokens == 0 && output_tokens == 0 {
         return None;
@@ -400,15 +393,10 @@ fn parse_usage(event: &Value) -> Option<ExecutionUsage> {
     Some(ExecutionUsage {
         input_tokens,
         output_tokens,
-        cache_read_input_tokens: usage
-            .get("cached_input_tokens")
-            .or_else(|| usage.get("cache_read_input_tokens"))
-            .and_then(Value::as_u64),
-        cache_creation_input_tokens: usage
-            .get("cache_creation_input_tokens")
-            .and_then(Value::as_u64),
-        total_cost_usd: usage.get("total_cost_usd").and_then(Value::as_f64),
-        duration_ms: event.get("duration_ms").and_then(Value::as_u64),
+        cache_read_input_tokens: usage.get("cached_input_tokens").and_then(|v| v.as_u64()),
+        cache_creation_input_tokens: usage.get("cache_creation_input_tokens").and_then(|v| v.as_u64()),
+        total_cost_usd: usage.get("total_cost_usd").and_then(|v| v.as_f64()),
+        duration_ms: event.get("duration_ms").and_then(|v| v.as_u64()),
     })
 }
 
@@ -439,42 +427,64 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_session_configured_stores_model() {
+    fn test_parse_thread_started() {
         let executor = CodexExecutor::new("codex".to_string());
-        let line = r#"{"id":"0","msg":{"type":"session_configured","model":"gpt-5.1-codex"}}"#;
+        let line = r#"{"type":"thread.started","thread_id":"abc123"}"#;
         let entry = executor.parse_output_line(line).unwrap();
         assert_eq!(entry.log_type, "system");
-        assert_eq!(executor.get_model(), Some("gpt-5.1-codex".to_string()));
+        assert_eq!(entry.content, "Codex thread started");
     }
 
     #[test]
-    fn test_parse_agent_message() {
+    fn test_parse_turn_started() {
         let executor = CodexExecutor::new("codex".to_string());
-        let line = r#"{"msg":{"type":"agent_message","message":"done"}}"#;
+        let line = r#"{"type":"turn.started"}"#;
         let entry = executor.parse_output_line(line).unwrap();
-        assert_eq!(entry.log_type, "text");
-        assert_eq!(entry.content, "done");
+        assert_eq!(entry.log_type, "system");
+        assert_eq!(entry.content, "Codex turn started");
     }
 
     #[test]
-    fn test_parse_exec_command_begin() {
+    fn test_parse_item_started_command_execution() {
         let executor = CodexExecutor::new("codex".to_string());
-        let line = r#"{"msg":{"type":"exec_command_begin","command":["ls","-la"]}}"#;
+        let line = r#"{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc date"}}"#;
         let entry = executor.parse_output_line(line).unwrap();
         assert_eq!(entry.log_type, "tool_call");
-        assert_eq!(entry.tool_name, Some("exec".to_string()));
-        assert!(entry.content.contains("ls -la"));
+        assert_eq!(entry.tool_name, Some("command_execution".to_string()));
+        assert!(entry.content.contains("Executing command:"));
+        assert!(entry.content.contains("/bin/zsh"));
     }
 
     #[test]
-    fn test_parse_token_count() {
+    fn test_parse_item_completed_command_execution() {
         let executor = CodexExecutor::new("codex".to_string());
-        let line = r#"{"msg":{"type":"token_count","info":{"total_token_usage":{"input_tokens":12,"cached_input_tokens":3,"output_tokens":4}}}}"#;
+        let line = r#"{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc date","aggregated_output":"Fri May  1 03:33:39 PDT 2026\n","exit_code":0,"status":"completed"}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "tool_result");
+        assert_eq!(entry.tool_name, Some("command_execution".to_string()));
+        assert!(entry.content.contains("[completed]"));
+        assert!(entry.content.contains("Fri May"));
+        assert!(entry.content.contains("exit=0"));
+    }
+
+    #[test]
+    fn test_parse_item_completed_agent_message() {
+        let executor = CodexExecutor::new("codex".to_string());
+        let line = r#"{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"这是AI的回复"}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "text");
+        assert_eq!(entry.content, "这是AI的回复");
+    }
+
+    #[test]
+    fn test_parse_turn_completed_with_usage() {
+        let executor = CodexExecutor::new("codex".to_string());
+        let line = r#"{"type":"turn.completed","usage":{"input_tokens":46503,"cached_input_tokens":45824,"output_tokens":90,"reasoning_output_tokens":0}}"#;
         let entry = executor.parse_output_line(line).unwrap();
         assert_eq!(entry.log_type, "tokens");
         let usage = executor.get_usage(&[]).unwrap();
-        assert_eq!(usage.input_tokens, 12);
-        assert_eq!(usage.output_tokens, 4);
-        assert_eq!(usage.cache_read_input_tokens, Some(3));
+        assert_eq!(usage.input_tokens, 46503);
+        assert_eq!(usage.output_tokens, 90);
+        assert_eq!(usage.cache_read_input_tokens, Some(45824));
     }
 }
