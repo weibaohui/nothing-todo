@@ -23,18 +23,6 @@ async fn kill_process_tree(child: &mut command_group::AsyncGroupChild) {
     }
 }
 
-/// 使用 pkill 杀死匹配的进程（用于清理 opencode 等可能产生独立子进程的 executor）
-/// 先发送 SIGTERM，等待后发送 SIGKILL 确保杀死
-fn kill_matching_processes(pattern: &str) {
-    let _ = std::process::Command::new("pkill")
-        .args(["-f", pattern])
-        .output();
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    let _ = std::process::Command::new("pkill")
-        .args(["-9", "-f", pattern])
-        .output();
-}
-
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ExecutionResult {
     pub task_id: String,
@@ -305,12 +293,7 @@ pub async fn run_todo_execution(
                 return;
             }
             status = child.wait() => {
-                // 子进程已自然退出，但可能还有子进程存活，需要显式杀死进程树
-                kill_process_tree(&mut child).await;
-
-                // 额外清理：使用 pkill 杀死可能残留的子进程（如 opencode 内部的 Claude 进程）
-                kill_matching_processes(&format!("opencode run.*{}", message));
-
+                // 子进程已自然退出，command-group 的进程组已自动清理
                 // 收割僵尸进程
                 let _status = child.wait().await;
 
