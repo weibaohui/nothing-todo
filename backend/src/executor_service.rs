@@ -133,7 +133,11 @@ pub async fn run_todo_execution(
         // 使用 command-group 创建进程组，自动管理进程树
         let mut cmd = tokio::process::Command::new(&executable_path);
 
-        tracing::info!("[DEBUG] Spawning executor: path={}, args={:?}", executable_path, command_args);
+        tracing::debug!(
+            executable = %executable_path,
+            arg_count = command_args.len(),
+            "Spawning executor"
+        );
 
         cmd.args(&command_args)
             .stdout(std::process::Stdio::piped())
