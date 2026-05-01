@@ -1,6 +1,7 @@
 import { useApp } from '../hooks/useApp';
-import { Button, Popconfirm } from 'antd';
+import { Button, Popconfirm, message } from 'antd';
 import { useState } from 'react';
+import * as db from '../utils/database';
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -85,8 +86,15 @@ export function Sidebar({ onOpenTagModal }: SidebarProps) {
             <Popconfirm
               title="删除标签"
               description="确定要删除这个标签吗？"
-              onConfirm={(e) => {
+              onConfirm={async (e) => {
                 e?.stopPropagation();
+                try {
+                  await db.deleteTag(tag.id);
+                  dispatch({ type: 'DELETE_TAG', payload: tag.id });
+                  message.success('标签已删除');
+                } catch (err) {
+                  message.error('删除失败: ' + (err instanceof Error ? err.message : String(err)));
+                }
               }}
               onCancel={(e) => e?.stopPropagation()}
             >

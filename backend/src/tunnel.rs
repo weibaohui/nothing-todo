@@ -37,7 +37,10 @@ pub fn handle_tunnel_command(action: &TunnelAction) {
     match action {
         TunnelAction::Start { tunnel_type } => {
             let tunnel_type = tunnel_type.clone();
-            fs::create_dir_all(&ntd_dir).expect("Failed to create .ntd directory");
+            if let Err(e) = fs::create_dir_all(&ntd_dir) {
+                eprintln!("Failed to create .ntd directory: {}", e);
+                std::process::exit(1);
+            }
 
             // 停止已存在的 tunnel
             if let Ok(old_pid_str) = fs::read_to_string(&pid_file) {
@@ -107,17 +110,27 @@ pub fn handle_tunnel_command(action: &TunnelAction) {
 fn start_hostc_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
     let output_file = "/tmp/hostc_output.txt";
 
-    let output = std::fs::OpenOptions::new()
+    let output = match std::fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .open(output_file)
-        .expect("Failed to create output file");
+    {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Failed to create output file: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     let mut cmd = std::process::Command::new("hostc");
-    cmd.arg(get_port().to_string())
-        .stdout(output.try_clone().expect("Failed to clone output file"))
-        .stderr(output);
+    match output.try_clone() {
+        Ok(cloned) => { cmd.stdout(cloned).stderr(output); }
+        Err(e) => {
+            eprintln!("Failed to clone output file: {}", e);
+            std::process::exit(1);
+        }
+    }
 
     // 使用 command-group 创建进程组，确保可以安全清理进程树
     let mut child = match command_group::CommandGroup::group_spawn(&mut cmd) {
@@ -129,7 +142,10 @@ fn start_hostc_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
     };
 
     let hostc_pid = child.id();
-    fs::write(pid_file, hostc_pid.to_string()).expect("Failed to write PID file");
+    if let Err(e) = fs::write(pid_file, hostc_pid.to_string()) {
+        eprintln!("Failed to write PID file: {}", e);
+        std::process::exit(1);
+    }
 
     let public_url = poll_for_url(output_file, |line| {
         if line.contains("Public URL:") {
@@ -155,7 +171,10 @@ fn start_hostc_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
         std::process::exit(1);
     }
 
-    fs::write(url_file, &public_url).expect("Failed to write URL file");
+    if let Err(e) = fs::write(url_file, &public_url) {
+        eprintln!("Failed to write URL file: {}", e);
+        std::process::exit(1);
+    }
     println!("\nTunnel PID: {}", hostc_pid);
     println!("Public URL saved to ~/.ntd/tunnel.url");
     println!("Public URL: {}", public_url);
@@ -164,19 +183,27 @@ fn start_hostc_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
 fn start_cloudflare_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
     let output_file = "/tmp/cloudflared_output.txt";
 
-    let output = std::fs::OpenOptions::new()
+    let output = match std::fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .open(output_file)
-        .expect("Failed to create output file");
+    {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Failed to create output file: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     let mut cmd = std::process::Command::new("cloudflared");
-    cmd.arg("tunnel")
-        .arg("--url")
-        .arg(format!("http://localhost:{}", get_port()))
-        .stdout(output.try_clone().expect("Failed to clone output file"))
-        .stderr(output);
+    match output.try_clone() {
+        Ok(cloned) => { cmd.stdout(cloned).stderr(output); }
+        Err(e) => {
+            eprintln!("Failed to clone output file: {}", e);
+            std::process::exit(1);
+        }
+    }
 
     // 使用 command-group 创建进程组，确保可以安全清理进程树
     let mut child = match command_group::CommandGroup::group_spawn(&mut cmd) {
@@ -188,7 +215,10 @@ fn start_cloudflare_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
     };
 
     let cloudflared_pid = child.id();
-    fs::write(pid_file, cloudflared_pid.to_string()).expect("Failed to write PID file");
+    if let Err(e) = fs::write(pid_file, cloudflared_pid.to_string()) {
+        eprintln!("Failed to write PID file: {}", e);
+        std::process::exit(1);
+    }
 
     let public_url = poll_for_url(output_file, |line| {
         let trimmed = line.trim();
@@ -212,7 +242,10 @@ fn start_cloudflare_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
         std::process::exit(1);
     }
 
-    fs::write(url_file, &public_url).expect("Failed to write URL file");
+    if let Err(e) = fs::write(url_file, &public_url) {
+        eprintln!("Failed to write URL file: {}", e);
+        std::process::exit(1);
+    }
     println!("\nTunnel PID: {}", cloudflared_pid);
     println!("Public URL saved to ~/.ntd/tunnel.url");
     println!("Public URL: {}", public_url);

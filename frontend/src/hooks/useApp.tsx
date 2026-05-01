@@ -68,7 +68,7 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SELECT_TAG':
       return { ...state, selectedTagId: action.payload };
     case 'ADD_TAG':
-      return { ...state, tags: [...state.tags, ...[action.payload]] };
+      return { ...state, tags: [...state.tags, action.payload] };
     case 'DELETE_TAG':
       return { ...state, tags: state.tags.filter(t => t.id !== action.payload) };
     case 'SET_EXECUTION_RECORDS':
@@ -216,9 +216,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         // 注意：running tasks 现在由 WebSocket 的 Sync 事件初始化
         // 不再从数据库加载 running todos，因为数据库状态可能与实际进程状态不同步
-      } catch (error) {
-        console.error('Failed to load data:', error);
-      } finally {
+      } catch {
         dispatch({ type: 'SET_LOADING', payload: false });
       }
     }

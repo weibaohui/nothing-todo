@@ -175,11 +175,13 @@ async fn run_server(cli_port: Option<u16>) {
         std::fs::create_dir_all(parent).ok();
     }
 
-    let db = Arc::new(
-        db::Database::new(&db_path)
-            .await
-            .expect("Failed to open database")
-    );
+    let db = match db::Database::new(&db_path).await {
+        Ok(db) => Arc::new(db),
+        Err(e) => {
+            eprintln!("Failed to open database at {}: {}", db_path, e);
+            std::process::exit(1);
+        }
+    };
 
     db.cleanup_orphan_execution_records().await;
 
@@ -200,9 +202,16 @@ async fn run_server(cli_port: Option<u16>) {
     let task_manager = Arc::new(TaskManager::new());
 
     let scheduler = Arc::new({
-        let sched = TodoScheduler::new().await.expect("Failed to create scheduler");
-        sched.load_from_db(db.clone(), executor_registry.clone(), tx.clone(), task_manager.clone()).await.expect("Failed to load scheduled tasks");
-        sched.start().await.expect("Failed to start scheduler");
+        let sched = TodoScheduler::new().await.unwrap_or_else(|e| {
+            tracing::error!("Failed to create scheduler: {}. Exiting.", e);
+            std::process::exit(1);
+        });
+        if let Err(e) = sched.load_from_db(db.clone(), executor_registry.clone(), tx.clone(), task_manager.clone()).await {
+            tracing::warn!("Failed to load scheduled tasks: {}", e);
+        }
+        if let Err(e) = sched.start().await {
+            tracing::warn!("Failed to start scheduler: {}", e);
+        }
         sched
     });
 
@@ -215,7 +224,13 @@ async fn run_server(cli_port: Option<u16>) {
     info!("  Open http://localhost:{} in your browser", port);
     info!("===========================================");
 
-    let std_listener = std::net::TcpListener::bind(format!("0.0.0.0:{}", port)).unwrap();
+    let std_listener = match std::net::TcpListener::bind(format!("0.0.0.0:{}", port)) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("Failed to bind to port {}: {}", port, e);
+            std::process::exit(1);
+        }
+    };
 
     #[cfg(unix)]
     {
@@ -232,8 +247,19 @@ async fn run_server(cli_port: Option<u16>) {
         }
     }
 
-    std_listener.set_nonblocking(true).unwrap();
-    let listener = tokio::net::TcpListener::from_std(std_listener).unwrap();
+    if let Err(e) = std_listener.set_nonblocking(true) {
+        eprintln!("Failed to set non-blocking: {}", e);
+        std::process::exit(1);
+    }
+    let listener = match tokio::net::TcpListener::from_std(std_listener) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("Failed to create async listener: {}", e);
+            std::process::exit(1);
+        }
+    };
 
-    axum::serve(listener, app).await.unwrap();
+    if let Err(e) = axum::serve(listener, app).await {
+        tracing::error!("Server error: {}", e);
+    }
 }

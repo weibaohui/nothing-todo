@@ -125,10 +125,9 @@ export function Dashboard({ onBack }: DashboardProps) {
         setLoading(true);
         const data = await db.getDashboardStats();
         if (!cancelled) setStats(data);
-      } catch (err) {
+      } catch {
         if (!cancelled) {
           message.error('加载统计数据失败');
-          console.error(err);
         }
       } finally {
         if (!cancelled) setLoading(false);
