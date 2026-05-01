@@ -294,8 +294,6 @@ pub async fn run_todo_execution(
             }
             status = child.wait() => {
                 // 子进程已自然退出，command-group 的进程组已自动清理
-                // 收割僵尸进程
-                let _status = child.wait().await;
 
                 if let Some(handle) = stdout_task {
                     let _ = handle.await;
