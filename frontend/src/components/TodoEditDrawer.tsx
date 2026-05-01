@@ -1,7 +1,6 @@
-import { useEffect, useRef, useId, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Drawer, Input, Button, App } from 'antd';
-import Cherry from 'cherry-markdown';
-import 'cherry-markdown/dist/cherry-markdown.css';
+import { ReactMdeEditor } from './ReactMdeEditor';
 import type { Todo } from '../types';
 
 interface TodoEditDrawerProps {
@@ -13,74 +12,17 @@ interface TodoEditDrawerProps {
 
 export function TodoEditDrawer({ open, todo, onClose, onSave }: TodoEditDrawerProps) {
   const { message } = App.useApp();
-  const reactId = useId();
-  const editorId = 'cherry-drawer-' + reactId.replace(/:/g, '');
-  const cherryRef = useRef<Cherry | null>(null);
-  const isInternalUpdate = useRef(false);
 
   const [title, setTitle] = useState('');
   const [prompt, setPrompt] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!open || !todo) return;
-
-    setTitle(todo.title);
-    setPrompt(todo.prompt || '');
-
-    const timer = setTimeout(() => {
-      const el = document.getElementById(editorId);
-      if (!el) return;
-
-      cherryRef.current = new Cherry({
-        id: editorId,
-        value: todo.prompt || '',
-        isPreviewOnly: false,
-        editor: {
-          defaultModel: 'edit&preview',
-          height: 'calc(100vh - 200px)',
-          codemirror: { placeholder: '输入 Prompt 内容...' },
-        },
-        toolbars: {
-          toolbar: [
-            'bold', 'italic', 'strikethrough', '|',
-            'header', 'list', '|',
-            'code', 'inlineCode', '|',
-            'table', 'link', '|',
-            'togglePreview',
-          ],
-          toolbarRight: [],
-          bubble: [],
-          float: [],
-        },
-        callback: {
-          afterChange: (newVal: string) => {
-            if (!isInternalUpdate.current) {
-              setPrompt(newVal);
-            }
-          },
-        },
-      });
-    }, 100);
-
-    return () => {
-      clearTimeout(timer);
-      cherryRef.current?.destroy();
-      cherryRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, todo?.id]);
-
-  useEffect(() => {
-    const cherry = cherryRef.current;
-    if (!cherry || !open) return;
-    const currentVal = cherry.getMarkdown();
-    if (currentVal !== prompt) {
-      isInternalUpdate.current = true;
-      cherry.setMarkdown(prompt || '');
-      isInternalUpdate.current = false;
+    if (open && todo) {
+      setTitle(todo.title || '');
+      setPrompt(todo.prompt || '');
     }
-  }, [prompt, open]);
+  }, [open, todo?.title, todo?.prompt]);
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -155,7 +97,11 @@ export function TodoEditDrawer({ open, todo, onClose, onSave }: TodoEditDrawerPr
 
         {/* Editor */}
         <div style={{ flex: 1, padding: '8px 20px 20px', overflow: 'hidden' }}>
-          <div id={editorId} style={{ height: '100%' }} />
+          <ReactMdeEditor
+            value={prompt}
+            onChange={setPrompt}
+            height={400}
+          />
         </div>
       </div>
     </Drawer>
