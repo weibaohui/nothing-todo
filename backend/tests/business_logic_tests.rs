@@ -122,6 +122,7 @@ mod executor_type_tests {
         assert_eq!(ExecutorType::Atomcode.to_string(), "atomcode");
         assert_eq!(ExecutorType::Joinai.to_string(), "joinai");
         assert_eq!(ExecutorType::Codebuddy.to_string(), "codebuddy");
+        assert_eq!(ExecutorType::Codex.to_string(), "codex");
     }
 
     #[test]
@@ -135,6 +136,7 @@ mod executor_type_tests {
         assert_eq!(parse_executor_type("atomcode"), Some(ExecutorType::Atomcode));
         assert_eq!(parse_executor_type("joinai"), Some(ExecutorType::Joinai));
         assert_eq!(parse_executor_type("codebuddy"), Some(ExecutorType::Codebuddy));
+        assert_eq!(parse_executor_type("codex"), Some(ExecutorType::Codex));
     }
 
     #[test]
