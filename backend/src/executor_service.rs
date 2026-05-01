@@ -132,6 +132,12 @@ pub async fn run_todo_execution(
 
         // 使用 command-group 创建进程组，自动管理进程树
         let mut cmd = tokio::process::Command::new(&executable_path);
+
+        // 透传当前进程的 PATH，确保执行器能找到系统命令（仅当 PATH 存在时）
+        if let Ok(current_path) = std::env::var("PATH") {
+            cmd.env("PATH", current_path);
+        }
+
         cmd.args(&command_args)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
