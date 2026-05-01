@@ -62,11 +62,10 @@ impl Default for ExecutorPaths {
 
 impl Default for Config {
     fn default() -> Self {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
         Self {
             port: DEFAULT_PORT,
             host: DEFAULT_HOST.to_string(),
-            db_path: home.join(".ntd").join("data.db").to_string_lossy().to_string(),
+            db_path: "~/.ntd/data.db".to_string(),
             log_level: "INFO".to_string(),
             executors: ExecutorPaths::default(),
         }
@@ -107,9 +106,14 @@ impl Config {
         }
     }
 
-    /// Normalize paths: convert relative paths to absolute paths based on home directory.
+    /// Normalize paths: convert ~ and relative paths to absolute paths.
     fn normalize_paths(&mut self) {
-        if !PathBuf::from(&self.db_path).is_absolute() {
+        if self.db_path.starts_with('~') {
+            if let Some(home) = dirs::home_dir() {
+                let relative = self.db_path.trim_start_matches('~');
+                self.db_path = home.join(relative).to_string_lossy().to_string();
+            }
+        } else if !PathBuf::from(&self.db_path).is_absolute() {
             if let Some(home) = dirs::home_dir() {
                 self.db_path = home.join(&self.db_path).to_string_lossy().to_string();
             }
