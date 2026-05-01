@@ -293,7 +293,8 @@ pub async fn run_todo_execution(
                 return;
             }
             status = child.wait() => {
-                // 子进程已自然退出，command-group 会自动处理进程组
+                // 子进程已自然退出，command-group 的进程组已自动清理
+
                 if let Some(handle) = stdout_task {
                     let _ = handle.await;
                 }
