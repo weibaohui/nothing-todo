@@ -15,30 +15,6 @@ pub const DEFAULT_HOST: &str = "0.0.0.0";
 /// Default executor paths (binary names).
 pub const DEFAULT_EXECUTOR_PATH: &str = ""; // use binary name directly
 
-const DEFAULT_CONFIG_TEMPLATE: &str = r#"# ntd configuration file
-# Location: ~/.ntd/config.yaml
-
-port: 8088
-host: "0.0.0.0"
-db_path: "__DB_PATH__"
-log_level: "INFO"
-
-# Executor paths configuration
-# Default: use binary name (requires executor to be in PATH)
-# If executor is not in PATH, set absolute path here, e.g.:
-#   joinai: /usr/local/bin/joinai
-#   claude: /home/user/.local/bin/claude
-executors:
-  opencode: "opencode"
-  hermes: "hermes"
-  joinai: "joinai"
-  claude_code: "claude"
-  codebuddy: "codebuddy"
-  kimi: "kimi"
-  atomcode: "atomcode"
-  codex: "codex"
-"#;
-
 /// Top-level configuration, persisted to `~/.ntd/config.yaml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -107,9 +83,10 @@ impl Config {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).ok();
             }
-            let rendered = DEFAULT_CONFIG_TEMPLATE.replace("__DB_PATH__", &cfg.db_path);
-            if let Err(e) = std::fs::write(&path, rendered) {
-                eprintln!("Warning: failed to write config.yaml ({}), using in-memory defaults", e);
+            if let Ok(yaml) = serde_yaml::to_string(&cfg) {
+                if let Err(e) = std::fs::write(&path, yaml) {
+                    eprintln!("Warning: failed to write config.yaml ({}), using in-memory defaults", e);
+                }
             }
             return cfg;
         }
