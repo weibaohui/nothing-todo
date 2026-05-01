@@ -131,6 +131,7 @@ pub async fn run_todo_execution(
         send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
 
         // 使用 command-group 创建进程组，自动管理进程树
+        tracing::info!("Spawning executor: path={}, args={:?}", executable_path, command_args);
         let mut cmd = tokio::process::Command::new(&executable_path);
         cmd.args(&command_args)
             .stdout(std::process::Stdio::piped())
@@ -139,6 +140,7 @@ pub async fn run_todo_execution(
 
         // 设置工作目录（如果指定了 workspace）
         if let Some(ws) = todo_workspace.as_ref() {
+            tracing::info!("Setting working directory: {}", ws);
             cmd.current_dir(ws);
         }
 
@@ -146,6 +148,7 @@ pub async fn run_todo_execution(
         let mut child = match cmd.group_spawn() {
             Ok(c) => c,
             Err(e) => {
+                tracing::error!("Failed to spawn executor '{}': {}", executable_path, e);
                 let entry = ParsedLogEntry::error(format!("Failed to spawn executor: {}", e));
                 send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
                 send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, success: false, result: None });
