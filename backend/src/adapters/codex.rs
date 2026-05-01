@@ -62,17 +62,135 @@ impl CodeExecutor for CodexExecutor {
         }
 
         let json = serde_json::from_str::<Value>(trimmed).ok()?;
-        let event = json.get("msg").unwrap_or(&json);
-        let event_type = event
-            .get("type")
-            .or_else(|| json.get("type"))
-            .and_then(Value::as_str)?;
 
-        if let Some(model) = first_string(event, &["model", "model_slug"]) {
+        // Determine the event type and event object to use
+        // New format: {"type":"item.started","item":{...}} or {"type":"agent_message",...}
+        // Old format: {"msg":{"type":"session_configured",...}} or {"id":"0","msg":{...}}
+        let (event_type, event) = if let Some(msg) = json.get("msg") {
+            // Old format with nested msg field
+            let typ = msg.get("type").and_then(Value::as_str)?;
+            (typ, msg.clone())
+        } else if let Some(typ) = json.get("type").and_then(Value::as_str) {
+            // New format with top-level type field
+            (typ, json.clone())
+        } else {
+            return None;
+        };
+
+        // Handle item.started / item.completed - extract inner item from top-level json
+        if event_type == "item.started" || event_type == "item.completed" {
+            let item = json.get("item")?;
+            let inner_type = item.get("type").and_then(Value::as_str)?;
+
+            match (event_type, inner_type) {
+                ("item.started", "command_execution") => {
+                    let command = item
+                        .get("command")
+                        .cloned()
+                        .and_then(|v| command_to_string(Some(v)))
+                        .unwrap_or_default();
+                    return Some(ParsedLogEntry {
+                        timestamp: utc_timestamp(),
+                        log_type: "tool_call".to_string(),
+                        content: format!("Executing command: {}", command),
+                        usage: None,
+                        tool_name: Some("command_execution".to_string()),
+                        tool_input_json: item.get("command").and_then(|v| serde_json::to_string(v).ok()),
+                    });
+                }
+                ("item.completed", "command_execution") => {
+                    let output = item
+                        .get("aggregated_output")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let exit_code = item.get("exit_code").and_then(Value::as_i64);
+                    let status = item.get("status").and_then(Value::as_str).unwrap_or("completed");
+
+                    let mut content = format!("[{}] ", status);
+                    if !output.is_empty() {
+                        content.push_str(output);
+                    }
+                    if let Some(code) = exit_code {
+                        content.push_str(&format!(" (exit={})", code));
+                    }
+
+                    return Some(ParsedLogEntry {
+                        timestamp: utc_timestamp(),
+                        log_type: "tool_result".to_string(),
+                        content,
+                        usage: None,
+                        tool_name: Some("command_execution".to_string()),
+                        tool_input_json: None,
+                    });
+                }
+                ("item.completed", "agent_message") => {
+                    let text = item.get("text").and_then(Value::as_str).unwrap_or_default();
+                    if text.is_empty() {
+                        return None;
+                    }
+                    return Some(ParsedLogEntry {
+                        timestamp: utc_timestamp(),
+                        log_type: "text".to_string(),
+                        content: text.to_string(),
+                        usage: None,
+                        tool_name: None,
+                        tool_input_json: None,
+                    });
+                }
+                _ => return None,
+            }
+        }
+
+        // Handle turn events with usage
+        if event_type == "turn.completed" || event_type == "turn.started" {
+            if event_type == "turn.completed" {
+                // Parse usage from turn.completed
+                if let Some(usage_obj) = json.get("usage") {
+                    if let Some(usage) = parse_usage(usage_obj) {
+                        *self.usage.lock() = Some(usage.clone());
+                        return Some(ParsedLogEntry {
+                            timestamp: utc_timestamp(),
+                            log_type: "tokens".to_string(),
+                            content: format!(
+                                "Tokens: input={}, output={}",
+                                usage.input_tokens, usage.output_tokens
+                            ),
+                            usage: Some(usage),
+                            tool_name: None,
+                            tool_input_json: None,
+                        });
+                    }
+                }
+            }
+            return Some(ParsedLogEntry {
+                timestamp: utc_timestamp(),
+                log_type: "system".to_string(),
+                content: format!("Codex {}", event_type.replace('_', " ")),
+                usage: None,
+                tool_name: None,
+                tool_input_json: None,
+            });
+        }
+
+        // Handle thread events
+        if event_type == "thread.started" {
+            return Some(ParsedLogEntry {
+                timestamp: utc_timestamp(),
+                log_type: "system".to_string(),
+                content: "Codex thread started".to_string(),
+                usage: None,
+                tool_name: None,
+                tool_input_json: None,
+            });
+        }
+
+        // Store model if present
+        if let Some(model) = first_string(&event, &["model", "model_slug"]) {
             *self.model.lock() = Some(model);
         }
 
-        if let Some(usage) = parse_usage(event) {
+        // Parse usage if present
+        if let Some(usage) = parse_usage(&event) {
             *self.usage.lock() = Some(usage.clone());
             return Some(ParsedLogEntry {
                 timestamp: utc_timestamp(),
@@ -88,7 +206,7 @@ impl CodeExecutor for CodexExecutor {
         }
 
         match event_type {
-            "session_configured" | "task_started" | "turn_started" => Some(ParsedLogEntry {
+            "session_configured" | "task_started" => Some(ParsedLogEntry {
                 timestamp: utc_timestamp(),
                 log_type: "system".to_string(),
                 content: format!("Codex {}", event_type.replace('_', " ")),
@@ -97,7 +215,7 @@ impl CodeExecutor for CodexExecutor {
                 tool_input_json: None,
             }),
             "agent_message" | "agent_message_delta" | "assistant_message" => {
-                let text = first_string(event, &["message", "delta", "text", "content"])?;
+                let text = first_string(&event, &["message", "delta", "text", "content"])?;
                 if text.is_empty() {
                     return None;
                 }
@@ -111,7 +229,7 @@ impl CodeExecutor for CodexExecutor {
                 })
             }
             "agent_reasoning" | "agent_reasoning_delta" | "reasoning" | "reasoning_delta" => {
-                let text = first_string(event, &["message", "delta", "text", "content"])?;
+                let text = first_string(&event, &["message", "delta", "text", "content"])?;
                 if text.is_empty() {
                     return None;
                 }
@@ -125,10 +243,10 @@ impl CodeExecutor for CodexExecutor {
                 })
             }
             "exec_command_begin" | "tool_call_begin" | "tool_call" => {
-                let tool_name = first_string(event, &["tool_name", "name"])
+                let tool_name = first_string(&event, &["tool_name", "name"])
                     .unwrap_or_else(|| "exec".to_string());
-                let command = command_to_string(event.get("command"))
-                    .or_else(|| first_string(event, &["cmd", "arguments", "input"]))
+                let command = command_to_string(event.get("command").cloned())
+                    .or_else(|| first_string(&event, &["cmd", "arguments", "input"]))
                     .unwrap_or_default();
                 Some(ParsedLogEntry {
                     timestamp: utc_timestamp(),
@@ -148,8 +266,8 @@ impl CodeExecutor for CodexExecutor {
             }
             "exec_command_end" | "tool_call_end" | "tool_result" => {
                 let stdout =
-                    first_string(event, &["stdout", "output", "result"]).unwrap_or_default();
-                let stderr = first_string(event, &["stderr"]).unwrap_or_default();
+                    first_string(&event, &["stdout", "output", "result", "aggregated_output"]).unwrap_or_default();
+                let stderr = first_string(&event, &["stderr"]).unwrap_or_default();
                 let exit_code = event.get("exit_code").and_then(Value::as_i64);
                 let mut content = String::new();
                 if let Some(code) = exit_code {
@@ -179,7 +297,7 @@ impl CodeExecutor for CodexExecutor {
                     tool_input_json: None,
                 })
             }
-            "task_complete" | "turn_completed" => Some(ParsedLogEntry {
+            "task_complete" => Some(ParsedLogEntry {
                 timestamp: utc_timestamp(),
                 log_type: "step_finish".to_string(),
                 content: "Codex finished".to_string(),
@@ -190,7 +308,7 @@ impl CodeExecutor for CodexExecutor {
             "error" => Some(ParsedLogEntry {
                 timestamp: utc_timestamp(),
                 log_type: "error".to_string(),
-                content: first_string(event, &["message", "error"])
+                content: first_string(&event, &["message", "error"])
                     .unwrap_or_else(|| event.to_string()),
                 usage: None,
                 tool_name: None,
@@ -239,9 +357,9 @@ fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
         .map(str::to_string)
 }
 
-fn command_to_string(value: Option<&Value>) -> Option<String> {
+fn command_to_string(value: Option<Value>) -> Option<String> {
     match value? {
-        Value::String(s) => Some(s.clone()),
+        Value::String(s) => Some(s),
         Value::Array(items) => {
             let parts: Vec<String> = items
                 .iter()
