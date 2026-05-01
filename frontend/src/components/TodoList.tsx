@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty } from 'antd';
 import { PlusOutlined, TagOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, SaveOutlined } from '@ant-design/icons';
@@ -48,9 +48,12 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal, onSh
     return () => clearTimeout(timer);
   }, []);
 
-  const filteredTodos = selectedTagId
-    ? todos.filter(t => (t as any).tag_ids?.includes(selectedTagId))
-    : todos;
+  const filteredTodos = useMemo(() =>
+    selectedTagId
+      ? todos.filter(t => (t as any).tag_ids?.includes(selectedTagId))
+      : todos,
+    [todos, selectedTagId]
+  );
 
   if (isLoading) {
     return (
@@ -257,16 +260,20 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal, onSh
                     <StatusPicker
                       value={todo.status}
                       onChange={async (newStatus) => {
-                        const updated = await db.updateTodo(
-                          todo.id,
-                          todo.title,
-                          todo.prompt || '',
-                          newStatus
-                        );
-                        dispatch({
-                          type: 'UPDATE_TODO',
-                          payload: updated
-                        });
+                        try {
+                          const updated = await db.updateTodo(
+                            todo.id,
+                            todo.title,
+                            todo.prompt || '',
+                            newStatus
+                          );
+                          dispatch({
+                            type: 'UPDATE_TODO',
+                            payload: updated
+                          });
+                        } catch {
+                          // ignore: interceptor already shows error
+                        }
                       }}
                     />
                   </div>

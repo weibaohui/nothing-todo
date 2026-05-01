@@ -103,6 +103,12 @@ pub async fn run_todo_execution(
     // Update todo status to running and associate with task
     if let Err(e) = db.start_todo_execution(todo_id, &task_id).await {
         tracing::error!("Failed to start todo execution: {}", e);
+        let entry = ParsedLogEntry::error(format!("Failed to start todo execution: {}", e));
+        send_event(&tx, ExecEvent::Output { task_id: task_id.clone(), entry });
+        send_event(&tx, ExecEvent::Finished { task_id: task_id.clone(), todo_id, success: false, result: Some("Failed to start execution".to_string()) });
+        let _ = db.finish_todo_execution(todo_id, false).await;
+        task_manager.remove(&task_id).await;
+        return ExecutionResult { task_id, record_id: Some(record_id) };
     }
 
     let task_id_return = task_id.clone();
@@ -265,8 +271,8 @@ pub async fn run_todo_execution(
 
         let status = tokio::select! {
             biased;
-            Some(()) = cancel_rx.recv() => {
-                // Cancelled: 使用 command-group 安全杀死整个进程组
+            _ = cancel_rx.recv() => {
+                // Cancelled (or channel closed): 使用 command-group 安全杀死整个进程组
                 kill_process_tree(&mut child).await;
 
                 // 收割僵尸进程
@@ -283,7 +289,8 @@ pub async fn run_todo_execution(
                 let _ = db_clone.update_todo_task_id(todo_id, None).await;
 
                 // 更新 execution_records 状态为 failed
-                let logs_json = serde_json::to_string(&*logs.lock().await).unwrap_or_default();
+                let logs_json = serde_json::to_string(&*logs.lock().await)
+                    .unwrap_or_else(|e| { tracing::error!("Failed to serialize logs: {}", e); "[]".to_string() });
                 let _ = db_clone.update_execution_record(
                     record_id,
                     crate::models::ExecutionStatus::Failed.as_str(),
@@ -356,7 +363,8 @@ pub async fn run_todo_execution(
         }
 
         let final_status = if success { crate::models::ExecutionStatus::Success.as_str() } else { crate::models::ExecutionStatus::Failed.as_str() };
-        let logs_json = serde_json::to_string(&all_logs_snapshot).unwrap_or_default();
+        let logs_json = serde_json::to_string(&all_logs_snapshot)
+            .unwrap_or_else(|e| { tracing::error!("Failed to serialize logs: {}", e); "[]".to_string() });
         let mut usage = executor_spawn.get_usage(&all_logs_snapshot);
         let model = executor_spawn.get_model();
 

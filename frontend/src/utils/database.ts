@@ -137,12 +137,12 @@ export async function getRunningTodos(): Promise<Todo[]> {
 // Backup APIs
 
 export async function exportBackup(): Promise<string> {
-  const res = await api.get<string>('/xyz/backup/export', {
+  const res = await api.get('/xyz/backup/export', {
     headers: { 'Accept': 'application/x-yaml' },
     responseType: 'text',
+    transformResponse: [(data) => data],
   });
   if (typeof res.data === 'string') return res.data;
-  if (typeof (res.data as any)?.data === 'string') return (res.data as any).data;
   return JSON.stringify(res.data);
 }
 
