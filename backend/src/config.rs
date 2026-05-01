@@ -93,14 +93,25 @@ impl Config {
 
         match std::fs::read_to_string(&path) {
             Ok(content) => {
-                serde_yaml::from_str(&content).unwrap_or_else(|e| {
+                let mut cfg = serde_yaml::from_str::<Config>(&content).unwrap_or_else(|e| {
                     eprintln!("Warning: failed to parse config.yaml ({}), using defaults", e);
                     Config::default()
-                })
+                });
+                cfg.normalize_paths();
+                cfg
             }
             Err(e) => {
                 eprintln!("Warning: failed to read config.yaml ({}), using defaults", e);
                 Config::default()
+            }
+        }
+    }
+
+    /// Normalize paths: convert relative paths to absolute paths based on home directory.
+    fn normalize_paths(&mut self) {
+        if !PathBuf::from(&self.db_path).is_absolute() {
+            if let Some(home) = dirs::home_dir() {
+                self.db_path = home.join(&self.db_path).to_string_lossy().to_string();
             }
         }
     }
