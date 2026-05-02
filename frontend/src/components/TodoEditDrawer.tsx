@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Drawer, Input, Button, App } from 'antd';
-import { ReactMdeEditor } from './ReactMdeEditor';
+import { MdEditor } from './MdEditor';
 import type { Todo } from '../types';
 
 interface TodoEditDrawerProps {
@@ -97,7 +97,7 @@ export function TodoEditDrawer({ open, todo, onClose, onSave }: TodoEditDrawerPr
 
         {/* Editor */}
         <div style={{ flex: 1, padding: '8px 20px 20px', overflow: 'hidden' }}>
-          <ReactMdeEditor
+          <MdEditor
             value={prompt}
             onChange={setPrompt}
             height={400}
