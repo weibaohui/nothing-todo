@@ -18,6 +18,10 @@ struct Cli {
     #[arg(short, long, default_value = "json", value_enum)]
     output: OutputFormat,
 
+    /// Select fields to output (comma-separated, e.g. "id,title,status")
+    #[arg(short, long)]
+    fields: Option<String>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -28,6 +32,8 @@ pub enum OutputFormat {
     #[default]
     Json,
     Pretty,
+    /// Output raw data without ApiResponse wrapper (best for AI parsing)
+    Raw,
 }
 
 #[derive(Subcommand)]
@@ -110,10 +116,11 @@ async fn main() {
             let cli = cli::Cli {
                 server: cli.server.clone(),
                 output: output_to_cli(&cli.output),
+                fields: cli.fields.clone(),
                 command: cli::Commands::Todo { action: action.clone() },
             };
             if let Err(e) = cli::run_command(&cli).await {
-                eprintln!("Error: {}", e);
+                print_structured_error(&e);
                 std::process::exit(1);
             }
             return;
@@ -122,10 +129,11 @@ async fn main() {
             let cli = cli::Cli {
                 server: cli.server.clone(),
                 output: output_to_cli(&cli.output),
+                fields: cli.fields.clone(),
                 command: cli::Commands::Tag { action: action.clone() },
             };
             if let Err(e) = cli::run_command(&cli).await {
-                eprintln!("Error: {}", e);
+                print_structured_error(&e);
                 std::process::exit(1);
             }
             return;
@@ -134,10 +142,11 @@ async fn main() {
             let cli = cli::Cli {
                 server: cli.server.clone(),
                 output: output_to_cli(&cli.output),
+                fields: cli.fields.clone(),
                 command: cli::Commands::Stats,
             };
             if let Err(e) = cli::run_command(&cli).await {
-                eprintln!("Error: {}", e);
+                print_structured_error(&e);
                 std::process::exit(1);
             }
             return;
@@ -154,7 +163,16 @@ fn output_to_cli(output: &OutputFormat) -> cli::OutputFormat {
     match output {
         OutputFormat::Json => cli::OutputFormat::Json,
         OutputFormat::Pretty => cli::OutputFormat::Pretty,
+        OutputFormat::Raw => cli::OutputFormat::Raw,
     }
+}
+
+fn print_structured_error(e: &anyhow::Error) {
+    let err = serde_json::json!({
+        "error": true,
+        "message": e.to_string(),
+    });
+    eprintln!("{}", serde_json::to_string(&err).unwrap_or_else(|_| r#"{"error":true,"message":"unknown"}"#.to_string()));
 }
 
 async fn run_server(cli_port: Option<u16>) {

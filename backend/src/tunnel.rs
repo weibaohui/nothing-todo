@@ -6,6 +6,7 @@ use std::thread;
 use std::time::Duration;
 
 use clap::Subcommand;
+use serde_json;
 
 fn get_port() -> u16 {
     static PORT: OnceLock<u16> = OnceLock::new();
@@ -19,11 +20,18 @@ pub enum TunnelAction {
         /// Tunnel type (hostc, trycloudflare)
         #[arg(long = "type", default_value = "hostc")]
         tunnel_type: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Stop the running tunnel
     Stop,
     /// Show tunnel status
-    Status,
+    Status {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub fn handle_tunnel_command(action: &TunnelAction) {
@@ -35,10 +43,15 @@ pub fn handle_tunnel_command(action: &TunnelAction) {
     let url_file = ntd_dir.join("tunnel.url");
 
     match action {
-        TunnelAction::Start { tunnel_type } => {
+        TunnelAction::Start { tunnel_type, json } => {
             let tunnel_type = tunnel_type.clone();
             if let Err(e) = fs::create_dir_all(&ntd_dir) {
-                eprintln!("Failed to create .ntd directory: {}", e);
+                if *json {
+                    let err = serde_json::json!({"error": true, "message": format!("Failed to create .ntd directory: {}", e)});
+                    eprintln!("{}", serde_json::to_string(&err).unwrap());
+                } else {
+                    eprintln!("Failed to create .ntd directory: {}", e);
+                }
                 std::process::exit(1);
             }
 
@@ -46,7 +59,9 @@ pub fn handle_tunnel_command(action: &TunnelAction) {
             if let Ok(old_pid_str) = fs::read_to_string(&pid_file) {
                 if let Ok(old_pid) = old_pid_str.trim().parse::<u32>() {
                     if is_process_running(old_pid as i32) {
-                        println!("Stopping old tunnel (PID: {})", old_pid);
+                        if !json {
+                            println!("Stopping old tunnel (PID: {})", old_pid);
+                        }
                         kill_process_safe(old_pid as i32);
                     }
                 }
@@ -55,11 +70,16 @@ pub fn handle_tunnel_command(action: &TunnelAction) {
             cleanup_orphan_processes();
 
             match tunnel_type.as_str() {
-                "hostc" => start_hostc_tunnel(&pid_file, &url_file),
-                "trycloudflare" => start_cloudflare_tunnel(&pid_file, &url_file),
+                "hostc" => start_hostc_tunnel(&pid_file, &url_file, *json),
+                "trycloudflare" => start_cloudflare_tunnel(&pid_file, &url_file, *json),
                 _ => {
-                    eprintln!("Error: unsupported tunnel type '{}'", tunnel_type);
-                    eprintln!("Supported types: hostc, trycloudflare");
+                    if *json {
+                        let err = serde_json::json!({"error": true, "message": format!("unsupported tunnel type '{}'", tunnel_type)});
+                        eprintln!("{}", serde_json::to_string(&err).unwrap());
+                    } else {
+                        eprintln!("Error: unsupported tunnel type '{}'", tunnel_type);
+                        eprintln!("Supported types: hostc, trycloudflare");
+                    }
                     std::process::exit(1);
                 }
             }
@@ -83,31 +103,51 @@ pub fn handle_tunnel_command(action: &TunnelAction) {
                 eprintln!("No tunnel is running");
             }
         }
-        TunnelAction::Status => {
+        TunnelAction::Status { json } => {
+            let mut status = serde_json::Map::new();
+            status.insert("running".to_string(), serde_json::Value::Bool(false));
+
             if let Ok(pid_str) = fs::read_to_string(&pid_file) {
                 if let Ok(pid) = pid_str.trim().parse::<u32>() {
                     if is_process_running(pid as i32) {
-                        println!("Tunnel is running (PID: {})", pid);
+                        status.insert("running".to_string(), serde_json::Value::Bool(true));
+                        status.insert("pid".to_string(), serde_json::Value::Number(pid.into()));
                         if let Ok(url) = fs::read_to_string(&url_file) {
-                            println!("Public URL: {}", url.trim());
+                            let url = url.trim().to_string();
+                            status.insert("url".to_string(), serde_json::Value::String(url.clone()));
+                            if !json {
+                                println!("Tunnel is running (PID: {})", pid);
+                                println!("Public URL: {}", url);
+                            }
+                        } else if !json {
+                            println!("Tunnel is running (PID: {})", pid);
                         }
                     } else {
-                        println!("Tunnel is not running (stale PID file)");
+                        status.insert("stale_pid".to_string(), serde_json::Value::Bool(true));
                         fs::remove_file(&pid_file).ok();
+                        if !json {
+                            println!("Tunnel is not running (stale PID file)");
+                        }
                     }
                 } else {
-                    println!("Tunnel state is invalid (bad PID file)");
                     fs::remove_file(&pid_file).ok();
                     fs::remove_file(&url_file).ok();
+                    if !json {
+                        println!("Tunnel state is invalid (bad PID file)");
+                    }
                 }
-            } else {
+            } else if !json {
                 println!("No tunnel is running");
+            }
+
+            if *json {
+                println!("{}", serde_json::to_string(&status).unwrap());
             }
         }
     }
 }
 
-fn start_hostc_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
+fn start_hostc_tunnel(pid_file: &PathBuf, url_file: &PathBuf, json: bool) {
     let output_file = "/tmp/hostc_output.txt";
 
     let output = match std::fs::OpenOptions::new()
@@ -158,8 +198,10 @@ fn start_hostc_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
         }
     });
 
-    if let Ok(content) = fs::read_to_string(output_file) {
-        println!("{}", content);
+    if !json {
+        if let Ok(content) = fs::read_to_string(output_file) {
+            println!("{}", content);
+        }
     }
 
     if public_url.is_empty() {
@@ -167,20 +209,39 @@ fn start_hostc_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
         let _ = child.kill();
         fs::remove_file(pid_file).ok();
         fs::remove_file(url_file).ok();
-        eprintln!("Error: failed to capture Public URL within 60s");
+        if json {
+            let err = serde_json::json!({"error": true, "message": "failed to capture Public URL within 60s"});
+            eprintln!("{}", serde_json::to_string(&err).unwrap());
+        } else {
+            eprintln!("Error: failed to capture Public URL within 60s");
+        }
         std::process::exit(1);
     }
 
     if let Err(e) = fs::write(url_file, &public_url) {
-        eprintln!("Failed to write URL file: {}", e);
+        if json {
+            let err = serde_json::json!({"error": true, "message": format!("Failed to write URL file: {}", e)});
+            eprintln!("{}", serde_json::to_string(&err).unwrap());
+        } else {
+            eprintln!("Failed to write URL file: {}", e);
+        }
         std::process::exit(1);
     }
-    println!("\nTunnel PID: {}", hostc_pid);
-    println!("Public URL saved to ~/.ntd/tunnel.url");
-    println!("Public URL: {}", public_url);
+    if json {
+        let result = serde_json::json!({
+            "pid": hostc_pid,
+            "url": public_url,
+            "type": "hostc",
+        });
+        println!("{}", serde_json::to_string(&result).unwrap());
+    } else {
+        println!("\nTunnel PID: {}", hostc_pid);
+        println!("Public URL saved to ~/.ntd/tunnel.url");
+        println!("Public URL: {}", public_url);
+    }
 }
 
-fn start_cloudflare_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
+fn start_cloudflare_tunnel(pid_file: &PathBuf, url_file: &PathBuf, json: bool) {
     let output_file = "/tmp/cloudflared_output.txt";
 
     let output = match std::fs::OpenOptions::new()
@@ -229,8 +290,10 @@ fn start_cloudflare_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
         }
     });
 
-    if let Ok(content) = fs::read_to_string(output_file) {
-        println!("{}", content);
+    if !json {
+        if let Ok(content) = fs::read_to_string(output_file) {
+            println!("{}", content);
+        }
     }
 
     if public_url.is_empty() {
@@ -238,17 +301,36 @@ fn start_cloudflare_tunnel(pid_file: &PathBuf, url_file: &PathBuf) {
         let _ = child.kill();
         fs::remove_file(pid_file).ok();
         fs::remove_file(url_file).ok();
-        eprintln!("Error: failed to capture Public URL within 60s");
+        if json {
+            let err = serde_json::json!({"error": true, "message": "failed to capture Public URL within 60s"});
+            eprintln!("{}", serde_json::to_string(&err).unwrap());
+        } else {
+            eprintln!("Error: failed to capture Public URL within 60s");
+        }
         std::process::exit(1);
     }
 
     if let Err(e) = fs::write(url_file, &public_url) {
-        eprintln!("Failed to write URL file: {}", e);
+        if json {
+            let err = serde_json::json!({"error": true, "message": format!("Failed to write URL file: {}", e)});
+            eprintln!("{}", serde_json::to_string(&err).unwrap());
+        } else {
+            eprintln!("Failed to write URL file: {}", e);
+        }
         std::process::exit(1);
     }
-    println!("\nTunnel PID: {}", cloudflared_pid);
-    println!("Public URL saved to ~/.ntd/tunnel.url");
-    println!("Public URL: {}", public_url);
+    if json {
+        let result = serde_json::json!({
+            "pid": cloudflared_pid,
+            "url": public_url,
+            "type": "trycloudflare",
+        });
+        println!("{}", serde_json::to_string(&result).unwrap());
+    } else {
+        println!("\nTunnel PID: {}", cloudflared_pid);
+        println!("Public URL saved to ~/.ntd/tunnel.url");
+        println!("Public URL: {}", public_url);
+    }
 }
 
 fn poll_for_url(output_file: &str, extract: impl Fn(&str) -> String) -> String {
