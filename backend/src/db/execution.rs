@@ -142,6 +142,16 @@ impl Database {
         self.exec_update(am).await
     }
 
+    /// 更新执行记录的 session_id
+    pub async fn update_execution_record_session_id(&self, id: i64, session_id: &str) -> Result<(), sea_orm::DbErr> {
+        let am = execution_records::ActiveModel {
+            id: ActiveValue::Unchanged(id),
+            session_id: ActiveValue::Set(Some(session_id.to_string())),
+            ..Default::default()
+        };
+        self.exec_update(am).await
+    }
+
     /// 更新执行记录的 todo_progress
     pub async fn update_execution_record_todo_progress(&self, id: i64, todo_progress_json: &str) -> Result<(), sea_orm::DbErr> {
         let am = execution_records::ActiveModel {
