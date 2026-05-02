@@ -365,6 +365,15 @@ pub struct UpdateSchedulerRequest {
     pub scheduler_config: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct UpdateConfigRequest {
+    pub port: u16,
+    pub host: String,
+    pub db_path: String,
+    pub log_level: String,
+    pub executors: crate::config::ExecutorPaths,
+}
+
 // Executor types
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]

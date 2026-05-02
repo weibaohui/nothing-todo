@@ -151,3 +151,13 @@ export async function importBackup(yamlContent: string): Promise<string> {
     headers: { 'Content-Type': 'application/x-yaml' },
   }));
 }
+
+// Config APIs
+
+export async function getConfig(): Promise<import('../types').Config> {
+  return unwrap(await api.get<ApiResp<import('../types').Config>>('/xyz/config'));
+}
+
+export async function updateConfig(config: import('../types').Config): Promise<import('../types').Config> {
+  return unwrap(await api.put<ApiResp<import('../types').Config>>('/xyz/config', config));
+}

@@ -107,7 +107,7 @@ impl Config {
     }
 
     /// Normalize paths: convert ~ and relative paths to absolute paths.
-    fn normalize_paths(&mut self) {
+    pub fn normalize_paths(&mut self) {
         self.db_path = Self::normalize_single_path(&self.db_path);
         self.executors.opencode = Self::normalize_single_path(&self.executors.opencode);
         self.executors.hermes = Self::normalize_single_path(&self.executors.hermes);
@@ -140,6 +140,17 @@ impl Config {
     /// Get the server URL string, e.g. "http://localhost:8088".
     pub fn server_url(&self) -> String {
         format!("http://localhost:{}", self.port)
+    }
+
+    /// Save config to `~/.ntd/config.yaml`.
+    pub fn save(&self) -> Result<(), String> {
+        let path = Self::config_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create config dir: {}", e))?;
+        }
+        let yaml = serde_yaml::to_string(self).map_err(|e| format!("Failed to serialize config: {}", e))?;
+        std::fs::write(&path, yaml).map_err(|e| format!("Failed to write config.yaml: {}", e))?;
+        Ok(())
     }
 
     /// Path to the config file.

@@ -217,6 +217,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // 注意：running tasks 现在由 WebSocket 的 Sync 事件初始化
         // 不再从数据库加载 running todos，因为数据库状态可能与实际进程状态不同步
       } catch {
+        // error handled below
+      } finally {
         dispatch({ type: 'SET_LOADING', payload: false });
       }
     }
