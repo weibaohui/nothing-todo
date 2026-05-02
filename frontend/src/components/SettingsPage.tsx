@@ -111,6 +111,7 @@ export function SettingsPage() {
   };
 
   const handleCreateTag = async () => {
+    if (tagCreating) return;
     const name = tagName.trim();
     if (!name) {
       message.error('请输入标签名称');
@@ -241,6 +242,7 @@ export function SettingsPage() {
                 type="primary"
                 onClick={handleSaveConfig}
                 loading={configSaving}
+                disabled={configLoading}
               >
                 保存配置
               </Button>
@@ -277,6 +279,7 @@ export function SettingsPage() {
                 type="primary"
                 onClick={handleSaveConfig}
                 loading={configSaving}
+                disabled={configLoading}
               >
                 保存配置
               </Button>
