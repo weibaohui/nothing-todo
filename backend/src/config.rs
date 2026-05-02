@@ -130,7 +130,8 @@ impl Config {
             && path.contains(std::path::MAIN_SEPARATOR)
         {
             if let Some(home) = dirs::home_dir() {
-                return home.join(path).to_string_lossy().to_string();
+                let stripped = path.trim_start_matches("./");
+                return home.join(stripped).to_string_lossy().to_string();
             }
         }
         path.to_string()
@@ -177,7 +178,7 @@ mod tests {
     fn test_normalize_single_path_tilde_expansion() {
         let home = dirs::home_dir().expect("need home dir for test");
         let result = Config::normalize_single_path("~/bin/joinai");
-        let expected = format!("{}/bin/joinai", home.display());
+        let expected = home.join("bin").join("joinai").to_string_lossy().to_string();
         assert_eq!(result, expected, "~ should expand to home directory");
     }
 
