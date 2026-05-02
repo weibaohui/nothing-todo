@@ -17,7 +17,7 @@ pub struct TodoScheduler {
 }
 
 impl TodoScheduler {
-    pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let sched = JobScheduler::new().await?;
         Ok(Self {
             sched: Mutex::new(sched),
@@ -31,7 +31,7 @@ impl TodoScheduler {
         executor_registry: Arc<ExecutorRegistry>,
         tx: broadcast::Sender<ExecEvent>,
         task_manager: Arc<TaskManager>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let todos = db.get_scheduler_todos().await;
 
         for todo in todos {
@@ -63,7 +63,7 @@ impl TodoScheduler {
         todo_id: i64,
         cron_expr: String,
         task_manager: Arc<TaskManager>,
-    ) -> Result<uuid::Uuid, Box<dyn std::error::Error>> {
+    ) -> Result<uuid::Uuid, Box<dyn std::error::Error + Send + Sync>> {
         // Validate cron expression
         if cron::Schedule::from_str(&cron_expr).is_err() {
             warn!(
@@ -130,7 +130,7 @@ impl TodoScheduler {
         }
     }
 
-    pub async fn start(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn start(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.sched.lock().await.start().await?;
         info!("Scheduler started");
         Ok(())

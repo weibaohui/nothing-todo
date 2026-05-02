@@ -277,12 +277,7 @@ pub fn create_app(
         .layer(CompressionLayer::new())
         .layer(
             CorsLayer::new()
-                .allow_origin([
-                    "http://localhost:8088".parse().unwrap(),
-                    "http://127.0.0.1:8088".parse().unwrap(),
-                    "http://localhost:5173".parse().unwrap(),
-                    "http://127.0.0.1:5173".parse().unwrap(),
-                ])
+                .allow_origin(Any)
                 .allow_methods(Any)
                 .allow_headers(Any),
         )

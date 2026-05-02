@@ -37,7 +37,7 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
       setSelectedTag(null);
       onClose();
     } catch (error) {
-      message.error('创建失败: ' + error);
+      message.error('创建失败: ' + (error instanceof Error ? error.message : String(error)));
     } finally {
       setLoading(false);
     }

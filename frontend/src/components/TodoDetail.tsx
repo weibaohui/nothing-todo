@@ -247,39 +247,57 @@ export function TodoDetail() {
 
   const loadExecutionRecords = async (page = 1, limit = historyLimit) => {
     if (!selectedTodo) return;
-    const pageData = await db.getExecutionRecords(selectedTodo.id, page, limit);
-    dispatch({
-      type: 'SET_EXECUTION_RECORDS',
-      payload: { todoId: selectedTodo.id, records: pageData.records }
-    });
-    setHistoryPage(pageData.page);
-    setHistoryLimit(pageData.limit);
-    setHistoryTotal(pageData.total);
+    try {
+      const pageData = await db.getExecutionRecords(selectedTodo.id, page, limit);
+      dispatch({
+        type: 'SET_EXECUTION_RECORDS',
+        payload: { todoId: selectedTodo.id, records: pageData.records }
+      });
+      setHistoryPage(pageData.page);
+      setHistoryLimit(pageData.limit);
+      setHistoryTotal(pageData.total);
+    } catch {
+      // ignore: interceptor already shows error
+    }
   };
 
   const refreshSingleRecord = async (recordId: number) => {
     if (!selectedTodo) return;
-    const record = await db.getExecutionRecord(recordId);
-    dispatch({
-      type: 'UPDATE_EXECUTION_RECORD',
-      payload: { todoId: selectedTodo.id, record }
-    });
+    try {
+      const record = await db.getExecutionRecord(recordId);
+      dispatch({
+        type: 'UPDATE_EXECUTION_RECORD',
+        payload: { todoId: selectedTodo.id, record }
+      });
+    } catch {
+      // ignore
+    }
   };
 
   useEffect(() => {
+    let cancelled = false;
     if (selectedTodo) {
       setHistoryPage(1);
 
-      loadExecutionRecords(1, historyLimit);
+      db.getExecutionRecords(selectedTodo.id, 1, historyLimit).then(pageData => {
+        if (cancelled) return;
+        dispatch({
+          type: 'SET_EXECUTION_RECORDS',
+          payload: { todoId: selectedTodo.id, records: pageData.records }
+        });
+        setHistoryPage(pageData.page);
+        setHistoryLimit(pageData.limit);
+        setHistoryTotal(pageData.total);
+      }).catch(() => {});
 
       db.getExecutionSummary(selectedTodo.id).then(sum => {
-        setSummary(sum);
-      });
+        if (!cancelled) setSummary(sum);
+      }).catch(() => {});
     } else {
       setIsEditing(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTodoId, selectedTodo, dispatch]);
+    return () => { cancelled = true; };
+  }, [selectedTodoId, selectedTodo, dispatch, historyLimit]);
 
   useEffect(() => {
     setSelectedHistoryRecordId(null);
@@ -301,49 +319,59 @@ export function TodoDetail() {
       );
       message.success('任务已开始执行');
     } catch (error) {
-      message.error('执行失败: ' + error);
+      message.error('执行失败: ' + (error instanceof Error ? error.message : String(error)));
     }
   };
 
   const handleStopExecution = async (recordId: number) => {
     try {
-      console.log(`Stopping execution record: ${recordId}`);
       await db.stopExecution(recordId);
       message.info('已发送停止指令');
       await loadExecutionRecords(historyPage, historyLimit);
     } catch (error) {
-      console.error('Failed to stop execution:', error);
-      message.error('停止失败: ' + error);
+      message.error('停止失败: ' + (error instanceof Error ? error.message : String(error)));
     }
   };
 
   const handleStatusChange = async (newStatus: string) => {
     if (!selectedTodo) return;
-    const updated = await db.updateTodo(selectedTodo.id, selectedTodo.title, selectedTodo.prompt || '', newStatus);
-    dispatch({ type: 'UPDATE_TODO', payload: updated });
-    message.success('状态已更新');
+    try {
+      const updated = await db.updateTodo(selectedTodo.id, selectedTodo.title, selectedTodo.prompt || '', newStatus);
+      dispatch({ type: 'UPDATE_TODO', payload: updated });
+      message.success('状态已更新');
+    } catch {
+      // ignore: interceptor already shows error
+    }
   };
 
   const handleSaveEdit = async (editTitle: string, editPrompt: string) => {
     if (!selectedTodo) return;
-    const updated = await db.updateTodo(
-      selectedTodo.id,
-      editTitle,
-      editPrompt,
-      selectedTodo.status,
-    );
-    dispatch({
-      type: 'UPDATE_TODO',
-      payload: updated as Todo
-    });
+    try {
+      const updated = await db.updateTodo(
+        selectedTodo.id,
+        editTitle,
+        editPrompt,
+        selectedTodo.status,
+      );
+      dispatch({
+        type: 'UPDATE_TODO',
+        payload: updated as Todo
+      });
+    } catch {
+      // ignore: interceptor already shows error
+    }
   };
 
   const handleDelete = async () => {
     if (!selectedTodo) return;
-    await db.deleteTodo(selectedTodo.id);
-    dispatch({ type: 'DELETE_TODO', payload: selectedTodo.id });
-    dispatch({ type: 'SELECT_TODO', payload: null });
-    message.success('删除成功');
+    try {
+      await db.deleteTodo(selectedTodo.id);
+      dispatch({ type: 'DELETE_TODO', payload: selectedTodo.id });
+      dispatch({ type: 'SELECT_TODO', payload: null });
+      message.success('删除成功');
+    } catch {
+      // ignore: interceptor already shows error
+    }
   };
 
   if (!selectedTodo) {
