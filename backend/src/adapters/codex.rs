@@ -51,7 +51,7 @@ impl CodeExecutor for CodexExecutor {
         ]
     }
 
-    fn command_args_with_session(&self, message: &str, _session_id: Option<&str>) -> Vec<String> {
+    fn command_args_with_session(&self, message: &str, _session_id: Option<&str>, _is_resume: bool) -> Vec<String> {
         self.command_args(message)
     }
 

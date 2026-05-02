@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../hooks/useApp';
-import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination, Segmented } from 'antd';
+import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination, Segmented, Modal, Input } from 'antd';
 import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined, DownOutlined, UpOutlined, UnorderedListOutlined, MessageOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import { PieChart } from './PieChart';
@@ -10,7 +10,7 @@ import { ChatView } from './ChatView';
 import * as db from '../utils/database';
 import { formatLocalDateTime } from '../utils/datetime';
 import { AnimatedNumber } from './AnimatedNumber';
-import { getExecutorOption } from '../types';
+import { getExecutorOption, supportsResume } from '../types';
 import XMarkdown from '@ant-design/x-markdown';
 import type { ExecutionSummary, Todo, TodoItem, ExecutionRecord, LogEntry } from '../types';
 
@@ -333,6 +333,33 @@ export function TodoDetail() {
     }
   };
 
+  // Resume conversation state & handlers
+  const [resumeModalOpen, setResumeModalOpen] = useState(false);
+  const [resumeRecordId, setResumeRecordId] = useState<number | null>(null);
+  const [resumeMessage, setResumeMessage] = useState('');
+  const [resumeLoading, setResumeLoading] = useState(false);
+
+  const handleOpenResume = (record: ExecutionRecord) => {
+    setResumeRecordId(record.id);
+    setResumeMessage(selectedTodo?.prompt || selectedTodo?.title || '');
+    setResumeModalOpen(true);
+  };
+
+  const handleResumeConfirm = async () => {
+    if (!resumeRecordId) return;
+    setResumeLoading(true);
+    try {
+      await db.resumeExecutionRecord(resumeRecordId, resumeMessage);
+      message.success('已继续对话，任务开始执行');
+      setResumeModalOpen(false);
+      await loadExecutionRecords(historyPage, historyLimit);
+    } catch (error) {
+      message.error('继续对话失败: ' + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setResumeLoading(false);
+    }
+  };
+
   const handleStatusChange = async (newStatus: string) => {
     if (!selectedTodo) return;
     try {
@@ -561,16 +588,25 @@ export function TodoDetail() {
                         <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
                           {formatLocalDateTime(record.started_at)}
                         </span>
-                        <span style={{
-                          fontSize: 10,
-                          padding: '2px 8px',
-                          borderRadius: 10,
-                          backgroundColor: record.status === 'success' ? 'var(--color-success)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-info)',
-                          color: '#fff',
-                          fontWeight: 600,
-                        }}>
-                          {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
-                        </span>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          {record.status !== 'running' && supportsResume(record) && (
+                            <MessageOutlined
+                              style={{ fontSize: 12, color: 'var(--color-primary)', cursor: 'pointer' }}
+                              title="继续对话"
+                              onClick={(e) => { e.stopPropagation(); handleOpenResume(record); }}
+                            />
+                          )}
+                          <span style={{
+                            fontSize: 10,
+                            padding: '2px 8px',
+                            borderRadius: 10,
+                            backgroundColor: record.status === 'success' ? 'var(--color-success)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-info)',
+                            color: '#fff',
+                            fontWeight: 600,
+                          }}>
+                            {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
+                          </span>
+                        </div>
                       </div>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                         {recExecutor && (
@@ -660,6 +696,9 @@ export function TodoDetail() {
                         )}
                       </div>
                       <div style={{ display: 'flex', gap: 8 }}>
+                        {record.status !== 'running' && supportsResume(record) && (
+                          <Button type="primary" size="small" icon={<MessageOutlined />} onClick={() => handleOpenResume(record)}>继续对话</Button>
+                        )}
                         {record.status === 'running' && (
                           <Popconfirm
                             title="确定强制停止该任务？"
@@ -825,6 +864,16 @@ export function TodoDetail() {
                     }}>
                       {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
                     </span>
+                    {record.status !== 'running' && supportsResume(record) && (
+                      <Button
+                        type="primary"
+                        size="small"
+                        icon={<MessageOutlined />}
+                        onClick={() => handleOpenResume(record)}
+                      >
+                        继续对话
+                      </Button>
+                    )}
                     {record.status === 'running' && (() => {
                       return (
                         <Popconfirm
@@ -1024,6 +1073,26 @@ export function TodoDetail() {
           }
         }}
       />
+
+      <Modal
+        title="继续对话"
+        open={resumeModalOpen}
+        onOk={handleResumeConfirm}
+        onCancel={() => setResumeModalOpen(false)}
+        confirmLoading={resumeLoading}
+        okText="开始执行"
+        cancelText="取消"
+      >
+        <p style={{ marginBottom: 12, color: 'var(--color-text-secondary)' }}>
+          将复用之前的会话上下文继续对话，你可以修改下方消息：
+        </p>
+        <Input.TextArea
+          value={resumeMessage}
+          onChange={(e) => setResumeMessage(e.target.value)}
+          rows={4}
+          placeholder="输入要继续发送的消息..."
+        />
+      </Modal>
     </div>
   );
 }

@@ -56,6 +56,7 @@ export interface ExecutionRecord {
   trigger_type: string;
   pid: number | null;
   task_id?: string | null;
+  session_id?: string | null;
   todo_progress?: string | null;
   execution_stats?: ExecutionStats | null;
 }
@@ -229,6 +230,17 @@ export interface Config {
   db_path: string;
   log_level: string;
   executors: ExecutorPaths;
+}
+
+export const RESUMABLE_EXECUTORS = new Set(['claudecode', 'kimi']);
+
+export function supportsResume(record: ExecutionRecord): boolean {
+  return (
+    record.status !== 'running' &&
+    !!record.session_id &&
+    !!record.executor &&
+    RESUMABLE_EXECUTORS.has(record.executor.toLowerCase())
+  );
 }
 
 export function getExecutorOption(value: string): ExecutorOption {

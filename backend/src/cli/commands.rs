@@ -219,6 +219,15 @@ pub enum ExecutionAction {
         /// Execution record ID
         id: i64,
     },
+    /// Resume a conversation from an execution record
+    Resume {
+        /// Execution record ID
+        id: i64,
+
+        /// Optional message to send (defaults to todo prompt)
+        #[arg(short, long)]
+        message: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -484,6 +493,11 @@ async fn handle_execution(
             let resp: ClientResponse<ExecutionRecord> = client.get(&format!("/execution-records/{}", id)).await?;
             print_response(resp, output, fields)?;
         }
+        ExecutionAction::Resume { id, message } => {
+            let req = serde_json::json!({ "message": message });
+            let resp: ClientResponse<Value> = client.post(&format!("/execution-records/{}/resume", id), &req).await?;
+            print_response(resp, output, fields)?;
+        }
     }
     Ok(())
 }
@@ -732,6 +746,30 @@ mod tests {
                 assert_eq!(search, Some("bug".to_string()));
             }
             _ => panic!("Expected Todo::List"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_execution_resume() {
+        let cli = Cli::try_parse_from(["ntd", "todo", "execution", "resume", "42"]).unwrap();
+        match cli.command {
+            Commands::Todo { action: TodoAction::Execution { action: ExecutionAction::Resume { id, message } } } => {
+                assert_eq!(id, 42);
+                assert!(message.is_none());
+            }
+            _ => panic!("Expected Todo::Execution::Resume"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_execution_resume_with_message() {
+        let cli = Cli::try_parse_from(["ntd", "todo", "execution", "resume", "42", "-m", "fix the bug"]).unwrap();
+        match cli.command {
+            Commands::Todo { action: TodoAction::Execution { action: ExecutionAction::Resume { id, message } } } => {
+                assert_eq!(id, 42);
+                assert_eq!(message, Some("fix the bug".to_string()));
+            }
+            _ => panic!("Expected Todo::Execution::Resume with message"),
         }
     }
 }

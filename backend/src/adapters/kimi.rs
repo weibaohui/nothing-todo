@@ -46,13 +46,17 @@ impl CodeExecutor for KimiExecutor {
         ]
     }
 
-    fn command_args_with_session(&self, message: &str, session_id: Option<&str>) -> Vec<String> {
+    fn command_args_with_session(&self, message: &str, session_id: Option<&str>, _is_resume: bool) -> Vec<String> {
         let mut args = self.command_args(message);
         if let Some(sid) = session_id {
             args.push("-S".to_string());
             args.push(sid.to_string());
         }
         args
+    }
+
+    fn supports_resume(&self) -> bool {
+        true
     }
 
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
@@ -219,7 +223,7 @@ mod tests {
     #[test]
     fn test_command_args_with_session() {
         let executor = KimiExecutor::new("kimi".to_string());
-        let args = executor.command_args_with_session("continue task", Some("abc123"));
+        let args = executor.command_args_with_session("continue task", Some("abc123"), false);
         assert_eq!(args, vec!["--print", "--output-format", "stream-json", "-p", "continue task", "-S", "abc123"]);
     }
 
