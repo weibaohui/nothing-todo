@@ -397,13 +397,18 @@ async fn handle_todo(
             let resp: ClientResponse<Todo> = client.get(&format!("/todos/{}", id)).await?;
             print_response(resp, output, fields)?;
         }
-        TodoAction::Update { id, title, prompt, file: _, stdin, status, executor, workspace, tags, schedule } => {
+        TodoAction::Update { id, title, prompt, file, stdin, status, executor, workspace, tags, schedule } => {
             let mut req = if *stdin {
                 read_stdin_json()?
             } else {
+                let prompt_content = if let Some(path) = file {
+                    read_prompt_from_file(&Some(path.clone()))?
+                } else {
+                    prompt.clone().unwrap_or_default()
+                };
                 serde_json::json!({
                     "title": title,
-                    "prompt": prompt,
+                    "prompt": prompt_content,
                     "status": status,
                     "executor": executor,
                     "workspace": workspace,
@@ -532,13 +537,7 @@ fn print_response<T: serde::Serialize>(
     fields: &Option<String>,
 ) -> Result<()> {
     if resp.code != 0 {
-        // API returned an error — print structured error and fail
-        let err = serde_json::json!({
-            "error": true,
-            "code": resp.code,
-            "message": resp.message,
-        });
-        println!("{}", serde_json::to_string(&err)?);
+        // Let the caller handle structured error printing
         return Err(anyhow::anyhow!("API error {}: {}", resp.code, resp.message));
     }
 

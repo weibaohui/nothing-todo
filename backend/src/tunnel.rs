@@ -47,7 +47,8 @@ pub fn handle_tunnel_command(action: &TunnelAction) {
             let tunnel_type = tunnel_type.clone();
             if let Err(e) = fs::create_dir_all(&ntd_dir) {
                 if *json {
-                    eprintln!("{{\"error\":true,\"message\":\"Failed to create .ntd directory: {}\"}}", e);
+                    let err = serde_json::json!({"error": true, "message": format!("Failed to create .ntd directory: {}", e)});
+                    eprintln!("{}", serde_json::to_string(&err).unwrap());
                 } else {
                     eprintln!("Failed to create .ntd directory: {}", e);
                 }
@@ -73,7 +74,8 @@ pub fn handle_tunnel_command(action: &TunnelAction) {
                 "trycloudflare" => start_cloudflare_tunnel(&pid_file, &url_file, *json),
                 _ => {
                     if *json {
-                        eprintln!("{{\"error\":true,\"message\":\"unsupported tunnel type '{}'\"}}", tunnel_type);
+                        let err = serde_json::json!({"error": true, "message": format!("unsupported tunnel type '{}'", tunnel_type)});
+                        eprintln!("{}", serde_json::to_string(&err).unwrap());
                     } else {
                         eprintln!("Error: unsupported tunnel type '{}'", tunnel_type);
                         eprintln!("Supported types: hostc, trycloudflare");
@@ -196,8 +198,10 @@ fn start_hostc_tunnel(pid_file: &PathBuf, url_file: &PathBuf, json: bool) {
         }
     });
 
-    if let Ok(content) = fs::read_to_string(output_file) {
-        println!("{}", content);
+    if !json {
+        if let Ok(content) = fs::read_to_string(output_file) {
+            println!("{}", content);
+        }
     }
 
     if public_url.is_empty() {
@@ -205,12 +209,22 @@ fn start_hostc_tunnel(pid_file: &PathBuf, url_file: &PathBuf, json: bool) {
         let _ = child.kill();
         fs::remove_file(pid_file).ok();
         fs::remove_file(url_file).ok();
-        eprintln!("Error: failed to capture Public URL within 60s");
+        if json {
+            let err = serde_json::json!({"error": true, "message": "failed to capture Public URL within 60s"});
+            eprintln!("{}", serde_json::to_string(&err).unwrap());
+        } else {
+            eprintln!("Error: failed to capture Public URL within 60s");
+        }
         std::process::exit(1);
     }
 
     if let Err(e) = fs::write(url_file, &public_url) {
-        eprintln!("Failed to write URL file: {}", e);
+        if json {
+            let err = serde_json::json!({"error": true, "message": format!("Failed to write URL file: {}", e)});
+            eprintln!("{}", serde_json::to_string(&err).unwrap());
+        } else {
+            eprintln!("Failed to write URL file: {}", e);
+        }
         std::process::exit(1);
     }
     if json {
@@ -276,8 +290,10 @@ fn start_cloudflare_tunnel(pid_file: &PathBuf, url_file: &PathBuf, json: bool) {
         }
     });
 
-    if let Ok(content) = fs::read_to_string(output_file) {
-        println!("{}", content);
+    if !json {
+        if let Ok(content) = fs::read_to_string(output_file) {
+            println!("{}", content);
+        }
     }
 
     if public_url.is_empty() {
@@ -285,12 +301,22 @@ fn start_cloudflare_tunnel(pid_file: &PathBuf, url_file: &PathBuf, json: bool) {
         let _ = child.kill();
         fs::remove_file(pid_file).ok();
         fs::remove_file(url_file).ok();
-        eprintln!("Error: failed to capture Public URL within 60s");
+        if json {
+            let err = serde_json::json!({"error": true, "message": "failed to capture Public URL within 60s"});
+            eprintln!("{}", serde_json::to_string(&err).unwrap());
+        } else {
+            eprintln!("Error: failed to capture Public URL within 60s");
+        }
         std::process::exit(1);
     }
 
     if let Err(e) = fs::write(url_file, &public_url) {
-        eprintln!("Failed to write URL file: {}", e);
+        if json {
+            let err = serde_json::json!({"error": true, "message": format!("Failed to write URL file: {}", e)});
+            eprintln!("{}", serde_json::to_string(&err).unwrap());
+        } else {
+            eprintln!("Failed to write URL file: {}", e);
+        }
         std::process::exit(1);
     }
     if json {
