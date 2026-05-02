@@ -53,7 +53,7 @@ function AppContent() {
   }
 
   const handleSelectTodo = (todoId: string | number | null) => {
-    if (todoId) {
+    if (todoId != null) {
       setSelectedPanel('detail');
     }
   };

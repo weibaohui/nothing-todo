@@ -143,13 +143,17 @@ impl Config {
     }
 
     /// Save config to `~/.ntd/config.yaml`.
+    /// Uses atomic write (temp file + rename) to avoid corruption on crash.
     pub fn save(&self) -> Result<(), String> {
         let path = Self::config_path();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create config dir: {}", e))?;
         }
         let yaml = serde_yaml::to_string(self).map_err(|e| format!("Failed to serialize config: {}", e))?;
-        std::fs::write(&path, yaml).map_err(|e| format!("Failed to write config.yaml: {}", e))?;
+
+        let tmp_path = path.with_extension("tmp");
+        std::fs::write(&tmp_path, yaml).map_err(|e| format!("Failed to write temp config: {}", e))?;
+        std::fs::rename(&tmp_path, &path).map_err(|e| format!("Failed to rename config: {}", e))?;
         Ok(())
     }
 
