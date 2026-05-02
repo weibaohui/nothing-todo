@@ -31,7 +31,7 @@ interface ExecEventSync {
     todo_id: number;
     todo_title: string;
     executor: string;
-    logs: string; // JSON string
+    logs: string;
   }>;
 }
 
@@ -53,6 +53,7 @@ export function useExecutionEvents() {
   const { dispatch } = useApp();
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const removeTaskTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   useEffect(() => {
     let shouldReconnect = true;
@@ -64,33 +65,26 @@ export function useExecutionEvents() {
       const ws = new WebSocket(`${protocol}//${window.location.host}/xyz/events`);
       wsRef.current = ws;
 
-      ws.onopen = () => {
-        console.log('[ExecutionEvents] WebSocket connected');
-      };
+      ws.onopen = () => {};
 
       ws.onmessage = (event) => {
-        // Legacy "Connected" message - ignore
         if (event.data === 'Connected') return;
-        
+
         try {
           const data: ExecEvent = JSON.parse(event.data);
 
           switch (data.type) {
             case 'Sync': {
-              // 后端发送当前实际运行的任务列表
-              // 前端应清空当前 runningTasks 并用此列表初始化
-              // 先移除所有当前任务
               dispatch({ type: 'CLEAR_RUNNING_TASKS' });
-              
-              // 添加后端发送的任务
+
               data.tasks.forEach(task => {
                 let parsedLogs: LogEntry[] = [];
                 try {
                   parsedLogs = JSON.parse(task.logs || '[]');
-                } catch (e) {
-                  console.error('[ExecutionEvents] Failed to parse logs:', e);
+                } catch {
+                  // ignore malformed logs
                 }
-                
+
                 dispatch({
                   type: 'ADD_RUNNING_TASK',
                   payload: {
@@ -103,15 +97,12 @@ export function useExecutionEvents() {
                     startedAt: new Date().toISOString(),
                   },
                 });
-                
-                // 更新对应的 todo 状态
+
                 dispatch({
                   type: 'UPDATE_TODO_STATUS',
                   payload: { id: task.todo_id, status: 'running' },
                 });
               });
-              
-              console.log(`[ExecutionEvents] Synced ${data.tasks.length} running tasks`);
               break;
             }
             case 'Started': {
@@ -163,38 +154,35 @@ export function useExecutionEvents() {
                   result: data.result,
                 },
               });
-              // Sync todo status in real-time
               const newStatus = data.success ? 'completed' : 'failed';
               dispatch({
                 type: 'UPDATE_TODO_STATUS',
                 payload: { id: data.todo_id, status: newStatus },
               });
-              // Auto-remove after 3 seconds
-              setTimeout(() => {
+              const timer = setTimeout(() => {
+                removeTaskTimersRef.current.delete(timer);
                 dispatch({ type: 'REMOVE_RUNNING_TASK', payload: data.task_id });
               }, 3000);
+              removeTaskTimersRef.current.add(timer);
               break;
             }
           }
-        } catch (e) {
-          console.error('[ExecutionEvents] Failed to parse message:', e);
+        } catch {
+          // ignore malformed messages
         }
       };
 
       ws.onclose = () => {
-        console.log('[ExecutionEvents] WebSocket closed');
         wsRef.current = null;
         if (shouldReconnect) {
           reconnectTimerRef.current = setTimeout(() => {
-            console.log('[ExecutionEvents] Reconnecting...');
+            reconnectTimerRef.current = null;
             connect();
           }, 2000);
         }
       };
 
-      ws.onerror = (error) => {
-        console.error('[ExecutionEvents] WebSocket error:', error);
-      };
+      ws.onerror = () => {};
     }
 
     connect();
@@ -203,7 +191,10 @@ export function useExecutionEvents() {
       shouldReconnect = false;
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
       }
+      removeTaskTimersRef.current.forEach(clearTimeout);
+      removeTaskTimersRef.current.clear();
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;

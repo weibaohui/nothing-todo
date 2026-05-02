@@ -5,6 +5,7 @@ use axum::{
 use crate::handlers::{ApiJson, AppError, AppState};
 use crate::models::{ApiResponse, Todo, UpdateSchedulerRequest};
 
+#[axum::debug_handler]
 pub async fn update_scheduler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -12,7 +13,7 @@ pub async fn update_scheduler(
 ) -> Result<ApiResponse<Todo>, AppError> {
     if req.scheduler_enabled {
         if let Some(ref config) = req.scheduler_config {
-            if let Err(e) = state
+            match state
                 .scheduler
                 .upsert_task(
                     state.db.clone(),
@@ -24,20 +25,34 @@ pub async fn update_scheduler(
                 )
                 .await
             {
-                tracing::error!("Failed to upsert scheduled task for todo {}: {}", id, e);
+                Ok(_) => {
+                    state
+                        .db
+                        .update_todo_scheduler(id, req.scheduler_enabled, req.scheduler_config.as_deref())
+                        .await
+                        .map_err(AppError::from)?;
+                }
+                Err(e) => {
+                    tracing::error!("Failed to upsert scheduled task for todo {}: {}", id, e);
+                    return Err(AppError::Internal(format!("Failed to upsert scheduled task: {}", e)));
+                }
             }
         } else {
             state.scheduler.remove_task_for_todo(id).await;
+            state
+                .db
+                .update_todo_scheduler(id, req.scheduler_enabled, req.scheduler_config.as_deref())
+                .await
+                .map_err(AppError::from)?;
         }
     } else {
         state.scheduler.remove_task_for_todo(id).await;
+        state
+            .db
+            .update_todo_scheduler(id, req.scheduler_enabled, req.scheduler_config.as_deref())
+            .await
+            .map_err(AppError::from)?;
     }
-
-    state
-        .db
-        .update_todo_scheduler(id, req.scheduler_enabled, req.scheduler_config.as_deref())
-        .await
-        .map_err(AppError::from)?;
 
     let todo = state.require_todo(id).await?;
     Ok(ApiResponse::ok(todo))

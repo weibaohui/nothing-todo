@@ -121,7 +121,7 @@ impl Database {
             status: ActiveValue::Set(Some(status.to_string())),
             logs: ActiveValue::Set(Some(logs.to_string())),
             result: ActiveValue::Set(Some(result.to_string())),
-            usage: ActiveValue::Set(usage.map(|u| serde_json::to_string(u).unwrap_or_default())),
+            usage: ActiveValue::Set(usage.map(|u| serde_json::to_string(u).unwrap_or_else(|e| { tracing::error!("Failed to serialize usage: {}", e); String::new() }))),
             model: ActiveValue::Set(model.map(|s| s.to_string())),
             finished_at: ActiveValue::Set(Some(now)),
             ..Default::default()
@@ -540,15 +540,23 @@ impl Database {
                 status = 'failed', \
                 finished_at = $1, \
                 result = CASE \
-                    WHEN todo_id NOT IN (SELECT id FROM todos) THEN '任务已被删除' \
+                    WHEN todo_id NOT IN (SELECT id FROM todos WHERE deleted_at IS NULL) THEN '任务已被删除' \
                     ELSE '程序崩溃，任务被中断' \
                 END \
                 WHERE status = 'running' AND ( \
-                    todo_id NOT IN (SELECT id FROM todos) \
-                    OR todo_id IN (SELECT id FROM todos WHERE task_id IS NULL) \
+                    todo_id NOT IN (SELECT id FROM todos WHERE deleted_at IS NULL) \
+                    OR todo_id IN (SELECT id FROM todos WHERE task_id IS NULL AND deleted_at IS NULL) \
                 )";
-        if let Err(e) = self.conn.execute(Statement::from_sql_and_values(backend, sql, [now.into()])).await {
-            tracing::error!("Failed to cleanup orphan execution records: {}", e);
+        match self.conn.execute(Statement::from_sql_and_values(backend, sql, [now.into()])).await {
+            Ok(res) => {
+                let rows = res.rows_affected();
+                if rows > 0 {
+                    tracing::info!("Cleaned up {} orphan execution records", rows);
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to cleanup orphan execution records: {}", e);
+            }
         }
     }
 

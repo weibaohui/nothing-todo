@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { Modal, Button, message, Space, Typography, Upload } from 'antd';
 import {
   DownloadOutlined,
@@ -20,7 +20,6 @@ export function BackupModal({ open, onClose }: BackupModalProps) {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importConfirm, setImportConfirm] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleExport = async () => {
     setExporting(true);
@@ -181,20 +180,6 @@ export function BackupModal({ open, onClose }: BackupModalProps) {
           </Space>
         </div>
 
-        {/* 隐藏的文件输入 */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".yaml,.yml"
-          style={{ display: 'none' }}
-          onChange={async (e) => {
-            const file = e.target.files?.[0];
-            if (file) {
-              await handleFileSelect(file);
-            }
-            e.target.value = '';
-          }}
-        />
       </div>
     </Modal>
   );
