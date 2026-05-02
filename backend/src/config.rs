@@ -122,12 +122,16 @@ impl Config {
     fn normalize_single_path(path: &str) -> String {
         if path.starts_with('~') {
             if let Some(home) = dirs::home_dir() {
-                let relative = path.trim_start_matches('~');
+                let relative = path.trim_start_matches('~').trim_start_matches(std::path::MAIN_SEPARATOR);
                 return home.join(relative).to_string_lossy().to_string();
             }
-        } else if !path.is_empty() && !PathBuf::from(path).is_absolute() {
+        } else if !path.is_empty()
+            && !PathBuf::from(path).is_absolute()
+            && path.contains(std::path::MAIN_SEPARATOR)
+        {
             if let Some(home) = dirs::home_dir() {
-                return home.join(path).to_string_lossy().to_string();
+                let stripped = path.trim_start_matches("./");
+                return home.join(stripped).to_string_lossy().to_string();
             }
         }
         path.to_string()
@@ -168,5 +172,45 @@ mod tests {
         let restored: Config = serde_yaml::from_str(&yaml).unwrap();
         assert_eq!(restored.port, 1234);
         assert!(restored.db_path.contains(".ntd/data.db"));
+    }
+
+    #[test]
+    fn test_normalize_single_path_tilde_expansion() {
+        let home = dirs::home_dir().expect("need home dir for test");
+        let result = Config::normalize_single_path("~/bin/joinai");
+        let expected = home.join("bin").join("joinai").to_string_lossy().to_string();
+        assert_eq!(result, expected, "~ should expand to home directory");
+    }
+
+    #[test]
+    fn test_normalize_single_path_relative() {
+        let home = dirs::home_dir().expect("need home dir for test");
+        let result = Config::normalize_single_path("./local/claude");
+        assert!(
+            result.starts_with(&format!("{}", home.display())),
+            "relative path should be resolved to absolute under home"
+        );
+        assert_ne!(result, "./local/claude", "relative path should be changed");
+    }
+
+    #[test]
+    fn test_normalize_single_path_bare_command() {
+        let result = Config::normalize_single_path("opencode");
+        assert_eq!(result, "opencode", "bare command name should be left untouched for PATH lookup");
+
+        let result = Config::normalize_single_path("joinai");
+        assert_eq!(result, "joinai", "bare command name should be left untouched for PATH lookup");
+    }
+
+    #[test]
+    fn test_normalize_single_path_empty() {
+        let result = Config::normalize_single_path("");
+        assert_eq!(result, "", "empty path should remain empty");
+    }
+
+    #[test]
+    fn test_normalize_single_path_already_absolute() {
+        let result = Config::normalize_single_path("/usr/bin/claude");
+        assert_eq!(result, "/usr/bin/claude", "absolute path should not be modified");
     }
 }
