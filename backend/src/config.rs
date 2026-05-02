@@ -108,16 +108,29 @@ impl Config {
 
     /// Normalize paths: convert ~ and relative paths to absolute paths.
     fn normalize_paths(&mut self) {
-        if self.db_path.starts_with('~') {
+        self.db_path = Self::normalize_single_path(&self.db_path);
+        self.executors.opencode = Self::normalize_single_path(&self.executors.opencode);
+        self.executors.hermes = Self::normalize_single_path(&self.executors.hermes);
+        self.executors.joinai = Self::normalize_single_path(&self.executors.joinai);
+        self.executors.claude_code = Self::normalize_single_path(&self.executors.claude_code);
+        self.executors.codebuddy = Self::normalize_single_path(&self.executors.codebuddy);
+        self.executors.kimi = Self::normalize_single_path(&self.executors.kimi);
+        self.executors.atomcode = Self::normalize_single_path(&self.executors.atomcode);
+        self.executors.codex = Self::normalize_single_path(&self.executors.codex);
+    }
+
+    fn normalize_single_path(path: &str) -> String {
+        if path.starts_with('~') {
             if let Some(home) = dirs::home_dir() {
-                let relative = self.db_path.trim_start_matches('~');
-                self.db_path = home.join(relative).to_string_lossy().to_string();
+                let relative = path.trim_start_matches('~');
+                return home.join(relative).to_string_lossy().to_string();
             }
-        } else if !PathBuf::from(&self.db_path).is_absolute() {
+        } else if !path.is_empty() && !PathBuf::from(path).is_absolute() {
             if let Some(home) = dirs::home_dir() {
-                self.db_path = home.join(&self.db_path).to_string_lossy().to_string();
+                return home.join(path).to_string_lossy().to_string();
             }
         }
+        path.to_string()
     }
 
     /// Get the server URL string, e.g. "http://localhost:8088".
