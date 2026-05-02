@@ -566,3 +566,173 @@ fn print_response<T: serde::Serialize>(
     }
     Ok(())
 }
+
+// ============== Tests ==============
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_parse_fields_none() {
+        assert_eq!(parse_fields(&None), None);
+    }
+
+    #[test]
+    fn test_parse_fields_single() {
+        assert_eq!(
+            parse_fields(&Some("id".to_string())),
+            Some(vec!["id".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_parse_fields_multiple() {
+        assert_eq!(
+            parse_fields(&Some("id,title,status".to_string())),
+            Some(vec!["id".to_string(), "title".to_string(), "status".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_parse_fields_with_spaces() {
+        assert_eq!(
+            parse_fields(&Some("id, title , status ".to_string())),
+            Some(vec!["id".to_string(), "title".to_string(), "status".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_parse_fields_empty_string() {
+        assert_eq!(parse_fields(&Some("".to_string())), Some(vec![]));
+    }
+
+    #[test]
+    fn test_filter_fields_object() {
+        let value = json!({"id": 1, "title": "test", "prompt": "long text", "status": "pending"});
+        let fields = vec!["id".to_string(), "title".to_string()];
+        let result = filter_fields(&value, &fields);
+        assert_eq!(result, json!({"id": 1, "title": "test"}));
+    }
+
+    #[test]
+    fn test_filter_fields_missing_field() {
+        let value = json!({"id": 1, "title": "test"});
+        let fields = vec!["id".to_string(), "nonexistent".to_string()];
+        let result = filter_fields(&value, &fields);
+        assert_eq!(result, json!({"id": 1}));
+    }
+
+    #[test]
+    fn test_filter_fields_non_object() {
+        let value = json!("string value");
+        let fields = vec!["id".to_string()];
+        let result = filter_fields(&value, &fields);
+        assert_eq!(result, json!("string value"));
+    }
+
+    #[test]
+    fn test_filter_array_fields() {
+        let arr = vec![
+            json!({"id": 1, "title": "a", "prompt": "p1"}),
+            json!({"id": 2, "title": "b", "prompt": "p2"}),
+        ];
+        let fields = vec!["id".to_string(), "title".to_string()];
+        let result = filter_array_fields(&arr, &fields);
+        assert_eq!(
+            result,
+            vec![
+                json!({"id": 1, "title": "a"}),
+                json!({"id": 2, "title": "b"}),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_filter_fields_empty_selection() {
+        let value = json!({"id": 1, "title": "test"});
+        let fields: Vec<String> = vec![];
+        let result = filter_fields(&value, &fields);
+        assert_eq!(result, json!({}));
+    }
+
+    // Clap parsing tests for new arguments
+
+    #[test]
+    fn test_cli_parse_raw_output() {
+        let cli = Cli::try_parse_from(["ntd", "-o", "raw", "todo", "list"]).unwrap();
+        assert_eq!(cli.output, OutputFormat::Raw);
+    }
+
+    #[test]
+    fn test_cli_parse_fields() {
+        let cli = Cli::try_parse_from(["ntd", "-f", "id,title", "todo", "list"]).unwrap();
+        assert_eq!(cli.fields, Some("id,title".to_string()));
+    }
+
+    #[test]
+    fn test_cli_parse_search() {
+        let cli = Cli::try_parse_from(["ntd", "todo", "list", "-s", "rust"]).unwrap();
+        match cli.command {
+            Commands::Todo { action: TodoAction::List { search, .. } } => {
+                assert_eq!(search, Some("rust".to_string()));
+            }
+            _ => panic!("Expected Todo::List with search"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_stdin_create() {
+        let cli = Cli::try_parse_from(["ntd", "todo", "create", "--stdin"]).unwrap();
+        match cli.command {
+            Commands::Todo { action: TodoAction::Create { stdin, .. } } => {
+                assert!(stdin);
+            }
+            _ => panic!("Expected Todo::Create with stdin"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_stdin_update() {
+        let cli = Cli::try_parse_from(["ntd", "todo", "update", "1", "--stdin"]).unwrap();
+        match cli.command {
+            Commands::Todo { action: TodoAction::Update { stdin, .. } } => {
+                assert!(stdin);
+            }
+            _ => panic!("Expected Todo::Update with stdin"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_create_without_title_requires_stdin() {
+        // Creating without title and without --stdin should still parse (validation is at runtime)
+        let cli = Cli::try_parse_from(["ntd", "todo", "create"]).unwrap();
+        match cli.command {
+            Commands::Todo { action: TodoAction::Create { title, stdin, .. } } => {
+                assert!(title.is_none());
+                assert!(!stdin);
+            }
+            _ => panic!("Expected Todo::Create"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_combined_options() {
+        let cli = Cli::try_parse_from([
+            "ntd", "-o", "raw", "-f", "id,title,status",
+            "todo", "list",
+            "--status", "pending",
+            "--search", "bug",
+        ]).unwrap();
+        assert_eq!(cli.output, OutputFormat::Raw);
+        assert_eq!(cli.fields, Some("id,title,status".to_string()));
+        match cli.command {
+            Commands::Todo { action: TodoAction::List { status, search, .. } } => {
+                assert_eq!(status, Some("pending".to_string()));
+                assert_eq!(search, Some("bug".to_string()));
+            }
+            _ => panic!("Expected Todo::List"),
+        }
+    }
+}
