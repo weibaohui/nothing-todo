@@ -6,8 +6,8 @@ import { useExecutionEvents } from './hooks/useExecutionEvents';
 import { TodoList } from './components/TodoList';
 import { TodoDetail } from './components/TodoDetail';
 import { Dashboard } from './components/Dashboard';
+import { SettingsPage } from './components/SettingsPage';
 import { ExecutionPanel } from './components/ExecutionPanel';
-import { CreateTagModal } from './components/CreateTagModal';
 import { CreateTodoModal } from './components/CreateTodoModal';
 import zhCN from 'antd/locale/zh_CN';
 import './App.css';
@@ -18,10 +18,10 @@ const MOBILE_BREAKPOINT = 768;
 
 function AppContent() {
   const { state, clearSelection } = useApp();
-  const [tagModalOpen, setTagModalOpen] = useState(false);
   const [todoModalOpen, setTodoModalOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [selectedPanel, setSelectedPanel] = useState<'list' | 'detail'>('list');
+  const [activeView, setActiveView] = useState<'dashboard' | 'settings'>('dashboard');
   const [panelCollapsed, setPanelCollapsed] = useState(() => {
     try {
       return localStorage.getItem('execution_panel_collapsed') === 'true';
@@ -60,6 +60,13 @@ function AppContent() {
 
   const handleShowDashboard = () => {
     clearSelection();
+    setActiveView('dashboard');
+    setSelectedPanel('detail');
+  };
+
+  const handleShowSettings = () => {
+    clearSelection();
+    setActiveView('settings');
     setSelectedPanel('detail');
   };
 
@@ -102,8 +109,8 @@ function AppContent() {
             <TodoList
               onOpenCreateModal={() => setTodoModalOpen(true)}
               onSelectTodo={handleSelectTodo}
-              onOpenTagModal={() => setTagModalOpen(true)}
               onShowDashboard={handleShowDashboard}
+              onShowSettings={handleShowSettings}
             />
           </div>
 
@@ -117,8 +124,10 @@ function AppContent() {
               display: !isMobile || selectedPanel === 'detail' ? 'block' : 'none',
             }}
           >
-                      {state.selectedTodoId ? (
+            {state.selectedTodoId ? (
               <TodoDetail />
+            ) : activeView === 'settings' ? (
+              <SettingsPage />
             ) : (
               <Dashboard onBack={isMobile ? () => {
                 clearSelection();
@@ -129,10 +138,6 @@ function AppContent() {
         </Content>
       </Layout>
 
-      <CreateTagModal
-        open={tagModalOpen}
-        onClose={() => setTagModalOpen(false)}
-      />
       <CreateTodoModal
         open={todoModalOpen}
         onClose={() => setTodoModalOpen(false)}

@@ -212,6 +212,25 @@ export const EXECUTORS: ExecutorOption[] = [
   { value: 'codex',     label: 'Codex',     color: '#111827', icon: '⬛' },
 ];
 
+export interface ExecutorPaths {
+  opencode: string;
+  hermes: string;
+  joinai: string;
+  claude_code: string;
+  codebuddy: string;
+  kimi: string;
+  atomcode: string;
+  codex: string;
+}
+
+export interface Config {
+  port: number;
+  host: string;
+  db_path: string;
+  log_level: string;
+  executors: ExecutorPaths;
+}
+
 export function getExecutorOption(value: string): ExecutorOption {
   return EXECUTORS.find(e => e.value === value.toLowerCase()) || EXECUTORS[0];
 }

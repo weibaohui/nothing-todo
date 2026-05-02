@@ -1,9 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty } from 'antd';
-import { PlusOutlined, TagOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, SaveOutlined } from '@ant-design/icons';
+import { PlusOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, SettingOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
-import { BackupModal } from './BackupModal';
 import * as db from '../utils/database';
 import { getExecutorOption } from '../types';
 import { formatRelativeTime, formatLocalDateTime } from '../utils/datetime';
@@ -11,8 +10,8 @@ import { formatRelativeTime, formatLocalDateTime } from '../utils/datetime';
 interface TodoListProps {
   onOpenCreateModal: () => void;
   onSelectTodo?: (todoId: string | number) => void;
-  onOpenTagModal?: () => void;
   onShowDashboard?: () => void;
+  onShowSettings?: () => void;
 }
 
 function SkeletonRow() {
@@ -29,12 +28,11 @@ function SkeletonList() {
   );
 }
 
-export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal, onShowDashboard }: TodoListProps) {
+export function TodoList({ onOpenCreateModal, onSelectTodo, onShowDashboard, onShowSettings }: TodoListProps) {
   const { state, dispatch } = useApp();
   const { todos, selectedTodoId, selectedTagId, tags } = state;
   const [isMobile, setIsMobile] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [backupModalOpen, setBackupModalOpen] = useState(false);
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -88,18 +86,10 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal, onSh
           <Button
             type="text"
             size="small"
-            icon={<SaveOutlined />}
-            onClick={() => setBackupModalOpen(true)}
+            icon={<SettingOutlined />}
+            onClick={onShowSettings}
             className="tag-btn"
-            aria-label="备份与恢复"
-          />
-          <Button
-            type="text"
-            size="small"
-            icon={<TagOutlined />}
-            onClick={onOpenTagModal}
-            className="tag-btn"
-            aria-label="管理标签"
+            aria-label="配置管理"
           />
           {!isMobile && (
             <Button
@@ -283,11 +273,6 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onOpenTagModal, onSh
           })
         )}
       </div>
-
-      <BackupModal
-        open={backupModalOpen}
-        onClose={() => setBackupModalOpen(false)}
-      />
     </div>
   );
 }
