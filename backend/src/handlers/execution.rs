@@ -97,7 +97,20 @@ pub async fn stop_execution_handler(
 
     if let Some(task_id) = &record.task_id {
         tracing::info!("Stopping execution record {} with task_id: {}", req.record_id, task_id);
-        state.task_manager.cancel(task_id).await;
+        let cancelled = state.task_manager.cancel(task_id).await;
+        if !cancelled {
+            tracing::warn!("Task {} was not found in task manager (may have already finished)", task_id);
+        }
+        // 更新数据库状态为失败
+        let logs_json = serde_json::to_string::<Vec<crate::models::ParsedLogEntry>>(&vec![]).unwrap_or_default();
+        let _ = state.db.update_execution_record(
+            req.record_id,
+            crate::models::ExecutionStatus::Failed.as_str(),
+            &logs_json,
+            "任务已被手动停止",
+            None,
+            None,
+        ).await;
         tracing::info!("Successfully stopped execution record {}", req.record_id);
         Ok(ApiResponse::ok(()))
     } else {

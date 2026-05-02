@@ -972,6 +972,19 @@ body {
   border-color: var(--color-primary-hover);
 }
 
+.ant-btn-dangerous {
+  background: var(--color-error);
+  border-color: var(--color-error);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.ant-btn-dangerous:hover {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+}
+
 /* Skeleton */
 .skeleton-row {
   height: 56px;
