@@ -84,6 +84,11 @@ pub trait CodeExecutor: Send + Sync {
         false
     }
 
+    /// 从输出行中提取 session_id（用于执行过程中实时更新数据库）
+    fn extract_session_id(&self, _line: &str) -> Option<String> {
+        None
+    }
+
     /// 解析输出行，返回解析后的日志条目
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry>;
 

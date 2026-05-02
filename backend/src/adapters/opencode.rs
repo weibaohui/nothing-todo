@@ -53,17 +53,31 @@ impl CodeExecutor for OpencodeExecutor {
         ]
     }
 
-    fn command_args_with_session(&self, message: &str, _session_id: Option<&str>, _is_resume: bool) -> Vec<String> {
-        // Note: opencode's --session parameter causes issues with JSON output,
-        // so we don't use it here. The task_id is still passed to create_execution_record
-        // for tracking purposes.
-        vec![
+    fn command_args_with_session(&self, message: &str, session_id: Option<&str>, is_resume: bool) -> Vec<String> {
+        let mut args = vec![
             "run".to_string(),
             "--format".to_string(),
             "json".to_string(),
-            "--dangerously-skip-permissions".to_string(),
-            message.to_string(),
-        ]
+        ];
+        // Resume mode: use -s to specify existing session
+        if is_resume {
+            if let Some(sid) = session_id {
+                args.push("-s".to_string());
+                args.push(sid.to_string());
+            }
+        }
+        args.push("--dangerously-skip-permissions".to_string());
+        args.push(message.to_string());
+        args
+    }
+
+    fn supports_resume(&self) -> bool {
+        true
+    }
+
+    fn extract_session_id(&self, line: &str) -> Option<String> {
+        let event: AgentEvent = serde_json::from_str(line).ok()?;
+        event.session_id.or_else(|| event.part.as_ref()?.session_id.clone())
     }
 
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {

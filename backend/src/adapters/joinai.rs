@@ -40,6 +40,31 @@ impl CodeExecutor for JoinaiExecutor {
         ]
     }
 
+    fn command_args_with_session(&self, message: &str, session_id: Option<&str>, is_resume: bool) -> Vec<String> {
+        let mut args = vec![
+            "run".to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ];
+        if is_resume {
+            if let Some(sid) = session_id {
+                args.push("-s".to_string());
+                args.push(sid.to_string());
+            }
+        }
+        args.push(message.to_string());
+        args
+    }
+
+    fn supports_resume(&self) -> bool {
+        true
+    }
+
+    fn extract_session_id(&self, line: &str) -> Option<String> {
+        let event: AgentEvent = serde_json::from_str(line).ok()?;
+        event.session_id.or_else(|| event.part.as_ref()?.session_id.clone())
+    }
+
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
         let event: AgentEvent = serde_json::from_str(line).ok()?;
 
