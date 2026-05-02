@@ -56,11 +56,23 @@ function InlineTokenStats({ input, output, cacheRead, cacheCreate, totalTokens, 
   input: number; output: number; cacheRead: number; cacheCreate: number; totalTokens: number; summary: ExecutionSummary;
 }) {
   const [expanded, setExpanded] = useState(false);
+  // 推理输入 = 输入 + 缓存读 + 缓存写
+  const reasoningInput = input + cacheRead + cacheCreate;
+  // 成本输入 = 输入 + 缓存写
+  const costInput = input + cacheCreate;
+  // 输出率 = 输出 / 成本输入 * 100%
+  const outputRate = costInput > 0 ? (output / costInput * 100) : 0;
+
   const tokenSegments = [
     { value: input, color: '#3b82f6', label: '输入' },
     { value: output, color: '#22c55e', label: '输出' },
     { value: cacheRead, color: '#f59e0b', label: '缓存读' },
     { value: cacheCreate, color: '#a78bfa', label: '缓存写' },
+  ];
+  const extraSegments = [
+    { value: reasoningInput, color: '#ec4899', label: '推理输入' },
+    { value: costInput, color: '#f97316', label: '成本输入' },
+    { value: outputRate, color: '#14b8a6', label: '输出率', isPercent: true },
   ];
   return (
     <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
@@ -84,12 +96,20 @@ function InlineTokenStats({ input, output, cacheRead, cacheCreate, totalTokens, 
         {expanded ? <UpOutlined style={{ fontSize: 10 }} /> : <DownOutlined style={{ fontSize: 10 }} />}
       </button>
       {expanded && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 10, marginTop: 4, background: '#fff', border: '1px solid var(--color-border-light)', borderRadius: 8, padding: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 200 }}>
+        <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 10, marginTop: 4, background: '#fff', border: '1px solid var(--color-border-light)', borderRadius: 8, padding: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 280 }}>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11 }}>
             {tokenSegments.filter(s => s.value > 0).map(s => (
               <span key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color }} />
                 {s.label}: {s.value.toLocaleString()}
+              </span>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11, marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--color-border-light)' }}>
+            {extraSegments.map(s => (
+              <span key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color }} />
+                {s.label}: {s.isPercent ? s.value.toFixed(1) + '%' : s.value.toLocaleString()}
               </span>
             ))}
           </div>

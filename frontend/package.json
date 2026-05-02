@@ -16,6 +16,7 @@
     "@ant-design/x-markdown": "^2.5.0",
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
+    "@uiw/react-md-editor": "^4.1.0",
     "antd": "^6.3.6",
     "axios": "^1.15.2",
     "cherry-markdown": "^0.11.0",
