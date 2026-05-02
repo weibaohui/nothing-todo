@@ -27,6 +27,7 @@ impl From<execution_records::Model> for ExecutionRecord {
             trigger_type: m.trigger_type.unwrap_or_else(|| "manual".to_string()),
             pid: m.pid,
             task_id: m.task_id,
+            session_id: m.session_id,
             todo_progress: m.todo_progress,
             execution_stats,
         }
@@ -90,6 +91,7 @@ impl Database {
         executor: &str,
         trigger_type: &str,
         task_id: &str,
+        session_id: Option<&str>,
     ) -> Result<i64, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = execution_records::ActiveModel {
@@ -100,6 +102,7 @@ impl Database {
             status: ActiveValue::Set(Some(crate::models::ExecutionStatus::Running.to_string())),
             started_at: ActiveValue::Set(Some(now)),
             task_id: ActiveValue::Set(Some(task_id.to_string())),
+            session_id: ActiveValue::Set(session_id.map(|s| s.to_string())),
             ..Default::default()
         };
         let inserted = am.insert(&self.conn).await?;

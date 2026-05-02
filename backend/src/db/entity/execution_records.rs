@@ -21,6 +21,7 @@ pub struct Model {
     pub trigger_type: Option<String>,
     pub pid: Option<i32>,
     pub task_id: Option<String>,
+    pub session_id: Option<String>,
     pub todo_progress: Option<String>,
     pub execution_stats: Option<String>,
 }

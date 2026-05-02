@@ -144,7 +144,8 @@ pub async fn resume_execution_handler(
         .map(|m| m.to_string())
         .unwrap_or_else(|| todo.prompt.clone());
 
-    let resume_session_id = record.task_id
+    let resume_session_id = record.session_id
+        .or(record.task_id)
         .ok_or_else(|| AppError::BadRequest("No session_id found for this execution record".to_string()))?;
 
     let result = run_todo_execution(

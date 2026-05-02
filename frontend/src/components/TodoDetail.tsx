@@ -589,7 +589,7 @@ export function TodoDetail() {
                           {formatLocalDateTime(record.started_at)}
                         </span>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                          {record.status !== 'running' && supportsResume(record.executor) && (
+                          {record.status !== 'running' && supportsResume(record) && (
                             <MessageOutlined
                               style={{ fontSize: 12, color: 'var(--color-primary)', cursor: 'pointer' }}
                               title="继续对话"
@@ -696,7 +696,7 @@ export function TodoDetail() {
                         )}
                       </div>
                       <div style={{ display: 'flex', gap: 8 }}>
-                        {record.status !== 'running' && supportsResume(record.executor) && (
+                        {record.status !== 'running' && supportsResume(record) && (
                           <Button type="primary" size="small" icon={<MessageOutlined />} onClick={() => handleOpenResume(record)}>继续对话</Button>
                         )}
                         {record.status === 'running' && (
@@ -864,7 +864,7 @@ export function TodoDetail() {
                     }}>
                       {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
                     </span>
-                    {record.status !== 'running' && supportsResume(record.executor) && (
+                    {record.status !== 'running' && supportsResume(record) && (
                       <Button
                         type="primary"
                         size="small"

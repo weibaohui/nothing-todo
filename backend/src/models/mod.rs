@@ -124,6 +124,8 @@ pub struct ExecutionRecord {
     pub pid: Option<i32>,
     #[serde(default)]
     pub task_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub todo_progress: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
