@@ -1,5 +1,9 @@
+use std::io::Read;
+
+use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::models::{
     ClientResponse, CreateTagRequest, CreateTodoRequest, DashboardStats, ExecutionRecord,
@@ -20,6 +24,11 @@ pub struct Cli {
     #[arg(short, long, default_value = "json", value_enum)]
     pub output: OutputFormat,
 
+    /// Select fields to output (comma-separated, e.g. "id,title,status")
+    /// Only effective with --output raw
+    #[arg(short, long)]
+    pub fields: Option<String>,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -30,6 +39,8 @@ pub enum OutputFormat {
     #[default]
     Json,
     Pretty,
+    /// Output raw data without ApiResponse wrapper (best for AI parsing)
+    Raw,
 }
 
 // ============== CLI Commands ==============
@@ -54,8 +65,8 @@ pub enum Commands {
 pub enum TodoAction {
     /// Create a new todo
     Create {
-        /// Todo title
-        title: String,
+        /// Todo title (optional if --stdin is used)
+        title: Option<String>,
 
         /// Prompt content (use --file to load from file)
         #[arg(short, long)]
@@ -64,6 +75,10 @@ pub enum TodoAction {
         /// Read prompt from file
         #[arg(short, long)]
         file: Option<String>,
+
+        /// Read todo data from stdin as JSON
+        #[arg(long)]
+        stdin: bool,
 
         /// Executor type (claudecode, joinai, codebuddy, opencode, atomcode, hermes, kimi, codex)
         #[arg(short, long)]
@@ -77,7 +92,7 @@ pub enum TodoAction {
         #[arg(long)]
         tags: Option<String>,
 
-        /// Schedule (AI: convert natural language to cron, e.g. "*/30 * * * *")
+        /// Schedule (cron expression, e.g. "*/30 * * * *")
         #[arg(long)]
         schedule: Option<String>,
     },
@@ -94,6 +109,10 @@ pub enum TodoAction {
         /// Show only running todos
         #[arg(long)]
         running: bool,
+
+        /// Search by keyword in title or prompt
+        #[arg(short, long)]
+        search: Option<String>,
     },
     /// Get todo details
     Get {
@@ -117,6 +136,10 @@ pub enum TodoAction {
         #[arg(short, long)]
         file: Option<String>,
 
+        /// Read update data from stdin as JSON
+        #[arg(long)]
+        stdin: bool,
+
         /// New status
         #[arg(long)]
         status: Option<String>,
@@ -133,7 +156,7 @@ pub enum TodoAction {
         #[arg(long)]
         tags: Option<String>,
 
-        /// Schedule (AI: convert natural language to cron)
+        /// Schedule (cron expression)
         #[arg(long)]
         schedule: Option<String>,
     },
@@ -220,7 +243,7 @@ pub enum TagAction {
 
 // ============== Helper Functions ==============
 
-fn read_prompt_from_file(file: &Option<String>) -> anyhow::Result<String> {
+fn read_prompt_from_file(file: &Option<String>) -> Result<String> {
     match file {
         Some(path) => Ok(std::fs::read_to_string(path)?),
         None => Ok(String::new()),
@@ -234,16 +257,49 @@ fn parse_tags(tags: &Option<String>) -> Vec<i64> {
     }
 }
 
+fn read_stdin_json() -> Result<Value> {
+    let mut buffer = String::new();
+    std::io::stdin().read_to_string(&mut buffer)?;
+    let value: Value = serde_json::from_str(&buffer)
+        .map_err(|e| anyhow::anyhow!("Invalid JSON from stdin: {}", e))?;
+    Ok(value)
+}
+
+fn parse_fields(fields: &Option<String>) -> Option<Vec<String>> {
+    fields.as_ref().map(|s| {
+        s.split(',').map(|f| f.trim().to_string()).filter(|f| !f.is_empty()).collect()
+    })
+}
+
+fn filter_fields(value: &Value, fields: &[String]) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut filtered = serde_json::Map::new();
+            for field in fields {
+                if let Some(v) = map.get(field) {
+                    filtered.insert(field.clone(), v.clone());
+                }
+            }
+            Value::Object(filtered)
+        }
+        _ => value.clone(),
+    }
+}
+
+fn filter_array_fields(arr: &[Value], fields: &[String]) -> Vec<Value> {
+    arr.iter().map(|v| filter_fields(v, fields)).collect()
+}
+
 // ============== Main Entry Point ==============
 
-pub async fn run_command(cli: &Cli) -> anyhow::Result<()> {
+pub async fn run_command(cli: &Cli) -> Result<()> {
     let server_url = cli.server.clone().unwrap_or_else(|| config::Config::load().server_url());
     let client = ApiClient::new(&server_url);
 
     match &cli.command {
-        Commands::Todo { action } => handle_todo(&client, action, &cli.output).await?,
-        Commands::Tag { action } => handle_tag(&client, action, &cli.output).await?,
-        Commands::Stats => handle_stats(&client, &cli.output).await?,
+        Commands::Todo { action } => handle_todo(&client, action, &cli.output, &cli.fields).await?,
+        Commands::Tag { action } => handle_tag(&client, action, &cli.output, &cli.fields).await?,
+        Commands::Stats => handle_stats(&client, &cli.output, &cli.fields).await?,
     }
 
     Ok(())
@@ -251,26 +307,51 @@ pub async fn run_command(cli: &Cli) -> anyhow::Result<()> {
 
 // ============== Todo Handlers ==============
 
-async fn handle_todo(client: &ApiClient, action: &TodoAction, output: &OutputFormat) -> anyhow::Result<()> {
+async fn handle_todo(
+    client: &ApiClient,
+    action: &TodoAction,
+    output: &OutputFormat,
+    fields: &Option<String>,
+) -> Result<()> {
     match action {
-        TodoAction::Create { title, prompt, file, executor, workspace: _, tags, schedule: _ } => {
-            let prompt_content = if let Some(p) = prompt {
-                p.clone()
+        TodoAction::Create { title, prompt, file, stdin, executor, workspace, tags, schedule: _ } => {
+            let req = if *stdin {
+                // Read from stdin
+                let value = read_stdin_json()?;
+                let req = serde_json::from_value::<CreateTodoRequest>(value.clone())
+                    .unwrap_or_else(|_| CreateTodoRequest {
+                        title: value.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        prompt: value.get("prompt").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        tag_ids: value.get("tag_ids")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
+                            .unwrap_or_default(),
+                        executor: value.get("executor").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    });
+                if workspace.is_some() {
+                    // workspace is sent separately in the full JSON body
+                }
+                req
             } else {
-                read_prompt_from_file(file)?
-            };
+                let title = title.clone().ok_or_else(|| anyhow::anyhow!("Title is required. Use --stdin to read from stdin."))?;
+                let prompt_content = if let Some(p) = prompt {
+                    p.clone()
+                } else {
+                    read_prompt_from_file(file)?
+                };
 
-            let req = CreateTodoRequest {
-                title: title.clone(),
-                prompt: prompt_content,
-                tag_ids: parse_tags(tags),
-                executor: executor.clone(),
+                CreateTodoRequest {
+                    title,
+                    prompt: prompt_content,
+                    tag_ids: parse_tags(tags),
+                    executor: executor.clone(),
+                }
             };
 
             let resp: ClientResponse<Todo> = client.post("/todos", &req).await?;
-            print_response(resp, output);
+            print_response(resp, output, fields)?;
         }
-        TodoAction::List { status, tag, running } => {
+        TodoAction::List { status, tag, running, search } => {
             let mut query_params = Vec::new();
 
             if let Some(s) = status {
@@ -290,30 +371,66 @@ async fn handle_todo(client: &ApiClient, action: &TodoAction, output: &OutputFor
             };
 
             let resp: ClientResponse<Vec<Todo>> = client.get(&path).await?;
-            print_response(resp, output);
+
+            // Client-side search filtering
+            let resp = if let Some(keyword) = search {
+                let keyword = keyword.to_lowercase();
+                match resp.data {
+                    Some(todos) => {
+                        let filtered: Vec<Todo> = todos.into_iter()
+                            .filter(|t| {
+                                t.title.to_lowercase().contains(&keyword)
+                                    || t.prompt.to_lowercase().contains(&keyword)
+                            })
+                            .collect();
+                        ClientResponse { code: resp.code, data: Some(filtered), message: resp.message }
+                    }
+                    None => resp,
+                }
+            } else {
+                resp
+            };
+
+            print_response(resp, output, fields)?;
         }
         TodoAction::Get { id } => {
             let resp: ClientResponse<Todo> = client.get(&format!("/todos/{}", id)).await?;
-            print_response(resp, output);
+            print_response(resp, output, fields)?;
         }
-	        TodoAction::Update { id, title, prompt, file: _, status, executor, workspace, tags: _, schedule } => {
-            let req = serde_json::json!({
-                "title": title,
-                "prompt": prompt,
-                "status": status,
-                "executor": executor,
-                "workspace": workspace,
-                "scheduler_enabled": schedule.as_ref().map(|s| !s.is_empty()),
-                "scheduler_config": schedule.clone().filter(|s| !s.is_empty()),
-            });
-            
-            let resp: ClientResponse<Todo> = client.put(&format!("/todos/{}", id), &req).await?;
-            print_response(resp, output);
-        }
+        TodoAction::Update { id, title, prompt, file: _, stdin, status, executor, workspace, tags, schedule } => {
+            let mut req = if *stdin {
+                read_stdin_json()?
+            } else {
+                serde_json::json!({
+                    "title": title,
+                    "prompt": prompt,
+                    "status": status,
+                    "executor": executor,
+                    "workspace": workspace,
+                })
+            };
 
+            // Merge CLI args over stdin values
+            if let Some(t) = title { req["title"] = t.clone().into(); }
+            if let Some(p) = prompt { req["prompt"] = p.clone().into(); }
+            if let Some(s) = status { req["status"] = s.clone().into(); }
+            if let Some(e) = executor { req["executor"] = e.clone().into(); }
+            if let Some(w) = workspace { req["workspace"] = w.clone().into(); }
+            if let Some(t) = tags {
+                let tag_ids: Vec<i64> = t.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+                req["tag_ids"] = tag_ids.into();
+            }
+            if let Some(s) = schedule {
+                req["scheduler_enabled"] = (!s.is_empty()).into();
+                req["scheduler_config"] = if s.is_empty() { Value::Null } else { s.clone().into() };
+            }
+
+            let resp: ClientResponse<Todo> = client.put(&format!("/todos/{}", id), &req).await?;
+            print_response(resp, output, fields)?;
+        }
         TodoAction::Delete { id } => {
             let resp: ClientResponse<()> = client.delete(&format!("/todos/{}", id)).await?;
-            print_response(resp, output);
+            print_response(resp, output, fields)?;
         }
         TodoAction::Execute { id, message, executor } => {
             let req = ExecuteRequest {
@@ -321,26 +438,31 @@ async fn handle_todo(client: &ApiClient, action: &TodoAction, output: &OutputFor
                 message: message.clone(),
                 executor: executor.clone(),
             };
-            let resp: ClientResponse<serde_json::Value> = client.post("/execute", &req).await?;
-            print_response(resp, output);
+            let resp: ClientResponse<Value> = client.post("/execute", &req).await?;
+            print_response(resp, output, fields)?;
         }
         TodoAction::Stop { id } => {
             let req = serde_json::json!({ "todo_id": id });
             let resp: ClientResponse<()> = client.post("/execute/stop", &req).await?;
-            print_response(resp, output);
+            print_response(resp, output, fields)?;
         }
         TodoAction::Stats { id } => {
             let resp: ClientResponse<ExecutionSummary> = client.get(&format!("/todos/{}/summary", id)).await?;
-            print_response(resp, output);
+            print_response(resp, output, fields)?;
         }
         TodoAction::Execution { action } => {
-            handle_execution(client, action, output).await?;
+            handle_execution(client, action, output, fields).await?;
         }
     }
     Ok(())
 }
 
-async fn handle_execution(client: &ApiClient, action: &ExecutionAction, output: &OutputFormat) -> anyhow::Result<()> {
+async fn handle_execution(
+    client: &ApiClient,
+    action: &ExecutionAction,
+    output: &OutputFormat,
+    fields: &Option<String>,
+) -> Result<()> {
     match action {
         ExecutionAction::List { todo_id, status, page, limit } => {
             let path = format!(
@@ -351,11 +473,11 @@ async fn handle_execution(client: &ApiClient, action: &ExecutionAction, output: 
                 status.as_ref().map(|s| format!("&status={}", s)).unwrap_or_default()
             );
             let resp: ClientResponse<ExecutionRecordsPage> = client.get(&path).await?;
-            print_response(resp, output);
+            print_response(resp, output, fields)?;
         }
         ExecutionAction::Get { id } => {
             let resp: ClientResponse<ExecutionRecord> = client.get(&format!("/execution-records/{}", id)).await?;
-            print_response(resp, output);
+            print_response(resp, output, fields)?;
         }
     }
     Ok(())
@@ -363,11 +485,16 @@ async fn handle_execution(client: &ApiClient, action: &ExecutionAction, output: 
 
 // ============== Tag Handlers ==============
 
-async fn handle_tag(client: &ApiClient, action: &TagAction, output: &OutputFormat) -> anyhow::Result<()> {
+async fn handle_tag(
+    client: &ApiClient,
+    action: &TagAction,
+    output: &OutputFormat,
+    fields: &Option<String>,
+) -> Result<()> {
     match action {
         TagAction::List => {
             let resp: ClientResponse<Vec<Tag>> = client.get("/tags").await?;
-            print_response(resp, output);
+            print_response(resp, output, fields)?;
         }
         TagAction::Create { name, color } => {
             let req = CreateTagRequest {
@@ -375,11 +502,11 @@ async fn handle_tag(client: &ApiClient, action: &TagAction, output: &OutputForma
                 color: color.clone(),
             };
             let resp: ClientResponse<Tag> = client.post("/tags", &req).await?;
-            print_response(resp, output);
+            print_response(resp, output, fields)?;
         }
         TagAction::Delete { id } => {
             let resp: ClientResponse<()> = client.delete(&format!("/tags/{}", id)).await?;
-            print_response(resp, output);
+            print_response(resp, output, fields)?;
         }
     }
     Ok(())
@@ -387,21 +514,55 @@ async fn handle_tag(client: &ApiClient, action: &TagAction, output: &OutputForma
 
 // ============== Stats Handler ==============
 
-async fn handle_stats(client: &ApiClient, output: &OutputFormat) -> anyhow::Result<()> {
+async fn handle_stats(
+    client: &ApiClient,
+    output: &OutputFormat,
+    fields: &Option<String>,
+) -> Result<()> {
     let resp: ClientResponse<DashboardStats> = client.get("/dashboard-stats").await?;
-    print_response(resp, output);
+    print_response(resp, output, fields)?;
     Ok(())
 }
 
 // ============== Output ==============
 
-fn print_response<T: serde::Serialize>(resp: ClientResponse<T>, output: &OutputFormat) {
+fn print_response<T: serde::Serialize>(
+    resp: ClientResponse<T>,
+    output: &OutputFormat,
+    fields: &Option<String>,
+) -> Result<()> {
+    if resp.code != 0 {
+        // API returned an error — print structured error and fail
+        let err = serde_json::json!({
+            "error": true,
+            "code": resp.code,
+            "message": resp.message,
+        });
+        println!("{}", serde_json::to_string(&err)?);
+        return Err(anyhow::anyhow!("API error {}: {}", resp.code, resp.message));
+    }
+
+    let field_list = parse_fields(fields);
+
     match output {
         OutputFormat::Json => {
-            println!("{}", serde_json::to_string(&resp).unwrap());
+            let value = serde_json::to_value(&resp)?;
+            println!("{}", serde_json::to_string(&value)?);
         }
         OutputFormat::Pretty => {
-            println!("{}", serde_json::to_string_pretty(&resp).unwrap());
+            let value = serde_json::to_value(&resp)?;
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        }
+        OutputFormat::Raw => {
+            let mut value = serde_json::to_value(&resp.data)?;
+            if let Some(ref fl) = field_list {
+                value = match value {
+                    Value::Array(arr) => Value::Array(filter_array_fields(&arr, fl)),
+                    _ => filter_fields(&value, fl),
+                };
+            }
+            println!("{}", serde_json::to_string(&value)?);
         }
     }
+    Ok(())
 }
