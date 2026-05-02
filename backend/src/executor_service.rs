@@ -203,7 +203,15 @@ pub async fn run_todo_execution(
             Some(tokio::spawn(async move {
                 let mut reader = BufReader::new(stdout_reader).lines();
                 let mut log_count = 0u64;
+                let mut session_id_updated = false;
                 while let Ok(Some(line)) = reader.next_line().await {
+                    // Extract and update session_id if present
+                    if !session_id_updated {
+                        if let Some(sid) = executor_clone.extract_session_id(&line) {
+                            let _ = db_for_todo.update_execution_record_session_id(rid, &sid).await;
+                            session_id_updated = true;
+                        }
+                    }
                     if let Some(parsed) = executor_clone.parse_output_line(&line) {
                         // Detect todo progress updates
                         if let Some(progress) = crate::todo_progress::try_extract_todo_progress(&parsed) {

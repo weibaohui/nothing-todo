@@ -232,7 +232,7 @@ export interface Config {
   executors: ExecutorPaths;
 }
 
-export const RESUMABLE_EXECUTORS = new Set(['claudecode', 'kimi']);
+export const RESUMABLE_EXECUTORS = new Set(['claudecode', 'kimi', 'opencode']);
 
 export function supportsResume(record: ExecutionRecord): boolean {
   return (
