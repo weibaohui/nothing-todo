@@ -47,7 +47,7 @@ export function TodoEditDrawer({ open, todo, onClose, onSave }: TodoEditDrawerPr
       onClose={onClose}
       title={null}
       closable={false}
-      width="100%"
+      width={600}
       placement="right"
       styles={{
         body: { padding: 0, display: 'flex', flexDirection: 'column' },
