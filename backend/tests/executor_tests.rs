@@ -22,7 +22,7 @@ mod kimi_executor_tests {
     #[test]
     fn test_kimi_command_args_with_session() {
         let executor = KimiExecutor::new("kimi".to_string());
-        let args = executor.command_args_with_session("continue task", Some("abc123"));
+        let args = executor.command_args_with_session("continue task", Some("abc123"), false);
         assert_eq!(args, vec!["--print", "--output-format", "stream-json", "-p", "continue task", "-S", "abc123"]);
     }
 
@@ -185,10 +185,18 @@ mod claude_code_executor_tests {
     }
 
     #[test]
-    fn test_claude_command_args_with_session() {
+    fn test_claude_command_args_with_session_new() {
         let executor = ClaudeCodeExecutor::new("claude".to_string());
-        let args = executor.command_args_with_session("continue", Some("session123"));
+        let args = executor.command_args_with_session("continue", Some("session123"), false);
         assert!(args.contains(&"--session-id".to_string()));
+        assert!(args.contains(&"session123".to_string()));
+    }
+
+    #[test]
+    fn test_claude_command_args_with_session_resume() {
+        let executor = ClaudeCodeExecutor::new("claude".to_string());
+        let args = executor.command_args_with_session("continue", Some("session123"), true);
+        assert!(args.contains(&"--resume".to_string()));
         assert!(args.contains(&"session123".to_string()));
     }
 

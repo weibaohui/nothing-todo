@@ -3,6 +3,7 @@ use axum::{
 };
 use serde::Deserialize;
 
+use crate::adapters::parse_executor_type;
 use crate::executor_service::run_todo_execution;
 use crate::handlers::{ApiJson, AppError, AppState};
 use crate::models::{
@@ -65,6 +66,7 @@ pub async fn execute_handler(
         req.executor,
         "manual",
         state.task_manager.clone(),
+        None,
     )
     .await;
 
@@ -101,6 +103,68 @@ pub async fn stop_execution_handler(
     } else {
         Err(AppError::BadRequest("No task_id found for this execution record".to_string()))
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResumeExecutionRequest {
+    pub message: Option<String>,
+}
+
+pub async fn resume_execution_handler(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    ApiJson(req): ApiJson<ResumeExecutionRequest>,
+) -> Result<ApiResponse<serde_json::Value>, AppError> {
+    let record = state.db.get_execution_record(id).await
+        .ok_or(AppError::NotFound)?;
+
+    if record.status == "running" {
+        return Err(AppError::BadRequest("Cannot resume a running execution".to_string()));
+    }
+
+    let executor_type = record.executor.as_deref()
+        .and_then(parse_executor_type)
+        .ok_or_else(|| AppError::BadRequest("Unknown executor type".to_string()))?;
+
+    let executor = state.executor_registry.get(executor_type)
+        .ok_or_else(|| AppError::Internal("Executor not found in registry".to_string()))?;
+
+    if !executor.supports_resume() {
+        return Err(AppError::BadRequest("This executor does not support resuming conversations".to_string()));
+    }
+
+    let todo_id = record.todo_id;
+    let todo = state.db.get_todo(todo_id).await
+        .ok_or(AppError::NotFound)?;
+
+    let message = req.message
+        .as_ref()
+        .map(|m| m.trim())
+        .filter(|m| !m.is_empty())
+        .map(|m| m.to_string())
+        .unwrap_or_else(|| todo.prompt.clone());
+
+    let resume_session_id = record.session_id
+        .or(record.task_id)
+        .ok_or_else(|| AppError::BadRequest("No session_id found for this execution record".to_string()))?;
+
+    let result = run_todo_execution(
+        state.db.clone(),
+        state.executor_registry.clone(),
+        state.tx.clone(),
+        todo_id,
+        message,
+        record.executor.clone(),
+        "manual",
+        state.task_manager.clone(),
+        Some(resume_session_id),
+    )
+    .await;
+
+    let record_id = result.record_id
+        .ok_or_else(|| AppError::Internal("Failed to start execution".to_string()))?;
+
+    Ok(ApiResponse::ok(serde_json::json!({ "task_id": result.task_id, "record_id": record_id })))
 }
 
 pub async fn get_execution_summary(

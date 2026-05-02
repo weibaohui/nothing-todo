@@ -74,8 +74,14 @@ pub trait CodeExecutor: Send + Sync {
     fn command_args(&self, message: &str) -> Vec<String>;
 
     /// 返回带 session 的命令参数（默认实现忽略 session）
-    fn command_args_with_session(&self, message: &str, _session_id: Option<&str>) -> Vec<String> {
+    /// `is_resume` 为 true 时表示恢复已有会话，false 表示新执行并指定 session_id
+    fn command_args_with_session(&self, message: &str, _session_id: Option<&str>, _is_resume: bool) -> Vec<String> {
         self.command_args(message)
+    }
+
+    /// 该执行器是否支持通过 session_id 恢复对话
+    fn supports_resume(&self) -> bool {
+        false
     }
 
     /// 解析输出行，返回解析后的日志条目

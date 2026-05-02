@@ -53,7 +53,7 @@ impl CodeExecutor for OpencodeExecutor {
         ]
     }
 
-    fn command_args_with_session(&self, message: &str, _session_id: Option<&str>) -> Vec<String> {
+    fn command_args_with_session(&self, message: &str, _session_id: Option<&str>, _is_resume: bool) -> Vec<String> {
         // Note: opencode's --session parameter causes issues with JSON output,
         // so we don't use it here. The task_id is still passed to create_execution_record
         // for tracking purposes.
