@@ -39,6 +39,7 @@ pub async fn run_todo_execution(
     req_executor: Option<String>,
     trigger_type: &str,
     task_manager: Arc<TaskManager>,
+    resume_session_id: Option<String>,
 ) -> ExecutionResult {
     let task_id = Uuid::new_v4().to_string();
     let mut cancel_rx = task_manager.register(task_id.clone()).await;
@@ -80,7 +81,9 @@ pub async fn run_todo_execution(
     };
 
     let executable_path = executor.executable_path().to_string();
-    let command_args = executor.command_args_with_session(&message, Some(&task_id));
+    let session_id_for_executor = resume_session_id.as_deref().unwrap_or(&task_id);
+    let is_resume = resume_session_id.is_some();
+    let command_args = executor.command_args_with_session(&message, Some(session_id_for_executor), is_resume);
 
     // Update todo's executor to the one being used
     let executor_str = executor.executor_type().to_string();

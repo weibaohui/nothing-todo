@@ -231,6 +231,12 @@ export interface Config {
   executors: ExecutorPaths;
 }
 
+export const RESUMABLE_EXECUTORS = new Set(['claudecode', 'kimi']);
+
+export function supportsResume(executor?: string | null): boolean {
+  return !!executor && RESUMABLE_EXECUTORS.has(executor.toLowerCase());
+}
+
 export function getExecutorOption(value: string): ExecutorOption {
   return EXECUTORS.find(e => e.value === value.toLowerCase()) || EXECUTORS[0];
 }

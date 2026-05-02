@@ -116,6 +116,10 @@ export async function stopExecution(recordId: number): Promise<void> {
   await api.post('/xyz/execute/stop', { record_id: recordId });
 }
 
+export async function resumeExecutionRecord(recordId: number, message?: string): Promise<{ task_id: string; record_id: number }> {
+  return unwrap(await api.post<ApiResp<{ task_id: string; record_id: number }>>(`/xyz/execution-records/${recordId}/resume`, { message }));
+}
+
 // Scheduler APIs
 
 export async function updateScheduler(

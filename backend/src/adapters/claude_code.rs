@@ -42,7 +42,7 @@ impl CodeExecutor for ClaudeCodeExecutor {
         ]
     }
 
-    fn command_args_with_session(&self, message: &str, session_id: Option<&str>) -> Vec<String> {
+    fn command_args_with_session(&self, message: &str, session_id: Option<&str>, is_resume: bool) -> Vec<String> {
         let mut args = vec![
             "--dangerously-skip-permissions".to_string(),
             "-p".to_string(),
@@ -50,12 +50,20 @@ impl CodeExecutor for ClaudeCodeExecutor {
             "stream-json".to_string(),
         ];
         if let Some(sid) = session_id {
-            args.push("--session-id".to_string());
+            if is_resume {
+                args.push("--resume".to_string());
+            } else {
+                args.push("--session-id".to_string());
+            }
             args.push(sid.to_string());
         }
         args.push("--verbose".to_string());
         args.push(message.to_string());
         args
+    }
+
+    fn supports_resume(&self) -> bool {
+        true
     }
 
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
