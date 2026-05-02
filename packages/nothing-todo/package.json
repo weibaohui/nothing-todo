@@ -1,5 +1,5 @@
 {
-  "name": "@weibaohui/nothing-todo",
+  "name": "nothing-todo",
   "version": "0.1.0",
   "description": "NothingTodo - Rust CLI for managing your daily tasks",
   "keywords": ["todo", "task", "cli", "rust"],
@@ -12,9 +12,9 @@
     "postinstall": "node install.js"
   },
   "optionalDependencies": {
-    "@weibaohui/nothing-todo-linux-x64": "*",
-    "@weibaohui/nothing-todo-linux-arm64": "*",
-    "@weibaohui/nothing-todo-darwin-arm64": "*",
-    "@weibaohui/nothing-todo-windows-x64": "*"
+    "nothing-todo-linux-x64": "*",
+    "nothing-todo-linux-arm64": "*",
+    "nothing-todo-darwin-arm64": "*",
+    "nothing-todo-windows-x64": "*"
   }
 }

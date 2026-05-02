@@ -169,7 +169,7 @@ jobs:
       - name: Publish platform packages to npm
         run: |
           for pkg in nothing-todo-linux-x64 nothing-todo-linux-arm64 nothing-todo-darwin-arm64 nothing-todo-windows-x64; do
-            echo "Publishing @weibaohui/$pkg..."
+            echo "Publishing $pkg..."
             cd packages/$pkg
             npm publish --access public
             cd ../..

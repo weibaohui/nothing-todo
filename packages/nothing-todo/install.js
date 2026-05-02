@@ -28,7 +28,7 @@ function getPackageName() {
     process.exit(1);
   }
 
-  return `@weibaohui/${a}`;
+  return a;
 }
 
 const pkg = getPackageName();
