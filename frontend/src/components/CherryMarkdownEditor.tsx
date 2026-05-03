@@ -1,6 +1,7 @@
 import { useEffect, useRef, useId } from 'react';
 import Cherry from 'cherry-markdown';
 import 'cherry-markdown/dist/cherry-markdown.css';
+import { useTheme } from '../hooks/useTheme';
 
 interface CherryMarkdownEditorProps {
   value: string;
@@ -17,9 +18,11 @@ export function CherryMarkdownEditor({
 }: CherryMarkdownEditorProps) {
   const reactId = useId();
   const editorId = 'cherry-' + reactId.replace(/:/g, '');
+  const containerRef = useRef<HTMLDivElement>(null);
   const cherryRef = useRef<Cherry | null>(null);
   const onChangeRef = useRef(onChange);
   const isInternalUpdate = useRef(false);
+  const { themeMode } = useTheme();
 
   onChangeRef.current = onChange;
 
@@ -76,9 +79,22 @@ export function CherryMarkdownEditor({
     }
   }, [value]);
 
+  // Toggle dark mode class on cherry markdown container
+  useEffect(() => {
+    const cherryEl = document.getElementById(editorId);
+    if (cherryEl) {
+      if (themeMode === 'dark') {
+        cherryEl.classList.add('cherry-dark');
+      } else {
+        cherryEl.classList.remove('cherry-dark');
+      }
+    }
+  }, [themeMode, editorId]);
+
   return (
     <div
       id={editorId}
+      ref={containerRef}
       style={{ marginBottom: 12 }}
     />
   );

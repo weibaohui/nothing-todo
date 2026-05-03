@@ -70,11 +70,11 @@ export function PieChart({
       viewBox="0 0 100 100"
       style={{ flexShrink: 0 }}
     >
-      <circle cx={cx} cy={cy} r={r} fill="#e2e8f0" />
+      <circle cx={cx} cy={cy} r={r} fill="var(--color-border-light, #e2e8f0)" />
       {paths.map((p, i) => (
         <path key={i} d={p.d} fill={p.color} />
       ))}
-      <circle cx={cx} cy={cy} r={26} fill="#fff" />
+      <circle cx={cx} cy={cy} r={26} fill="var(--color-bg-elevated, #fff)" />
       {centerText && (
         <text
           x={cx}
@@ -84,7 +84,7 @@ export function PieChart({
           style={{
             fontSize: 13,
             fontWeight: 700,
-            fill: '#0f172a',
+            fill: 'var(--color-text, #0f172a)',
             fontFamily: 'var(--font-sans)',
           }}
         >
@@ -100,7 +100,7 @@ export function PieChart({
           style={{
             fontSize: 9,
             fontWeight: 500,
-            fill: '#94a3b8',
+            fill: 'var(--color-text-secondary, #94a3b8)',
             fontFamily: 'var(--font-sans)',
           }}
         >

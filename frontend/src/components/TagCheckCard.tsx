@@ -30,8 +30,8 @@ function TagCheckCard({ tag, selected, onClick }: TagCheckCardProps) {
         gap: 10,
         padding: '12px 16px',
         borderRadius: 12,
-        border: `2px solid ${selected ? tag.color : '#e2e8f0'}`,
-        background: selected ? `${tag.color}10` : '#fff',
+        border: `2px solid ${selected ? tag.color : 'var(--color-border)'}`,
+        background: selected ? `${tag.color}10` : 'var(--color-bg-elevated)',
         cursor: 'pointer',
         transition: 'all 0.2s ease',
         position: 'relative',
@@ -46,8 +46,8 @@ function TagCheckCard({ tag, selected, onClick }: TagCheckCardProps) {
       }}
       onMouseLeave={(e) => {
         if (!selected) {
-          (e.currentTarget as HTMLDivElement).style.borderColor = '#e2e8f0';
-          (e.currentTarget as HTMLDivElement).style.background = '#fff';
+          (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--color-border)';
+          (e.currentTarget as HTMLDivElement).style.background = 'var(--color-bg-elevated)';
         }
       }}
     >
@@ -64,7 +64,7 @@ function TagCheckCard({ tag, selected, onClick }: TagCheckCardProps) {
         style={{
           fontSize: 14,
           fontWeight: 600,
-          color: selected ? tag.color : '#0f172a',
+          color: selected ? tag.color : 'var(--color-text)',
           flex: 1,
         }}
       >
