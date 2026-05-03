@@ -660,24 +660,22 @@ export function SettingsPage() {
                   <Switch checked={autoBackupEnabled} onChange={setAutoBackupEnabled} />
                 </div>
                 {autoBackupEnabled && (
-                  <>
-                    <Cron
-                      value={cronTo5(autoBackupCron)}
-                      setValue={(val: string) => {
-                        setAutoBackupCron(cronTo6(val));
-                      }}
-                      locale={CRON_ZH_LOCALE}
-                      defaultPeriod="day"
-                      humanizeLabels
-                      allowClear={false}
-                    />
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-                      <Button size="small" type="primary" onClick={handleSaveAutoBackup} loading={backupLoading}>
-                        保存
-                      </Button>
-                    </div>
-                  </>
+                  <Cron
+                    value={cronTo5(autoBackupCron)}
+                    setValue={(val: string) => {
+                      setAutoBackupCron(cronTo6(val));
+                    }}
+                    locale={CRON_ZH_LOCALE}
+                    defaultPeriod="day"
+                    humanizeLabels
+                    allowClear={false}
+                  />
                 )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                  <Button size="small" type="primary" onClick={handleSaveAutoBackup} loading={backupLoading}>
+                    保存
+                  </Button>
+                </div>
               </div>
 
               {backupStatus && backupStatus.files.length > 0 && (
@@ -685,7 +683,7 @@ export function SettingsPage() {
                   <div style={{ fontWeight: 600, marginBottom: 8 }}>备份文件 ({backupStatus.files.length})</div>
                   <List
                     size="small"
-                    dataSource={backupStatus.files.slice(0, 10)}
+                    dataSource={backupStatus.files}
                     renderItem={(file) => (
                       <List.Item
                         style={{ padding: '6px 0', fontSize: 12 }}

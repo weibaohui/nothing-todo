@@ -386,6 +386,24 @@ impl Database {
             .collect()
     }
 
+    /// 按 tag name 列表查询 tag 备份数据
+    pub async fn get_tag_backups_by_names(&self, names: &[&str]) -> Vec<crate::models::TagBackup> {
+        if names.is_empty() {
+            return Vec::new();
+        }
+        tags::Entity::find()
+            .filter(tags::Column::Name.is_in(names.iter().map(|s| s.to_string()).collect::<Vec<_>>()))
+            .all(&self.conn)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| crate::models::TagBackup {
+                name: t.name,
+                color: t.color.unwrap_or_default(),
+            })
+            .collect()
+    }
+
     /// 获取指定 todo 列表中涉及的所有 tag 备份数据
     pub async fn get_tag_backups_for_todos(&self, ids: &[i64]) -> Vec<crate::models::TagBackup> {
         if ids.is_empty() {

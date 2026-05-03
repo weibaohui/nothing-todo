@@ -43,11 +43,15 @@ pub async fn export_selected(
     if req.todo_ids.is_empty() {
         return Err(AppError::BadRequest("No todo IDs provided".to_string()));
     }
-    let tags = state.db.get_tag_backups_for_todos(&req.todo_ids).await;
     let todos = state.db.get_todo_backups_by_ids(&req.todo_ids).await;
     if todos.is_empty() {
         return Err(AppError::BadRequest("No todos found for given IDs".to_string()));
     }
+    // Collect unique tag names from valid todos and query tags by name
+    let tag_names: std::collections::HashSet<&str> = todos.iter()
+        .flat_map(|t| t.tag_names.iter().map(|s| s.as_str()))
+        .collect();
+    let tags = state.db.get_tag_backups_by_names(&tag_names.into_iter().collect::<Vec<_>>()).await;
     let data = BackupData {
         version: "1.0".to_string(),
         created_at: utc_timestamp(),
