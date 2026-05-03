@@ -13,6 +13,7 @@ import { formatLocalDateTime } from '../utils/datetime';
 import { conversationToYaml } from '../utils/markdown';
 import { AnimatedNumber } from './AnimatedNumber';
 import { getExecutorOption, supportsResume } from '../types';
+import { ExecutorBadge } from './ExecutorBadge';
 import XMarkdown from '@ant-design/x-markdown';
 import type { ExecutionSummary, Todo, TodoItem, ExecutionRecord, LogEntry } from '../types';
 
@@ -484,7 +485,6 @@ export function TodoDetail() {
   }
 
   const executor = selectedTodo.executor || 'claudecode';
-  const executorOpt = getExecutorOption(executor);
 
   // Resolve current todo progress for header widget — follows selected execution record
   const currentTodoProgress = (() => {
@@ -539,9 +539,7 @@ export function TodoDetail() {
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
           {/* Tags & Meta */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <Tag color={executorOpt.color} style={{ fontWeight: 600, fontSize: 11 }}>
-              {executorOpt.icon} {executorOpt.label}
-            </Tag>
+            <ExecutorBadge executor={executor} />
             {selectedTodo.scheduler_enabled ? (
               <Tag color="var(--color-primary)" style={{ fontWeight: 600, fontSize: 11 }}>
                 调度: {selectedTodo.scheduler_config}
@@ -639,7 +637,6 @@ export function TodoDetail() {
               <div className="history-list-column">
                 {records.map(record => {
                   const isSelected = selectedHistoryRecordId === record.id;
-                  const recExecutor = record.executor ? getExecutorOption(record.executor) : null;
                   return (
                     <div
                       key={record.id}
@@ -678,11 +675,7 @@ export function TodoDetail() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                        {recExecutor && (
-                          <Tag color={recExecutor.color} style={{ fontWeight: 600, fontSize: 10, padding: '0 6px', lineHeight: '18px' }}>
-                            {recExecutor.icon} {recExecutor.label}
-                          </Tag>
-                        )}
+                        {record.executor && <ExecutorBadge executor={record.executor} />}
                         {record.model && <Tag color="#3b82f6" style={{ fontSize: 10, padding: '0 6px', lineHeight: '18px' }}>{record.model}</Tag>}
                         <Tag color={record.trigger_type === 'cron' ? '#8b5cf6' : '#6b7280'} style={{ fontSize: 10, padding: '0 6px', lineHeight: '18px' }}>
                           {record.trigger_type === 'cron' ? 'Cron' : '手动'}
@@ -737,10 +730,7 @@ export function TodoDetail() {
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                        {record.executor && (() => {
-                          const recOpt = getExecutorOption(record.executor);
-                          return <Tag color={recOpt.color} style={{ fontWeight: 600 }}>{recOpt.icon} {recOpt.label}</Tag>;
-                        })()}
+                        {record.executor && <ExecutorBadge executor={record.executor} />}
                         {record.model && <Tag color="#3b82f6">{record.model}</Tag>}
                         <span style={{ fontSize: 13, color: 'var(--color-text-secondary)', fontWeight: 500 }}>
                           {formatLocalDateTime(record.started_at)}
@@ -904,14 +894,7 @@ export function TodoDetail() {
                     <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
                       {formatLocalDateTime(record.started_at)}
                     </span>
-                    {record.executor && (() => {
-                      const recOpt = getExecutorOption(record.executor);
-                      return (
-                        <Tag color={recOpt.color} style={{ fontWeight: 600 }}>
-                          {recOpt.icon} {recOpt.label}
-                        </Tag>
-                      );
-                    })()}
+                    {record.executor && <ExecutorBadge executor={record.executor} />}
                     {record.model && <Tag color="#3b82f6">{record.model}</Tag>}
                     <Tag color={record.trigger_type === 'cron' ? '#8b5cf6' : '#6b7280'} style={{ fontSize: 10 }}>
                       {record.trigger_type === 'cron' ? 'Cron' : '手动'}
