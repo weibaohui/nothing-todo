@@ -70,6 +70,9 @@
   --z-modal: 30;
   --z-fab: 50;
   --z-toast: 60;
+
+  /* Alpha-enabled colors for glass effect */
+  --color-bg-elevated-alpha: rgba(255, 255, 255, 0.85);
 }
 
 /* ---------- Dark Theme Variables ---------- */
@@ -83,6 +86,7 @@
 
   --color-bg: #11111b;
   --color-bg-elevated: #1e1e2e;
+  --color-bg-elevated-alpha: rgba(30, 30, 46, 0.85);
   --color-border: #313244;
   --color-border-light: #262637;
 
@@ -1042,8 +1046,7 @@ body {
 }
 
 .glass-effect {
-  background: var(--color-bg-elevated);
-  opacity: 0.85;
+  background: var(--color-bg-elevated-alpha);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useLayoutEffect, type ReactNode } from 'react';
 import type { ThemeConfig } from 'antd';
 import type { ThemeMode } from '../themes';
 import { themeMap } from '../themes';
@@ -24,8 +24,11 @@ function getInitialTheme(): ThemeMode {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialTheme);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     document.documentElement.setAttribute('data-theme', themeMode);
+  }, [themeMode]);
+
+  useLayoutEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, themeMode);
     } catch {}
