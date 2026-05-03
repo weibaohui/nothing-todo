@@ -40,6 +40,11 @@ make clean     # 清理构建产物
 ### Playwright 测试脚本位置
 测试脚本位于 `/tmp/` 目录下，文件名格式为 `check_*.js`
 
+**运行方式**：由于 playwright 依赖在 `frontend/node_modules/` 中，需要在 `frontend/` 目录下执行：
+```bash
+cd frontend && npx playwright test --reporter=list
+```
+
 ### 验证流程
 1. 修改前端代码后，执行 `make restart` 重启服务
 2. 使用 Playwright 编写测试脚本验证 UI 效果
@@ -54,18 +59,20 @@ const { chromium } = require('playwright');
   const browser = await chromium.launch();
   const context = await browser.newContext({ colorScheme: 'dark' });
   const page = await context.newPage();
-  
+
+  // 设置 localStorage 以触发 ThemeProvider 的深色模式
   await page.goto('https://t-600b43689eae40d3.hostc.dev');
-  await page.waitForTimeout(3000);
-  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
-  
+  await page.evaluate(() => localStorage.setItem('app_theme', 'dark'));
+  await page.reload();
+  await page.waitForTimeout(2000);
+
   // 执行验证...
   const result = await page.evaluate(() => {
     const el = document.querySelector('.target-class');
     return { bg: el ? getComputedStyle(el).backgroundColor : null };
   });
   console.log('验证结果:', result);
-  
+
   await page.screenshot({ path: '/tmp/verify.png' });
   await browser.close();
 })();
