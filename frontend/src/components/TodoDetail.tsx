@@ -14,6 +14,7 @@ import { getExecutorOption, supportsResume } from '../types';
 import XMarkdown from '@ant-design/x-markdown';
 import type { ExecutionSummary, Todo, TodoItem, ExecutionRecord, LogEntry } from '../types';
 
+/** 可展开的 Prompt 内容展示组件 */
 function PromptDisplay({ content }: { content: string }) {
   const [expanded, setExpanded] = useState(false);
   return (
@@ -52,6 +53,7 @@ function PromptDisplay({ content }: { content: string }) {
   );
 }
 
+/** 内联 Token 统计摘要，支持展开查看详细分项 */
 function InlineTokenStats({ input, output, cacheRead, cacheCreate, totalTokens, summary }: {
   input: number; output: number; cacheRead: number; cacheCreate: number; totalTokens: number; summary: ExecutionSummary;
 }) {
@@ -119,6 +121,7 @@ function InlineTokenStats({ input, output, cacheRead, cacheCreate, totalTokens, 
   );
 }
 
+/** 任务进度展示组件，显示子项完成情况 */
 function ProgressWidget({ items }: { items: TodoItem[] }) {
   const [expanded, setExpanded] = useState(false);
   const total = items.length;
@@ -204,6 +207,7 @@ function ProgressWidget({ items }: { items: TodoItem[] }) {
   );
 }
 
+/** 任务详情面板，包含执行、编辑、历史记录等功能 */
 export function TodoDetail() {
   const { state, dispatch } = useApp();
   const { message } = App.useApp();
