@@ -4,9 +4,10 @@ use axum::{
     response::IntoResponse,
     http::header,
 };
+use serde::Deserialize;
 
 use crate::handlers::{AppError, AppState};
-use crate::models::{ApiResponse, BackupData, utc_timestamp};
+use crate::models::{ApiResponse, BackupData, TagBackup, TodoBackup, utc_timestamp};
 
 /// 导出备份（返回 YAML 格式字符串）
 pub async fn export_backup(
@@ -45,4 +46,25 @@ pub async fn import_backup(
         .map_err(|e| AppError::Internal(format!("Import failed, data unchanged: {}", e)))?;
 
     Ok(ApiResponse::ok(format!("Imported {} todos and {} tags", data.todos.len(), data.tags.len())))
+}
+
+#[derive(Deserialize)]
+pub struct MergeRequest {
+    pub tags: Vec<TagBackup>,
+    pub todos: Vec<TodoBackup>,
+}
+
+/// 智能合并导入（不清空现有数据，按 title+prompt 匹配覆盖或新建）
+pub async fn merge_backup(
+    State(state): State<AppState>,
+    axum::Json(req): axum::Json<MergeRequest>,
+) -> Result<ApiResponse<String>, AppError> {
+    if req.todos.is_empty() {
+        return Err(AppError::BadRequest("No todos to merge".to_string()));
+    }
+
+    let (created, updated) = state.db.merge_backup(&req.tags, &req.todos).await
+        .map_err(|e| AppError::Internal(format!("Merge failed: {}", e)))?;
+
+    Ok(ApiResponse::ok(format!("新建 {} 项，覆盖 {} 项", created, updated)))
 }
