@@ -16,6 +16,9 @@ import {
   Space,
   Typography,
   Spin,
+  Modal,
+  Table,
+  Tag as AntTag,
 } from 'antd';
 import {
   SettingOutlined,
@@ -29,8 +32,9 @@ import {
 import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
 import type { Config, ExecutorPaths } from '../types';
+import yaml from 'js-yaml';
 
-const { Text, Paragraph } = Typography;
+const { Paragraph } = Typography;
 const { Dragger } = Upload;
 const { Option } = Select;
 
@@ -82,6 +86,42 @@ export function SettingsPage() {
   const [tagCreating, setTagCreating] = useState(false);
 
   const [importing, setImporting] = useState(false);
+
+  // Import wizard state
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardItems, setWizardItems] = useState<ImportItem[]>([]);
+  const [wizardTags, setWizardTags] = useState<{ name: string; color: string }[]>([]);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
+
+  interface BackupDataYaml {
+    version: string;
+    created_at: string;
+    tags: { name: string; color: string }[];
+    todos: {
+      title: string;
+      prompt: string;
+      status: string;
+      executor?: string;
+      scheduler_enabled: boolean;
+      scheduler_config?: string;
+      tag_names: string[];
+      workspace?: string;
+    }[];
+  }
+
+  interface ImportItem {
+    key: number;
+    title: string;
+    prompt: string;
+    status: string;
+    executor?: string;
+    scheduler_enabled: boolean;
+    scheduler_config?: string;
+    tag_names: string[];
+    workspace?: string;
+    action: 'new' | 'overwrite';
+    existingTitle?: string;
+  }
 
   // Load config on mount
   useEffect(() => {
@@ -168,17 +208,66 @@ export function SettingsPage() {
 
   const handleImportFile = async (file: File) => {
     const text = await file.text();
+    try {
+      const data = yaml.load(text) as BackupDataYaml;
+      if (!data.todos || data.todos.length === 0) {
+        message.error('备份文件中没有 Todo 数据');
+        return false;
+      }
+
+      // 获取现有 todos 用于对比
+      const existingTodos = await db.getAllTodos();
+      const existingSet = new Set(existingTodos.map(t => `${t.title}\n${t.prompt}`));
+
+      // 构建导入列表
+      const items: ImportItem[] = data.todos.map((todo, idx) => {
+        const key = `${todo.title}\n${todo.prompt}`;
+        const exists = existingSet.has(key);
+        const existing = exists ? existingTodos.find(t => `${t.title}\n${t.prompt}` === key) : undefined;
+        return {
+          key: idx,
+          title: todo.title,
+          prompt: todo.prompt,
+          status: todo.status,
+          executor: todo.executor,
+          scheduler_enabled: todo.scheduler_enabled,
+          scheduler_config: todo.scheduler_config,
+          tag_names: todo.tag_names || [],
+          workspace: todo.workspace,
+          action: exists ? 'overwrite' as const : 'new' as const,
+          existingTitle: existing?.title,
+        };
+      });
+
+      setWizardTags(data.tags || []);
+      setWizardItems(items);
+      setSelectedRowKeys(items.map(i => i.key));
+      setWizardOpen(true);
+    } catch (err: any) {
+      message.error('解析文件失败: ' + (err?.message || String(err)));
+    }
+    return false;
+  };
+
+  const handleWizardConfirm = async () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请至少选择一项');
+      return;
+    }
     setImporting(true);
     try {
-      const msg = await db.importBackup(text);
+      const selectedTodos = wizardItems
+        .filter(item => selectedRowKeys.includes(item.key))
+        .map(({ key, action, existingTitle, ...todo }) => todo);
+      const msg = await db.mergeBackup(wizardTags, selectedTodos);
       message.success(msg);
+      setWizardOpen(false);
       window.location.reload();
     } catch (err: any) {
       message.error(err?.message || '导入失败');
     } finally {
       setImporting(false);
     }
-    return false;
   };
 
   const tabItems = [
@@ -398,10 +487,7 @@ export function SettingsPage() {
           <Card title="导入备份" size="small">
             <Space direction="vertical" style={{ width: '100%' }}>
               <Paragraph type="secondary">
-                从 YAML 文件恢复数据
-                <Text type="danger" style={{ display: 'block', marginTop: 4 }}>
-                  导入将清空当前所有数据，操作不可逆！
-                </Text>
+                从 YAML 文件恢复数据，支持预览和选择性导入
               </Paragraph>
               <Dragger
                 accept=".yaml,.yml"
@@ -414,7 +500,7 @@ export function SettingsPage() {
                   <InboxOutlined style={{ color: '#0891b2' }} />
                 </p>
                 <p className="ant-upload-text">点击或拖拽 YAML 文件到此处</p>
-                <p className="ant-upload-hint">导入将清空当前所有数据</p>
+                <p className="ant-upload-hint">将解析文件并展示预览，可选择性导入</p>
               </Dragger>
             </Space>
           </Card>
@@ -439,6 +525,73 @@ export function SettingsPage() {
         </Paragraph>
       </div>
       <Tabs items={tabItems} type="card" />
+
+      <Modal
+        title="导入预览"
+        open={wizardOpen}
+        onCancel={() => setWizardOpen(false)}
+        onOk={handleWizardConfirm}
+        okText={`导入 ${selectedRowKeys.length} 项`}
+        cancelText="取消"
+        confirmLoading={importing}
+        width={800}
+        okButtonProps={{ disabled: selectedRowKeys.length === 0 }}
+      >
+        <div style={{ marginBottom: 12, display: 'flex', gap: 16 }}>
+          <AntTag color="green">{wizardItems.filter(i => i.action === 'new').length} 个新建</AntTag>
+          <AntTag color="orange">{wizardItems.filter(i => i.action === 'overwrite').length} 个覆盖</AntTag>
+          <AntTag color="blue">已选 {selectedRowKeys.length} 项</AntTag>
+        </div>
+        <Table
+          dataSource={wizardItems}
+          rowKey="key"
+          size="small"
+          pagination={false}
+          scroll={{ y: 400 }}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys as number[]),
+          }}
+          columns={[
+            {
+              title: '标题',
+              dataIndex: 'title',
+              ellipsis: true,
+              width: '35%',
+            },
+            {
+              title: '状态',
+              dataIndex: 'action',
+              width: 80,
+              render: (action: 'new' | 'overwrite') => (
+                <AntTag color={action === 'new' ? 'green' : 'orange'}>
+                  {action === 'new' ? '新建' : '覆盖'}
+                </AntTag>
+              ),
+            },
+            {
+              title: '执行器',
+              dataIndex: 'executor',
+              width: 100,
+              render: (v: string | undefined) => v || '-',
+            },
+            {
+              title: '标签',
+              dataIndex: 'tag_names',
+              width: 150,
+              render: (names: string[]) => names.length > 0
+                ? names.slice(0, 3).map(n => <AntTag key={n}>{n}</AntTag>)
+                : '-',
+            },
+            {
+              title: 'Prompt 摘要',
+              dataIndex: 'prompt',
+              ellipsis: true,
+              render: (v: string) => v ? v.slice(0, 60) + (v.length > 60 ? '...' : '') : '-',
+            },
+          ]}
+        />
+      </Modal>
     </div>
   );
 }
