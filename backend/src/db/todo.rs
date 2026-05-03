@@ -410,4 +410,135 @@ impl Database {
         txn.commit().await?;
         Ok(())
     }
+
+    /// 智能合并导入：不删除现有数据，按 title+prompt 匹配进行覆盖或新建
+    pub async fn merge_backup(&self, tags_in: &[crate::models::TagBackup], todos_in: &[TodoBackup]) -> Result<(u64, u64), sea_orm::DbErr> {
+        use sea_orm::TransactionTrait;
+
+        let txn = self.conn.begin().await?;
+
+        // 确保所有 tag 都存在（不存在则创建）
+        for tag in tags_in {
+            // find_or_create_tag
+            {
+                use crate::db::entity::tags;
+                if tags::Entity::find()
+                    .filter(tags::Column::Name.eq(&tag.name))
+                    .one(&txn)
+                    .await?
+                    .is_none()
+                {
+                    let now = crate::models::utc_timestamp();
+                    let am = tags::ActiveModel {
+                        name: ActiveValue::Set(tag.name.clone()),
+                        color: ActiveValue::Set(Some(tag.color.clone())),
+                        created_at: ActiveValue::Set(Some(now)),
+                        ..Default::default()
+                    };
+                    am.insert(&txn).await?;
+                }
+            }
+        }
+
+        let mut created: u64 = 0;
+        let mut updated: u64 = 0;
+
+        for todo in todos_in {
+            // 按 title + prompt 查找匹配
+            let existing = todos::Entity::find()
+                .filter(todos::Column::Title.eq(&todo.title))
+                .filter(todos::Column::Prompt.eq(&todo.prompt))
+                .filter(todos::Column::DeletedAt.is_null())
+                .one(&txn)
+                .await?;
+
+            if let Some(model) = existing {
+                // 覆盖：更新字段
+                let mut am: todos::ActiveModel = model.into();
+                am.status = ActiveValue::Set(Some(todo.status.to_string()));
+                am.executor = ActiveValue::Set(todo.executor.clone());
+                am.scheduler_enabled = ActiveValue::Set(Some(todo.scheduler_enabled));
+                am.scheduler_config = ActiveValue::Set(todo.scheduler_config.clone());
+                am.workspace = ActiveValue::Set(todo.workspace.clone());
+                am.updated_at = ActiveValue::Set(Some(crate::models::utc_timestamp()));
+                let saved = am.update(&txn).await?;
+
+                // 重建 tag 关联
+                todo_tags::Entity::delete_many()
+                    .filter(todo_tags::Column::TodoId.eq(saved.id))
+                    .exec(&txn)
+                    .await?;
+                for tag_name in &todo.tag_names {
+                    if let Some(tid) = tags::Entity::find()
+                        .filter(tags::Column::Name.eq(tag_name))
+                        .one(&txn)
+                        .await?
+                        .map(|t| t.id)
+                    {
+                        let rel = todo_tags::ActiveModel {
+                            todo_id: ActiveValue::Set(saved.id),
+                            tag_id: ActiveValue::Set(tid),
+                        };
+                        todo_tags::Entity::insert(rel)
+                            .on_conflict(
+                                sea_orm::sea_query::OnConflict::columns([
+                                    todo_tags::Column::TodoId,
+                                    todo_tags::Column::TagId,
+                                ])
+                                .do_nothing()
+                                .to_owned(),
+                            )
+                            .exec(&txn)
+                            .await?;
+                    }
+                }
+                updated += 1;
+            } else {
+                // 新建
+                let now = crate::models::utc_timestamp();
+                let am = todos::ActiveModel {
+                    title: ActiveValue::Set(todo.title.clone()),
+                    prompt: ActiveValue::Set(Some(todo.prompt.clone())),
+                    status: ActiveValue::Set(Some(todo.status.to_string())),
+                    executor: ActiveValue::Set(todo.executor.clone()),
+                    scheduler_enabled: ActiveValue::Set(Some(todo.scheduler_enabled)),
+                    scheduler_config: ActiveValue::Set(todo.scheduler_config.clone()),
+                    workspace: ActiveValue::Set(todo.workspace.clone()),
+                    created_at: ActiveValue::Set(Some(now.clone())),
+                    updated_at: ActiveValue::Set(Some(now)),
+                    ..Default::default()
+                };
+                let inserted = am.insert(&txn).await?;
+
+                for tag_name in &todo.tag_names {
+                    if let Some(tid) = tags::Entity::find()
+                        .filter(tags::Column::Name.eq(tag_name))
+                        .one(&txn)
+                        .await?
+                        .map(|t| t.id)
+                    {
+                        let rel = todo_tags::ActiveModel {
+                            todo_id: ActiveValue::Set(inserted.id),
+                            tag_id: ActiveValue::Set(tid),
+                        };
+                        todo_tags::Entity::insert(rel)
+                            .on_conflict(
+                                sea_orm::sea_query::OnConflict::columns([
+                                    todo_tags::Column::TodoId,
+                                    todo_tags::Column::TagId,
+                                ])
+                                .do_nothing()
+                                .to_owned(),
+                            )
+                            .exec(&txn)
+                            .await?;
+                    }
+                }
+                created += 1;
+            }
+        }
+
+        txn.commit().await?;
+        Ok((created, updated))
+    }
 }
