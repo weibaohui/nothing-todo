@@ -19,6 +19,7 @@ import {
   Modal,
   Table,
   Tag as AntTag,
+  Switch,
 } from 'antd';
 import {
   SettingOutlined,
@@ -28,9 +29,14 @@ import {
   DownloadOutlined,
   DeleteOutlined,
   InboxOutlined,
+  DatabaseOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons';
+import { Cron } from 'react-js-cron';
+import 'react-js-cron/dist/styles.css';
 import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
+import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
 import type { Config, ExecutorPaths } from '../types';
 import yaml from 'js-yaml';
 
@@ -87,6 +93,22 @@ export function SettingsPage() {
 
   const [importing, setImporting] = useState(false);
 
+  // Selective export state
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportTodoKeys, setExportTodoKeys] = useState<number[]>([]);
+  const [exportingSelected, setExportingSelected] = useState(false);
+
+  // Database backup state
+  const [backupStatus, setBackupStatus] = useState<{
+    auto_backup_enabled: boolean;
+    auto_backup_cron: string;
+    last_backup: string | null;
+    files: { name: string; size: number; created_at: string }[];
+  } | null>(null);
+  const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
+  const [autoBackupCron, setAutoBackupCron] = useState('0 0 3 * * *');
+  const [backupLoading, setBackupLoading] = useState(false);
+
   // Import wizard state
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardItems, setWizardItems] = useState<ImportItem[]>([]);
@@ -135,6 +157,17 @@ export function SettingsPage() {
       })
       .finally(() => setConfigLoading(false));
   }, [configForm]);
+
+  // Load database backup status
+  useEffect(() => {
+    db.getDatabaseBackupStatus()
+      .then((status) => {
+        setBackupStatus(status);
+        setAutoBackupEnabled(status.auto_backup_enabled);
+        setAutoBackupCron(status.auto_backup_cron);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSaveConfig = async () => {
     try {
@@ -267,6 +300,92 @@ export function SettingsPage() {
       message.error(err?.message || '导入失败');
     } finally {
       setImporting(false);
+    }
+  };
+
+  // Selective export
+  const handleExportSelected = async () => {
+    if (exportTodoKeys.length === 0) {
+      message.warning('请至少选择一项');
+      return;
+    }
+    setExportingSelected(true);
+    try {
+      const yamlText = await db.exportSelectedBackup(exportTodoKeys);
+      const blob = new Blob([yamlText], { type: 'application/x-yaml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      a.download = `aietodo-backup-selected-${timestamp}.yaml`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      message.success(`已导出 ${exportTodoKeys.length} 项`);
+      setExportModalOpen(false);
+    } catch (err: any) {
+      message.error(err?.message || '导出失败');
+    } finally {
+      setExportingSelected(false);
+    }
+  };
+
+  // Database backup handlers
+  const handleTriggerBackup = async () => {
+    setBackupLoading(true);
+    try {
+      const msg = await db.triggerLocalBackup();
+      message.success(msg);
+      const status = await db.getDatabaseBackupStatus();
+      setBackupStatus(status);
+    } catch (err: any) {
+      message.error(err?.message || '备份失败');
+    } finally {
+      setBackupLoading(false);
+    }
+  };
+
+  const handleDownloadDatabase = async () => {
+    try {
+      const response = await fetch('/xyz/backup/database/download');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      a.download = `ntd-database-${timestamp}.db`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      message.success('数据库下载成功');
+    } catch (err: any) {
+      message.error(err?.message || '下载失败');
+    }
+  };
+
+  const handleSaveAutoBackup = async () => {
+    setBackupLoading(true);
+    try {
+      await db.updateAutoBackup(autoBackupEnabled, autoBackupCron);
+      message.success('自动备份配置已保存');
+    } catch (err: any) {
+      message.error(err?.message || '保存失败');
+    } finally {
+      setBackupLoading(false);
+    }
+  };
+
+  const handleDeleteBackup = async (filename: string) => {
+    try {
+      await db.deleteBackupFile(filename);
+      message.success('已删除');
+      const status = await db.getDatabaseBackupStatus();
+      setBackupStatus(status);
+    } catch (err: any) {
+      message.error(err?.message || '删除失败');
     }
   };
 
@@ -471,20 +590,29 @@ export function SettingsPage() {
           <Card title="导出备份" size="small" style={{ marginBottom: 24 }}>
             <Space direction="vertical" style={{ width: '100%' }}>
               <Paragraph type="secondary">
-                将所有 Todo 和标签导出为 YAML 文件，方便迁移和存档
+                将 Todo 和标签导出为 YAML 文件，方便迁移和存档
               </Paragraph>
-              <Button
-                type="primary"
-                icon={<DownloadOutlined />}
-                onClick={handleExportBackup}
-                block
-              >
-                导出为 YAML 文件
-              </Button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button
+                  type="primary"
+                  icon={<DownloadOutlined />}
+                  onClick={handleExportBackup}
+                  style={{ flex: 1 }}
+                >
+                  导出全部
+                </Button>
+                <Button
+                  icon={<DownloadOutlined />}
+                  onClick={() => setExportModalOpen(true)}
+                  style={{ flex: 1 }}
+                >
+                  选择性导出
+                </Button>
+              </div>
             </Space>
           </Card>
 
-          <Card title="导入备份" size="small">
+          <Card title="导入备份" size="small" style={{ marginBottom: 24 }}>
             <Space direction="vertical" style={{ width: '100%' }}>
               <Paragraph type="secondary">
                 从 YAML 文件恢复数据，支持预览和选择性导入
@@ -502,6 +630,78 @@ export function SettingsPage() {
                 <p className="ant-upload-text">点击或拖拽 YAML 文件到此处</p>
                 <p className="ant-upload-hint">将解析文件并展示预览，可选择性导入</p>
               </Dragger>
+            </Space>
+          </Card>
+
+          <Card title="数据库备份" size="small">
+            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              <Paragraph type="secondary">
+                直接备份 SQLite 数据库文件，包含所有数据（含执行记录）
+              </Paragraph>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button
+                  icon={<DownloadOutlined />}
+                  onClick={handleDownloadDatabase}
+                >
+                  下载数据库
+                </Button>
+                <Button
+                  icon={<DatabaseOutlined />}
+                  onClick={handleTriggerBackup}
+                  loading={backupLoading}
+                >
+                  备份到服务器
+                </Button>
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--color-border-light)', paddingTop: 12, marginTop: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span style={{ fontWeight: 600 }}><ClockCircleOutlined style={{ marginRight: 6 }} />自动备份</span>
+                  <Switch checked={autoBackupEnabled} onChange={setAutoBackupEnabled} />
+                </div>
+                {autoBackupEnabled && (
+                  <Cron
+                    value={cronTo5(autoBackupCron)}
+                    setValue={(val: string) => {
+                      setAutoBackupCron(cronTo6(val));
+                    }}
+                    locale={CRON_ZH_LOCALE}
+                    defaultPeriod="day"
+                    humanizeLabels
+                    allowClear={false}
+                  />
+                )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                  <Button size="small" type="primary" onClick={handleSaveAutoBackup} loading={backupLoading}>
+                    保存
+                  </Button>
+                </div>
+              </div>
+
+              {backupStatus && backupStatus.files.length > 0 && (
+                <div style={{ borderTop: '1px solid var(--color-border-light)', paddingTop: 12 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 8 }}>备份文件 ({backupStatus.files.length})</div>
+                  <List
+                    size="small"
+                    dataSource={backupStatus.files}
+                    renderItem={(file) => (
+                      <List.Item
+                        style={{ padding: '6px 0', fontSize: 12 }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 500 }}>{file.name}</div>
+                          <div style={{ color: 'var(--color-text-tertiary)', fontSize: 11 }}>
+                            {(file.size / 1024).toFixed(1)} KB · {file.created_at}
+                          </div>
+                        </div>
+                        <Popconfirm title="确定删除此备份？" onConfirm={() => handleDeleteBackup(file.name)}>
+                          <Button type="text" danger icon={<DeleteOutlined />} size="small" />
+                        </Popconfirm>
+                      </List.Item>
+                    )}
+                  />
+                </div>
+              )}
             </Space>
           </Card>
         </div>
@@ -588,6 +788,58 @@ export function SettingsPage() {
               dataIndex: 'prompt',
               ellipsis: true,
               render: (v: string) => v ? v.slice(0, 60) + (v.length > 60 ? '...' : '') : '-',
+            },
+          ]}
+        />
+      </Modal>
+
+      <Modal
+        title="选择性导出"
+        open={exportModalOpen}
+        onCancel={() => setExportModalOpen(false)}
+        onOk={handleExportSelected}
+        okText={`导出 ${exportTodoKeys.length} 项`}
+        cancelText="取消"
+        confirmLoading={exportingSelected}
+        width={700}
+        okButtonProps={{ disabled: exportTodoKeys.length === 0 }}
+      >
+        <Table
+          dataSource={state.todos}
+          rowKey="id"
+          size="small"
+          pagination={{ pageSize: 50 }}
+          scroll={{ y: 400 }}
+          rowSelection={{
+            selectedRowKeys: exportTodoKeys,
+            onChange: (keys) => setExportTodoKeys(keys as number[]),
+          }}
+          columns={[
+            {
+              title: '标题',
+              dataIndex: 'title',
+              ellipsis: true,
+            },
+            {
+              title: '执行器',
+              dataIndex: 'executor',
+              width: 100,
+              render: (v: string | undefined) => v || '-',
+            },
+            {
+              title: '状态',
+              dataIndex: 'status',
+              width: 80,
+              render: (v: string) => {
+                const map: Record<string, { color: string; label: string }> = {
+                  pending: { color: 'default', label: '待办' },
+                  running: { color: 'processing', label: '进行中' },
+                  completed: { color: 'success', label: '完成' },
+                  failed: { color: 'error', label: '失败' },
+                };
+                const s = map[v] || { color: 'default', label: v };
+                return <AntTag color={s.color}>{s.label}</AntTag>;
+              },
             },
           ]}
         />

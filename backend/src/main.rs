@@ -230,6 +230,15 @@ async fn run_server(cli_port: Option<u16>) {
         if let Err(e) = sched.start().await {
             tracing::warn!("Failed to start scheduler: {}", e);
         }
+
+        // 注册自动数据库备份定时任务
+        if cfg.auto_backup_enabled {
+            match handlers::backup::start_auto_backup(&cfg.auto_backup_cron) {
+                Ok(()) => info!("Auto database backup enabled, cron: {}", cfg.auto_backup_cron),
+                Err(e) => tracing::warn!("Failed to start auto backup: {}", e),
+            }
+        }
+
         sched
     });
 
