@@ -79,7 +79,11 @@ const EXECUTOR_LABELS: Record<string, string> = {
   codex: 'Codex',
 };
 
-export function SettingsPage() {
+interface SettingsPageProps {
+  onBack?: () => void;
+}
+
+export function SettingsPage({ onBack }: SettingsPageProps) {
   const { state, dispatch } = useApp();
   const { tags } = state;
 
@@ -726,11 +730,31 @@ export function SettingsPage() {
         background: 'var(--color-bg-layout, #f8fafc)',
       }}
     >
-      <div style={{ marginBottom: 24 }}>
-        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>配置管理</h2>
-        <Paragraph type="secondary" style={{ marginTop: 4 }}>
-          管理系统配置、执行器路径、标签和备份
-        </Paragraph>
+      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12 }}>
+        {onBack && (
+          <button
+            onClick={onBack}
+            style={{
+              background: 'var(--color-bg-elevated)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 8,
+              padding: '6px 12px',
+              cursor: 'pointer',
+              color: 'var(--color-text)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            ← 返回
+          </button>
+        )}
+        <div>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>配置管理</h2>
+          <Paragraph type="secondary" style={{ marginTop: 4 }}>
+            管理系统配置、执行器路径、标签和备份
+          </Paragraph>
+        </div>
       </div>
       <Tabs items={tabItems} type="card" />
 

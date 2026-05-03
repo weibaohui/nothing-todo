@@ -100,7 +100,7 @@ function InlineTokenStats({ input, output, cacheRead, cacheCreate, totalTokens, 
         {expanded ? <UpOutlined style={{ fontSize: 10 }} /> : <DownOutlined style={{ fontSize: 10 }} />}
       </button>
       {expanded && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 10, marginTop: 4, background: '#fff', border: '1px solid var(--color-border-light)', borderRadius: 8, padding: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 280 }}>
+        <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 10, marginTop: 4, background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border-light)', borderRadius: 8, padding: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', minWidth: 280 }}>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11 }}>
             {tokenSegments.filter(s => s.value > 0).map(s => (
               <span key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>

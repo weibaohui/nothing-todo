@@ -128,7 +128,10 @@ function AppContent() {
             {state.selectedTodoId ? (
               <TodoDetail />
             ) : activeView === 'settings' ? (
-              <SettingsPage />
+              <SettingsPage onBack={isMobile ? () => {
+                clearSelection();
+                setSelectedPanel('list');
+              } : undefined} />
             ) : (
               <Dashboard onBack={isMobile ? () => {
                 clearSelection();
