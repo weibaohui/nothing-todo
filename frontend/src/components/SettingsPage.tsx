@@ -39,6 +39,7 @@ import * as db from '../utils/database';
 import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
 import type { Config, ExecutorPaths } from '../types';
 import yaml from 'js-yaml';
+import { CronPresetSelect } from './CronPresetSelect';
 
 const { Paragraph } = Typography;
 const { Dragger } = Upload;
@@ -671,6 +672,12 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                   <span style={{ fontWeight: 600 }}><ClockCircleOutlined style={{ marginRight: 6 }} />自动备份</span>
                   <Switch checked={autoBackupEnabled} onChange={setAutoBackupEnabled} />
                 </div>
+                {autoBackupEnabled && (
+                  <CronPresetSelect
+                    value={autoBackupCron}
+                    onChange={(val) => setAutoBackupCron(val)}
+                  />
+                )}
                 {autoBackupEnabled && (
                   <Cron
                     value={cronTo5(autoBackupCron)}
