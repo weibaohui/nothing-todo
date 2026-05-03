@@ -1,5 +1,15 @@
 import { useState } from 'react';
-import { RobotOutlined, UserOutlined, ToolOutlined, BulbOutlined, CheckCircleOutlined, InfoCircleOutlined, LoadingOutlined } from '@ant-design/icons';
+import {
+  RobotOutlined,
+  UserOutlined,
+  ToolOutlined,
+  BulbOutlined,
+  InfoCircleOutlined,
+  LoadingOutlined,
+  DownOutlined,
+  RightOutlined,
+  MessageOutlined,
+} from '@ant-design/icons';
 import XMarkdown from '@ant-design/x-markdown';
 import type { LogEntry, ChatMessage } from '../types';
 
@@ -99,7 +109,6 @@ export function parseLogsToMessages(logs: LogEntry[]): ChatMessage[] {
     }
   }
 
-  // Flush remaining
   if (currentThinking) {
     messages.push({ role: 'thinking', content: currentThinking });
   }
@@ -121,83 +130,170 @@ function formatTime(iso?: string): string {
   }
 }
 
-function ThinkingBlock({ content, timestamp }: { content: string; timestamp?: string }) {
+// 卡片类型配置
+const CARD_CONFIG = {
+  thinking: {
+    icon: BulbOutlined,
+    label: '思考',
+    color: '#f59e0b',
+    bgColor: 'rgba(245, 158, 11, 0.1)',
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+  },
+  tool: {
+    icon: ToolOutlined,
+    label: '工具',
+    color: '#8b5cf6',
+    bgColor: 'rgba(139, 92, 246, 0.1)',
+    borderColor: 'rgba(139, 92, 246, 0.3)',
+  },
+  output: {
+    icon: MessageOutlined,
+    label: '输出',
+    color: '#3b82f6',
+    bgColor: 'rgba(59, 130, 246, 0.1)',
+    borderColor: 'rgba(59, 130, 246, 0.3)',
+  },
+  system: {
+    icon: InfoCircleOutlined,
+    label: '系统',
+    color: '#94a3b8',
+    bgColor: 'rgba(148, 163, 184, 0.1)',
+    borderColor: 'rgba(148, 163, 184, 0.3)',
+  },
+} as const;
+
+// 通用的可折叠卡片组件
+function CollapsibleCard({
+  type,
+  preview,
+  children,
+  timestamp,
+}: {
+  type: 'thinking' | 'tool' | 'output' | 'system';
+  preview?: string;
+  children: React.ReactNode;
+  timestamp?: string;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const config = CARD_CONFIG[type];
+  const Icon = config.icon;
+
   return (
-    <div className="chat-thinking-block">
+    <div
+      className="chat-collapsible-card"
+      style={{
+        borderLeft: `3px solid ${config.color}`,
+        background: config.bgColor,
+        borderColor: config.borderColor,
+      }}
+    >
       <button
         type="button"
-        className="chat-thinking-header"
-        aria-expanded={expanded}
+        className="chat-card-header"
         onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
       >
-        <BulbOutlined style={{ color: '#f59e0b' }} />
-        <span>思考过程</span>
-        <span className="chat-thinking-toggle">{expanded ? '收起' : '展开'}</span>
-        {timestamp && <span className="chat-time">{formatTime(timestamp)}</span>}
-      </button>
-      {expanded && (
-        <div className="chat-thinking-content">
-          <XMarkdown content={content} />
+        <div className="chat-card-header-left">
+          <span className="chat-card-icon" style={{ color: config.color }}>
+            <Icon />
+          </span>
+          <span className="chat-card-label" style={{ color: config.color }}>
+            {config.label}
+          </span>
+          {preview && !expanded && (
+            <span className="chat-card-preview">{preview}</span>
+          )}
         </div>
-      )}
+        <div className="chat-card-header-right">
+          {timestamp && <span className="chat-card-time">{formatTime(timestamp)}</span>}
+          <span className="chat-card-toggle" style={{ color: config.color }}>
+            {expanded ? <DownOutlined /> : <RightOutlined />}
+          </span>
+        </div>
+      </button>
+      {expanded && <div className="chat-card-content">{children}</div>}
     </div>
   );
 }
 
-function ToolBlock({ toolName, toolInput, toolResult, timestamp }: { toolName?: string; toolInput?: string; toolResult?: string; timestamp?: string }) {
-  const [expanded, setExpanded] = useState(false);
+// 思考块
+function ThinkingBlock({ content, timestamp }: { content: string; timestamp?: string }) {
+  return (
+    <CollapsibleCard type="thinking" timestamp={timestamp}>
+      <XMarkdown content={content} />
+    </CollapsibleCard>
+  );
+}
 
-  // 生成参数预览（截取前50个字符）
+// 工具块
+function ToolBlock({
+  toolName,
+  toolInput,
+  toolResult,
+  timestamp,
+}: {
+  toolName?: string;
+  toolInput?: string;
+  toolResult?: string;
+  timestamp?: string;
+}) {
+  // 生成参数预览
   const getInputPreview = () => {
     if (!toolInput) return '';
     try {
       const parsed = JSON.parse(toolInput);
       const keys = Object.keys(parsed);
       if (keys.length === 0) return '{}';
-      const preview = keys.map(k => `${k}: ${typeof parsed[k] === 'string' ? `"${parsed[k].substring(0, 20)}${parsed[k].length > 20 ? '...' : ''}"` : parsed[k]}`).join(', ');
-      return preview.length > 60 ? preview.substring(0, 60) + '...' : preview;
+      const preview = keys
+        .map((k) => {
+          const val = parsed[k];
+          const strVal = typeof val === 'string' ? `"${val.substring(0, 15)}${val.length > 15 ? '...' : ''}"` : String(val);
+          return `${k}: ${strVal}`;
+        })
+        .join(', ');
+      return preview.length > 50 ? preview.substring(0, 50) + '...' : preview;
     } catch {
       return toolInput.length > 50 ? toolInput.substring(0, 50) + '...' : toolInput;
     }
   };
 
   return (
-    <div className="chat-tool-block">
-      <button
-        type="button"
-        className="chat-tool-header"
-        aria-expanded={expanded}
-        onClick={() => setExpanded(!expanded)}
-      >
-        <ToolOutlined style={{ color: '#3b82f6' }} />
-        <span className="chat-tool-name">{toolName || '工具调用'}</span>
-        {!expanded && toolInput && (
-          <span className="chat-tool-preview">{getInputPreview()}</span>
-        )}
-        <span className="chat-tool-toggle">{expanded ? '收起' : '展开'}</span>
-        {timestamp && <span className="chat-time">{formatTime(timestamp)}</span>}
-      </button>
-      {expanded && (
-        <div className="chat-tool-content">
-          {toolInput && (
-            <div className="chat-tool-section">
-              <div className="chat-tool-section-label">输入参数</div>
-              <pre className="chat-tool-code">{toolInput}</pre>
-            </div>
-          )}
-          {toolResult && (
-            <div className="chat-tool-section">
-              <div className="chat-tool-section-label">执行结果</div>
-              <pre className="chat-tool-code">{toolResult}</pre>
-            </div>
-          )}
+    <CollapsibleCard type="tool" preview={`${toolName || '工具调用'} ${getInputPreview()}`} timestamp={timestamp}>
+      {toolInput && (
+        <div className="chat-card-section">
+          <div className="chat-card-section-label">输入参数</div>
+          <pre className="chat-card-code">{toolInput}</pre>
         </div>
       )}
-    </div>
+      {toolResult && (
+        <div className="chat-card-section">
+          <div className="chat-card-section-label">执行结果</div>
+          <pre className="chat-card-code">{toolResult}</pre>
+        </div>
+      )}
+    </CollapsibleCard>
   );
 }
 
+// 结果块
+function ResultBlock({ content, timestamp }: { content: string; timestamp?: string }) {
+  return (
+    <CollapsibleCard type="output" timestamp={timestamp}>
+      <XMarkdown content={content} />
+    </CollapsibleCard>
+  );
+}
+
+// 系统消息块
+function SystemBlock({ content, timestamp }: { content: string; timestamp?: string }) {
+  return (
+    <CollapsibleCard type="system" timestamp={timestamp}>
+      <span>{content}</span>
+    </CollapsibleCard>
+  );
+}
+
+// 消息气泡
 function ChatBubble({ message }: { message: ChatMessage }) {
   const { role, content, timestamp, toolName, toolInput, toolResult } = message;
 
@@ -210,28 +306,11 @@ function ChatBubble({ message }: { message: ChatMessage }) {
   }
 
   if (role === 'system') {
-    return (
-      <div className="chat-system-message">
-        <InfoCircleOutlined style={{ color: '#94a3b8', fontSize: 12 }} />
-        <span>{content}</span>
-        {timestamp && <span className="chat-time">{formatTime(timestamp)}</span>}
-      </div>
-    );
+    return <SystemBlock content={content} timestamp={timestamp} />;
   }
 
   if (role === 'result') {
-    return (
-      <div className="chat-result-block">
-        <div className="chat-result-header">
-          <CheckCircleOutlined style={{ color: '#22c55e' }} />
-          <span>执行结果</span>
-          {timestamp && <span className="chat-time">{formatTime(timestamp)}</span>}
-        </div>
-        <div className="chat-result-content">
-          <XMarkdown content={content} />
-        </div>
-      </div>
-    );
+    return <ResultBlock content={content} timestamp={timestamp} />;
   }
 
   const isUser = role === 'user';
