@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty, Tooltip, Dropdown } from 'antd';
-import { PlusOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, SettingOutlined, SunOutlined, MoonOutlined, BgColorsOutlined } from '@ant-design/icons';
+import { PlusOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, SettingOutlined, SunOutlined, MoonOutlined, BgColorsOutlined, DesktopOutlined } from '@ant-design/icons';
 import { useTheme, type VisualMode } from '../hooks/useTheme';
 import { StatusPicker } from './StatusPicker';
 import * as db from '../utils/database';
-import { getExecutorOption } from '../types';
+import { ExecutorBadge } from './ExecutorBadge';
 import { formatRelativeTime, formatLocalDateTime } from '../utils/datetime';
 
 interface TodoListProps {
@@ -85,11 +85,11 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onShowDashboard, onS
             className="tag-btn"
             aria-label="查看仪表盘"
           />
-          <Tooltip title={themeMode === 'light' ? '切换暗色主题' : '切换亮色主题'}>
+          <Tooltip title={themeMode === 'light' ? '切换暗色主题' : themeMode === 'dark' ? '切换自动主题' : '切换亮色主题'}>
             <Button
               type="text"
               size="small"
-              icon={themeMode === 'light' ? <MoonOutlined /> : <SunOutlined />}
+              icon={themeMode === 'light' ? <MoonOutlined /> : themeMode === 'dark' ? <DesktopOutlined /> : <SunOutlined />}
               onClick={toggleTheme}
               className="tag-btn"
               aria-label="切换主题"
@@ -187,8 +187,6 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onShowDashboard, onS
           filteredTodos.map(todo => {
             const todoTags = tags.filter(t => (todo as any).tag_ids?.includes(t.id));
             const primaryTag = todoTags[0];
-            const executor = todo.executor || 'claudecode';
-            const executorOpt = getExecutorOption(executor);
             const isCompleted = todo.status === 'completed';
 
             return (
@@ -224,16 +222,7 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onShowDashboard, onS
                       >
                         {todo.title}
                       </div>
-                      <span
-                        className="executor-badge"
-                        style={{
-                          backgroundColor: `${executorOpt.color}12`,
-                          color: executorOpt.color,
-                          border: `1px solid ${executorOpt.color}30`,
-                        }}
-                      >
-                        {executorOpt.icon} {executorOpt.label}
-                      </span>
+                      <ExecutorBadge executor={todo.executor || 'claudecode'} />
                     </div>
                     {todo.prompt && (
                       <div className="todo-item-desc">

@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 export interface Todo {
   id: number;
   title: string;
@@ -209,18 +211,20 @@ export interface ExecutorOption {
   value: string;
   label: string;
   color: string;
-  icon: string;
+  icon: ReactNode;
 }
 
+import { FaSquare } from 'react-icons/fa';
+
 export const EXECUTORS: ExecutorOption[] = [
-  { value: 'claudecode', label: 'Claude',     color: '#7c3aed', icon: '🟣' },
-  { value: 'codebuddy',  label: 'CodeBuddy',  color: '#2563eb', icon: '🔵' },
-  { value: 'opencode',   label: 'Opencode',   color: '#f59e0b', icon: '🟡' },
-  { value: 'joinai',     label: 'JoinAI',     color: '#0d9488', icon: '🟢' },
-  { value: 'atomcode',   label: 'AtomCode',   color: '#dc2626', icon: '🔴' },
-  { value: 'hermes',     label: 'Hermes',    color: '#ea580c', icon: '🟠' },
-  { value: 'kimi',      label: 'Kimi',      color: '#6366f1', icon: '🟪' },
-  { value: 'codex',     label: 'Codex',     color: '#111827', icon: '⬛' },
+  { value: 'claudecode', label: 'Claude',    color: '#e17055', icon: <FaSquare color="#e17055" size={14} /> },
+  { value: 'codebuddy',  label: 'CodeBuddy', color: '#00b894', icon: <FaSquare color="#00b894" size={14} /> },
+  { value: 'opencode',   label: 'Opencode',  color: '#fdcb6e', icon: <FaSquare color="#fdcb6e" size={14} /> },
+  { value: 'joinai',     label: 'JoinAI',    color: '#6c5ce7', icon: <FaSquare color="#6c5ce7" size={14} /> },
+  { value: 'atomcode',   label: 'AtomCode',  color: '#e84393', icon: <FaSquare color="#e84393" size={14} /> },
+  { value: 'hermes',     label: 'Hermes',    color: '#0984e3', icon: <FaSquare color="#0984e3" size={14} /> },
+  { value: 'kimi',       label: 'Kimi',      color: '#d63031', icon: <FaSquare color="#d63031" size={14} /> },
+  { value: 'codex',      label: 'Codex',     color: '#488597', icon: <FaSquare color="#488597" size={14} /> },
 ];
 
 export interface ExecutorPaths {
