@@ -55,4 +55,29 @@ test.describe('Executor UI Tests', () => {
     const count = await todoItems.count();
     expect(count).toBeGreaterThanOrEqual(0);
   });
+
+  test('should toggle theme between light and dark', async ({ page }) => {
+    // Find the theme toggle button
+    const themeToggle = page.locator('[aria-label="切换主题"]');
+    await expect(themeToggle).toBeVisible({ timeout: 3000 });
+
+    // Get initial theme from localStorage
+    const initialTheme = await page.evaluate(() => localStorage.getItem('app_theme'));
+
+    // Click to toggle theme
+    await themeToggle.click();
+    await page.waitForTimeout(500);
+
+    // Verify theme changed
+    const newTheme = await page.evaluate(() => localStorage.getItem('app_theme'));
+    expect(newTheme).not.toBe(initialTheme);
+
+    // Toggle back
+    await themeToggle.click();
+    await page.waitForTimeout(500);
+
+    // Verify theme reverted
+    const revertedTheme = await page.evaluate(() => localStorage.getItem('app_theme'));
+    expect(revertedTheme).toBe(initialTheme);
+  });
 });

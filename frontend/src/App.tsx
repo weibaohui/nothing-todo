@@ -71,6 +71,12 @@ function AppContent() {
     setSelectedPanel('detail');
   };
 
+  const handleBackToList = () => {
+    clearSelection();
+    setActiveView('dashboard');
+    setSelectedPanel('list');
+  };
+
   return (
     <Layout style={{ height: '100vh' }}>
       {/* Mobile FAB */}
@@ -128,12 +134,9 @@ function AppContent() {
             {state.selectedTodoId ? (
               <TodoDetail />
             ) : activeView === 'settings' ? (
-              <SettingsPage />
+              <SettingsPage onBack={isMobile ? handleBackToList : undefined} />
             ) : (
-              <Dashboard onBack={isMobile ? () => {
-                clearSelection();
-                setSelectedPanel('list');
-              } : undefined} />
+              <Dashboard onBack={isMobile ? handleBackToList : undefined} />
             )}
           </div>
         </Content>
@@ -158,13 +161,12 @@ function AppContent() {
 }
 
 function ThemedApp() {
-  const { themeConfig, visualConfig } = useTheme();
+  const { themeConfig } = useTheme();
 
   return (
     <ConfigProvider
       locale={zhCN}
       theme={themeConfig}
-      {...visualConfig}
     >
       <AntApp>
         <AppProvider>
