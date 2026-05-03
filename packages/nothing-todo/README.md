@@ -55,4 +55,4 @@ ntd --help       # 查看帮助
 
 ## License
 
-MIT
+Polyform Noncommercial License 
