@@ -160,6 +160,42 @@ export async function mergeBackup(tags: { name: string; color: string }[], todos
   return unwrap(await api.post<ApiResp<string>>('/xyz/backup/merge', { tags, todos }));
 }
 
+export async function exportSelectedBackup(todoIds: number[]): Promise<string> {
+  const res = await api.post('/xyz/backup/export-selected', { todo_ids: todoIds }, {
+    headers: { 'Accept': 'application/x-yaml' },
+    responseType: 'text',
+    transformResponse: [(data: unknown) => data],
+  });
+  if (typeof res.data === 'string') return res.data;
+  return JSON.stringify(res.data);
+}
+
+export async function triggerLocalBackup(): Promise<string> {
+  return unwrap(await api.post<ApiResp<string>>('/xyz/backup/database/trigger'));
+}
+
+export async function getDatabaseBackupStatus(): Promise<{
+  auto_backup_enabled: boolean;
+  auto_backup_cron: string;
+  last_backup: string | null;
+  files: { name: string; size: number; created_at: string }[];
+}> {
+  return unwrap(await api.get<ApiResp<{
+    auto_backup_enabled: boolean;
+    auto_backup_cron: string;
+    last_backup: string | null;
+    files: { name: string; size: number; created_at: string }[];
+  }>>('/xyz/backup/database/status'));
+}
+
+export async function updateAutoBackup(enabled: boolean, cron: string): Promise<string> {
+  return unwrap(await api.put<ApiResp<string>>('/xyz/backup/database/auto', { enabled, cron }));
+}
+
+export async function deleteBackupFile(filename: string): Promise<string> {
+  return unwrap(await api.delete<ApiResp<string>>('/xyz/backup/database/file', { data: { filename } }));
+}
+
 // Config APIs
 
 export async function getConfig(): Promise<import('../types').Config> {

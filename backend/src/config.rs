@@ -29,6 +29,10 @@ pub struct Config {
     pub log_level: String,
     /// Executor binary paths. Empty string means use default binary name.
     pub executors: ExecutorPaths,
+    /// 是否开启自动数据库备份
+    pub auto_backup_enabled: bool,
+    /// 自动备份 cron 表达式（6 字段，含秒）
+    pub auto_backup_cron: String,
 }
 
 /// Paths for each supported executor binary.
@@ -68,6 +72,8 @@ impl Default for Config {
             db_path: "~/.ntd/data.db".to_string(),
             log_level: "INFO".to_string(),
             executors: ExecutorPaths::default(),
+            auto_backup_enabled: false,
+            auto_backup_cron: "0 0 3 * * *".to_string(),
         }
     }
 }
