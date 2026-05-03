@@ -10,7 +10,7 @@ import { ChatView } from './ChatView';
 import { parseLogsToMessages } from './ChatView';
 import * as db from '../utils/database';
 import { formatLocalDateTime } from '../utils/datetime';
-import { conversationToMarkdown } from '../utils/markdown';
+import { conversationToYaml } from '../utils/markdown';
 import { AnimatedNumber } from './AnimatedNumber';
 import { getExecutorOption, supportsResume } from '../types';
 import XMarkdown from '@ant-design/x-markdown';
@@ -402,19 +402,19 @@ export function TodoDetail() {
     const logs = parseRecordLogs(record);
     const messages = parseLogsToMessages(logs);
     const executorLabel = record.executor ? getExecutorOption(record.executor).label : undefined;
-    const md = conversationToMarkdown(messages, {
+    const content = conversationToYaml(messages, {
       title: selectedTodo?.title,
       executor: executorLabel,
       model: record.model || undefined,
       startedAt: record.started_at,
       status: record.status,
     });
-    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const blob = new Blob([content], { type: 'application/x-yaml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    a.download = `exec-${record.id}-${timestamp}.md`;
+    a.download = `exec-${record.id}-${timestamp}.yaml`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -661,7 +661,7 @@ export function TodoDetail() {
                           {hasLogs(record) && (
                             <FileTextOutlined
                               style={{ fontSize: 12, color: 'var(--color-text-tertiary)', cursor: 'pointer' }}
-                              title="导出为MD"
+                              title="导出为YAML"
                               onClick={(e) => { e.stopPropagation(); handleExportMarkdown(record); }}
                             />
                           )}
@@ -731,10 +731,7 @@ export function TodoDetail() {
                 const isRunning = record.status === 'running';
                 const runningTask = isRunning ? getRunningTaskForRecord(record) : null;
                 const liveLogs = runningTask ? runningTask.logs : null;
-                const restLogs: Array<{ timestamp?: string; type?: string; content?: string }> = (() => {
-                  try { return record.logs && record.logs !== '[]' ? JSON.parse(record.logs) : []; }
-                  catch { return []; }
-                })();
+                const restLogs = parseRecordLogs(record);
                 const displayLogs = liveLogs && liveLogs.length > 0 ? liveLogs : restLogs;
                 return (
                   <>
@@ -769,7 +766,7 @@ export function TodoDetail() {
                           <Button type="primary" size="small" icon={<MessageOutlined />} onClick={() => handleOpenResume(record)}>继续对话</Button>
                         )}
                         {hasLogs(record) && (
-                          <Button size="small" icon={<FileTextOutlined />} onClick={() => handleExportMarkdown(record)}>导出MD</Button>
+                          <Button size="small" icon={<FileTextOutlined />} onClick={() => handleExportMarkdown(record)}>导出YAML</Button>
                         )}
                         {record.status === 'running' && (
                           <Popconfirm
@@ -947,7 +944,7 @@ export function TodoDetail() {
                       </Button>
                     )}
                     {hasLogs(record) && (
-                      <Button size="small" icon={<FileTextOutlined />} onClick={() => handleExportMarkdown(record)}>导出MD</Button>
+                      <Button size="small" icon={<FileTextOutlined />} onClick={() => handleExportMarkdown(record)}>导出YAML</Button>
                     )}
                     {record.status === 'running' && (() => {
                       return (
@@ -1035,10 +1032,7 @@ export function TodoDetail() {
                   const isRunning = record.status === 'running';
                   const runningTask = isRunning ? getRunningTaskForRecord(record) : null;
                 const liveLogs = runningTask ? runningTask.logs : null;
-                  const restLogs: Array<{ timestamp?: string; type?: string; content?: string }> = (() => {
-                    try { return record.logs && record.logs !== '[]' ? JSON.parse(record.logs) : []; }
-                    catch { return []; }
-                  })();
+                  const restLogs = parseRecordLogs(record);
                   const displayLogs = liveLogs && liveLogs.length > 0 ? liveLogs : restLogs;
 
                   if (!isRunning && displayLogs.length === 0) return null;

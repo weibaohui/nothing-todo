@@ -1,3 +1,4 @@
+import yaml from 'js-yaml';
 import type { ChatMessage } from '../types';
 
 const STATUS_MAP: Record<string, string> = {
@@ -6,7 +7,7 @@ const STATUS_MAP: Record<string, string> = {
   running: '运行中',
 };
 
-export function conversationToMarkdown(
+export function conversationToYaml(
   messages: ChatMessage[],
   meta?: {
     title?: string;
@@ -16,86 +17,42 @@ export function conversationToMarkdown(
     status?: string;
   },
 ): string {
-  const lines: string[] = [];
+  const header: Record<string, string> = {};
+  if (meta?.title) header['任务'] = meta.title;
+  if (meta?.executor) header['执行器'] = meta.executor;
+  if (meta?.model) header['模型'] = meta.model;
+  if (meta?.startedAt) header['开始时间'] = meta.startedAt;
+  if (meta?.status) header['状态'] = STATUS_MAP[meta.status] || meta.status;
 
-  // Header
-  lines.push('# 执行记录');
-  lines.push('');
-  if (meta?.title) lines.push(`- **任务**: ${meta.title}`);
-  if (meta?.executor) lines.push(`- **执行器**: ${meta.executor}`);
-  if (meta?.model) lines.push(`- **模型**: ${meta.model}`);
-  if (meta?.startedAt) lines.push(`- **开始时间**: ${meta.startedAt}`);
-  if (meta?.status) lines.push(`- **状态**: ${STATUS_MAP[meta.status] || meta.status}`);
-  lines.push('---');
-  lines.push('');
-
-  for (const msg of messages) {
+  const items = messages.map(msg => {
+    const item: Record<string, unknown> = { role: msg.role };
+    if (msg.timestamp) item['timestamp'] = msg.timestamp;
     switch (msg.role) {
       case 'user':
-        lines.push('## 👤 用户');
-        lines.push('');
-        lines.push(msg.content);
-        lines.push('');
-        lines.push('---');
-        lines.push('');
-        break;
       case 'assistant':
-        lines.push('## 🤖 助手');
-        lines.push('');
-        lines.push(msg.content);
-        lines.push('');
-        lines.push('---');
-        lines.push('');
-        break;
       case 'thinking':
-        lines.push('## 💡 思考过程');
-        lines.push('');
-        lines.push(msg.content);
-        lines.push('');
-        lines.push('---');
-        lines.push('');
+      case 'result':
+        item['content'] = msg.content;
         break;
       case 'tool':
-        lines.push(`## 🔧 工具调用: ${msg.toolName || '工具'}`);
-        lines.push('');
-        if (msg.toolInput) {
-          lines.push('**输入参数:**');
-          lines.push('');
-          lines.push('```json');
-          lines.push(msg.toolInput);
-          lines.push('```');
-          lines.push('');
-        }
-        if (msg.toolResult) {
-          lines.push('**执行结果:**');
-          lines.push('');
-          lines.push('```');
-          lines.push(truncate(msg.toolResult, 5000));
-          lines.push('```');
-          lines.push('');
-        }
-        lines.push('---');
-        lines.push('');
-        break;
-      case 'result':
-        lines.push('## ✅ 执行结果');
-        lines.push('');
-        lines.push(msg.content);
-        lines.push('');
-        lines.push('---');
-        lines.push('');
+        item['name'] = msg.toolName || '工具';
+        if (msg.toolInput) item['input'] = msg.toolInput;
+        if (msg.toolResult) item['result'] = truncate(msg.toolResult, 5000);
         break;
       case 'system':
-        lines.push('> ' + msg.content);
-        lines.push('');
+        item['content'] = msg.content;
         break;
     }
-  }
+    return item;
+  });
 
-  lines.push(`*导出时间: ${new Date().toLocaleString()}*`);
-  lines.push('');
+  const doc = {
+    ...header,
+    '导出时间': new Date().toLocaleString(),
+    messages: items,
+  };
 
-  return lines.join('\n');
+  return yaml.dump(doc, { lineWidth: -1, forceQuotes: true, quotingType: "'" });
 }
 
 function truncate(text: string, maxLen: number): string {
