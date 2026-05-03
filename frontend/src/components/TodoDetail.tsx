@@ -858,8 +858,8 @@ export function TodoDetail() {
                             />
                           </div>
                           <div style={{
-                            background: '#1a1a2e',
-                            color: '#e2e8f0',
+                            background: 'var(--log-bg)',
+                            color: 'var(--log-text)',
                             padding: 12,
                             borderRadius: 8,
                             fontFamily: 'var(--font-mono)',
@@ -867,12 +867,12 @@ export function TodoDetail() {
                             overflow: 'auto',
                           }}>
                             {displayLogs.length === 0 ? (
-                              <div style={{ color: '#64748b' }}>等待输出...</div>
+                              <div style={{ color: 'var(--log-text-muted)' }}>等待输出...</div>
                             ) : (
                               displayLogs.map((log, idx) => (
                                 <div key={idx} style={{ marginBottom: 4, display: 'flex', gap: 8 }}>
-                                  <span style={{ color: '#64748b', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
-                                  <span style={{ color: logTypeColors[log.type || ''] || '#cbd5e1' }}>
+                                  <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
+                                  <span style={{ color: logTypeColors[log.type || ''] || 'var(--log-text)' }}>
                                     [{logTypeLabels[log.type || ''] || log.type}]
                                   </span>
                                   <span>{log.content}</span>
@@ -1066,8 +1066,8 @@ export function TodoDetail() {
                         />
                       </summary>
                       <div style={{
-                        background: '#1a1a2e',
-                        color: '#e2e8f0',
+                        background: 'var(--log-bg)',
+                        color: 'var(--log-text)',
                         padding: 8,
                         borderRadius: 8,
                         fontFamily: 'var(--font-mono)',
@@ -1077,12 +1077,12 @@ export function TodoDetail() {
                         overflow: 'auto',
                       }}>
                         {displayLogs.length === 0 ? (
-                          <div style={{ color: '#64748b' }}>等待输出...</div>
+                          <div style={{ color: 'var(--log-text-muted)' }}>等待输出...</div>
                         ) : (
                           displayLogs.map((log, idx) => (
                             <div key={idx} style={{ marginBottom: 4, display: 'flex', gap: 8 }}>
-                              <span style={{ color: '#64748b', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
-                              <span style={{ color: logTypeColors[log.type || ''] || '#cbd5e1' }}>
+                              <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
+                              <span style={{ color: logTypeColors[log.type || ''] || 'var(--log-text)' }}>
                                 [{logTypeLabels[log.type || ''] || log.type}]
                               </span>
                               <span>{log.content}</span>

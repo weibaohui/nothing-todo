@@ -158,12 +158,13 @@ function AppContent() {
 }
 
 function ThemedApp() {
-  const { themeConfig } = useTheme();
+  const { themeConfig, visualConfig } = useTheme();
 
   return (
     <ConfigProvider
       locale={zhCN}
       theme={themeConfig}
+      {...visualConfig}
     >
       <AntApp>
         <AppProvider>

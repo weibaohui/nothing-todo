@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../hooks/useApp';
-import { Button, Empty, Tooltip } from 'antd';
-import { PlusOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, SettingOutlined, SunOutlined, MoonOutlined } from '@ant-design/icons';
-import { useTheme } from '../hooks/useTheme';
+import { Button, Empty, Tooltip, Dropdown } from 'antd';
+import { PlusOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, SettingOutlined, SunOutlined, MoonOutlined, BgColorsOutlined } from '@ant-design/icons';
+import { useTheme, type VisualMode } from '../hooks/useTheme';
 import { StatusPicker } from './StatusPicker';
 import * as db from '../utils/database';
 import { getExecutorOption } from '../types';
@@ -31,7 +31,7 @@ function SkeletonList() {
 
 export function TodoList({ onOpenCreateModal, onSelectTodo, onShowDashboard, onShowSettings }: TodoListProps) {
   const { state, dispatch } = useApp();
-  const { themeMode, toggleTheme } = useTheme();
+  const { themeMode, visualMode, setVisualMode, toggleTheme } = useTheme();
   const { todos, selectedTodoId, selectedTagId, tags } = state;
   const [isMobile, setIsMobile] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -95,6 +95,29 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onShowDashboard, onS
               aria-label="切换主题"
             />
           </Tooltip>
+          <Dropdown
+            menu={{
+              selectedKeys: [visualMode],
+              onClick: ({ key }) => setVisualMode(key as VisualMode),
+              items: [
+                { key: 'none', label: '普通模式' },
+                { key: 'frosted', label: '毛玻璃模式' },
+                { key: 'glass', label: '玻璃模式' },
+                { key: 'illustration', label: '插画风格' },
+              ],
+            }}
+            trigger={['click']}
+          >
+            <Tooltip title="视觉效果">
+              <Button
+                type="text"
+                size="small"
+                icon={<BgColorsOutlined />}
+                className={`tag-btn ${visualMode !== 'none' ? 'glass-active' : ''}`}
+                aria-label="视觉效果"
+              />
+            </Tooltip>
+          </Dropdown>
           <Button
             type="text"
             size="small"

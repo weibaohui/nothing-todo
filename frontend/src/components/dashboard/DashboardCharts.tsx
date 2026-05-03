@@ -120,8 +120,8 @@ export function TrendChart({ data, height = 160 }: TrendChartProps) {
           const y = padT + chartH - (t / maxVal) * chartH;
           return (
             <g key={i}>
-              <line x1={padL} y1={y} x2={w - padR} y2={y} stroke="#e2e8f0" strokeWidth={1} />
-              <text x={padL - 6} y={y + 4} textAnchor="end" fontSize={10} fill="#94a3b8">
+              <line x1={padL} y1={y} x2={w - padR} y2={y} stroke="var(--color-border)" strokeWidth={1} />
+              <text x={padL - 6} y={y + 4} textAnchor="end" fontSize={10} fill="var(--color-text-tertiary)">
                 {Math.round(t)}
               </text>
             </g>
@@ -138,7 +138,7 @@ export function TrendChart({ data, height = 160 }: TrendChartProps) {
                 y={padT + chartH - b.succH - (b.failH > 0 ? b.failH : 0)}
                 width={barW}
                 height={b.succH}
-                fill="#22c55e"
+                fill="var(--color-success)"
                 rx={2}
               />
             )}
@@ -149,7 +149,7 @@ export function TrendChart({ data, height = 160 }: TrendChartProps) {
                 y={padT + chartH - b.failH}
                 width={barW}
                 height={b.failH}
-                fill="#ef4444"
+                fill="var(--color-error)"
                 rx={2}
               />
             )}
@@ -159,7 +159,7 @@ export function TrendChart({ data, height = 160 }: TrendChartProps) {
               y={h - 6}
               textAnchor="middle"
               fontSize={9}
-              fill="#94a3b8"
+              fill="var(--color-text-tertiary)"
               transform={data.length > 14 ? `rotate(-35, ${b.x + barW / 2}, ${h - 6})` : undefined}
             >
               {b.date.slice(5)}
@@ -172,7 +172,7 @@ export function TrendChart({ data, height = 160 }: TrendChartProps) {
 
   if (data.length === 0) {
     return (
-      <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13 }}>
+      <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>
         暂无数据
       </div>
     );
@@ -181,12 +181,12 @@ export function TrendChart({ data, height = 160 }: TrendChartProps) {
   return (
     <div style={{ width: '100%' }}>
       <div style={{ display: 'flex', gap: 16, marginBottom: 8, justifyContent: 'flex-end' }}>
-        <span style={{ fontSize: 11, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ width: 8, height: 8, borderRadius: 2, background: '#22c55e' }} />
+        <span style={{ fontSize: 11, color: 'var(--color-success)', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--color-success)' }} />
           成功
         </span>
-        <span style={{ fontSize: 11, color: '#ef4444', display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ width: 8, height: 8, borderRadius: 2, background: '#ef4444' }} />
+        <span style={{ fontSize: 11, color: 'var(--color-error)', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--color-error)' }} />
           失败
         </span>
       </div>
