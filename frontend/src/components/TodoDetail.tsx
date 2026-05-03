@@ -101,7 +101,7 @@ function InlineTokenStats({ input, output, cacheRead, cacheCreate, totalTokens, 
             {tokenSegments.filter(s => s.value > 0).map(s => (
               <span key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color }} />
-                {s.label}: {s.value.toLocaleString()}
+                {s.label}: <AnimatedNumber value={s.value} duration={1.2} chineseFormat />
               </span>
             ))}
           </div>
@@ -109,7 +109,7 @@ function InlineTokenStats({ input, output, cacheRead, cacheCreate, totalTokens, 
             {extraSegments.map(s => (
               <span key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color }} />
-                {s.label}: {s.isPercent ? s.value.toFixed(1) + '%' : s.value.toLocaleString()}
+                {s.label}: {s.isPercent ? s.value.toFixed(1) + '%' : <AnimatedNumber value={s.value} duration={1.2} chineseFormat />}
               </span>
             ))}
           </div>
