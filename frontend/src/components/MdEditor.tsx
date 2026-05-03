@@ -1,3 +1,4 @@
+import { useTheme } from '../hooks/useTheme';
 import MDEditor from '@uiw/react-md-editor';
 
 interface MdEditorProps {
@@ -11,8 +12,10 @@ export function MdEditor({
   onChange,
   height = 400,
 }: MdEditorProps) {
+  const { themeMode } = useTheme();
+
   return (
-    <div data-color-mode="light">
+    <div data-color-mode={themeMode}>
       <MDEditor
         value={value}
         onChange={(val) => onChange(val || '')}
