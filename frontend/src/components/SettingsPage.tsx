@@ -20,7 +20,6 @@ import {
   Table,
   Tag as AntTag,
   Switch,
-  Input as AntInput,
 } from 'antd';
 import {
   SettingOutlined,
@@ -33,8 +32,11 @@ import {
   DatabaseOutlined,
   ClockCircleOutlined,
 } from '@ant-design/icons';
+import { Cron } from 'react-js-cron';
+import 'react-js-cron/dist/styles.css';
 import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
+import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
 import type { Config, ExecutorPaths } from '../types';
 import yaml from 'js-yaml';
 
@@ -658,22 +660,24 @@ export function SettingsPage() {
                   <Switch checked={autoBackupEnabled} onChange={setAutoBackupEnabled} />
                 </div>
                 {autoBackupEnabled && (
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <AntInput
-                      value={autoBackupCron}
-                      onChange={(e) => setAutoBackupCron(e.target.value)}
-                      placeholder="0 0 3 * * *"
-                      style={{ flex: 1 }}
-                      size="small"
+                  <>
+                    <Cron
+                      value={cronTo5(autoBackupCron)}
+                      setValue={(val: string) => {
+                        setAutoBackupCron(cronTo6(val));
+                      }}
+                      locale={CRON_ZH_LOCALE}
+                      defaultPeriod="day"
+                      humanizeLabels
+                      allowClear={false}
                     />
-                    <Button size="small" type="primary" onClick={handleSaveAutoBackup} loading={backupLoading}>
-                      保存
-                    </Button>
-                  </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                      <Button size="small" type="primary" onClick={handleSaveAutoBackup} loading={backupLoading}>
+                        保存
+                      </Button>
+                    </div>
+                  </>
                 )}
-                <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 4 }}>
-                  Cron 表达式（6 字段，含秒），如 "0 0 3 * * *" = 每天凌晨 3 点
-                </div>
               </div>
 
               {backupStatus && backupStatus.files.length > 0 && (

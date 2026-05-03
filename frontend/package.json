@@ -29,6 +29,7 @@
     "react": "^19.1.0",
     "react-countup": "^6.5.3",
     "react-dom": "^19.1.0",
+    "react-js-cron": "^6.0.2",
     "react-mde": "^11.5.0"
   },
   "devDependencies": {
