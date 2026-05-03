@@ -274,6 +274,7 @@ pub fn create_app(
         .route("/xyz/scheduler/todos", get(scheduler::get_scheduler_todos))
         .route("/xyz/backup/export", get(backup::export_backup))
         .route("/xyz/backup/import", post(backup::import_backup))
+        .route("/xyz/backup/merge", post(backup::merge_backup))
         .route("/xyz/config", get(config::get_config).put(config::update_config))
         .route("/assets/{*path}", get(static_handler))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
