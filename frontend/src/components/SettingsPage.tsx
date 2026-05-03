@@ -311,7 +311,15 @@ export function SettingsPage() {
     }
     setExportingSelected(true);
     try {
-      const yamlText = await db.exportSelectedBackup(exportTodoKeys);
+      const response = await fetch('/xyz/backup/export-selected', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/x-yaml' },
+        body: JSON.stringify({ todo_ids: exportTodoKeys }),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      const yamlText = await response.text();
       const blob = new Blob([yamlText], { type: 'application/x-yaml' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
