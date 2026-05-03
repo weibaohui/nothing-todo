@@ -1,24 +1,16 @@
 import { useState } from 'react';
 import { RobotOutlined, UserOutlined, ToolOutlined, BulbOutlined, CheckCircleOutlined, InfoCircleOutlined, LoadingOutlined } from '@ant-design/icons';
 import XMarkdown from '@ant-design/x-markdown';
-import type { LogEntry } from '../types';
+import type { LogEntry, ChatMessage } from '../types';
+
+export { type ChatMessage };
 
 interface ChatViewProps {
   logs: LogEntry[];
   isRunning?: boolean;
 }
 
-interface ChatMessage {
-  role: 'user' | 'assistant' | 'system' | 'tool' | 'thinking' | 'result';
-  content: string;
-  timestamp?: string;
-  toolName?: string;
-  toolInput?: string;
-  toolResult?: string;
-  isCollapsed?: boolean;
-}
-
-function parseLogsToMessages(logs: LogEntry[]): ChatMessage[] {
+export function parseLogsToMessages(logs: LogEntry[]): ChatMessage[] {
   const messages: ChatMessage[] = [];
   let currentThinking = '';
   let currentToolName = '';

@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination, Segmented, Modal, Input } from 'antd';
-import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined, DownOutlined, UpOutlined, UnorderedListOutlined, MessageOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined, DownOutlined, UpOutlined, UnorderedListOutlined, MessageOutlined, FileTextOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import { PieChart } from './PieChart';
 import { TodoSettingsDrawer } from './TodoSettingsDrawer';
 import { TodoEditDrawer } from './TodoEditDrawer';
 import { ChatView } from './ChatView';
+import { parseLogsToMessages } from './ChatView';
 import * as db from '../utils/database';
 import { formatLocalDateTime } from '../utils/datetime';
+import { conversationToYaml } from '../utils/markdown';
 import { AnimatedNumber } from './AnimatedNumber';
 import { getExecutorOption, supportsResume } from '../types';
 import XMarkdown from '@ant-design/x-markdown';
@@ -384,6 +386,42 @@ export function TodoDetail() {
     }
   };
 
+  const parseRecordLogs = (record: ExecutionRecord): LogEntry[] => {
+    try {
+      return record.logs && record.logs !== '[]' ? JSON.parse(record.logs) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const hasLogs = (record: ExecutionRecord): boolean => {
+    return !!record.logs && record.logs !== '[]';
+  };
+
+  const handleExportMarkdown = (record: ExecutionRecord) => {
+    const logs = parseRecordLogs(record);
+    const messages = parseLogsToMessages(logs);
+    const executorLabel = record.executor ? getExecutorOption(record.executor).label : undefined;
+    const content = conversationToYaml(messages, {
+      title: selectedTodo?.title,
+      executor: executorLabel,
+      model: record.model || undefined,
+      startedAt: record.started_at,
+      status: record.status,
+    });
+    const blob = new Blob([content], { type: 'application/x-yaml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    a.download = `exec-${record.id}-${timestamp}.yaml`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    message.success('导出成功');
+  };
+
   const handleStatusChange = async (newStatus: string) => {
     if (!selectedTodo) return;
     try {
@@ -620,6 +658,13 @@ export function TodoDetail() {
                               onClick={(e) => { e.stopPropagation(); handleOpenResume(record); }}
                             />
                           )}
+                          {hasLogs(record) && (
+                            <FileTextOutlined
+                              style={{ fontSize: 12, color: 'var(--color-text-tertiary)', cursor: 'pointer' }}
+                              title="导出为YAML"
+                              onClick={(e) => { e.stopPropagation(); handleExportMarkdown(record); }}
+                            />
+                          )}
                           <span style={{
                             fontSize: 10,
                             padding: '2px 8px',
@@ -686,10 +731,7 @@ export function TodoDetail() {
                 const isRunning = record.status === 'running';
                 const runningTask = isRunning ? getRunningTaskForRecord(record) : null;
                 const liveLogs = runningTask ? runningTask.logs : null;
-                const restLogs: Array<{ timestamp?: string; type?: string; content?: string }> = (() => {
-                  try { return record.logs && record.logs !== '[]' ? JSON.parse(record.logs) : []; }
-                  catch { return []; }
-                })();
+                const restLogs = parseRecordLogs(record);
                 const displayLogs = liveLogs && liveLogs.length > 0 ? liveLogs : restLogs;
                 return (
                   <>
@@ -722,6 +764,9 @@ export function TodoDetail() {
                       <div style={{ display: 'flex', gap: 8 }}>
                         {record.status !== 'running' && supportsResume(record) && (
                           <Button type="primary" size="small" icon={<MessageOutlined />} onClick={() => handleOpenResume(record)}>继续对话</Button>
+                        )}
+                        {hasLogs(record) && (
+                          <Button size="small" icon={<FileTextOutlined />} onClick={() => handleExportMarkdown(record)}>导出YAML</Button>
                         )}
                         {record.status === 'running' && (
                           <Popconfirm
@@ -898,6 +943,9 @@ export function TodoDetail() {
                         继续对话
                       </Button>
                     )}
+                    {hasLogs(record) && (
+                      <Button size="small" icon={<FileTextOutlined />} onClick={() => handleExportMarkdown(record)}>导出YAML</Button>
+                    )}
                     {record.status === 'running' && (() => {
                       return (
                         <Popconfirm
@@ -984,10 +1032,7 @@ export function TodoDetail() {
                   const isRunning = record.status === 'running';
                   const runningTask = isRunning ? getRunningTaskForRecord(record) : null;
                 const liveLogs = runningTask ? runningTask.logs : null;
-                  const restLogs: Array<{ timestamp?: string; type?: string; content?: string }> = (() => {
-                    try { return record.logs && record.logs !== '[]' ? JSON.parse(record.logs) : []; }
-                    catch { return []; }
-                  })();
+                  const restLogs = parseRecordLogs(record);
                   const displayLogs = liveLogs && liveLogs.length > 0 ? liveLogs : restLogs;
 
                   if (!isRunning && displayLogs.length === 0) return null;

@@ -33,6 +33,16 @@ export interface LogEntry {
   content: string;
 }
 
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system' | 'tool' | 'thinking' | 'result';
+  content: string;
+  timestamp?: string;
+  toolName?: string;
+  toolInput?: string;
+  toolResult?: string;
+  isCollapsed?: boolean;
+}
+
 export interface TodoItem {
   id?: string;
   content: string;
