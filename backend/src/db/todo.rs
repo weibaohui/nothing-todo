@@ -341,6 +341,92 @@ impl Database {
             .collect()
     }
 
+    /// 按 ID 列表获取 todo 的备份数据
+    pub async fn get_todo_backups_by_ids(&self, ids: &[i64]) -> Vec<TodoBackup> {
+        if ids.is_empty() {
+            return Vec::new();
+        }
+        let models = todos::Entity::find()
+            .filter(todos::Column::Id.is_in(ids.to_vec()))
+            .filter(todos::Column::DeletedAt.is_null())
+            .all(&self.conn)
+            .await
+            .unwrap_or_default();
+
+        let model_ids: Vec<i64> = models.iter().map(|m| m.id).collect();
+        let tag_map = self.fetch_tag_ids_for_many(&model_ids).await;
+
+        let all_tags: std::collections::HashMap<i64, String> = tags::Entity::find()
+            .all(&self.conn)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| (t.id, t.name))
+            .collect();
+
+        models
+            .into_iter()
+            .map(|m| {
+                let tag_ids = tag_map.get(&m.id).cloned().unwrap_or_default();
+                let tag_names: Vec<String> = tag_ids
+                    .iter()
+                    .filter_map(|tid| all_tags.get(tid).cloned())
+                    .collect();
+                TodoBackup {
+                    title: m.title,
+                    prompt: m.prompt.unwrap_or_default(),
+                    status: m.status.as_deref().and_then(|s| s.parse().ok()).unwrap_or(TodoStatus::Pending),
+                    executor: m.executor,
+                    scheduler_enabled: m.scheduler_enabled.unwrap_or(false),
+                    scheduler_config: m.scheduler_config,
+                    tag_names,
+                    workspace: m.workspace,
+                }
+            })
+            .collect()
+    }
+
+    /// 按 tag name 列表查询 tag 备份数据
+    pub async fn get_tag_backups_by_names(&self, names: &[&str]) -> Vec<crate::models::TagBackup> {
+        if names.is_empty() {
+            return Vec::new();
+        }
+        tags::Entity::find()
+            .filter(tags::Column::Name.is_in(names.iter().map(|s| s.to_string()).collect::<Vec<_>>()))
+            .all(&self.conn)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| crate::models::TagBackup {
+                name: t.name,
+                color: t.color.unwrap_or_default(),
+            })
+            .collect()
+    }
+
+    /// 获取指定 todo 列表中涉及的所有 tag 备份数据
+    pub async fn get_tag_backups_for_todos(&self, ids: &[i64]) -> Vec<crate::models::TagBackup> {
+        if ids.is_empty() {
+            return Vec::new();
+        }
+        let tag_map = self.fetch_tag_ids_for_many(ids).await;
+        let tag_ids: std::collections::HashSet<i64> = tag_map.values().flat_map(|v| v.iter()).copied().collect();
+        if tag_ids.is_empty() {
+            return Vec::new();
+        }
+        tags::Entity::find()
+            .filter(tags::Column::Id.is_in(tag_ids.into_iter().collect::<Vec<_>>()))
+            .all(&self.conn)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| crate::models::TagBackup {
+                name: t.name,
+                color: t.color.unwrap_or_default(),
+            })
+            .collect()
+    }
+
     /// 从备份数据导入 todo（清空现有数据后导入，失败时自动回滚）
     pub async fn import_backup(&self, tags_in: &[crate::models::TagBackup], todos_in: &[TodoBackup]) -> Result<(), sea_orm::DbErr> {
         use sea_orm::TransactionTrait;

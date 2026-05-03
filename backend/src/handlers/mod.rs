@@ -134,7 +134,7 @@ mod todo;
 mod tag;
 mod execution;
 mod scheduler;
-mod backup;
+pub mod backup;
 mod config;
 
 // WebSocket handler
@@ -273,8 +273,14 @@ pub fn create_app(
         .route("/xyz/events", get(events_handler))
         .route("/xyz/scheduler/todos", get(scheduler::get_scheduler_todos))
         .route("/xyz/backup/export", get(backup::export_backup))
+        .route("/xyz/backup/export-selected", post(backup::export_selected))
         .route("/xyz/backup/import", post(backup::import_backup))
         .route("/xyz/backup/merge", post(backup::merge_backup))
+        .route("/xyz/backup/database/download", get(backup::download_database))
+        .route("/xyz/backup/database/status", get(backup::get_database_backup_status))
+        .route("/xyz/backup/database/trigger", post(backup::trigger_local_backup))
+        .route("/xyz/backup/database/auto", put(backup::update_auto_backup))
+        .route("/xyz/backup/database/file", delete(backup::delete_backup_file))
         .route("/xyz/config", get(config::get_config).put(config::update_config))
         .route("/assets/{*path}", get(static_handler))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
