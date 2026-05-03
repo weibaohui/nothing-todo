@@ -181,6 +181,12 @@ export const darkTheme: ThemeConfig = {
     Notification: {
       colorBgElevated: catppuccinMocha.surface0,
     },
+    ColorPicker: {
+      colorBgElevated: catppuccinMocha.surface0,
+      colorBorder: catppuccinMocha.surface1,
+      colorPrimary: cyanAccent.primary,
+      colorText: catppuccinMocha.text,
+    },
   },
 };
 
