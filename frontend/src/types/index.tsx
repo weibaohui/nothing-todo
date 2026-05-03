@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { FaSquare, FaCode } from 'react-icons/fa';
+import { FaSquare } from 'react-icons/fa';
 
 export interface Todo {
   id: number;
@@ -223,7 +223,7 @@ export const EXECUTORS: ExecutorOption[] = [
   { value: 'atomcode',   label: 'AtomCode',  color: '#e84393', icon: <FaSquare color="#e84393" size={14} /> },
   { value: 'hermes',     label: 'Hermes',    color: '#0984e3', icon: <FaSquare color="#0984e3" size={14} /> },
   { value: 'kimi',       label: 'Kimi',      color: '#d63031', icon: <FaSquare color="#d63031" size={14} /> },
-  { value: 'codex',      label: 'Codex',     color: '#488597', icon: <FaCode color="#488597" size={14} /> },
+  { value: 'codex',      label: 'Codex',     color: '#488597', icon: <FaSquare color="#488597" size={14} /> },
 ];
 
 export interface ExecutorPaths {
