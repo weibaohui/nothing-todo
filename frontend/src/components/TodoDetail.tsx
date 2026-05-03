@@ -167,11 +167,11 @@ function ProgressWidget({ items }: { items: TodoItem[] }) {
           right: 0,
           zIndex: 20,
           marginTop: 4,
-          background: '#fff',
+          background: 'var(--color-bg-elevated)',
           border: '1px solid var(--color-border-light)',
           borderRadius: 8,
           padding: 12,
-          boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
+          boxShadow: '0 6px 20px rgba(0,0,0,0.15)',
           minWidth: 260,
           maxWidth: 360,
         }}>
