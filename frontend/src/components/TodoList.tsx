@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../hooks/useApp';
-import { Button, Empty } from 'antd';
-import { PlusOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, SettingOutlined } from '@ant-design/icons';
+import { Button, Empty, Tooltip } from 'antd';
+import { PlusOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, SettingOutlined, SunOutlined, MoonOutlined } from '@ant-design/icons';
+import { useTheme } from '../hooks/useTheme';
 import { StatusPicker } from './StatusPicker';
 import * as db from '../utils/database';
 import { getExecutorOption } from '../types';
@@ -30,6 +31,7 @@ function SkeletonList() {
 
 export function TodoList({ onOpenCreateModal, onSelectTodo, onShowDashboard, onShowSettings }: TodoListProps) {
   const { state, dispatch } = useApp();
+  const { themeMode, toggleTheme } = useTheme();
   const { todos, selectedTodoId, selectedTagId, tags } = state;
   const [isMobile, setIsMobile] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -83,6 +85,16 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onShowDashboard, onS
             className="tag-btn"
             aria-label="查看仪表盘"
           />
+          <Tooltip title={themeMode === 'light' ? '切换暗色主题' : '切换亮色主题'}>
+            <Button
+              type="text"
+              size="small"
+              icon={themeMode === 'light' ? <MoonOutlined /> : <SunOutlined />}
+              onClick={toggleTheme}
+              className="tag-btn"
+              aria-label="切换主题"
+            />
+          </Tooltip>
           <Button
             type="text"
             size="small"
