@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useApp } from '../hooks/useApp';
-import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination, Segmented, Modal, Input } from 'antd';
+import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination, Segmented, Modal, Input, Tooltip } from 'antd';
 import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined, DownOutlined, UpOutlined, UnorderedListOutlined, MessageOutlined, FileTextOutlined, LinkOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import { PieChart } from './PieChart';
@@ -976,9 +976,14 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                       </div>
                     </div>
                     {record.command && (
-                      <div style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginBottom: 12, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {record.command}
-                      </div>
+                      <Tooltip title="点击复制命令">
+                        <div
+                          onClick={() => { navigator.clipboard.writeText(record.command || '').then(() => message.success('已复制')); }}
+                          style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginBottom: 12, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
+                        >
+                          {record.command}
+                        </div>
+                      </Tooltip>
                     )}
                     {(() => {
                       const tl = logsToTimelineRecords(record);
@@ -1258,9 +1263,14 @@ function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, o
         </div>
       </div>
       {record.command && (
-        <div style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginBottom: 8, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {record.command}
-        </div>
+        <Tooltip title="点击复制命令">
+          <div
+            onClick={() => { navigator.clipboard.writeText(record.command || '').then(() => messageApi.success('已复制')); }}
+            style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginBottom: 8, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
+          >
+            {record.command}
+          </div>
+        </Tooltip>
       )}
       {(() => {
         const tl = logsToTimelineRecords(record);
@@ -1363,9 +1373,14 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
           </div>
         </div>
         {mainRecord.command && (
-          <div style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginBottom: 8, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {mainRecord.command}
-          </div>
+          <Tooltip title="点击复制命令">
+            <div
+              onClick={() => { navigator.clipboard.writeText(mainRecord.command || '').then(() => messageApi.success('已复制')); }}
+              style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginBottom: 8, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
+            >
+              {mainRecord.command}
+            </div>
+          </Tooltip>
         )}
         {(() => {
           const tl = logsToTimelineRecords(mainRecord);
