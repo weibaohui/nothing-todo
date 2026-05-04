@@ -17,6 +17,7 @@ use tokio::sync::broadcast;
 
 use crate::adapters::ExecutorRegistry;
 use crate::Assets;
+use crate::config::Config;
 use crate::db::Database;
 use crate::models::ParsedLogEntry;
 use crate::scheduler::TodoScheduler;
@@ -29,6 +30,7 @@ pub struct AppState {
     pub tx: broadcast::Sender<ExecEvent>,
     pub scheduler: Arc<TodoScheduler>,
     pub task_manager: Arc<TaskManager>,
+    pub config: Arc<tokio::sync::RwLock<Config>>,
 }
 
 impl AppState {
@@ -244,6 +246,7 @@ pub fn create_app(
     tx: broadcast::Sender<ExecEvent>,
     scheduler: Arc<TodoScheduler>,
     task_manager: Arc<TaskManager>,
+    config: Arc<tokio::sync::RwLock<Config>>,
 ) -> Router {
     let state = AppState {
         db,
@@ -251,6 +254,7 @@ pub fn create_app(
         tx,
         scheduler,
         task_manager,
+        config,
     };
 
     Router::new()

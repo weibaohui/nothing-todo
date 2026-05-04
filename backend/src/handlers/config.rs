@@ -4,16 +4,16 @@ use crate::config::Config;
 use crate::handlers::{ApiJson, AppError, AppState};
 use crate::models::{ApiResponse, UpdateConfigRequest};
 
-pub async fn get_config(State(_state): State<AppState>) -> Result<ApiResponse<Config>, AppError> {
-    let cfg = Config::load();
+pub async fn get_config(State(state): State<AppState>) -> Result<ApiResponse<Config>, AppError> {
+    let cfg = state.config.read().await.clone();
     Ok(ApiResponse::ok(cfg))
 }
 
 pub async fn update_config(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     ApiJson(req): ApiJson<UpdateConfigRequest>,
 ) -> Result<ApiResponse<Config>, AppError> {
-    let mut cfg = Config::load();
+    let mut cfg = state.config.write().await;
 
     cfg.port = req.port;
     cfg.host = req.host;
@@ -27,5 +27,5 @@ pub async fn update_config(
         return Err(AppError::Internal(format!("Failed to save config: {}", e)));
     }
 
-    Ok(ApiResponse::ok(cfg))
+    Ok(ApiResponse::ok(cfg.clone()))
 }
