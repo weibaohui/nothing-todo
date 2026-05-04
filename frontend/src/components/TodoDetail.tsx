@@ -385,9 +385,29 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
     if (!selectedTodo) return;
     try {
       const pageData = await db.getExecutionRecords(selectedTodo.id, page, limit);
+
+      // Fetch complete session chains to avoid splitting sessions across pages
+      const sessionIds = [...new Set(
+        pageData.records
+          .filter(r => r.session_id)
+          .map(r => r.session_id!)
+      )];
+
+      let completeRecords = pageData.records;
+      if (sessionIds.length > 0) {
+        const sessionRecordsArrays = await Promise.all(
+          sessionIds.map(sid => db.getExecutionRecordsBySession(sid))
+        );
+        const sessionRecords = sessionRecordsArrays.flat();
+        // Merge: page records + additional session records not already in page
+        const pageIds = new Set(pageData.records.map(r => r.id));
+        const additional = sessionRecords.filter(r => !pageIds.has(r.id));
+        completeRecords = [...pageData.records, ...additional];
+      }
+
       dispatch({
         type: 'SET_EXECUTION_RECORDS',
-        payload: { todoId: selectedTodo.id, records: pageData.records }
+        payload: { todoId: selectedTodo.id, records: completeRecords }
       });
       setHistoryPage(pageData.page);
       setHistoryLimit(pageData.limit);
@@ -1104,6 +1124,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                   viewMode={viewMode}
                   parseLogs={parseRecordLogs}
                   onRefresh={refreshSingleRecord}
+                  resolveStats={resolveExecutionStats}
                 />
               );
             })}
@@ -1285,7 +1306,7 @@ function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, o
 }
 
 /** Narrow mode: chain group card — main record with indented continuations */
-function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, viewMode, parseLogs, onRefresh }: {
+function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, viewMode, parseLogs, onRefresh, resolveStats }: {
   group: SessionGroup;
   onOpenResume: (r: ExecutionRecord) => void;
   onExport: (r: ExecutionRecord) => void;
@@ -1294,6 +1315,7 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
   viewMode: 'log' | 'chat';
   parseLogs: (r: ExecutionRecord) => LogEntry[];
   onRefresh: (id: number) => Promise<void>;
+  resolveStats: (r: ExecutionRecord, running: boolean) => ExecutionStats | null | undefined;
 }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const mainRecord = group.records[0];
@@ -1310,6 +1332,9 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
             </span>
             {mainRecord.executor && <ExecutorBadge executor={mainRecord.executor} />}
             {mainRecord.model && <Tag color="#3b82f6">{mainRecord.model}</Tag>}
+            <Tag color={mainRecord.trigger_type === 'cron' ? '#8b5cf6' : '#6b7280'} style={{ fontSize: 10 }}>
+              {mainRecord.trigger_type === 'cron' ? 'Cron' : '手动'}
+            </Tag>
             {mainRecord.usage?.duration_ms && (
               <span style={{ fontSize: 11, color: 'var(--color-success)', fontWeight: 600 }}>
                 {(mainRecord.usage.duration_ms / 1000).toFixed(2)}s
@@ -1324,13 +1349,54 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
             }}>
               {mainRecord.status === 'success' ? '成功' : mainRecord.status === 'failed' ? '失败' : '进行中'}
             </span>
+            {mainRecord.status !== 'running' && supportsResume(mainRecord) && (
+              <Button type="primary" size="small" icon={<MessageOutlined />} onClick={() => onOpenResume(mainRecord)}>继续对话</Button>
+            )}
+            {hasLogsStatic(mainRecord) && (
+              <Button size="small" icon={<FileTextOutlined />} onClick={() => onExport(mainRecord)}>导出YAML</Button>
+            )}
+            {mainRecord.status === 'running' && (
+              <Popconfirm title="确定强制停止该任务？" okText="停止" cancelText="取消" onConfirm={() => onStop(mainRecord.id)}>
+                <Button type="primary" danger size="small" icon={<StopOutlined />}>停止</Button>
+              </Popconfirm>
+            )}
           </div>
         </div>
+        {mainRecord.command && (
+          <div style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginBottom: 8, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {mainRecord.command}
+          </div>
+        )}
+        {(() => {
+          const tl = logsToTimelineRecords(mainRecord);
+          if (tl.length === 0) return null;
+          return <TimelineFlow records={tl} height={16} containerStyle={{ marginBottom: 8 }} />;
+        })()}
         {mainRecord.result && (
           <div className={`history-result ${mainRecord.status === 'success' ? 'history-result-success' : 'history-result-failed'}`}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+              <Button type="text" size="small" icon={<CopyOutlined />} onClick={async () => {
+                try { await navigator.clipboard.writeText(mainRecord.result || ''); messageApi.success('已复制到剪贴板'); }
+                catch { messageApi.error('复制失败'); }
+              }} />
+            </div>
             <XMarkdown content={mainRecord.result} />
           </div>
         )}
+        {(() => {
+          const stats = resolveStats(mainRecord, mainRecord.status === 'running');
+          if (!stats) return null;
+          return (
+            <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <span>工具调用: <b style={{ color: 'var(--color-primary)' }}>{stats.tool_calls}</b></span>
+              <span>对话轮次: <b style={{ color: 'var(--color-primary)' }}>{stats.conversation_turns}</b></span>
+              {stats.thinking_count > 0 && (
+                <span>思考次数: <b style={{ color: 'var(--color-primary)' }}>{stats.thinking_count}</b></span>
+              )}
+            </div>
+          );
+        })()}
+        {renderNarrowLogs(mainRecord, mainRecord.status === 'running', parseLogs(mainRecord), null, viewMode, onRefresh)}
       </div>
 
       {/* Indented continuation entries */}

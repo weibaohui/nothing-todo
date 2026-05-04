@@ -41,6 +41,17 @@ pub async fn get_execution_record(
     Ok(ApiResponse::ok(record))
 }
 
+pub async fn get_execution_records_by_session(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> Result<ApiResponse<Vec<crate::models::ExecutionRecord>>, AppError> {
+    let records = state
+        .db
+        .get_execution_records_by_session(&session_id)
+        .await;
+    Ok(ApiResponse::ok(records))
+}
+
 pub async fn execute_handler(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<ExecuteRequest>,

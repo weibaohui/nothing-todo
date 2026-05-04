@@ -184,6 +184,19 @@ impl Database {
             .unwrap_or_default()
     }
 
+    /// 根据 session_id 获取所有执行记录（按 started_at 排序）
+    pub async fn get_execution_records_by_session(&self, session_id: &str) -> Vec<ExecutionRecord> {
+        execution_records::Entity::find()
+            .filter(execution_records::Column::SessionId.eq(session_id))
+            .order_by_asc(execution_records::Column::StartedAt)
+            .all(&self.conn)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(Into::into)
+            .collect()
+    }
+
     /// 根据 pid 停止执行记录
     pub async fn stop_execution_by_pid(&self, pid: i32) -> Result<bool, sea_orm::DbErr> {
         if let Some(record) = self.get_execution_record_by_pid(pid).await {

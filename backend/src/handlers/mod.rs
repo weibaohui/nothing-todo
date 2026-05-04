@@ -265,6 +265,7 @@ pub fn create_app(
         .route("/xyz/tags/{id}", delete(tag::delete_tag))
         .route("/xyz/execution-records", get(execution::get_execution_records))
         .route("/xyz/execution-records/{id}", get(execution::get_execution_record))
+        .route("/xyz/execution-records/session/{session_id}", get(execution::get_execution_records_by_session))
         .route("/xyz/execution-records/{id}/resume", post(execution::resume_execution_handler))
         .route("/xyz/dashboard-stats", get(execution::get_dashboard_stats))
         .route("/xyz/execute", post(execution::execute_handler))
