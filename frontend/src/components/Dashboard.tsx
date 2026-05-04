@@ -685,8 +685,8 @@ export function Dashboard({ onBack }: DashboardProps) {
               <div style={{ fontSize: 20, fontWeight: 700, color: '#f59e0b' }}>
                 {loading ? <Spin size="small" /> : (
                   <>
-                    {totalCost < 10000 ? totalCost.toFixed(2) : (totalCost / 10000).toFixed(2)}
-                    <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 2 }}>{totalCost < 10000 ? '元' : '万'}</span>
+                    ${totalCost < 10000 ? totalCost.toFixed(2) : (totalCost / 10000).toFixed(2)}
+                    {totalCost >= 10000 && <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 2 }}>万</span>}
                   </>
                 )}
               </div>

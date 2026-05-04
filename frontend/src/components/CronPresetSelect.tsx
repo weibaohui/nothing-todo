@@ -57,7 +57,9 @@ export function CronPresetSelect({ value, onChange, disabled }: CronPresetSelect
       </div>
       <Select
         value={value}
-        onChange={onChange}
+        onChange={(val: string | undefined) => {
+          if (val !== undefined) onChange(val);
+        }}
         disabled={disabled}
         style={{ width: '100%' }}
         placeholder="选择常用时间或自定义设置"
