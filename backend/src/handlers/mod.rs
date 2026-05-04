@@ -226,7 +226,18 @@ pub async fn static_handler(Path(path): axum::extract::Path<String>) -> Response
             } else {
                 "application/octet-stream"
             };
-            ([(header::CONTENT_TYPE, mime)], content.data.to_vec()).into_response()
+            // Vite hashed assets (e.g. index-AbCd1234.js) get immutable cache
+            let cache_control = if path.contains('-')
+                && matches!(mime, "application/javascript" | "text/css" | "font/woff2" | "font/woff" | "font/ttf")
+            {
+                "public, max-age=31536000, immutable"
+            } else {
+                "no-cache"
+            };
+            ([
+                (header::CONTENT_TYPE, mime),
+                (header::CACHE_CONTROL, cache_control),
+            ], content.data.to_vec()).into_response()
         }
         None => match Assets::get("index.html") {
             Some(content) => {
