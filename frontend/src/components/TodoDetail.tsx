@@ -1075,6 +1075,9 @@ export function TodoDetail() {
                   onExport={handleExportMarkdown}
                   onStop={handleStopExecution}
                   messageApi={message}
+                  viewMode={viewMode}
+                  parseLogs={parseRecordLogs}
+                  onRefresh={refreshSingleRecord}
                 />
               );
             })}
@@ -1251,12 +1254,15 @@ function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, o
 }
 
 /** Narrow mode: chain group card — main record with indented continuations */
-function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi }: {
+function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, viewMode, parseLogs, onRefresh }: {
   group: SessionGroup;
   onOpenResume: (r: ExecutionRecord) => void;
   onExport: (r: ExecutionRecord) => void;
   onStop: (id: number) => Promise<void>;
   messageApi: any;
+  viewMode: 'log' | 'chat';
+  parseLogs: (r: ExecutionRecord) => LogEntry[];
+  onRefresh: (id: number) => Promise<void>;
 }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const mainRecord = group.records[0];
@@ -1384,6 +1390,50 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi }: {
                     </Popconfirm>
                   )}
                 </div>
+                {(() => {
+                  const logs = parseLogs(record);
+                  const isRunning = record.status === 'running';
+                  if (!isRunning && logs.length === 0) return null;
+                  if (viewMode === 'chat') {
+                    return (
+                      <div style={{ marginTop: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-primary)' }}>对话 ({logs.length})</span>
+                          <ReloadOutlined style={{ fontSize: 10, cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); onRefresh(record.id); }} />
+                        </div>
+                        <div style={{ maxHeight: 300, overflow: 'auto' }}>
+                          <ChatView logs={logs as LogEntry[]} isRunning={isRunning} />
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <details style={{ marginTop: 6 }} open={isRunning}>
+                      <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>日志 ({logs.length})</span>
+                        <ReloadOutlined style={{ fontSize: 9 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRefresh(record.id); }} />
+                      </summary>
+                      <div style={{
+                        background: 'var(--log-bg)', color: 'var(--log-text)', padding: 6, borderRadius: 6,
+                        fontFamily: 'var(--font-mono)', fontSize: 10, marginTop: 4, maxHeight: 200, overflow: 'auto',
+                      }}>
+                        {logs.length === 0 ? (
+                          <div style={{ color: 'var(--log-text-muted)' }}>等待输出...</div>
+                        ) : (
+                          logs.map((log, i) => (
+                            <div key={i} style={{ marginBottom: 3, display: 'flex', gap: 6 }}>
+                              <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
+                              <span style={{ color: logTypeColors[log.type || ''] || 'var(--log-text)' }}>
+                                [{logTypeLabels[log.type || ''] || log.type}]
+                              </span>
+                              <span>{log.content}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </details>
+                  );
+                })()}
               </div>
             )}
             {/* Continue button on last continuation */}
