@@ -190,6 +190,8 @@ pub async fn run_todo_execution(
         let logs_for_db = logs.clone();
         let logs_for_result = logs.clone();
         let flush_pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let unflushed_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        const FLUSH_COUNT_THRESHOLD: u64 = 5;
 
         let executor_for_parse = executor_spawn.clone();
 
@@ -202,6 +204,7 @@ pub async fn run_todo_execution(
             let db_for_todo = db_clone.clone();
             let rid = record_id;
             let flush_pending_for_stdout = flush_pending.clone();
+            let unflushed_for_stdout = unflushed_count.clone();
 
             Some(tokio::spawn(async move {
                 let mut reader = BufReader::new(stdout_reader).lines();
@@ -253,7 +256,9 @@ pub async fn run_todo_execution(
                         }
 
                         logs_for_db.lock().await.push(parsed.clone());
-                        if !flush_pending_for_stdout.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                        let prev = unflushed_for_stdout.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if prev + 1 >= FLUSH_COUNT_THRESHOLD && !flush_pending_for_stdout.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                            unflushed_for_stdout.store(0, std::sync::atomic::Ordering::Relaxed);
                             let snapshot = logs_for_db.lock().await.clone();
                             let db_flush = db_for_todo.clone();
                             let rid_flush = rid;
@@ -281,6 +286,7 @@ pub async fn run_todo_execution(
         let db_for_stderr = db_clone.clone();
         let rid_for_stderr = record_id;
         let flush_for_stderr = flush_pending.clone();
+        let unflushed_for_stderr = unflushed_count.clone();
         let stderr_task = if let Some(stderr_reader) = stderr_handle {
             Some(tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr_reader).lines();
@@ -291,7 +297,9 @@ pub async fn run_todo_execution(
                         ParsedLogEntry::stderr(line.clone())
                     };
                     logs_for_stderr.lock().await.push(entry.clone());
-                    if !flush_for_stderr.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    let prev = unflushed_for_stderr.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if prev + 1 >= FLUSH_COUNT_THRESHOLD && !flush_for_stderr.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                        unflushed_for_stderr.store(0, std::sync::atomic::Ordering::Relaxed);
                         let snapshot = logs_for_stderr.lock().await.clone();
                         let db_flush = db_for_stderr.clone();
                         let rid_flush = rid_for_stderr;
@@ -310,11 +318,37 @@ pub async fn run_todo_execution(
             None
         };
 
+        // 定时兜底 flush：每 3 秒检查未刷新条目，有则写库
+        let timer_db = db_clone.clone();
+        let timer_logs = logs.clone();
+        let timer_fp = flush_pending.clone();
+        let timer_uc = unflushed_count.clone();
+        let flush_timer = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3));
+            loop {
+                interval.tick().await;
+                let n = timer_uc.swap(0, std::sync::atomic::Ordering::Relaxed);
+                if n > 0 && !timer_fp.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    let snapshot = timer_logs.lock().await.clone();
+                    let db_f = timer_db.clone();
+                    let rid_f = record_id;
+                    let fp = timer_fp.clone();
+                    tokio::spawn(async move {
+                        if let Ok(json) = serde_json::to_string(&snapshot) {
+                            let _ = db_f.update_execution_record_logs(rid_f, &json).await;
+                        }
+                        fp.store(false, std::sync::atomic::Ordering::Relaxed);
+                    });
+                }
+            }
+        });
+
         let status = tokio::select! {
             biased;
             _ = cancel_rx.recv() => {
                 // Cancelled (or channel closed): 使用 command-group 安全杀死整个进程组
                 kill_process_tree(&mut child).await;
+                flush_timer.abort();
 
                 // 收割僵尸进程
                 let _status = child.wait().await;
@@ -349,6 +383,7 @@ pub async fn run_todo_execution(
             }
             status = child.wait() => {
                 // 子进程已自然退出，command-group 的进程组已自动清理
+                flush_timer.abort();
 
                 if let Some(handle) = stdout_task {
                     let _ = handle.await;
