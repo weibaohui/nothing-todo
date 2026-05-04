@@ -1,6 +1,6 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Tooltip } from 'antd';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 
 export interface TimelineRecord {
   id: string;
@@ -89,9 +89,22 @@ export const TimelineFlow: React.FC<TimelineFlowProps> = ({
   containerStyle,
   renderTooltip,
 }) => {
+  // 用 JSON 序列化做内容比较，避免因引用不同而误触发重绘
+  const recordsKey = useMemo(() => {
+    return records.map(r => r.id).join(',');
+  }, [records]);
+
   const sortedRecords = useMemo(() => {
     return [...records].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
   }, [records]);
+
+  // 只在 records 的 id 列表真正变化时递增 animKey
+  const [animKey, setAnimKey] = useState(0);
+  const [prevKey, setPrevKey] = useState(recordsKey);
+  if (recordsKey !== prevKey) {
+    setPrevKey(recordsKey);
+    setAnimKey(k => k + 1);
+  }
 
   const mergedColorMap = { ...DEFAULT_COLOR_MAP, ...colorMap };
   const mergedLabelMap = { ...DEFAULT_LABEL_MAP, ...labelMap };
@@ -125,22 +138,20 @@ export const TimelineFlow: React.FC<TimelineFlowProps> = ({
       position: 'relative',
       ...containerStyle,
     }}>
-      <AnimatePresence mode="popLayout">
         {displayRecords.map((record, index) => {
           const role = (record.role || '').toLowerCase();
           const color = mergedColorMap[role] || 'var(--color-text-quaternary, #bfbfbf)';
 
           const motionProps = disabled
-            ? { initial: { x: 0, opacity: 1 }, animate: { x: 0, opacity: 1 }, exit: { opacity: 1, scale: 1 } }
+            ? { initial: { x: 0, opacity: 1 }, animate: { x: 0, opacity: 1 } }
             : {
                 initial: { x: 300, opacity: 0 },
                 animate: { x: 0, opacity: 1 },
-                exit: { opacity: 0, scale: 0 },
               };
 
           const content = (
             <motion.div
-              key={record.id}
+              key={`${animKey}-${record.id}`}
               {...motionProps}
               transition={{
                 type: 'spring', stiffness: 250, damping: 25,
@@ -158,12 +169,11 @@ export const TimelineFlow: React.FC<TimelineFlowProps> = ({
           );
 
           return renderTooltip ? (
-            <Tooltip key={record.id} title={renderTooltip(record)}>{content}</Tooltip>
+            <Tooltip key={`${animKey}-${record.id}`} title={renderTooltip(record)}>{content}</Tooltip>
           ) : (
-            <Tooltip key={record.id} title={formatTooltipContent(record, mergedLabelMap)}>{content}</Tooltip>
+            <Tooltip key={`${animKey}-${record.id}`} title={formatTooltipContent(record, mergedLabelMap)}>{content}</Tooltip>
           );
         })}
-      </AnimatePresence>
     </div>
   );
 };
