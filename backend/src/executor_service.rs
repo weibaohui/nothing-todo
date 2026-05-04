@@ -191,6 +191,7 @@ pub async fn run_todo_execution(
         let logs_for_result = logs.clone();
         let flush_pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let unflushed_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let flush_handles: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>> = Arc::new(Mutex::new(Vec::new()));
         const FLUSH_COUNT_THRESHOLD: u64 = 5;
 
         let executor_for_parse = executor_spawn.clone();
@@ -205,6 +206,7 @@ pub async fn run_todo_execution(
             let rid = record_id;
             let flush_pending_for_stdout = flush_pending.clone();
             let unflushed_for_stdout = unflushed_count.clone();
+            let flush_handles_stdout = flush_handles.clone();
 
             Some(tokio::spawn(async move {
                 let mut reader = BufReader::new(stdout_reader).lines();
@@ -263,12 +265,13 @@ pub async fn run_todo_execution(
                             let db_flush = db_for_todo.clone();
                             let rid_flush = rid;
                             let fp = flush_pending_for_stdout.clone();
-                            tokio::spawn(async move {
+                            let h = tokio::spawn(async move {
                                 if let Ok(json) = serde_json::to_string(&snapshot) {
                                     let _ = db_flush.update_execution_record_logs(rid_flush, &json).await;
                                 }
                                 fp.store(false, std::sync::atomic::Ordering::Relaxed);
                             });
+                            flush_handles_stdout.lock().await.push(h);
                         }
                         send_event(&tx_clone, ExecEvent::Output { task_id: tid.clone(), entry: parsed });
                     }
@@ -287,6 +290,7 @@ pub async fn run_todo_execution(
         let rid_for_stderr = record_id;
         let flush_for_stderr = flush_pending.clone();
         let unflushed_for_stderr = unflushed_count.clone();
+        let flush_handles_stderr = flush_handles.clone();
         let stderr_task = if let Some(stderr_reader) = stderr_handle {
             Some(tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr_reader).lines();
@@ -304,12 +308,13 @@ pub async fn run_todo_execution(
                         let db_flush = db_for_stderr.clone();
                         let rid_flush = rid_for_stderr;
                         let fp = flush_for_stderr.clone();
-                        tokio::spawn(async move {
+                        let h = tokio::spawn(async move {
                             if let Ok(json) = serde_json::to_string(&snapshot) {
                                 let _ = db_flush.update_execution_record_logs(rid_flush, &json).await;
                             }
                             fp.store(false, std::sync::atomic::Ordering::Relaxed);
                         });
+                        flush_handles_stderr.lock().await.push(h);
                     }
                     send_event(&stderr_tx, ExecEvent::Output { task_id: stderr_tid.clone(), entry });
                 }
@@ -323,22 +328,29 @@ pub async fn run_todo_execution(
         let timer_logs = logs.clone();
         let timer_fp = flush_pending.clone();
         let timer_uc = unflushed_count.clone();
+        let timer_handles = flush_handles.clone();
         let flush_timer = tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3));
             loop {
                 interval.tick().await;
+                if timer_fp.load(std::sync::atomic::Ordering::Relaxed) {
+                    continue;
+                }
                 let n = timer_uc.swap(0, std::sync::atomic::Ordering::Relaxed);
                 if n > 0 && !timer_fp.swap(true, std::sync::atomic::Ordering::Relaxed) {
                     let snapshot = timer_logs.lock().await.clone();
                     let db_f = timer_db.clone();
                     let rid_f = record_id;
                     let fp = timer_fp.clone();
-                    tokio::spawn(async move {
+                    let h = tokio::spawn(async move {
                         if let Ok(json) = serde_json::to_string(&snapshot) {
                             let _ = db_f.update_execution_record_logs(rid_f, &json).await;
                         }
                         fp.store(false, std::sync::atomic::Ordering::Relaxed);
                     });
+                    timer_handles.lock().await.push(h);
+                } else if n > 0 {
+                    timer_uc.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
                 }
             }
         });
@@ -358,6 +370,11 @@ pub async fn run_todo_execution(
                 }
                 if let Some(handle) = stderr_task {
                     let _ = handle.await;
+                }
+
+                // 等待所有进行中的 flush 任务完成，防止旧快照覆盖
+                for h in flush_handles.lock().await.drain(..) {
+                    let _ = h.await;
                 }
 
                 let _ = db_clone.update_todo_status(todo_id, crate::models::TodoStatus::Cancelled).await;
@@ -412,6 +429,11 @@ pub async fn run_todo_execution(
 
         let all_logs_snapshot = logs_for_result.lock().await.clone();
         let result_str = executor_spawn.get_final_result(&all_logs_snapshot).unwrap_or_default();
+
+        // 等待所有进行中的 flush 任务完成，防止旧快照覆盖最终写入
+        for h in flush_handles.lock().await.drain(..) {
+            let _ = h.await;
+        }
 
         // Extract execution stats from logs
         // tool_calls: tool_use (claudecode), tool_call (kimi), tool (atomcode, opencode)
