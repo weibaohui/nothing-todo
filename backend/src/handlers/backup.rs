@@ -329,28 +329,23 @@ pub fn start_auto_backup(cron_expr: &str) -> Result<(), String> {
     let schedule = cron::Schedule::from_str(cron_expr)
         .map_err(|e| format!("Invalid cron: {}", e))?;
 
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        rt.block_on(async move {
-            loop {
-                let next = schedule.upcoming(chrono::Utc).next();
-                let delay = match next {
-                    Some(dt) => {
-                        let now = chrono::Utc::now();
-                        (dt - now).to_std().unwrap_or(std::time::Duration::from_secs(60))
-                    }
-                    None => std::time::Duration::from_secs(3600),
-                };
-                tokio::time::sleep(delay).await;
-                match perform_database_backup() {
-                    Ok(msg) => tracing::info!("{}", msg),
-                    Err(e) => tracing::error!("Auto backup failed: {}", e),
+    tokio::spawn(async move {
+        loop {
+            let next = schedule.upcoming(chrono::Utc).next();
+            let delay = match next {
+                Some(dt) => {
+                    let now = chrono::Utc::now();
+                    (dt - now).to_std().unwrap_or(std::time::Duration::from_secs(60))
                 }
+                None => std::time::Duration::from_secs(3600),
+            };
+            tokio::time::sleep(delay).await;
+            match tokio::task::spawn_blocking(perform_database_backup).await {
+                Ok(Ok(msg)) => tracing::info!("{}", msg),
+                Ok(Err(e)) => tracing::error!("Auto backup failed: {}", e),
+                Err(e) => tracing::error!("Auto backup task panicked: {}", e),
             }
-        });
+        }
     });
 
     Ok(())
