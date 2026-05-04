@@ -474,7 +474,6 @@ export function Dashboard({ onBack }: DashboardProps) {
   const modelData = stats?.model_distribution ?? [];
   const modelCountMax = Math.max(...modelData.map((m) => m.count), 1);
   const modelTokenMax = Math.max(...modelData.map((m) => m.total_input_tokens + m.total_output_tokens), 1);
-  const modelCostMax = Math.max(...modelData.map((m) => m.total_cost_usd), 0.01);
 
   const MODEL_COLORS = ['#8b5cf6', '#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#0891b2', '#ec4899', '#6366f1'];
 
@@ -517,59 +516,28 @@ export function Dashboard({ onBack }: DashboardProps) {
     key: 'model-token-chart',
     render: () => (
       <Card
-        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ThunderboltOutlined /><span>模型 Token 消耗</span></div>}
+        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ThunderboltOutlined /><span>模型推理统计</span></div>}
         className="dashboard-card" style={{ borderRadius: 12 }}
         bodyStyle={{ padding: '8px 16px' }}
       >
         {modelData.length > 0 ? (
           modelData.map((m, i) => {
-            const total = m.total_input_tokens + m.total_output_tokens;
+            const outputRate = m.total_input_tokens > 0 ? (m.total_output_tokens / m.total_input_tokens) * 100 : 0;
+            const costDisplay = m.total_cost_usd < 10000 ? `$${m.total_cost_usd.toFixed(2)}` : `$${(m.total_cost_usd / 10000).toFixed(2)}万`;
             return (
               <CompactRow
                 key={m.model}
                 name={m.model}
-                value={<span style={{ fontSize: 18, fontWeight: 700, color: MODEL_COLORS[i % MODEL_COLORS.length] }}>{formatTokens(total)}</span>}
+                value={<span style={{ fontSize: 16, fontWeight: 700, color: MODEL_COLORS[i % MODEL_COLORS.length] }}>{(m.total_input_tokens / 10000).toFixed(1)}万</span>}
                 color={MODEL_COLORS[i % MODEL_COLORS.length]}
-                barPct={(total / modelTokenMax) * 100}
+                barPct={(m.total_input_tokens / modelTokenMax) * 100}
                 sub={
                   <span>
-                    输入 <strong style={{ color: '#3b82f6' }}>{formatTokens(m.total_input_tokens)}</strong>
-                    <span style={{ margin: '0 6px' }}>·</span>
-                    输出 <strong style={{ color: '#22c55e' }}>{formatTokens(m.total_output_tokens)}</strong>
-                  </span>
-                }
-              />
-            );
-          })
-        ) : (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无模型数据" />
-        )}
-      </Card>
-    ),
-  });
-
-  panels.push({
-    key: 'model-cost-chart',
-    render: () => (
-      <Card
-        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><DollarOutlined /><span>模型花费</span></div>}
-        className="dashboard-card" style={{ borderRadius: 12 }}
-        bodyStyle={{ padding: '8px 16px' }}
-      >
-        {modelData.length > 0 ? (
-          modelData.map((m) => {
-            const costInt = Math.round(m.total_cost_usd);
-            const avgCost = m.execution_count > 0 ? Math.round((m.total_cost_usd / m.execution_count) * 100) / 100 : 0;
-            return (
-              <CompactRow
-                key={m.model}
-                name={m.model}
-                value={<span style={{ fontSize: 18, fontWeight: 700, color: '#f59e0b' }}>${costInt}</span>}
-                color="#f59e0b"
-                barPct={(m.total_cost_usd / modelCostMax) * 100}
-                sub={
-                  <span>
-                    均次 <strong style={{ color: 'var(--color-text)' }}>${avgCost}</strong>
+                    推理输入 <strong style={{ color: '#3b82f6' }}>{(m.total_input_tokens / 10000).toFixed(1)}万</strong>
+                    <span style={{ margin: '0 4px' }}>·</span>
+                    成本 <strong style={{ color: '#f59e0b' }}>{costDisplay}</strong>
+                    <span style={{ margin: '0 4px' }}>·</span>
+                    输出率 <strong style={{ color: '#22c55e' }}>{outputRate.toFixed(1)}%</strong>
                   </span>
                 }
               />
@@ -681,6 +649,60 @@ export function Dashboard({ onBack }: DashboardProps) {
           ) : (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无 Token 趋势数据" />
           )}
+        </Card>
+      );
+    },
+  });
+
+  panels.push({
+    key: 'inference-stats',
+    render: () => {
+      const totalInput = stats?.total_input_tokens ?? 0;
+      const totalOutput = stats?.total_output_tokens ?? 0;
+      const totalCost = stats?.total_cost_usd ?? 0;
+      const outputRate = totalInput > 0 ? (totalOutput / totalInput) * 100 : 0;
+
+      return (
+        <Card
+          title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ThunderboltOutlined /><span>推理统计</span></div>}
+          className="dashboard-card" style={{ borderRadius: 12 }}
+          bodyStyle={{ padding: '16px 20px' }}
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+            <div style={{ padding: '12px 14px', borderRadius: 10, background: '#3b82f610', textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>推理输入</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#3b82f6' }}>
+                {loading ? <Spin size="small" /> : (
+                  <>
+                    {(totalInput / 10000).toFixed(2)}
+                    <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 2 }}>万</span>
+                  </>
+                )}
+              </div>
+            </div>
+            <div style={{ padding: '12px 14px', borderRadius: 10, background: '#f59e0b10', textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>成本</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#f59e0b' }}>
+                {loading ? <Spin size="small" /> : (
+                  <>
+                    ${totalCost < 10000 ? totalCost.toFixed(2) : (totalCost / 10000).toFixed(2)}
+                    {totalCost >= 10000 && <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 2 }}>万</span>}
+                  </>
+                )}
+              </div>
+            </div>
+            <div style={{ padding: '12px 14px', borderRadius: 10, background: '#22c55e10', textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>输出率</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#22c55e' }}>
+                {loading ? <Spin size="small" /> : (
+                  <>
+                    {outputRate.toFixed(1)}
+                    <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 2 }}>%</span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
         </Card>
       );
     },
