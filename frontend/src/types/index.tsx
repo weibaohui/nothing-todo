@@ -72,6 +72,7 @@ export interface ExecutionRecord {
   session_id?: string | null;
   todo_progress?: string | null;
   execution_stats?: ExecutionStats | null;
+  resume_message?: string | null;
 }
 
 export interface ExecutionUsage {
