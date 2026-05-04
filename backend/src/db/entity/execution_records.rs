@@ -24,6 +24,7 @@ pub struct Model {
     pub session_id: Option<String>,
     pub todo_progress: Option<String>,
     pub execution_stats: Option<String>,
+    pub resume_message: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

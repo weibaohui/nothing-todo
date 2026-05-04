@@ -40,6 +40,7 @@ pub async fn run_todo_execution(
     trigger_type: &str,
     task_manager: Arc<TaskManager>,
     resume_session_id: Option<String>,
+    resume_message: Option<String>,
 ) -> ExecutionResult {
     let task_id = Uuid::new_v4().to_string();
     let mut cancel_rx = task_manager.register(task_id.clone()).await;
@@ -93,7 +94,7 @@ pub async fn run_todo_execution(
 
     // Create execution record
     let command = format!("{} {}", executable_path, command_args.join(" "));
-    let record_id = match db.create_execution_record(todo_id, &command, &executor_str, trigger_type, &task_id, Some(session_id_for_executor)).await {
+    let record_id = match db.create_execution_record(todo_id, &command, &executor_str, trigger_type, &task_id, Some(session_id_for_executor), resume_message.as_deref()).await {
         Ok(id) => id,
         Err(e) => {
             tracing::error!("Failed to create execution record: {}", e);

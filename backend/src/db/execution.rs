@@ -30,6 +30,7 @@ impl From<execution_records::Model> for ExecutionRecord {
             session_id: m.session_id,
             todo_progress: m.todo_progress,
             execution_stats,
+            resume_message: m.resume_message,
         }
     }
 }
@@ -92,6 +93,7 @@ impl Database {
         trigger_type: &str,
         task_id: &str,
         session_id: Option<&str>,
+        resume_message: Option<&str>,
     ) -> Result<i64, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = execution_records::ActiveModel {
@@ -103,6 +105,7 @@ impl Database {
             started_at: ActiveValue::Set(Some(now)),
             task_id: ActiveValue::Set(Some(task_id.to_string())),
             session_id: ActiveValue::Set(session_id.map(|s| s.to_string())),
+            resume_message: ActiveValue::Set(resume_message.map(|s| s.to_string())),
             ..Default::default()
         };
         let inserted = am.insert(&self.conn).await?;
@@ -179,6 +182,19 @@ impl Database {
             .one(&self.conn)
             .await
             .unwrap_or_default()
+    }
+
+    /// 根据 session_id 获取所有执行记录（按 started_at 排序）
+    pub async fn get_execution_records_by_session(&self, session_id: &str) -> Vec<ExecutionRecord> {
+        execution_records::Entity::find()
+            .filter(execution_records::Column::SessionId.eq(session_id))
+            .order_by_asc(execution_records::Column::StartedAt)
+            .all(&self.conn)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(Into::into)
+            .collect()
     }
 
     /// 根据 pid 停止执行记录

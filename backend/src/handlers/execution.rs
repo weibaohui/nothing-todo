@@ -41,6 +41,17 @@ pub async fn get_execution_record(
     Ok(ApiResponse::ok(record))
 }
 
+pub async fn get_execution_records_by_session(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> Result<ApiResponse<Vec<crate::models::ExecutionRecord>>, AppError> {
+    let records = state
+        .db
+        .get_execution_records_by_session(&session_id)
+        .await;
+    Ok(ApiResponse::ok(records))
+}
+
 pub async fn execute_handler(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<ExecuteRequest>,
@@ -66,6 +77,7 @@ pub async fn execute_handler(
         req.executor,
         "manual",
         state.task_manager.clone(),
+        None,
         None,
     )
     .await;
@@ -157,6 +169,12 @@ pub async fn resume_execution_handler(
         .map(|m| m.to_string())
         .unwrap_or_else(|| todo.prompt.clone());
 
+    let resume_message = req.message
+        .as_ref()
+        .map(|m| m.trim())
+        .filter(|m| !m.is_empty())
+        .map(|m| m.to_string());
+
     let resume_session_id = record.session_id
         .or(record.task_id)
         .ok_or_else(|| AppError::BadRequest("No session_id found for this execution record".to_string()))?;
@@ -171,6 +189,7 @@ pub async fn resume_execution_handler(
         "manual",
         state.task_manager.clone(),
         Some(resume_session_id),
+        resume_message,
     )
     .await;
 

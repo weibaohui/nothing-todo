@@ -130,6 +130,8 @@ pub struct ExecutionRecord {
     pub todo_progress: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution_stats: Option<ExecutionStats>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -100,6 +100,10 @@ export async function getExecutionRecord(recordId: number): Promise<ExecutionRec
   return unwrap(await api.get<ApiResp<ExecutionRecord>>(`/xyz/execution-records/${recordId}`));
 }
 
+export async function getExecutionRecordsBySession(sessionId: string): Promise<ExecutionRecord[]> {
+  return unwrap(await api.get<ApiResp<ExecutionRecord[]>>(`/xyz/execution-records/session/${encodeURIComponent(sessionId)}`));
+}
+
 export async function executeTodo(todoId: number, message: string, executor?: string): Promise<{ task_id: string }> {
   return unwrap(await api.post<ApiResp<{ task_id: string }>>('/xyz/execute', { todo_id: todoId, message, executor }));
 }
