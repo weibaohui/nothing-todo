@@ -132,7 +132,7 @@ function AppContent() {
             }}
           >
             {state.selectedTodoId ? (
-              <TodoDetail />
+              <TodoDetail onBack={isMobile ? handleBackToList : undefined} />
             ) : activeView === 'settings' ? (
               <SettingsPage onBack={isMobile ? handleBackToList : undefined} />
             ) : (
