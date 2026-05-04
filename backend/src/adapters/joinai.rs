@@ -69,11 +69,8 @@ impl CodeExecutor for JoinaiExecutor {
         let event: AgentEvent = serde_json::from_str(line).ok()?;
 
         let timestamp = event.timestamp
-            .map(|ts| {
-                let secs = ts / 1000;
-                let millis = ts % 1000;
-                format!("{}.{:03}", secs, millis)
-            })
+            .and_then(|ts| chrono::DateTime::from_timestamp_millis(ts as i64))
+            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
             .unwrap_or_else(utc_timestamp);
 
         match event.event_type.as_str() {
