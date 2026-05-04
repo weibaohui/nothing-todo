@@ -189,6 +189,7 @@ pub async fn run_todo_execution(
         let logs = Arc::new(Mutex::new(Vec::<ParsedLogEntry>::new()));
         let logs_for_db = logs.clone();
         let logs_for_result = logs.clone();
+        let flush_pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         let executor_for_parse = executor_spawn.clone();
 
@@ -200,6 +201,7 @@ pub async fn run_todo_execution(
             let logs_for_db = logs_for_db.clone();
             let db_for_todo = db_clone.clone();
             let rid = record_id;
+            let flush_pending_for_stdout = flush_pending.clone();
 
             Some(tokio::spawn(async move {
                 let mut reader = BufReader::new(stdout_reader).lines();
@@ -251,6 +253,18 @@ pub async fn run_todo_execution(
                         }
 
                         logs_for_db.lock().await.push(parsed.clone());
+                        if !flush_pending_for_stdout.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                            let snapshot = logs_for_db.lock().await.clone();
+                            let db_flush = db_for_todo.clone();
+                            let rid_flush = rid;
+                            let fp = flush_pending_for_stdout.clone();
+                            tokio::spawn(async move {
+                                if let Ok(json) = serde_json::to_string(&snapshot) {
+                                    let _ = db_flush.update_execution_record_logs(rid_flush, &json).await;
+                                }
+                                fp.store(false, std::sync::atomic::Ordering::Relaxed);
+                            });
+                        }
                         send_event(&tx_clone, ExecEvent::Output { task_id: tid.clone(), entry: parsed });
                     }
                 }
@@ -264,6 +278,9 @@ pub async fn run_todo_execution(
         let stderr_tid = task_id.clone();
         let logs_for_stderr = logs.clone();
         let executor_for_stderr = executor_spawn.clone();
+        let db_for_stderr = db_clone.clone();
+        let rid_for_stderr = record_id;
+        let flush_for_stderr = flush_pending.clone();
         let stderr_task = if let Some(stderr_reader) = stderr_handle {
             Some(tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr_reader).lines();
@@ -274,6 +291,18 @@ pub async fn run_todo_execution(
                         ParsedLogEntry::stderr(line.clone())
                     };
                     logs_for_stderr.lock().await.push(entry.clone());
+                    if !flush_for_stderr.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                        let snapshot = logs_for_stderr.lock().await.clone();
+                        let db_flush = db_for_stderr.clone();
+                        let rid_flush = rid_for_stderr;
+                        let fp = flush_for_stderr.clone();
+                        tokio::spawn(async move {
+                            if let Ok(json) = serde_json::to_string(&snapshot) {
+                                let _ = db_flush.update_execution_record_logs(rid_flush, &json).await;
+                            }
+                            fp.store(false, std::sync::atomic::Ordering::Relaxed);
+                        });
+                    }
                     send_event(&stderr_tx, ExecEvent::Output { task_id: stderr_tid.clone(), entry });
                 }
             }))

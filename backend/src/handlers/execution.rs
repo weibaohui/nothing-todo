@@ -113,8 +113,8 @@ pub async fn stop_execution_handler(
         if !cancelled {
             tracing::warn!("Task {} was not found in task manager (may have already finished)", task_id);
         }
-        // 更新数据库状态为失败
-        let logs_json = serde_json::to_string::<Vec<crate::models::ParsedLogEntry>>(&vec![]).unwrap_or_default();
+        // 更新数据库状态为失败，保留定时刷新已写入的日志
+        let logs_json = record.logs.clone();
         let _ = state.db.update_execution_record(
             req.record_id,
             crate::models::ExecutionStatus::Failed.as_str(),
