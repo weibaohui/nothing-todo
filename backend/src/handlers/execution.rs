@@ -67,6 +67,7 @@ pub async fn execute_handler(
         "manual",
         state.task_manager.clone(),
         None,
+        None,
     )
     .await;
 
@@ -157,6 +158,12 @@ pub async fn resume_execution_handler(
         .map(|m| m.to_string())
         .unwrap_or_else(|| todo.prompt.clone());
 
+    let resume_message = req.message
+        .as_ref()
+        .map(|m| m.trim())
+        .filter(|m| !m.is_empty())
+        .map(|m| m.to_string());
+
     let resume_session_id = record.session_id
         .or(record.task_id)
         .ok_or_else(|| AppError::BadRequest("No session_id found for this execution record".to_string()))?;
@@ -171,6 +178,7 @@ pub async fn resume_execution_handler(
         "manual",
         state.task_manager.clone(),
         Some(resume_session_id),
+        resume_message,
     )
     .await;
 

@@ -166,6 +166,12 @@ impl Database {
         )
         .await.ok(); // 忽略错误，因为字段可能已存在
 
+        // 添加 resume_message 字段的迁移（向后兼容）
+        self.exec(
+            "ALTER TABLE execution_records ADD COLUMN resume_message TEXT"
+        )
+        .await.ok(); // 忽略错误，因为字段可能已存在
+
         // Trigger: fill created_at with UTC time on INSERT if not set
         self.exec(
             "CREATE TRIGGER IF NOT EXISTS set_todos_created_at_utc AFTER INSERT ON todos
@@ -300,7 +306,7 @@ mod tests {
         let todo_id = db.create_todo("Test", "Desc").await.unwrap();
         let before = truncate_seconds(Utc::now());
         let record_id = db
-            .create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id", None)
+            .create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id", None, None)
             .await
             .unwrap();
         let after = truncate_seconds(Utc::now());
@@ -319,7 +325,7 @@ mod tests {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Desc").await.unwrap();
         let record_id = db
-            .create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id", None)
+            .create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id", None, None)
             .await
             .unwrap();
 
@@ -600,7 +606,7 @@ mod tests {
     async fn test_create_execution_record() {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
-        let record_id = db.create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id", None).await.unwrap();
+        let record_id = db.create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id", None, None).await.unwrap();
         let (records, total) = db.get_execution_records(todo_id, 100, 0).await;
         assert_eq!(total, 1);
         let record = records.iter().find(|r| r.id == record_id).unwrap();
@@ -616,7 +622,7 @@ mod tests {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
         for i in 0..5 {
-            db.create_execution_record(todo_id, &format!("cmd{}", i), "claudecode", "manual", "test-task-id", None).await.unwrap();
+            db.create_execution_record(todo_id, &format!("cmd{}", i), "claudecode", "manual", "test-task-id", None, None).await.unwrap();
         }
         let (records, total) = db.get_execution_records(todo_id, 2, 0).await;
         assert_eq!(total, 5);
@@ -628,7 +634,7 @@ mod tests {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
         for i in 0..3 {
-            db.create_execution_record(todo_id, &format!("cmd{}", i), "claudecode", "manual", "test-task-id", None).await.unwrap();
+            db.create_execution_record(todo_id, &format!("cmd{}", i), "claudecode", "manual", "test-task-id", None, None).await.unwrap();
         }
         let (records, total) = db.get_execution_records(todo_id, 10, 2).await;
         assert_eq!(total, 3);
@@ -639,7 +645,7 @@ mod tests {
     async fn test_update_execution_record() {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
-        let record_id = db.create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id", None).await.unwrap();
+        let record_id = db.create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id", None, None).await.unwrap();
         let usage = crate::models::ExecutionUsage {
             input_tokens: 100,
             output_tokens: 50,
@@ -678,11 +684,11 @@ mod tests {
     async fn test_get_execution_summary_counts() {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
-        let r1 = db.create_execution_record(todo_id, "cmd1", "claudecode", "manual", "test-task-id", None).await.unwrap();
+        let r1 = db.create_execution_record(todo_id, "cmd1", "claudecode", "manual", "test-task-id", None, None).await.unwrap();
         db.update_execution_record(r1, "success", "[]", "", None, None).await.unwrap();
-        let r2 = db.create_execution_record(todo_id, "cmd2", "claudecode", "manual", "test-task-id", None).await.unwrap();
+        let r2 = db.create_execution_record(todo_id, "cmd2", "claudecode", "manual", "test-task-id", None, None).await.unwrap();
         db.update_execution_record(r2, "failed", "[]", "", None, None).await.unwrap();
-        let _r3 = db.create_execution_record(todo_id, "cmd3", "claudecode", "manual", "test-task-id", None).await.unwrap();
+        let _r3 = db.create_execution_record(todo_id, "cmd3", "claudecode", "manual", "test-task-id", None, None).await.unwrap();
         // r3 stays "running"
         let summary = db.get_execution_summary(todo_id).await;
         assert_eq!(summary.total_executions, 3);
@@ -695,7 +701,7 @@ mod tests {
     async fn test_get_execution_summary_tokens_and_cost() {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
-        let r1 = db.create_execution_record(todo_id, "cmd1", "claudecode", "manual", "test-task-id", None).await.unwrap();
+        let r1 = db.create_execution_record(todo_id, "cmd1", "claudecode", "manual", "test-task-id", None, None).await.unwrap();
         let usage1 = crate::models::ExecutionUsage {
             input_tokens: 100,
             output_tokens: 50,
@@ -705,7 +711,7 @@ mod tests {
             duration_ms: Some(1000),
         };
         db.update_execution_record(r1, "success", "[]", "", Some(&usage1), None).await.unwrap();
-        let r2 = db.create_execution_record(todo_id, "cmd2", "claudecode", "manual", "test-task-id", None).await.unwrap();
+        let r2 = db.create_execution_record(todo_id, "cmd2", "claudecode", "manual", "test-task-id", None, None).await.unwrap();
         let usage2 = crate::models::ExecutionUsage {
             input_tokens: 200,
             output_tokens: 100,

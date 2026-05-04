@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useApp } from '../hooks/useApp';
-import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination, Segmented, Modal, Input, Switch } from 'antd';
-import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined, DownOutlined, UpOutlined, UnorderedListOutlined, MessageOutlined, FileTextOutlined, SwapOutlined } from '@ant-design/icons';
+import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination, Segmented, Modal, Input } from 'antd';
+import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined, DownOutlined, UpOutlined, UnorderedListOutlined, MessageOutlined, FileTextOutlined, LinkOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import { PieChart } from './PieChart';
 import { TodoSettingsDrawer } from './TodoSettingsDrawer';
@@ -458,9 +458,8 @@ export function TodoDetail() {
   const [resumeMessage, setResumeMessage] = useState('');
   const [resumeLoading, setResumeLoading] = useState(false);
 
-  // Chain mode: group execution records by session_id
-  const [chainMode, setChainMode] = useState(false);
-  const sessionGroups = useMemo(() => chainMode ? groupBySession(records) : [], [chainMode, records]);
+  // Always group execution records by session_id
+  const sessionGroups = useMemo(() => groupBySession(records), [records]);
 
   const handleOpenResume = (record: ExecutionRecord) => {
     setResumeRecordId(record.id);
@@ -704,11 +703,6 @@ export function TodoDetail() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, ...(isWide ? { flexShrink: 0 } : {}) }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>执行历史</h4>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <SwapOutlined style={{ fontSize: 12 }} />
-              <span>合并</span>
-              <Switch size="small" checked={chainMode} onChange={setChainMode} />
-            </span>
             <Segmented
               size="small"
               value={viewMode}
@@ -736,148 +730,99 @@ export function TodoDetail() {
             {/* Left: History List */}
             <div style={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               <div className="history-list-column">
-                {chainMode ? (
-                  // Grouped by session_id
-                  sessionGroups.map(group => {
-                    const isSingle = group.records.length === 1 || !group.records[0].session_id;
-                    const groupSelected = group.records.some(r => r.id === selectedHistoryRecordId);
-                    return (
-                      <div key={group.sessionId} style={{ marginBottom: 4 }}>
-                        {isSingle ? (
-                          // Single record — render normally
-                          group.records.map(record => {
-                            const isSelected = selectedHistoryRecordId === record.id;
-                            return (
-                              <div
-                                key={record.id}
-                                className={`history-item-compact${isSelected ? ' selected' : ''}${record.status === 'failed' ? ' failed' : record.status === 'running' ? ' running' : ''}`}
-                                onClick={() => setSelectedHistoryRecordId(record.id)}
-                              >
-                                <CompactHistoryItem record={record} onOpenResume={handleOpenResume} onExport={handleExportMarkdown} />
-                              </div>
-                            );
-                          })
-                        ) : (
-                          // Chain group — header + timeline items
-                          <div style={{
-                            border: groupSelected ? '1px solid var(--color-primary)' : '1px solid var(--color-border-light)',
-                            borderRadius: 'var(--radius-sm)',
-                            overflow: 'hidden',
-                            background: groupSelected ? 'var(--color-primary-bg)' : 'transparent',
-                          }}>
-                            {/* Group header */}
-                            <div style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              padding: '6px 10px',
-                              background: 'var(--color-bg-elevated)',
+                {sessionGroups.map(group => {
+                  const isSingle = group.records.length === 1 || !group.records[0].session_id;
+                  if (isSingle) {
+                    return group.records.map(record => {
+                      const isSelected = selectedHistoryRecordId === record.id;
+                      return (
+                        <div
+                          key={record.id}
+                          className={`history-item-compact${isSelected ? ' selected' : ''}${record.status === 'failed' ? ' failed' : record.status === 'running' ? ' running' : ''}`}
+                          onClick={() => setSelectedHistoryRecordId(record.id)}
+                        >
+                          <CompactHistoryItem record={record} onOpenResume={handleOpenResume} onExport={handleExportMarkdown} />
+                        </div>
+                      );
+                    });
+                  }
+                  // Chain group: main record + indented continuations
+                  const mainRecord = group.records[0];
+                  const continuations = group.records.slice(1);
+                  const mainSelected = selectedHistoryRecordId === mainRecord.id;
+                  return (
+                    <div key={group.sessionId} style={{ marginBottom: 6 }}>
+                      {/* Main record */}
+                      <div
+                        className={`history-item-compact${mainSelected ? ' selected' : ''}`}
+                        onClick={() => setSelectedHistoryRecordId(mainRecord.id)}
+                      >
+                        <CompactHistoryItem record={mainRecord} onOpenResume={handleOpenResume} onExport={handleExportMarkdown} />
+                      </div>
+                      {/* Indented continuations */}
+                      {continuations.map((record, idx) => {
+                        const isSelected = selectedHistoryRecordId === record.id;
+                        const isLast = idx === continuations.length - 1;
+                        return (
+                          <div
+                            key={record.id}
+                            onClick={() => setSelectedHistoryRecordId(record.id)}
+                            style={{
+                              marginLeft: 12,
+                              padding: '6px 8px',
+                              borderLeft: '2px solid var(--color-primary)',
                               borderBottom: '1px solid var(--color-border-light)',
-                              fontSize: 10,
-                              color: 'var(--color-text-tertiary)',
-                            }}>
-                              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <MessageOutlined style={{ fontSize: 10, color: 'var(--color-primary)' }} />
-                                对话链 · {group.records.length}轮
+                              cursor: 'pointer',
+                              background: isSelected ? 'var(--color-primary-bg)' : 'var(--color-bg-elevated)',
+                              transition: 'background 0.15s',
+                              marginBottom: 1,
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--color-primary)', fontWeight: 500 }}>
+                                <LinkOutlined style={{ fontSize: 10 }} />
+                                {record.resume_message ? (
+                                  <span style={{ color: 'var(--color-text-secondary)', fontWeight: 400 }}>{record.resume_message.length > 30 ? record.resume_message.substring(0, 30) + '...' : record.resume_message}</span>
+                                ) : (
+                                  <span>继续对话</span>
+                                )}
                               </span>
-                              <span>
-                                累计 {(group.records.reduce((s, r) => s + (r.usage?.duration_ms || 0), 0) / 1000).toFixed(1)}s
+                              <span style={{
+                                fontSize: 9, padding: '1px 6px', borderRadius: 8,
+                                backgroundColor: record.status === 'success' ? 'var(--color-success)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-info)',
+                                color: '#fff', fontWeight: 600,
+                              }}>
+                                {record.status === 'success' ? '✓' : record.status === 'failed' ? '✗' : '...'}
                               </span>
                             </div>
-                            {/* Timeline items */}
-                            {group.records.map((record, idx) => {
-                              const isSelected = selectedHistoryRecordId === record.id;
-                              const isFirst = idx === 0;
-                              const isLast = idx === group.records.length - 1;
-                              return (
-                                <div
-                                  key={record.id}
-                                  onClick={() => setSelectedHistoryRecordId(record.id)}
-                                  style={{
-                                    display: 'flex',
-                                    cursor: 'pointer',
-                                    background: isSelected ? 'var(--color-primary-bg)' : 'transparent',
-                                    transition: 'background 0.2s',
-                                  }}
-                                >
-                                  {/* Timeline rail */}
-                                  <div style={{
-                                    width: 24,
-                                    flexShrink: 0,
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    alignItems: 'center',
-                                    paddingTop: 8,
-                                  }}>
-                                    <div style={{
-                                      width: 8,
-                                      height: 8,
-                                      borderRadius: '50%',
-                                      border: '2px solid',
-                                      borderColor: record.status === 'running' ? 'var(--color-info)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-success)',
-                                      background: isFirst ? (record.status === 'running' ? 'var(--color-info)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-success)') : 'var(--color-bg-elevated)',
-                                      flexShrink: 0,
-                                    }} />
-                                    {!isLast && (
-                                      <div style={{ width: 1.5, flex: 1, background: 'var(--color-border-light)', minHeight: 20 }} />
-                                    )}
-                                  </div>
-                                  {/* Content */}
-                                  <div style={{ flex: 1, padding: '6px 8px 6px 0', minWidth: 0 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                                      <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>
-                                        {isFirst ? '发起' : `第${idx + 1}轮`} {formatLocalDateTime(record.started_at).split(' ')[1] || formatLocalDateTime(record.started_at)}
-                                      </span>
-                                      <span style={{
-                                        fontSize: 9,
-                                        padding: '1px 6px',
-                                        borderRadius: 8,
-                                        backgroundColor: record.status === 'success' ? 'var(--color-success)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-info)',
-                                        color: '#fff',
-                                        fontWeight: 600,
-                                      }}>
-                                        {record.status === 'success' ? '✓' : record.status === 'failed' ? '✗' : '...'}
-                                      </span>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-                                      {record.executor && <ExecutorBadge executor={record.executor} />}
-                                      {record.usage?.duration_ms && (
-                                        <span style={{ fontSize: 9, color: 'var(--color-success)', fontWeight: 600 }}>
-                                          {(record.usage.duration_ms / 1000).toFixed(1)}s
-                                        </span>
-                                      )}
-                                    </div>
-                                    {isLast && record.status !== 'running' && supportsResume(record) && (
-                                      <MessageOutlined
-                                        style={{ fontSize: 11, color: 'var(--color-primary)', cursor: 'pointer', marginTop: 4 }}
-                                        title="继续对话"
-                                        onClick={(e) => { e.stopPropagation(); handleOpenResume(record); }}
-                                      />
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
+                            <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)' }}>
+                                {formatLocalDateTime(record.started_at)}
+                              </span>
+                              {record.usage?.duration_ms && (
+                                <span style={{ fontSize: 9, color: 'var(--color-success)', fontWeight: 600 }}>
+                                  {(record.usage.duration_ms / 1000).toFixed(1)}s
+                                </span>
+                              )}
+                              {record.execution_stats && (
+                                <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)' }}>
+                                  🔧{record.execution_stats.tool_calls}
+                                </span>
+                              )}
+                            </div>
+                            {isLast && record.status !== 'running' && supportsResume(record) && (
+                              <MessageOutlined
+                                style={{ fontSize: 11, color: 'var(--color-primary)', cursor: 'pointer', marginTop: 3 }}
+                                title="继续对话"
+                                onClick={(e) => { e.stopPropagation(); handleOpenResume(record); }}
+                              />
+                            )}
                           </div>
-                        )}
-                      </div>
-                    );
-                  })
-                ) : (
-                  // Original flat list
-                  records.map(record => {
-                    const isSelected = selectedHistoryRecordId === record.id;
-                    return (
-                      <div
-                        key={record.id}
-                        className={`history-item-compact${isSelected ? ' selected' : ''}${record.status === 'failed' ? ' failed' : record.status === 'running' ? ' running' : ''}`}
-                        onClick={() => setSelectedHistoryRecordId(record.id)}
-                      >
-                        <CompactHistoryItem record={record} onOpenResume={handleOpenResume} onExport={handleExportMarkdown} />
-                      </div>
-                    );
-                  })
-                )}
+                        );
+                      })}
+                    </div>
+                  );
+                })}
               </div>
               {historyTotal > historyLimit && (
                 <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'center', padding: '8px 0 0', borderTop: '1px solid var(--color-border-light)' }}>
@@ -912,45 +857,38 @@ export function TodoDetail() {
                 const displayLogs = liveLogs && liveLogs.length > 0 ? liveLogs : restLogs;
                 return (
                   <>
-                    {/* Chain breadcrumb — only in chain mode */}
-                    {chainMode && (() => {
+                    {/* Chain breadcrumb — when viewing a continuation record */}
+                    {(() => {
                       const group = sessionGroups.find(g => g.records.some(r => r.id === record.id));
                       if (!group || group.records.length <= 1 || !group.records[0].session_id) return null;
                       const idx = group.records.findIndex(r => r.id === record.id);
+                      if (idx <= 0) return null;
                       return (
                         <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          marginBottom: 10,
-                          padding: '4px 8px',
-                          borderRadius: 6,
-                          background: 'var(--color-bg-elevated)',
-                          border: '1px solid var(--color-border-light)',
-                          fontSize: 11,
-                          color: 'var(--color-text-tertiary)',
-                          flexWrap: 'wrap',
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          marginBottom: 10, padding: '4px 10px', borderRadius: 6,
+                          background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border-light)',
+                          fontSize: 11, color: 'var(--color-text-tertiary)',
                         }}>
-                          {group.records.map((r, i) => (
-                            <span key={r.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                              {i > 0 && <span style={{ color: 'var(--color-border)', margin: '0 2px' }}>→</span>}
-                              <span
-                                onClick={() => setSelectedHistoryRecordId(r.id)}
-                                style={{
-                                  cursor: 'pointer',
-                                  padding: '1px 6px',
-                                  borderRadius: 4,
-                                  background: i === idx ? 'var(--color-primary)' : 'transparent',
-                                  color: i === idx ? '#fff' : 'var(--color-text-tertiary)',
-                                  fontWeight: i === idx ? 600 : 400,
-                                  transition: 'all 0.15s',
-                                }}
-                              >
-                                {i === 0 ? '发起' : `第${i + 1}轮`}
+                          <LinkOutlined style={{ color: 'var(--color-primary)', fontSize: 11 }} />
+                          <span>继续自</span>
+                          <span
+                            onClick={() => setSelectedHistoryRecordId(group.records[0].id)}
+                            style={{ cursor: 'pointer', color: 'var(--color-primary)', fontWeight: 500 }}
+                          >
+                            {formatLocalDateTime(group.records[0].started_at)}
+                          </span>
+                          {record.resume_message && (
+                            <>
+                              <span style={{ color: 'var(--color-border)' }}>·</span>
+                              <span style={{ color: 'var(--color-text-secondary)', fontStyle: 'italic' }}>
+                                "{record.resume_message.length > 40 ? record.resume_message.substring(0, 40) + '...' : record.resume_message}"
                               </span>
-                            </span>
-                          ))}
-                          <span style={{ marginLeft: 4, color: 'var(--color-text-quaternary)' }}>共{group.records.length}轮</span>
+                            </>
+                          )}
+                          <span style={{ marginLeft: 'auto', color: 'var(--color-text-quaternary)' }}>
+                            第{idx + 1}轮 / 共{group.records.length}轮
+                          </span>
                         </div>
                       );
                     })()}
@@ -1110,56 +1048,36 @@ export function TodoDetail() {
           </div>
         ) : (
           <>
-            {chainMode ? (
-              // Narrow mode — grouped by session
-              sessionGroups.map(group => {
-                const isSingle = group.records.length === 1 || !group.records[0].session_id;
-                if (isSingle) {
-                  return group.records.map(record => (
-                    <NarrowHistoryCard
-                      key={record.id}
-                      record={record}
-                      viewMode={viewMode}
-                      onOpenResume={handleOpenResume}
-                      onExport={handleExportMarkdown}
-                      onStop={handleStopExecution}
-                      onRefresh={refreshSingleRecord}
-                      getRunningTask={getRunningTaskForRecord}
-                      resolveStats={resolveExecutionStats}
-                      parseLogs={parseRecordLogs}
-                      messageApi={message}
-                    />
-                  ));
-                }
-                return (
-                  <ChainGroupCard
-                    key={group.sessionId}
-                    group={group}
+            {sessionGroups.map(group => {
+              const isSingle = group.records.length === 1 || !group.records[0].session_id;
+              if (isSingle) {
+                return group.records.map(record => (
+                  <NarrowHistoryCard
+                    key={record.id}
+                    record={record}
+                    viewMode={viewMode}
                     onOpenResume={handleOpenResume}
                     onExport={handleExportMarkdown}
                     onStop={handleStopExecution}
+                    onRefresh={refreshSingleRecord}
+                    getRunningTask={getRunningTaskForRecord}
                     resolveStats={resolveExecutionStats}
+                    parseLogs={parseRecordLogs}
                     messageApi={message}
                   />
-                );
-              })
-            ) : (
-              records.map(record => (
-                <NarrowHistoryCard
-                  key={record.id}
-                  record={record}
-                  viewMode={viewMode}
+                ));
+              }
+              return (
+                <ChainGroupCard
+                  key={group.sessionId}
+                  group={group}
                   onOpenResume={handleOpenResume}
                   onExport={handleExportMarkdown}
                   onStop={handleStopExecution}
-                  onRefresh={refreshSingleRecord}
-                  getRunningTask={getRunningTaskForRecord}
-                  resolveStats={resolveExecutionStats}
-                  parseLogs={parseRecordLogs}
                   messageApi={message}
                 />
-              ))
-            )}
+              );
+            })}
             {historyTotal > historyLimit && (
               <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
                 <Pagination
@@ -1332,160 +1250,151 @@ function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, o
   );
 }
 
-/** Narrow mode: chain group card */
-function ChainGroupCard({ group, onOpenResume, onExport, onStop, resolveStats, messageApi }: {
+/** Narrow mode: chain group card — main record with indented continuations */
+function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi }: {
   group: SessionGroup;
   onOpenResume: (r: ExecutionRecord) => void;
   onExport: (r: ExecutionRecord) => void;
   onStop: (id: number) => Promise<void>;
-  resolveStats: (r: ExecutionRecord, running: boolean) => ExecutionStats | null | undefined;
   messageApi: any;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const [expandedRecordId, setExpandedRecordId] = useState<number | null>(null);
-  const lastRecord = group.records[group.records.length - 1];
-  const totalDuration = group.records.reduce((s, r) => s + (r.usage?.duration_ms || 0), 0);
-  const totalToolCalls = group.records.reduce((s, r) => s + (r.execution_stats?.tool_calls || 0), 0);
-  const totalTurns = group.records.reduce((s, r) => s + (r.execution_stats?.conversation_turns || 0), 0);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const mainRecord = group.records[0];
+  const continuations = group.records.slice(1);
 
   return (
-    <div style={{
-      background: 'var(--color-bg-elevated)',
-      border: '1px solid var(--color-border-light)',
-      borderRadius: 'var(--radius-md)',
-      overflow: 'hidden',
-    }}>
-      {/* Group header */}
-      <div
-        onClick={() => {
-          setExpanded(!expanded);
-          if (!expanded && !expandedRecordId) setExpandedRecordId(lastRecord.id);
-        }}
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '10px 14px',
-          cursor: 'pointer',
-          userSelect: 'none',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <MessageOutlined style={{ color: 'var(--color-primary)' }} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>对话链</span>
-          <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{group.records.length}轮</span>
-          {lastRecord.executor && <ExecutorBadge executor={lastRecord.executor} />}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
-            累计 {(totalDuration / 1000).toFixed(1)}s · 🔧{totalToolCalls} · 💬{totalTurns}
-          </span>
-          {expanded ? <UpOutlined style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }} /> : <DownOutlined style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }} />}
-        </div>
-      </div>
-
-      {/* Timeline — visible when expanded */}
-      {expanded && (
-        <div style={{ padding: '0 14px 10px' }}>
-          {/* Timeline items */}
-          {group.records.map((record, idx) => {
-            const isFirst = idx === 0;
-            const isLast = idx === group.records.length - 1;
-            const isRecordExpanded = expandedRecordId === record.id;
-            return (
-              <div key={record.id}>
-                <div style={{ display: 'flex', cursor: 'pointer' }} onClick={() => setExpandedRecordId(isRecordExpanded ? null : record.id)}>
-                  {/* Timeline rail */}
-                  <div style={{ width: 20, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <div style={{
-                      width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 6,
-                      border: '2px solid',
-                      borderColor: record.status === 'running' ? 'var(--color-info)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-success)',
-                      background: isFirst ? (record.status === 'running' ? 'var(--color-info)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-success)') : 'var(--color-bg-elevated)',
-                    }} />
-                    {!isLast && <div style={{ width: 1.5, flex: 1, background: 'var(--color-border-light)', minHeight: 20 }} />}
-                  </div>
-                  {/* Item content */}
-                  <div style={{ flex: 1, padding: '4px 0 8px 6px', minWidth: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                      <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', fontWeight: 500 }}>
-                        {isFirst ? '发起对话' : `继续第${idx + 1}轮`} · {formatLocalDateTime(record.started_at)}
-                      </span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        {record.usage?.duration_ms && (
-                          <span style={{ fontSize: 10, color: 'var(--color-success)', fontWeight: 600 }}>
-                            {(record.usage.duration_ms / 1000).toFixed(1)}s
-                          </span>
-                        )}
-                        <span style={{
-                          fontSize: 9, padding: '1px 6px', borderRadius: 8,
-                          backgroundColor: record.status === 'success' ? 'var(--color-success)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-info)',
-                          color: '#fff', fontWeight: 600,
-                        }}>
-                          {record.status === 'success' ? '✓' : record.status === 'failed' ? '✗' : '...'}
-                        </span>
-                      </div>
-                    </div>
-                    {/* Expanded record detail */}
-                    {isRecordExpanded && (
-                      <div style={{ marginTop: 6, padding: '8px 10px', background: 'var(--color-bg-container)', borderRadius: 6, border: '1px solid var(--color-border-light)' }}>
-                        {record.result && (
-                          <div className={`history-result ${record.status === 'success' ? 'history-result-success' : 'history-result-failed'}`} style={{ marginBottom: 6 }}>
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
-                              <Button type="text" size="small" icon={<CopyOutlined />} onClick={async (e) => {
-                                e.stopPropagation();
-                                try { await navigator.clipboard.writeText(record.result || ''); messageApi.success('已复制'); }
-                                catch { messageApi.error('复制失败'); }
-                              }} />
-                            </div>
-                            <XMarkdown content={record.result} />
-                          </div>
-                        )}
-                        {record.usage && (
-                          <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginBottom: 4, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                            <span>In: {record.usage.input_tokens.toLocaleString()}</span>
-                            <span>Out: {record.usage.output_tokens.toLocaleString()}</span>
-                            {record.usage.total_cost_usd !== null && (
-                              <span style={{ color: 'var(--color-warning)', fontWeight: 600 }}>${record.usage.total_cost_usd.toFixed(6)}</span>
-                            )}
-                          </div>
-                        )}
-                        {(() => {
-                          const stats = resolveStats(record, record.status === 'running');
-                          if (!stats) return null;
-                          return (
-                            <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginBottom: 4, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                              <span>🔧{stats.tool_calls}</span>
-                              <span>💬{stats.conversation_turns}</span>
-                              {stats.thinking_count > 0 && <span>🧠{stats.thinking_count}</span>}
-                            </div>
-                          );
-                        })()}
-                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                          {hasLogsStatic(record) && (
-                            <Button size="small" icon={<FileTextOutlined />} onClick={(e) => { e.stopPropagation(); onExport(record); }}>导出</Button>
-                          )}
-                          {record.status === 'running' && (
-                            <Popconfirm title="确定停止？" okText="停止" cancelText="取消" onConfirm={() => onStop(record.id)}>
-                              <Button type="primary" danger size="small" icon={<StopOutlined />}>停止</Button>
-                            </Popconfirm>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-          {/* Footer actions */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--color-border-light)' }}>
-            {lastRecord.status !== 'running' && supportsResume(lastRecord) && (
-              <Button type="primary" size="small" icon={<MessageOutlined />} onClick={() => onOpenResume(lastRecord)}>继续对话</Button>
+    <div>
+      {/* Main record card */}
+      <div className={`history-card history-card-${mainRecord.status}`}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+              {formatLocalDateTime(mainRecord.started_at)}
+            </span>
+            {mainRecord.executor && <ExecutorBadge executor={mainRecord.executor} />}
+            {mainRecord.model && <Tag color="#3b82f6">{mainRecord.model}</Tag>}
+            {mainRecord.usage?.duration_ms && (
+              <span style={{ fontSize: 11, color: 'var(--color-success)', fontWeight: 600 }}>
+                {(mainRecord.usage.duration_ms / 1000).toFixed(2)}s
+              </span>
             )}
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{
+              fontSize: 11, padding: '3px 12px', borderRadius: 12,
+              backgroundColor: mainRecord.status === 'success' ? 'var(--color-success)' : mainRecord.status === 'failed' ? 'var(--color-error)' : 'var(--color-info)',
+              color: '#fff', fontWeight: 600,
+            }}>
+              {mainRecord.status === 'success' ? '成功' : mainRecord.status === 'failed' ? '失败' : '进行中'}
+            </span>
+          </div>
         </div>
-      )}
+        {mainRecord.result && (
+          <div className={`history-result ${mainRecord.status === 'success' ? 'history-result-success' : 'history-result-failed'}`}>
+            <XMarkdown content={mainRecord.result} />
+          </div>
+        )}
+      </div>
+
+      {/* Indented continuation entries */}
+      {continuations.map((record, idx) => {
+        const isLast = idx === continuations.length - 1;
+        const isExpanded = expandedId === record.id;
+        return (
+          <div key={record.id} style={{
+            marginLeft: 14,
+            borderLeft: '2px solid var(--color-primary)',
+            paddingLeft: 10,
+            marginTop: 4,
+          }}>
+            {/* Continuation header — clickable to expand */}
+            <div
+              onClick={() => setExpandedId(isExpanded ? null : record.id)}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '6px 8px',
+                borderRadius: 6,
+                background: isExpanded ? 'var(--color-primary-bg)' : 'var(--color-bg-elevated)',
+                cursor: 'pointer',
+                border: '1px solid var(--color-border-light)',
+                transition: 'background 0.15s',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                <LinkOutlined style={{ fontSize: 11, color: 'var(--color-primary)', flexShrink: 0 }} />
+                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {record.resume_message || '继续对话'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)' }}>
+                  {formatLocalDateTime(record.started_at).split(' ')[1] || formatLocalDateTime(record.started_at)}
+                </span>
+                {record.usage?.duration_ms && (
+                  <span style={{ fontSize: 9, color: 'var(--color-success)', fontWeight: 600 }}>
+                    {(record.usage.duration_ms / 1000).toFixed(1)}s
+                  </span>
+                )}
+                <span style={{
+                  fontSize: 9, padding: '1px 6px', borderRadius: 8,
+                  backgroundColor: record.status === 'success' ? 'var(--color-success)' : record.status === 'failed' ? 'var(--color-error)' : 'var(--color-info)',
+                  color: '#fff', fontWeight: 600,
+                }}>
+                  {record.status === 'success' ? '✓' : record.status === 'failed' ? '✗' : '...'}
+                </span>
+                {isExpanded ? <UpOutlined style={{ fontSize: 9, color: 'var(--color-text-tertiary)' }} /> : <DownOutlined style={{ fontSize: 9, color: 'var(--color-text-tertiary)' }} />}
+              </div>
+            </div>
+            {/* Expanded detail */}
+            {isExpanded && (
+              <div style={{
+                marginTop: 4, padding: '8px 10px',
+                background: 'var(--color-bg-elevated)', borderRadius: 6,
+                border: '1px solid var(--color-border-light)',
+              }}>
+                {record.result && (
+                  <div className={`history-result ${record.status === 'success' ? 'history-result-success' : 'history-result-failed'}`} style={{ marginBottom: 6 }}>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+                      <Button type="text" size="small" icon={<CopyOutlined />} onClick={async () => {
+                        try { await navigator.clipboard.writeText(record.result || ''); messageApi.success('已复制'); }
+                        catch { messageApi.error('复制失败'); }
+                      }} />
+                    </div>
+                    <XMarkdown content={record.result} />
+                  </div>
+                )}
+                {record.usage && (
+                  <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginBottom: 4, display: 'flex', gap: 8 }}>
+                    <span>In: {record.usage.input_tokens.toLocaleString()}</span>
+                    <span>Out: {record.usage.output_tokens.toLocaleString()}</span>
+                    {record.usage.total_cost_usd !== null && (
+                      <span style={{ color: 'var(--color-warning)', fontWeight: 600 }}>${record.usage.total_cost_usd.toFixed(6)}</span>
+                    )}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {hasLogsStatic(record) && (
+                    <Button size="small" icon={<FileTextOutlined />} onClick={() => onExport(record)}>导出</Button>
+                  )}
+                  {record.status === 'running' && (
+                    <Popconfirm title="确定停止？" okText="停止" cancelText="取消" onConfirm={() => onStop(record.id)}>
+                      <Button type="primary" danger size="small" icon={<StopOutlined />}>停止</Button>
+                    </Popconfirm>
+                  )}
+                </div>
+              </div>
+            )}
+            {/* Continue button on last continuation */}
+            {isLast && record.status !== 'running' && supportsResume(record) && (
+              <div style={{ marginTop: 6, display: 'flex', justifyContent: 'flex-end' }}>
+                <Button type="primary" size="small" icon={<MessageOutlined />} onClick={() => onOpenResume(record)}>继续对话</Button>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -97,7 +97,7 @@ impl TodoScheduler {
                     let message = if todo.prompt.is_empty() { todo.title.clone() } else { todo.prompt.clone() };
                     let executor = todo.executor.clone();
                     info!("Scheduled execution triggered for todo {}", todo_id);
-                    run_todo_execution(db, registry, tx, todo_id, message, executor, "cron", tm, None).await;
+                    run_todo_execution(db, registry, tx, todo_id, message, executor, "cron", tm, None, None).await;
                 }
             })
         })?;
