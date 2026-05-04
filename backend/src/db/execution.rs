@@ -175,6 +175,16 @@ impl Database {
         self.exec_update(am).await
     }
 
+    /// 更新执行记录的 logs 字段（定时批量写入，防止崩溃丢失）
+    pub async fn update_execution_record_logs(&self, id: i64, logs_json: &str) -> Result<(), sea_orm::DbErr> {
+        let am = execution_records::ActiveModel {
+            id: ActiveValue::Unchanged(id),
+            logs: ActiveValue::Set(Some(logs_json.to_string())),
+            ..Default::default()
+        };
+        self.exec_update(am).await
+    }
+
     /// 根据 pid 获取执行记录
     pub async fn get_execution_record_by_pid(&self, pid: i32) -> Option<execution_records::Model> {
         execution_records::Entity::find()
