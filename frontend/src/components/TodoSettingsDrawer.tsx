@@ -8,6 +8,7 @@ import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
 import { EXECUTORS } from '../types';
 import type { Todo } from '../types';
 import { TagCheckCardGroup } from './TagCheckCard';
+import { CronPresetSelect } from './CronPresetSelect';
 
 interface TodoSettingsDrawerProps {
   open: boolean;
@@ -204,6 +205,10 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
 
         {schedulerEnabled && (
           <div style={{ marginTop: 12 }}>
+            <CronPresetSelect
+              value={schedulerConfig || DEFAULT_CRON}
+              onChange={(val) => setSchedulerConfig(val)}
+            />
             <Cron
               value={cronTo5(schedulerConfig || DEFAULT_CRON)}
               setValue={(val: string) => setSchedulerConfig(cronTo6(val))}
