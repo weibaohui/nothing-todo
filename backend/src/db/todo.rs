@@ -503,26 +503,25 @@ impl Database {
 
         let txn = self.conn.begin().await?;
 
-        // 确保所有 tag 都存在（不存在则创建）
+        // 确保所有 tag 都存在（不存在则创建），并构建 name -> id 映射
+        let mut tag_name_map: std::collections::HashMap<String, i64> = tags::Entity::find()
+            .all(&txn)
+            .await?
+            .into_iter()
+            .map(|t| (t.name, t.id))
+            .collect();
+
         for tag in tags_in {
-            // find_or_create_tag
-            {
-                use crate::db::entity::tags;
-                if tags::Entity::find()
-                    .filter(tags::Column::Name.eq(&tag.name))
-                    .one(&txn)
-                    .await?
-                    .is_none()
-                {
-                    let now = crate::models::utc_timestamp();
-                    let am = tags::ActiveModel {
-                        name: ActiveValue::Set(tag.name.clone()),
-                        color: ActiveValue::Set(Some(tag.color.clone())),
-                        created_at: ActiveValue::Set(Some(now)),
-                        ..Default::default()
-                    };
-                    am.insert(&txn).await?;
-                }
+            if !tag_name_map.contains_key(&tag.name) {
+                let now = crate::models::utc_timestamp();
+                let am = tags::ActiveModel {
+                    name: ActiveValue::Set(tag.name.clone()),
+                    color: ActiveValue::Set(Some(tag.color.clone())),
+                    created_at: ActiveValue::Set(Some(now)),
+                    ..Default::default()
+                };
+                let inserted = am.insert(&txn).await?;
+                tag_name_map.insert(tag.name.clone(), inserted.id);
             }
         }
 
@@ -555,12 +554,7 @@ impl Database {
                     .exec(&txn)
                     .await?;
                 for tag_name in &todo.tag_names {
-                    if let Some(tid) = tags::Entity::find()
-                        .filter(tags::Column::Name.eq(tag_name))
-                        .one(&txn)
-                        .await?
-                        .map(|t| t.id)
-                    {
+                    if let Some(&tid) = tag_name_map.get(tag_name) {
                         let rel = todo_tags::ActiveModel {
                             todo_id: ActiveValue::Set(saved.id),
                             tag_id: ActiveValue::Set(tid),
@@ -597,12 +591,7 @@ impl Database {
                 let inserted = am.insert(&txn).await?;
 
                 for tag_name in &todo.tag_names {
-                    if let Some(tid) = tags::Entity::find()
-                        .filter(tags::Column::Name.eq(tag_name))
-                        .one(&txn)
-                        .await?
-                        .map(|t| t.id)
-                    {
+                    if let Some(&tid) = tag_name_map.get(tag_name) {
                         let rel = todo_tags::ActiveModel {
                             todo_id: ActiveValue::Set(inserted.id),
                             tag_id: ActiveValue::Set(tid),
