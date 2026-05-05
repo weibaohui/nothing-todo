@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -69,6 +70,18 @@ impl std::fmt::Display for ExecutionStatus {
     }
 }
 
+impl std::str::FromStr for ExecutionStatus {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "running" => Ok(Self::Running),
+            "success" => Ok(Self::Success),
+            "failed" => Ok(Self::Failed),
+            _ => Err(format!("unknown execution status: {}", s)),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Todo {
     pub id: i64,
@@ -107,7 +120,7 @@ fn default_trigger_type() -> String { "manual".to_string() }
 pub struct ExecutionRecord {
     pub id: i64,
     pub todo_id: i64,
-    pub status: String,
+    pub status: ExecutionStatus,
     pub command: String,
     pub stdout: String,
     pub stderr: String,

@@ -4,16 +4,19 @@ use sea_orm::{
 
 use crate::db::Database;
 use crate::db::entity::execution_records;
-use crate::models::{ExecutionRecord, ExecutionSummary, ExecutionUsage};
+use crate::models::{ExecutionRecord, ExecutionStatus, ExecutionSummary, ExecutionUsage};
 
 impl From<execution_records::Model> for ExecutionRecord {
     fn from(m: execution_records::Model) -> Self {
         let usage = m.usage.as_deref().and_then(|u| serde_json::from_str(u).ok());
         let execution_stats = m.execution_stats.as_deref().and_then(|s| serde_json::from_str(s).ok());
+        let status = m.status.as_deref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(ExecutionStatus::Running);
         ExecutionRecord {
             id: m.id,
             todo_id: m.todo_id.unwrap_or(0),
-            status: m.status.unwrap_or_default(),
+            status,
             command: m.command.unwrap_or_default(),
             stdout: m.stdout.unwrap_or_default(),
             stderr: m.stderr.unwrap_or_default(),
