@@ -212,6 +212,7 @@ function SkillDetailDrawer({ skill, executor, executorLabel, open, onClose }: Sk
           <h3 style={{ margin: '16px 0 8px', color: '#595959' }}>内容预览</h3>
           <XMarkdown
             content={content}
+            escapeRawHtml={true}
             style={{
               fontFamily: 'Fira Code, monospace',
               fontSize: 13,
@@ -654,12 +655,14 @@ function SkillTree({ data, onSkillClick, onImport, onExport, searchText, showCat
                   type="text"
                   size="small"
                   icon={<UploadOutlined />}
+                  aria-label="导入 Skills"
                   onClick={() => onImport(executorData.executor)}
                 />
                 <Button
                   type="text"
                   size="small"
                   icon={<DownloadOutlined />}
+                  aria-label="导出 Skills"
                   onClick={() => onExport(executorData.executor, false)}
                 />
               </Space>
