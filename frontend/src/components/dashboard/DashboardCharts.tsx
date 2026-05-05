@@ -100,18 +100,19 @@ export function TrendChart({ data, height = 160 }: TrendChartProps) {
     const chartH = h - padT - padB;
 
     const maxVal = Math.max(...data.map((d) => d.success + d.failed), 1);
-    const barW = data.length > 0 ? chartW / data.length * 0.7 : 0;
-    const gap = data.length > 0 ? chartW / data.length * 0.3 : 0;
 
-    const bars = data.map((d, i) => {
-      const x = padL + i * (barW + gap) + gap / 2;
-      const totalH = (d.success + d.failed) / maxVal * chartH;
-      const succH = d.success / maxVal * chartH;
-      const failH = d.failed / maxVal * chartH;
-      return { x, totalH, succH, failH, date: d.date, success: d.success, failed: d.failed };
+    const points = data.map((d, i) => {
+      const x = padL + (i / Math.max(data.length - 1, 1)) * chartW;
+      const totalY = padT + chartH - ((d.success + d.failed) / maxVal) * chartH;
+      const succY = padT + chartH - (d.success / maxVal) * chartH;
+      const failY = padT + chartH - (d.failed / maxVal) * chartH;
+      return { x, totalY, succY, failY, date: d.date };
     });
 
     const yTicks = [0, maxVal * 0.5, maxVal];
+
+    const successPath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.succY}`).join(' ');
+    const failPath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.failY}`).join(' ');
 
     return (
       <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} style={{ overflow: 'visible' }}>
@@ -128,41 +129,25 @@ export function TrendChart({ data, height = 160 }: TrendChartProps) {
           );
         })}
 
-        {/* Bars */}
-        {bars.map((b, i) => (
+        {/* Success line */}
+        <path d={successPath} fill="none" stroke="var(--color-success)" strokeWidth={2} strokeLinejoin="round" />
+        {/* Fail line */}
+        <path d={failPath} fill="none" stroke="var(--color-error)" strokeWidth={2} strokeLinejoin="round" />
+
+        {/* Dots and date labels */}
+        {points.map((p, i) => (
           <g key={i}>
-            {/* Success portion */}
-            {b.succH > 0 && (
-              <rect
-                x={b.x}
-                y={padT + chartH - b.succH - (b.failH > 0 ? b.failH : 0)}
-                width={barW}
-                height={b.succH}
-                fill="var(--color-success)"
-                rx={2}
-              />
-            )}
-            {/* Failed portion */}
-            {b.failH > 0 && (
-              <rect
-                x={b.x}
-                y={padT + chartH - b.failH}
-                width={barW}
-                height={b.failH}
-                fill="var(--color-error)"
-                rx={2}
-              />
-            )}
-            {/* Date label */}
+            <circle cx={p.x} cy={p.succY} r={3} fill="var(--color-success)" />
+            <circle cx={p.x} cy={p.failY} r={3} fill="var(--color-error)" />
             <text
-              x={b.x + barW / 2}
+              x={p.x}
               y={h - 6}
               textAnchor="middle"
               fontSize={9}
               fill="var(--color-text-tertiary)"
-              transform={data.length > 14 ? `rotate(-35, ${b.x + barW / 2}, ${h - 6})` : undefined}
+              transform={data.length > 14 ? `rotate(-35, ${p.x}, ${h - 6})` : undefined}
             >
-              {b.date.slice(5)}
+              {p.date.slice(5)}
             </text>
           </g>
         ))}
