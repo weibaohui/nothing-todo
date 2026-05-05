@@ -36,7 +36,7 @@ impl Database {
         let url = if path == ":memory:" {
             "sqlite::memory:".to_string()
         } else {
-            format!("sqlite://{}?mode=rwc", path)
+            format!("sqlite://{}?mode=rwc&busy_timeout=5000", path)
         };
 
         let mut opt = ConnectOptions::new(url);
