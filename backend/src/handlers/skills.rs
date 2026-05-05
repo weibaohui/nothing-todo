@@ -7,7 +7,6 @@ use axum::extract::{Query, State};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::io::Write;
 use zip::write::FileOptions;
 use zip::ZipArchive;
 
@@ -498,6 +497,9 @@ pub async fn import_skill(
 
     let target_dir = skills_dir.join(&skill_name);
 
+    std::fs::create_dir_all(&target_dir)
+        .map_err(|e| AppError::Internal(format!("Failed to create target dir: {}", e)))?;
+
     // Canonicalize target_dir to verify it's under skills_dir
     let target_dir = target_dir.canonicalize()
         .map_err(|e| AppError::Internal(format!("Failed to resolve target dir: {}", e)))?;
@@ -508,9 +510,6 @@ pub async fn import_skill(
     if !target_dir.starts_with(&skills_dir_canonical) {
         return Err(AppError::BadRequest("Invalid skill name: would escape skills directory".to_string()));
     }
-
-    std::fs::create_dir_all(&target_dir)
-        .map_err(|e| AppError::Internal(format!("Failed to create target dir: {}", e)))?;
 
     let mut imported_files = 0i32;
     for i in 0..archive.len() {

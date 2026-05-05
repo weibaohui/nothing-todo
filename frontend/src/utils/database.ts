@@ -273,14 +273,13 @@ export interface ImportResult {
 }
 
 export async function importSkill(executor: string, file: File, skillName?: string, flatten?: boolean): Promise<ImportResult> {
-  const formData = new FormData();
-  formData.append('file', file);
-  if (skillName) formData.append('skill_name', skillName);
-  if (flatten !== undefined) formData.append('flatten', String(flatten));
+  const params: Record<string, string> = { executor };
+  if (skillName) params.skill_name = skillName;
+  if (flatten !== undefined) params.flatten = String(flatten);
 
-  const response = await api.post<ApiResp<ImportResult>>('/xyz/skills/import', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    params: { executor, skill_name: skillName, flatten },
+  const response = await api.post<ApiResp<ImportResult>>('/xyz/skills/import', await file.arrayBuffer(), {
+    params,
+    headers: { 'Content-Type': 'application/zip' },
   });
   return response.data.data as ImportResult;
 }

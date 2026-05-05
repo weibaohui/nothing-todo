@@ -239,12 +239,12 @@ interface ImportExportModalProps {
   mode: 'import' | 'export';
   executor: string;
   data: ExecutorSkills[];
-  exportAll?: boolean;
+  initialSelectedSkills?: string[];
   onClose: () => void;
 }
 
-function ImportExportModal({ open, mode, executor, data, exportAll, onClose }: ImportExportModalProps) {
-  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+function ImportExportModal({ open, mode, executor, data, initialSelectedSkills, onClose }: ImportExportModalProps) {
+  const [selectedSkills, setSelectedSkills] = useState<string[]>(initialSelectedSkills || []);
   const [exporting, setExporting] = useState(false);
   const [tasks, setTasks] = useState<ExportTask[]>([]);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -267,14 +267,13 @@ function ImportExportModal({ open, mode, executor, data, exportAll, onClose }: I
   }, [data, executor]);
   const skills = executorData?.skills || [];
 
-  // 每次模态框打开、executor 变化或 exportAll 变化时，重置选中状态
+  // 每次模态框打开时，重置选中状态
   useEffect(() => {
     if (open) {
-      setSelectedSkills(exportAll ? skills.map(s => s.name) : []);
+      setSelectedSkills(initialSelectedSkills || []);
       setTasks([]);
     }
-  }, [open, executor, exportAll, skills]);
-
+  }, [open, initialSelectedSkills]);
   const handleExport = async () => {
     if (selectedSkills.length === 0) {
       message.warning('请选择要导出的 Skills');
@@ -702,7 +701,7 @@ function SkillsOverview() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportMode, setExportMode] = useState<'import' | 'export'>('export');
-  const [exportAll, setExportAll] = useState(false);
+  const [initialSelectedSkills, setInitialSelectedSkills] = useState<string[] | undefined>(undefined);
 
   useEffect(() => {
     setLoading(true);
@@ -739,10 +738,17 @@ function SkillsOverview() {
   const handleExportMenuClick: MenuProps['onClick'] = ({ key }) => {
     if (key === 'import') {
       setExportMode('import');
-      setExportAll(false);
+      setInitialSelectedSkills(undefined);
     } else {
       setExportMode('export');
-      setExportAll(key === 'export-all');
+      if (key === 'export-all') {
+        const executorData = data.find(e => e.executor === selectedExecutor);
+        if (executorData) {
+          setInitialSelectedSkills(executorData.skills.map(s => s.name));
+        }
+      } else {
+        setInitialSelectedSkills(undefined);
+      }
     }
     setExportModalOpen(true);
   };
@@ -750,14 +756,21 @@ function SkillsOverview() {
   const handleImport = (executor: string) => {
     setSelectedExecutor(executor);
     setExportMode('import');
-    setExportAll(false);
+    setInitialSelectedSkills(undefined);
     setExportModalOpen(true);
   };
 
   const handleExport = (executor: string, selectAll?: boolean) => {
     setSelectedExecutor(executor);
     setExportMode('export');
-    setExportAll(selectAll || false);
+    if (selectAll) {
+      const executorData = data.find(e => e.executor === executor);
+      if (executorData) {
+        setInitialSelectedSkills(executorData.skills.map(s => s.name));
+      }
+    } else {
+      setInitialSelectedSkills(undefined);
+    }
     setExportModalOpen(true);
   };
 
@@ -856,8 +869,11 @@ function SkillsOverview() {
         mode={exportMode}
         executor={selectedExecutor}
         data={data}
-        exportAll={exportAll}
-        onClose={() => setExportModalOpen(false)}
+        initialSelectedSkills={initialSelectedSkills}
+        onClose={() => {
+          setExportModalOpen(false);
+          setInitialSelectedSkills(undefined);
+        }}
       />
     </div>
   );
