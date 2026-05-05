@@ -276,7 +276,7 @@ impl Database {
                 (0i64, 0i64, 0i64, 0i64, 0i64, 0i64)
             };
 
-        let tags = self.get_tags().await;
+        let tags = self.get_tags().await.unwrap();
         let total_tags = tags.len() as i64;
 
         // Executor todo counts via SQL (replaces in-memory iteration over all todos)
