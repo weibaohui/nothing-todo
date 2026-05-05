@@ -7,6 +7,10 @@ use axum::extract::{Query, State};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::io::Write;
+use flate2::write::GzEncoder;
+use flate2::read::GzDecoder;
+use flate2::Compression;
 
 use crate::models::ExecutorType;
 use crate::handlers::{AppError, AppState, ApiJson};
@@ -123,6 +127,25 @@ pub struct RecordInvocationRequest {
     pub todo_id: i64,
     pub status: String,
     pub duration_ms: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SkillContentQuery {
+    pub executor: String,
+    pub skill_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SkillExportQuery {
+    pub executor: String,
+    pub skill_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImportRequest {
+    pub executor: String,
+    pub skill_name: Option<String>,
+    pub flatten: Option<bool>,
 }
 
 // ── Skill discovery ─────────────────────────────────────────────────────
@@ -337,6 +360,211 @@ pub async fn list_skills(
         .map(|et| discover_skills_for_executor(*et))
         .collect();
     Ok(ApiResponse::ok(result))
+}
+
+/// GET /xyz/skills/content - Get skill content (SKILL.md and metadata)
+pub async fn get_skill_content(
+    Query(query): Query<SkillContentQuery>,
+) -> Result<ApiResponse<SkillContentResponse>, AppError> {
+    let et = crate::adapters::parse_executor_type(&query.executor)
+        .ok_or_else(|| AppError::BadRequest(format!("Unknown executor: {}", query.executor)))?;
+
+    let skills_dir = executor_skills_dir(et)
+        .ok_or_else(|| AppError::BadRequest("No skills directory for this executor".to_string()))?;
+
+    let skill_dir = skills_dir.join(&query.skill_name);
+    if !skill_dir.exists() {
+        return Err(AppError::NotFound);
+    }
+
+    let skill_md_path = skill_dir.join("SKILL.md");
+    let content = if skill_md_path.exists() {
+        std::fs::read_to_string(&skill_md_path).unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    // Collect all files in the skill directory
+    let mut files = Vec::new();
+    collect_skill_files(&skill_dir, &skill_dir, &mut files);
+
+    Ok(ApiResponse::ok(SkillContentResponse {
+        skill_name: query.skill_name,
+        executor: query.executor,
+        content,
+        files,
+    }))
+}
+
+/// GET /xyz/skills/export - Export skill as .tar.gz
+pub async fn export_skill(
+    Query(query): Query<SkillExportQuery>,
+) -> Result<Vec<u8>, AppError> {
+    let et = crate::adapters::parse_executor_type(&query.executor)
+        .ok_or_else(|| AppError::BadRequest(format!("Unknown executor: {}", query.executor)))?;
+
+    let skills_dir = executor_skills_dir(et)
+        .ok_or_else(|| AppError::BadRequest("No skills directory for this executor".to_string()))?;
+
+    let skill_dir = skills_dir.join(&query.skill_name);
+    if !skill_dir.exists() {
+        return Err(AppError::NotFound);
+    }
+
+    // Create tar.gz in memory
+    let mut tar_data = Vec::new();
+    {
+        let encoder = GzEncoder::new(&mut tar_data, Compression::default());
+        let mut tar_builder = tar::Builder::new(encoder);
+        add_dir_to_tar(&mut tar_builder, &skill_dir, &query.skill_name)
+            .map_err(|e| AppError::Internal(format!("Failed to create archive: {}", e)))?;
+        tar_builder.finish()
+            .map_err(|e| AppError::Internal(format!("Failed to finish archive: {}", e)))?;
+    }
+
+    Ok(tar_data)
+}
+
+fn add_dir_to_tar<W: Write>(
+    builder: &mut tar::Builder<W>,
+    dir: &std::path::Path,
+    prefix: &str,
+) -> std::io::Result<()> {
+    if !dir.is_dir() {
+        return Ok(());
+    }
+
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = format!("{}/{}", prefix, path.file_name().unwrap().to_string_lossy());
+
+        if path.is_dir() {
+            add_dir_to_tar(builder, &path, &name)?;
+        } else {
+            let mut file = std::fs::File::open(&path)?;
+            builder.append_file(&name, &mut file)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// POST /xyz/skills/import - Import skill from .tar.gz
+pub async fn import_skill(
+    State(_state): State<AppState>,
+    params: Query<ImportRequest>,
+    body: axum::body::Bytes,
+) -> Result<ApiResponse<ImportResult>, AppError> {
+    let et = crate::adapters::parse_executor_type(&params.executor)
+        .ok_or_else(|| AppError::BadRequest(format!("Unknown executor: {}", params.executor)))?;
+
+    let skills_dir = executor_skills_dir(et)
+        .ok_or_else(|| AppError::BadRequest("No skills directory for this executor".to_string()))?;
+
+    std::fs::create_dir_all(&skills_dir)
+        .map_err(|e| AppError::Internal(format!("Failed to create skills dir: {}", e)))?;
+
+    // Decode tar.gz
+    let cursor = std::io::Cursor::new(body.to_vec());
+    let decoder = GzDecoder::new(cursor);
+    let mut archive = tar::Archive::new(decoder);
+
+    let flatten = params.flatten.unwrap_or(true);
+    let skill_name = params.skill_name.clone().unwrap_or_else(|| "imported-skill".to_string());
+    let target_dir = skills_dir.join(&skill_name);
+
+    std::fs::create_dir_all(&target_dir)
+        .map_err(|e| AppError::Internal(format!("Failed to create target dir: {}", e)))?;
+
+    let mut imported_files = 0i32;
+    for entry in archive.entries().map_err(|e| AppError::Internal(format!("Failed to read archive: {}", e)))? {
+        let mut entry = entry.map_err(|e| AppError::Internal(format!("Failed to read entry: {}", e)))?;
+        let path = entry.path()
+            .map_err(|e| AppError::Internal(format!("Invalid path: {}", e)))?
+            .into_owned();
+
+        let file_name = path.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        // Skip directories and hidden files
+        if file_name.starts_with('.') || file_name.is_empty() {
+            continue;
+        }
+
+        let dest_path = if flatten {
+            // Flatten: extract directly to target dir, ignoring subdirectories
+            target_dir.join(&file_name)
+        } else {
+            // Preserve structure
+            target_dir.join(&path)
+        };
+
+        if let Some(parent) = dest_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| AppError::Internal(format!("Failed to create dir: {}", e)))?;
+        }
+
+        entry.unpack(&dest_path)
+            .map_err(|e| AppError::Internal(format!("Failed to extract {}: {}", file_name, e)))?;
+        imported_files += 1;
+    }
+
+    Ok(ApiResponse::ok(ImportResult {
+        skill_name,
+        imported_files,
+        message: format!("Successfully imported {} files", imported_files),
+    }))
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImportResult {
+    pub skill_name: String,
+    pub imported_files: i32,
+    pub message: String,
+}
+
+fn collect_skill_files(base: &std::path::Path, current: &std::path::Path, files: &mut Vec<SkillFileInfo>) {
+    if let Ok(entries) = std::fs::read_dir(current) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Ok(metadata) = entry.metadata() {
+                if metadata.is_file() {
+                    let rel_path = path.strip_prefix(base)
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    files.push(SkillFileInfo {
+                        path: rel_path,
+                        size: metadata.len(),
+                        modified_at: metadata.modified().ok().map(|t| {
+                            let secs = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+                            chrono::DateTime::from_timestamp(secs as i64, 0)
+                                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+                                .unwrap_or_default()
+                        }).unwrap_or_default(),
+                    });
+                } else if metadata.is_dir() {
+                    collect_skill_files(base, &path, files);
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct SkillContentResponse {
+    pub skill_name: String,
+    pub executor: String,
+    pub content: String,
+    pub files: Vec<SkillFileInfo>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SkillFileInfo {
+    pub path: String,
+    pub size: u64,
+    pub modified_at: String,
 }
 
 /// GET /xyz/skills/compare - Cross-executor skill comparison matrix

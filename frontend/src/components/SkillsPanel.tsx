@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Card,
   Table,
@@ -17,7 +17,19 @@ import {
   Statistic,
   Row,
   Col,
+  Modal,
+  Drawer,
+  Tabs,
+  Dropdown,
+  Divider,
+  Alert,
+  List,
+  Descriptions,
+  Timeline,
+  Switch,
+  Segmented,
 } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   ThunderboltOutlined,
   SwapOutlined,
@@ -26,14 +38,38 @@ import {
   CheckCircleOutlined,
   CopyOutlined,
   ReloadOutlined,
+  SearchOutlined,
+  EyeOutlined,
+  DownloadOutlined,
+  UploadOutlined,
+  FolderOutlined,
+  FileOutlined,
+  DeleteOutlined,
+  FolderOpenOutlined,
+  SyncOutlined,
+  SettingOutlined,
+  ExportOutlined,
+  ImportOutlined,
+  FilterOutlined,
+  CheckSquareOutlined,
+  BorderOutlined,
+  InfoCircleOutlined,
+  CaretRightOutlined,
+  CaretDownOutlined,
+  FileTextOutlined,
+  FileZipOutlined,
+  SaveOutlined,
+  CloseCircleOutlined,
 } from '@ant-design/icons';
 import * as db from '../utils/database';
-import type { ExecutorSkills, SkillComparison, SkillInvocation } from '../types';
+import type { ExecutorSkills, SkillComparison, SkillInvocation, SkillMeta } from '../types';
 import { EXECUTORS } from '../types';
 
-const { Text, Paragraph } = Typography;
+const { Text, Paragraph, Title } = Typography;
+const { TextArea } = Input;
 
-// Executor color map
+// ── 工具函数 ────────────────────────────────────────────────
+
 const EXECUTOR_COLORS: Record<string, string> = {};
 EXECUTORS.forEach(e => { EXECUTOR_COLORS[e.value] = e.color; });
 
@@ -53,11 +89,629 @@ function formatTime(iso: string | null): string {
   }
 }
 
-// ── Sub-view: Skills Overview by Executor ──────────────────────────────
+// ── 类型定义 ────────────────────────────────────────────────
+
+interface SkillTreeNode {
+  key: string;
+  name: string;
+  type: 'category' | 'skill';
+  executor: string;
+  color: string;
+  data: SkillMeta | null;
+  children?: SkillTreeNode[];
+  depth: number;
+}
+
+interface ExportTask {
+  id: string;
+  executor: string;
+  skillName: string;
+  status: 'pending' | 'exporting' | 'completed' | 'failed';
+  progress: number;
+  error?: string;
+}
+
+// ── Skill 详情抽屉 ──────────────────────────────────────────
+
+interface SkillDetailDrawerProps {
+  skill: SkillMeta | null;
+  executor: string;
+  executorLabel: string;
+  open: boolean;
+  onClose: () => void;
+}
+
+function SkillDetailDrawer({ skill, executor, executorLabel, open, onClose }: SkillDetailDrawerProps) {
+  const [content, setContent] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (open && skill) {
+      setLoading(true);
+      // TODO: 调用 API 获取 skill 内容
+      setTimeout(() => {
+        setContent(`# ${skill.name}\n\n${skill.description || '暂无描述'}\n\n## 元信息\n- 版本: ${skill.version || '未指定'}\n- 作者: ${skill.author || '未知'}\n- 许可证: ${skill.license || '未指定'}\n- 文件数: ${skill.file_count}\n- 大小: ${formatSize(skill.total_size)}\n- 更新时间: ${formatTime(skill.modified_at)}`);
+        setLoading(false);
+      }, 300);
+    }
+  }, [open, skill]);
+
+  const handleExport = async () => {
+    if (!skill) return;
+    // TODO: 调用导出 API
+    message.success(`导出 ${skill.name} 成功`);
+  };
+
+  return (
+    <Drawer
+      title={
+        <Space>
+          <FileTextOutlined style={{ color: EXECUTOR_COLORS[executor] || '#7C3AED' }} />
+          <span>{skill?.name || 'Skill 详情'}</span>
+          <Tag color={EXECUTOR_COLORS[executor]}>{executorLabel}</Tag>
+        </Space>
+      }
+      placement="right"
+      width={640}
+      onClose={onClose}
+      open={open}
+      extra={
+        <Space>
+          <Button icon={<DownloadOutlined />} onClick={handleExport}>
+            导出
+          </Button>
+        </Space>
+      }
+    >
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 40 }}>
+          <Spin size="large" />
+        </div>
+      ) : (
+        <div>
+          {skill?.description && (
+            <Alert
+              message={skill.description}
+              type="info"
+              showIcon
+              icon={<InfoCircleOutlined />}
+              style={{ marginBottom: 16 }}
+            />
+          )}
+
+          <Descriptions bordered size="small" column={2}>
+            <Descriptions.Item label="版本">
+              {skill?.version ? <Tag color="blue">{skill.version}</Tag> : <Text type="secondary">未指定</Text>}
+            </Descriptions.Item>
+            <Descriptions.Item label="作者">
+              {skill?.author || <Text type="secondary">未知</Text>}
+            </Descriptions.Item>
+            <Descriptions.Item label="许可证">
+              {skill?.license || <Text type="secondary">未指定</Text>}
+            </Descriptions.Item>
+            <Descriptions.Item label="文件数">
+              {skill?.file_count || 0}
+            </Descriptions.Item>
+            <Descriptions.Item label="大小" span={2}>
+              {formatSize(skill?.total_size || 0)}
+            </Descriptions.Item>
+            <Descriptions.Item label="更新时间" span={2}>
+              {formatTime(skill?.modified_at)}
+            </Descriptions.Item>
+            {skill?.keywords && skill.keywords.length > 0 && (
+              <Descriptions.Item label="关键词" span={2}>
+                {skill.keywords.map(k => (
+                  <Tag key={k} color="purple" style={{ marginBottom: 4 }}>{k}</Tag>
+                ))}
+              </Descriptions.Item>
+            )}
+          </Descriptions>
+
+          <Divider orientation="left">内容预览</Divider>
+          <TextArea
+            value={content}
+            autoSize={{ minRows: 10, maxRows: 30 }}
+            readOnly
+            style={{
+              fontFamily: 'Fira Code, monospace',
+              fontSize: 13,
+              background: '#1e1e1e',
+              color: '#d4d4d4',
+            }}
+          />
+        </div>
+      )}
+    </Drawer>
+  );
+}
+
+// ── 导入导出 Modal ───────────────────────────────────────────
+
+interface ImportExportModalProps {
+  open: boolean;
+  mode: 'import' | 'export';
+  executor: string;
+  onClose: () => void;
+}
+
+function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalProps) {
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [exporting, setExporting] = useState(false);
+  const [tasks, setTasks] = useState<ExportTask[]>([]);
+
+  const handleExport = async () => {
+    if (selectedSkills.length === 0) {
+      message.warning('请选择要导出的 Skills');
+      return;
+    }
+    setExporting(true);
+    // 模拟导出过程
+    const newTasks: ExportTask[] = selectedSkills.map(s => ({
+      id: `${Date.now()}-${s}`,
+      executor,
+      skillName: s,
+      status: 'pending',
+      progress: 0,
+    }));
+    setTasks(newTasks);
+
+    for (const task of newTasks) {
+      setTasks(prev => prev.map(t =>
+        t.id === task.id ? { ...t, status: 'exporting' as const } : t
+      ));
+      // 模拟进度
+      for (let i = 0; i <= 100; i += 20) {
+        await new Promise(r => setTimeout(r, 100));
+        setTasks(prev => prev.map(t =>
+          t.id === task.id ? { ...t, progress: i } : t
+        ));
+      }
+      setTasks(prev => prev.map(t =>
+        t.id === task.id ? { ...t, status: 'completed' as const, progress: 100 } : t
+      ));
+    }
+    setExporting(false);
+    message.success(`成功导出 ${selectedSkills.length} 个 Skills`);
+  };
+
+  const completedCount = tasks.filter(t => t.status === 'completed').length;
+  const failedCount = tasks.filter(t => t.status === 'failed').length;
+
+  return (
+    <Modal
+      title={
+        <Space>
+          {mode === 'export' ? <ExportOutlined /> : <ImportOutlined />}
+          <span>{mode === 'export' ? '导出 Skills' : '导入 Skills'}</span>
+        </Space>
+      }
+      open={open}
+      onCancel={onClose}
+      width={600}
+      footer={
+        mode === 'export' ? (
+          <Space>
+            <Button onClick={onClose}>取消</Button>
+            <Button
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={handleExport}
+              loading={exporting}
+              disabled={selectedSkills.length === 0}
+            >
+              导出 ({selectedSkills.length})
+            </Button>
+          </Space>
+        ) : (
+          <Space>
+            <Button onClick={onClose}>取消</Button>
+            <Button type="primary" icon={<UploadOutlined />}>
+              导入
+            </Button>
+          </Space>
+        )
+      }
+    >
+      {mode === 'export' ? (
+        <div>
+          <Alert
+            message="导出说明"
+            description="导出的文件为 .zip 压缩包格式，包含 SKILL.md 和所有相关文件。导出后可导入到其他支持 Skills 的应用。"
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+
+          {tasks.length > 0 ? (
+            <List
+              size="small"
+              dataSource={tasks}
+              renderItem={task => (
+                <List.Item>
+                  <Space style={{ width: '100%' }}>
+                    <Text>{task.skillName}</Text>
+                    <Tag color={
+                      task.status === 'completed' ? 'success' :
+                      task.status === 'failed' ? 'error' :
+                      task.status === 'exporting' ? 'processing' : 'default'
+                    }>
+                      {task.status === 'completed' ? '完成' :
+                       task.status === 'failed' ? '失败' :
+                       task.status === 'exporting' ? `${task.progress}%` : '等待'}
+                    </Tag>
+                    {task.status === 'completed' && (
+                      <Button type="link" size="small" icon={<SaveOutlined />}>
+                        保存
+                      </Button>
+                    )}
+                  </Space>
+                </List.Item>
+              )}
+            />
+          ) : (
+            <div style={{ marginBottom: 16 }}>
+              <Checkbox.Group
+                value={selectedSkills}
+                onChange={v => setSelectedSkills(v as string[])}
+                style={{ width: '100%' }}
+              >
+                <Row gutter={[8, 8]}>
+                  {EXECUTORS.find(e => e.value === executor)?.value ? (
+                    <Col span={24}>
+                      <Text type="secondary">从 {EXECUTORS.find(e => e.value === executor)?.label} 导出</Text>
+                    </Col>
+                  ) : null}
+                </Row>
+              </Checkbox.Group>
+            </div>
+          )}
+
+          {tasks.length > 0 && completedCount === tasks.length && (
+            <Alert
+              message={`成功导出 ${completedCount} 个 Skills`}
+              type="success"
+              showIcon
+              style={{ marginTop: 16 }}
+            />
+          )}
+        </div>
+      ) : (
+        <div>
+          <Alert
+            message="导入说明"
+            description="支持导入 .zip 压缩包格式的 Skills。导入时可根据目标应用自动处理目录层级。"
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+          <Upload.Dragger
+            accept=".zip"
+            multiple
+            beforeUpload={() => false}
+          >
+            <p className="ant-upload-drag-icon">
+              <UploadOutlined style={{ fontSize: 48, color: '#7C3AED' }} />
+            </p>
+            <p className="ant-upload-text">点击或拖拽上传 Skills 压缩包</p>
+            <p className="ant-upload-hint">支持 .zip 格式，可批量导入</p>
+          </Upload.Dragger>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ── Skill 树形列表 ──────────────────────────────────────────
+
+interface SkillTreeProps {
+  data: ExecutorSkills[];
+  onSkillClick: (skill: SkillMeta, executor: string) => void;
+  searchText: string;
+  showCategory: boolean;
+}
+
+function SkillTree({ data, onSkillClick, searchText, showCategory }: SkillTreeProps) {
+  const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
+
+  const buildTree = useCallback((executorData: ExecutorSkills): SkillTreeNode[] => {
+    const nodes: SkillTreeNode[] = [];
+    const lowerSearch = searchText.toLowerCase();
+
+    executorData.skills.forEach(skill => {
+      // 搜索过滤
+      if (lowerSearch && !skill.name.toLowerCase().includes(lowerSearch) &&
+          !skill.description?.toLowerCase().includes(lowerSearch)) {
+        return;
+      }
+
+      if (showCategory && skill.name.includes('/')) {
+        // 两级目录结构
+        const [category, ...rest] = skill.name.split('/');
+        const skillName = rest.join('/');
+
+        let categoryNode = nodes.find(n => n.name === category && n.type === 'category');
+        if (!categoryNode) {
+          categoryNode = {
+            key: `${executorData.executor}-${category}`,
+            name: category,
+            type: 'category',
+            executor: executorData.executor,
+            color: EXECUTOR_COLORS[executorData.executor] || '#7C3AED',
+            data: null,
+            children: [],
+            depth: 0,
+          };
+          nodes.push(categoryNode);
+        }
+
+        categoryNode.children!.push({
+          key: `${executorData.executor}-${skill.name}`,
+          name: skillName,
+          type: 'skill',
+          executor: executorData.executor,
+          color: EXECUTOR_COLORS[executorData.executor] || '#7C3AED',
+          data: skill,
+          depth: 1,
+        });
+      } else {
+        // 一级结构
+        nodes.push({
+          key: `${executorData.executor}-${skill.name}`,
+          name: skill.name,
+          type: 'skill',
+          executor: executorData.executor,
+          color: EXECUTOR_COLORS[executorData.executor] || '#7C3AED',
+          data: skill,
+          depth: 0,
+        });
+      }
+    });
+
+    return nodes;
+  }, [searchText, showCategory]);
+
+  const renderNode = (node: SkillTreeNode, executorLabel: string) => {
+    if (node.type === 'category') {
+      return (
+        <div
+          key={node.key}
+          style={{
+            padding: '8px 12px',
+            marginBottom: 4,
+            borderRadius: 6,
+            background: `${node.color}10`,
+            borderLeft: `3px solid ${node.color}`,
+            cursor: 'pointer',
+          }}
+          onClick={() => setExpandedKeys(prev =>
+            prev.includes(node.key)
+              ? prev.filter(k => k !== node.key)
+              : [...prev, node.key]
+          )}
+        >
+          <Space>
+            {expandedKeys.includes(node.key) ? <CaretDownOutlined /> : <CaretRightOutlined />}
+            <FolderOutlined style={{ color: node.color }} />
+            <Text strong style={{ color: node.color }}>{node.name}</Text>
+            <Badge count={node.children?.length} style={{ backgroundColor: node.color }} />
+          </Space>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={node.key}
+        style={{
+          padding: '8px 12px',
+          marginLeft: node.depth * 24,
+          marginBottom: 4,
+          borderRadius: 6,
+          cursor: 'pointer',
+          transition: 'all 0.2s',
+          border: '1px solid transparent',
+        }}
+        className="skill-item"
+        onClick={() => node.data && onSkillClick(node.data, node.executor)}
+        onMouseEnter={e => {
+          e.currentTarget.style.background = `${node.color}10`;
+          e.currentTarget.style.borderColor = node.color;
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.background = 'transparent';
+          e.currentTarget.style.borderColor = 'transparent';
+        }}
+      >
+        <Space>
+          <FileTextOutlined style={{ color: node.color }} />
+          <Text>{node.name}</Text>
+          {node.data?.version && <Tag color={node.color} style={{ fontSize: 11 }}>v{node.data.version}</Tag>}
+          <Text type="secondary" style={{ fontSize: 12 }}>{formatSize(node.data?.total_size || 0)}</Text>
+        </Space>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      {data.map(executorData => {
+        const nodes = buildTree(executorData);
+        const executorLabel = EXECUTORS.find(e => e.value === executorData.executor)?.label || executorData.executor;
+
+        return (
+          <Card
+            key={executorData.executor}
+            size="small"
+            title={
+              <Space>
+                <span style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  backgroundColor: executorData.skills_dir_exists
+                    ? EXECUTOR_COLORS[executorData.executor] || '#7C3AED'
+                    : '#d9d9d9',
+                }} />
+                <Text strong>{executorLabel}</Text>
+                <Badge
+                  count={executorData.skills.length}
+                  style={{ backgroundColor: executorData.skills.length > 0 ? EXECUTOR_COLORS[executorData.executor] : '#d9d9d9' }}
+                />
+              </Space>
+            }
+            extra={
+              <Space size="small">
+                <Tooltip title="导入">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<UploadOutlined />}
+                  />
+                </Tooltip>
+                <Tooltip title="导出">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<DownloadOutlined />}
+                  />
+                </Tooltip>
+              </Space>
+            }
+            style={{ marginBottom: 12 }}
+          >
+            {!executorData.skills_dir_exists ? (
+              <Empty description="目录不存在" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            ) : nodes.length === 0 ? (
+              <Empty description={searchText ? "无匹配结果" : "暂无 Skills"} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            ) : (
+              nodes.map(node => renderNode(node, executorLabel))
+            )}
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── 同步管理 ────────────────────────────────────────────────
+
+function SyncManagement() {
+  const [syncMode, setSyncMode] = useState<'flatten' | 'preserve'>('flatten');
+  const [syncing, setSyncing] = useState(false);
+  const [syncLog, setSyncLog] = useState<string[]>([]);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    setSyncLog([]);
+
+    const logs: string[] = [];
+    logs.push(`[${new Date().toLocaleTimeString()}] 开始同步...`);
+    logs.push(`[${new Date().toLocaleTimeString()}] 同步模式: ${syncMode === 'flatten' ? '扁平化（丢弃一级目录）' : '保留目录结构'}`);
+    setSyncLog([...logs]);
+
+    // 模拟同步过程
+    for (let i = 0; i < 5; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      logs.push(`[${new Date().toLocaleTimeString()}] 同步中... ${(i + 1) * 20}%`);
+      setSyncLog([...logs]);
+    }
+
+    logs.push(`[${new Date().toLocaleTimeString()}] 同步完成`);
+    setSyncLog([...logs]);
+    setSyncing(false);
+    message.success('同步完成');
+  };
+
+  return (
+    <div>
+      <Card
+        title={
+          <Space>
+            <SyncOutlined />
+            <span>同步设置</span>
+          </Space>
+        }
+        style={{ marginBottom: 16 }}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <Alert
+            message="目录层级说明"
+            description={
+              <ul style={{ margin: '8px 0', paddingLeft: 20 }}>
+                <li><b>扁平化（推荐）</b>：将两级目录如 <code>creative/joke-teller</code> 保存为 <code>joke-teller</code></li>
+                <li><b>保留目录</b>：保持原有的目录结构，部分应用可能无法识别</li>
+              </ul>
+            }
+            type="info"
+            showIcon
+          />
+
+          <div>
+            <Text strong style={{ display: 'block', marginBottom: 8 }}>同步模式</Text>
+            <Segmented
+              value={syncMode}
+              onChange={v => setSyncMode(v as typeof syncMode)}
+              options={[
+                { label: '扁平化（丢弃一级）', value: 'flatten' },
+                { label: '保留目录结构', value: 'preserve' },
+              ]}
+            />
+          </div>
+
+          <div>
+            <Button
+              type="primary"
+              icon={<SyncOutlined spin={syncing} />}
+              onClick={handleSync}
+              loading={syncing}
+            >
+              开始同步
+            </Button>
+          </div>
+        </Space>
+      </Card>
+
+      <Card
+        title="同步日志"
+        extra={
+          <Button
+            type="text"
+            size="small"
+            icon={<DeleteOutlined />}
+            onClick={() => setSyncLog([])}
+            disabled={syncLog.length === 0}
+          >
+            清空
+          </Button>
+        }
+      >
+        {syncLog.length === 0 ? (
+          <Empty description="暂无同步日志" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        ) : (
+          <Timeline
+            items={syncLog.map(log => ({
+              color: log.includes('完成') ? 'green' : log.includes('开始') ? 'blue' : 'gray',
+              children: log,
+            }))}
+          />
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ── Skills 总览 ────────────────────────────────────────────
 
 function SkillsOverview() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<ExecutorSkills[]>([]);
+  const [searchText, setSearchText] = useState('');
+  const [showCategory, setShowCategory] = useState(true);
+  const [selectedSkill, setSelectedSkill] = useState<SkillMeta | null>(null);
+  const [selectedExecutor, setSelectedExecutor] = useState('');
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportMode, setExportMode] = useState<'import' | 'export'>('export');
 
   useEffect(() => {
     setLoading(true);
@@ -67,143 +721,130 @@ function SkillsOverview() {
       .finally(() => setLoading(false));
   }, []);
 
+  const handleSkillClick = (skill: SkillMeta, executor: string) => {
+    setSelectedSkill(skill);
+    setSelectedExecutor(executor);
+    setDrawerOpen(true);
+  };
+
   const totalSkills = useMemo(() => data.reduce((sum, e) => sum + e.skills.length, 0), [data]);
   const executorsWithSkills = useMemo(() => data.filter(e => e.skills.length > 0).length, [data]);
+
+  const exportMenuItems: MenuProps['items'] = [
+    { key: 'export', icon: <ExportOutlined />, label: '导出选中' },
+    { key: 'export-all', icon: <ExportOutlined />, label: '导出全部' },
+    { type: 'divider' },
+    { key: 'import', icon: <ImportOutlined />, label: '导入' },
+  ];
+
+  const handleExportMenuClick: MenuProps['onClick'] = ({ key }) => {
+    if (key === 'import') {
+      setExportMode('import');
+    } else {
+      setExportMode('export');
+    }
+    setExportModalOpen(true);
+  };
 
   if (loading) {
     return <div style={{ textAlign: 'center', padding: 48 }}><Spin size="large" /></div>;
   }
 
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
-
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, overflowX: 'auto' }}>
-        {[
-          { title: 'Skill 总数', value: totalSkills, prefix: <ThunderboltOutlined /> },
-          { title: '有 Skills 的执行器', value: executorsWithSkills, suffix: `/ ${data.length}` },
-          { title: '执行器总数', value: data.length },
-        ].map((s, i) => (
-          <Card key={i} size="small" style={{ textAlign: 'center', flex: '1 1 0', minWidth: 100 }}>
-            <Statistic title={s.title} value={s.value} prefix={s.prefix} suffix={s.suffix} />
+      {/* 统计卡片 */}
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={8}>
+          <Card size="small">
+            <Statistic
+              title="Skill 总数"
+              value={totalSkills}
+              prefix={<ThunderboltOutlined style={{ color: '#7C3AED' }} />}
+              valueStyle={{ color: '#7C3AED' }}
+            />
           </Card>
-        ))}
-      </div>
-
-      {data.map(executor => {
-        const color = EXECUTOR_COLORS[executor.executor] || '#0891b2';
-
-        return (
-          <Card
-            key={executor.executor}
-            size="small"
-            title={
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{
-                  width: 8, height: 8, borderRadius: '50%',
-                  backgroundColor: executor.skills_dir_exists ? color : '#d9d9d9',
-                  flexShrink: 0,
-                }} />
-                <span style={{ fontWeight: 600 }}>{executor.executor_label}</span>
-                <Badge count={executor.skills.length} showZero
-                  style={{ backgroundColor: executor.skills.length > 0 ? color : '#d9d9d9' }} />
-                {!executor.skills_dir_exists && (
-                  <Text type="secondary" style={{ fontSize: 12 }}>- 目录不存在</Text>
-                )}
-              </div>
-            }
-            style={{ marginBottom: 8 }}
-          >
-            {executor.skills_dir_exists && executor.skills.length === 0 && (
-              <Empty description="暂无 Skills" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-            )}
-            {executor.skills.length > 0 && isMobile ? (
-              /* Mobile: card list instead of table */
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {executor.skills.map(skill => (
-                  <div key={skill.name} style={{
-                    padding: '8px 12px',
-                    borderRadius: 8,
-                    border: '1px solid var(--color-border-light, #f0f0f0)',
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                      <Text strong style={{ color }}>{skill.name}</Text>
-                      {skill.version ? <Tag color={color}>{skill.version}</Tag> : null}
-                    </div>
-                    {skill.description && (
-                      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }} ellipsis>
-                        {skill.description}
-                      </Text>
-                    )}
-                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                      <Text type="secondary" style={{ fontSize: 11 }}>{formatSize(skill.total_size)}</Text>
-                      <Text type="secondary" style={{ fontSize: 11 }}>{skill.file_count} 个文件</Text>
-                      <Text type="secondary" style={{ fontSize: 11 }}>{formatTime(skill.modified_at)}</Text>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : executor.skills.length > 0 ? (
-              <Table
-                dataSource={executor.skills}
-                rowKey="name"
-                size="small"
-                pagination={false}
-                scroll={{ x: 600 }}
-                columns={[
-                  {
-                    title: '名称',
-                    dataIndex: 'name',
-                    width: 160,
-                    render: (name: string) => (
-                      <Text strong style={{ color }}>{name}</Text>
-                    ),
-                  },
-                  {
-                    title: '描述',
-                    dataIndex: 'description',
-                    ellipsis: true,
-                    render: (desc: string) => (
-                      <Tooltip title={desc}>
-                        <Text type="secondary" ellipsis>{desc || '-'}</Text>
-                      </Tooltip>
-                    ),
-                  },
-                  {
-                    title: '版本',
-                    dataIndex: 'version',
-                    width: 80,
-                    render: (v: string | null) => v ? <Tag color={color}>{v}</Tag> : '-',
-                  },
-                  {
-                    title: '大小',
-                    dataIndex: 'total_size',
-                    width: 80,
-                    render: (size: number) => formatSize(size),
-                  },
-                  {
-                    title: '文件数',
-                    dataIndex: 'file_count',
-                    width: 70,
-                    render: (n: number) => `${n} 个`,
-                  },
-                  {
-                    title: '更新时间',
-                    dataIndex: 'modified_at',
-                    width: 120,
-                    render: (t: string | null) => <Text type="secondary" style={{ fontSize: 12 }}>{formatTime(t)}</Text>,
-                  },
-                ]}
-              />
-            ) : null}
+        </Col>
+        <Col xs={24} sm={8}>
+          <Card size="small">
+            <Statistic
+              title="有 Skills 的执行器"
+              value={executorsWithSkills}
+              suffix={`/ ${data.length}`}
+              prefix={<AppstoreOutlined style={{ color: '#10B981' }} />}
+              valueStyle={{ color: '#10B981' }}
+            />
           </Card>
-        );
-      })}
+        </Col>
+        <Col xs={24} sm={8}>
+          <Card size="small">
+            <Statistic
+              title="执行器总数"
+              value={data.length}
+              prefix={<BarChartOutlined style={{ color: '#F97316' }} />}
+              valueStyle={{ color: '#F97316' }}
+            />
+          </Card>
+        </Col>
+      </Row>
+
+      {/* 工具栏 */}
+      <Card size="small" style={{ marginBottom: 16 }}>
+        <Space wrap style={{ width: '100%', justifyContent: 'space-between' }}>
+          <Space wrap>
+            <Input
+              placeholder="搜索 Skills..."
+              prefix={<SearchOutlined />}
+              value={searchText}
+              onChange={e => setSearchText(e.target.value)}
+              style={{ width: 200 }}
+              allowClear
+            />
+            <Tooltip title={showCategory ? '显示扁平结构' : '显示目录结构'}>
+              <Button
+                icon={showCategory ? <FolderOpenOutlined /> : <FileOutlined />}
+                onClick={() => setShowCategory(!showCategory)}
+              >
+                {showCategory ? '目录视图' : '扁平视图'}
+              </Button>
+            </Tooltip>
+          </Space>
+          <Dropdown menu={{ items: exportMenuItems, onClick: handleExportMenuClick }} trigger={['click']}>
+            <Button type="primary" icon={<DownloadOutlined />}>
+              导入/导出
+            </Button>
+          </Dropdown>
+        </Space>
+      </Card>
+
+      {/* Skills 列表 */}
+      <SkillTree
+        data={data}
+        onSkillClick={handleSkillClick}
+        searchText={searchText}
+        showCategory={showCategory}
+      />
+
+      {/* Skill 详情抽屉 */}
+      <SkillDetailDrawer
+        skill={selectedSkill}
+        executor={selectedExecutor}
+        executorLabel={EXECUTORS.find(e => e.value === selectedExecutor)?.label || selectedExecutor}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+      />
+
+      {/* 导入导出 Modal */}
+      <ImportExportModal
+        open={exportModalOpen}
+        mode={exportMode}
+        executor={selectedExecutor}
+        onClose={() => setExportModalOpen(false)}
+      />
     </div>
   );
 }
 
-// ── Sub-view: Cross-Executor Comparison Matrix ─────────────────────────
+// ── 对比分析 ────────────────────────────────────────────────
 
 function SkillsComparison() {
   const [loading, setLoading] = useState(true);
@@ -225,7 +866,7 @@ function SkillsComparison() {
       const lower = searchText.toLowerCase();
       result = result.filter(s =>
         s.skill_name.toLowerCase().includes(lower) ||
-        s.description.toLowerCase().includes(lower)
+        s.description?.toLowerCase().includes(lower)
       );
     }
     if (filter === 'shared') {
@@ -254,7 +895,7 @@ function SkillsComparison() {
     render: (_: unknown, record: SkillComparison) => {
       const presence = record.executors[exec.value];
       if (!presence?.present) {
-        return <span style={{ color: 'var(--color-text-quaternary, #d9d9d9)' }}>-</span>;
+        return <span style={{ color: '#d9d9d9' }}>-</span>;
       }
       return (
         <Tooltip title={presence.version ? `v${presence.version}` : '已安装'}>
@@ -280,6 +921,7 @@ function SkillsComparison() {
           onChange={e => setSearchText(e.target.value)}
           style={{ width: 200 }}
           allowClear
+          prefix={<SearchOutlined />}
         />
         <Select value={filter} onChange={setFilter} style={{ width: 140 }}>
           <Select.Option value="all">全部 ({data.length})</Select.Option>
@@ -343,7 +985,7 @@ function SkillsComparison() {
   );
 }
 
-// ── Sub-view: Skill Sync ───────────────────────────────────────────────
+// ── Skill 同步 ──────────────────────────────────────────────
 
 function SkillSync() {
   const [loading, setLoading] = useState(true);
@@ -412,7 +1054,7 @@ function SkillSync() {
                   <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{
                       width: 8, height: 8, borderRadius: '50%',
-                      backgroundColor: EXECUTOR_COLORS[e.executor] || '#0891b2',
+                      backgroundColor: EXECUTOR_COLORS[e.executor] || '#7C3AED',
                     }} />
                     {e.executor_label}
                     <Tag>{e.skills.length} Skills</Tag>
@@ -479,13 +1121,11 @@ function SkillSync() {
           )}
 
           {syncResult && (
-            <div style={{
-              padding: 12, borderRadius: 8,
-              background: 'var(--color-bg-elevated, #fafafa)',
-              border: '1px solid var(--color-border-light, #f0f0f0)',
-            }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>{syncResult}</Text>
-            </div>
+            <Alert
+              message={syncResult}
+              type="success"
+              showIcon
+            />
           )}
 
           <div style={{ textAlign: 'right' }}>
@@ -505,7 +1145,7 @@ function SkillSync() {
   );
 }
 
-// ── Sub-view: Skill Invocation Tracking ────────────────────────────────
+// ── Skill 追踪 ──────────────────────────────────────────────
 
 function SkillTracking() {
   const [loading, setLoading] = useState(true);
@@ -535,7 +1175,6 @@ function SkillTracking() {
 
   const handleRefresh = () => loadData(page, filterSkill, filterExecutor);
 
-  // Stats
   const skillStats = useMemo(() => {
     const map = new Map<string, { count: number; executors: Set<string> }>();
     invocations.forEach(inv => {
@@ -554,77 +1193,48 @@ function SkillTracking() {
   return (
     <div>
       {skillStats.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16, overflowX: 'auto' }}>
+        <Row gutter={16} style={{ marginBottom: 16 }}>
           {skillStats.slice(0, isMobile ? 3 : 4).map(stat => (
-            <Card key={stat.name} size="small" style={{ textAlign: 'center', flex: '1 1 0', minWidth: 80 }}>
-              <Statistic
-                title={<Text ellipsis style={{ maxWidth: isMobile ? 80 : 120, fontSize: 12 }}>{stat.name}</Text>}
-                value={stat.count}
-                suffix="次"
-                valueStyle={{ fontSize: 18 }}
-              />
-              <Text type="secondary" style={{ fontSize: 10 }}>{stat.executorCount} 个执行器</Text>
-            </Card>
+            <Col xs={24} sm={12} md={6} key={stat.name}>
+              <Card size="small">
+                <Statistic
+                  title={<Text ellipsis style={{ maxWidth: isMobile ? 80 : 120, fontSize: 12 }}>{stat.name}</Text>}
+                  value={stat.count}
+                  suffix="次"
+                  valueStyle={{ fontSize: 18 }}
+                />
+                <Text type="secondary" style={{ fontSize: 10 }}>{stat.executorCount} 个执行器</Text>
+              </Card>
+            </Col>
           ))}
-        </div>
+        </Row>
       )}
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        <Input.Search
-          placeholder="按 Skill 名称筛选"
-          allowClear
-          style={{ width: isMobile ? '100%' : 200 }}
-          onSearch={v => { setFilterSkill(v || undefined); setPage(1); loadData(1, v || undefined, filterExecutor); }}
-        />
-        <Select
-          placeholder="按执行器筛选"
-          allowClear
-          style={{ width: isMobile ? '100%' : 150 }}
-          onChange={v => { setFilterExecutor(v || undefined); setPage(1); loadData(1, filterSkill, v || undefined); }}
-        >
-          {EXECUTORS.map(e => (
-            <Select.Option key={e.value} value={e.value}>{e.label}</Select.Option>
-          ))}
-        </Select>
-        <Button icon={<ReloadOutlined />} onClick={handleRefresh}>刷新</Button>
-      </div>
+      <Card size="small" style={{ marginBottom: 16 }}>
+        <Space wrap>
+          <Input.Search
+            placeholder="按 Skill 名称筛选"
+            allowClear
+            style={{ width: isMobile ? '100%' : 200 }}
+            onSearch={v => { setFilterSkill(v || undefined); setPage(1); loadData(1, v || undefined, filterExecutor); }}
+            prefix={<SearchOutlined />}
+          />
+          <Select
+            placeholder="按执行器筛选"
+            allowClear
+            style={{ width: isMobile ? '100%' : 150 }}
+            onChange={v => { setFilterExecutor(v || undefined); setPage(1); loadData(1, filterSkill, v || undefined); }}
+          >
+            {EXECUTORS.map(e => (
+              <Select.Option key={e.value} value={e.value}>{e.label}</Select.Option>
+            ))}
+          </Select>
+          <Button icon={<ReloadOutlined />} onClick={handleRefresh}>刷新</Button>
+        </Space>
+      </Card>
 
       {invocations.length === 0 ? (
         <Empty description="暂无调用记录" />
-      ) : isMobile ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {invocations.map(inv => {
-            const opt = EXECUTORS.find(e => e.value === inv.executor.toLowerCase());
-            const statusMap: Record<string, { color: string; label: string }> = {
-              invoked: { color: 'processing', label: '已调用' },
-              completed: { color: 'success', label: '完成' },
-              failed: { color: 'error', label: '失败' },
-            };
-            const st = statusMap[inv.status] || { color: 'default', label: inv.status };
-            return (
-              <div key={inv.id} style={{
-                padding: '8px 12px',
-                borderRadius: 8,
-                border: '1px solid var(--color-border-light, #f0f0f0)',
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <Text strong style={{ color: '#0891b2' }}>{inv.skill_name}</Text>
-                  <Tag color={opt?.color || 'default'}>{opt?.label || inv.executor}</Tag>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text type="secondary" style={{ fontSize: 12 }} ellipsis>
-                    {inv.todo_title || `Todo #${inv.todo_id}`}
-                  </Text>
-                  <Tag color={st.color} style={{ fontSize: 11 }}>{st.label}</Tag>
-                </div>
-                <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
-                  {inv.duration_ms && <Text type="secondary" style={{ fontSize: 11 }}>{(inv.duration_ms / 1000).toFixed(1)}s</Text>}
-                  <Text type="secondary" style={{ fontSize: 11 }}>{formatTime(inv.invoked_at)}</Text>
-                </div>
-              </div>
-            );
-          })}
-        </div>
       ) : (
         <Table
           dataSource={invocations}
@@ -642,7 +1252,7 @@ function SkillTracking() {
               dataIndex: 'skill_name',
               width: 180,
               render: (name: string) => (
-                  <Text strong style={{ color: '#0891b2' }}>{name}</Text>
+                <Text strong style={{ color: '#7C3AED' }}>{name}</Text>
               ),
             },
             {
@@ -702,9 +1312,9 @@ function SkillTracking() {
   );
 }
 
-// ── Main Skills Panel ───────────────────────────────────────────────────
+// ── 主 Skills Panel ────────────────────────────────────────
 
-type SubView = 'overview' | 'compare' | 'sync' | 'tracking';
+type SubView = 'overview' | 'compare' | 'sync' | 'tracking' | 'settings';
 
 export function SkillsPanel() {
   const [activeView, setActiveView] = useState<SubView>('overview');
@@ -714,6 +1324,7 @@ export function SkillsPanel() {
     { key: 'compare', label: '对比分析', icon: <BarChartOutlined /> },
     { key: 'sync', label: '同步管理', icon: <SwapOutlined /> },
     { key: 'tracking', label: '调用追踪', icon: <ThunderboltOutlined /> },
+    { key: 'settings', label: '设置', icon: <SettingOutlined /> },
   ];
 
   return (
@@ -743,6 +1354,7 @@ export function SkillsPanel() {
       {activeView === 'compare' && <SkillsComparison />}
       {activeView === 'sync' && <SkillSync />}
       {activeView === 'tracking' && <SkillTracking />}
+      {activeView === 'settings' && <SyncManagement />}
     </div>
   );
 }

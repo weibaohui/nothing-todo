@@ -303,6 +303,9 @@ pub fn create_app(
         .route("/xyz/skills/compare", get(skills::compare_skills))
         .route("/xyz/skills/sync", post(skills::sync_skill))
         .route("/xyz/skills/invocations", get(skills::list_invocations).post(skills::record_invocation))
+        .route("/xyz/skills/content", get(skills::get_skill_content))
+        .route("/xyz/skills/export", get(skills::export_skill))
+        .route("/xyz/skills/import", post(skills::import_skill))
         .route("/assets/{*path}", get(static_handler))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
         .layer(CompressionLayer::new())
