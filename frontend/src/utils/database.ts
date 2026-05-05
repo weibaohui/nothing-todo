@@ -14,6 +14,10 @@ const api = axios.create({
 
 api.interceptors.response.use(
   (res) => {
+    // Skip code check for blob responses (e.g., skill export)
+    if (res.data instanceof Blob) {
+      return res;
+    }
     const body = res.data as ApiResp<unknown>;
     if (body && body.code !== 0) {
       return Promise.reject(new Error(body.message || `Error ${body.code}`));
