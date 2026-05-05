@@ -223,7 +223,8 @@ async fn run_server(cli_port: Option<u16>) {
         sched
     });
 
-    let app = handlers::create_app(db, executor_registry, tx, scheduler, task_manager);
+    let config = Arc::new(tokio::sync::RwLock::new(cfg.clone()));
+    let app = handlers::create_app(db, executor_registry, tx, scheduler, task_manager, config);
 
     let port = cli_port.unwrap_or(cfg.port);
 
