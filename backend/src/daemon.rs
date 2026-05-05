@@ -141,13 +141,12 @@ fn generate_launchd_plist() -> String {
         }
     }
 
-    path_entries.extend([
-        "/usr/local/bin".to_string(),
-        "/usr/bin".to_string(),
-        "/bin".to_string(),
-        "/usr/sbin".to_string(),
-        "/sbin".to_string(),
-    ]);
+    for entry in ["/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"] {
+        let s = entry.to_string();
+        if !path_entries.contains(&s) {
+            path_entries.push(s);
+        }
+    }
 
     let sane_path = path_entries.join(":");
 
@@ -229,7 +228,8 @@ fn launchd_install(force: bool) {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stderr.contains("already loaded") && !stderr.contains("Bootstrap failed") {
+        let code = output.status.code().unwrap_or(-1);
+        if code != 5 && !stderr.contains("already loaded") {
             eprintln!("Failed to bootstrap service: {}", stderr.trim());
         }
     }
@@ -284,7 +284,8 @@ fn launchd_start() {
         println!("Service started");
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("already loaded") || stderr.contains("3") || stderr.contains("113") {
+        let code = output.status.code().unwrap_or(-1);
+        if stderr.contains("already loaded") || code == 5 || code == 113 {
             let _ = Command::new("launchctl")
                 .args(["bootstrap", &domain, &plist_path.to_string_lossy()])
                 .output();
@@ -311,7 +312,8 @@ fn launchd_stop() {
         Ok(o) if o.status.success() => println!("Service stopped"),
         Ok(o) => {
             let stderr = String::from_utf8_lossy(&o.stderr);
-            if stderr.contains("3") || stderr.contains("113") || stderr.contains("No such process") {
+            let code = o.status.code().unwrap_or(-1);
+            if code == 3 || code == 113 || stderr.contains("No such process") {
                 println!("Service is not running");
             } else {
                 eprintln!("Failed to stop service: {}", stderr.trim());
@@ -453,30 +455,20 @@ fn run_systemctl_output(system: bool, args: &[&str]) -> std::process::Output {
 }
 
 #[cfg(target_os = "linux")]
-fn generate_systemd_unit(system: bool, run_as_user: Option<&str>) -> String {
-    let binary = get_ntd_binary_path();
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-
-    let mut path_entries = vec![
-        format!("{}", home.join(".local/bin").display()),
-        format!("{}", home.join(".cargo/bin").display()),
-        "/usr/local/sbin".to_string(),
-        "/usr/local/bin".to_string(),
-        "/usr/sbin".to_string(),
-        "/usr/bin".to_string(),
-        "/sbin".to_string(),
-        "/bin".to_string(),
-    ];
-
-    if let Ok(current_path) = std::env::var("PATH") {
-        for p in current_path.split(':') {
-            if !path_entries.contains(&p.to_string()) {
-                path_entries.push(p.to_string());
-            }
+fn get_user_home_dir(username: &str) -> Option<PathBuf> {
+    let content = fs::read_to_string("/etc/passwd").ok()?;
+    for line in content.lines() {
+        let fields: Vec<&str> = line.split(':').collect();
+        if fields.len() >= 6 && fields[0] == username {
+            return Some(PathBuf::from(fields[5]));
         }
     }
+    None
+}
 
-    let sane_path = path_entries.join(":");
+#[cfg(target_os = "linux")]
+fn generate_systemd_unit(system: bool, run_as_user: Option<&str>) -> String {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
 
     if system {
         let username = run_as_user.map(|s| s.to_string()).unwrap_or_else(|| {
@@ -490,7 +482,31 @@ fn generate_systemd_unit(system: bool, run_as_user: Option<&str>) -> String {
             std::process::exit(1);
         }
 
-        let user_home = format!("/home/{username}");
+        let user_home = get_user_home_dir(&username)
+            .unwrap_or_else(|| PathBuf::from(format!("/home/{username}")));
+        let user_binary = user_home.join(".local/bin/ntd");
+
+        let mut path_entries = vec![
+            format!("{}", user_home.join(".local/bin").display()),
+            format!("{}", user_home.join(".cargo/bin").display()),
+            "/usr/local/sbin".to_string(),
+            "/usr/local/bin".to_string(),
+            "/usr/sbin".to_string(),
+            "/usr/bin".to_string(),
+            "/sbin".to_string(),
+            "/bin".to_string(),
+        ];
+
+        if let Ok(current_path) = std::env::var("PATH") {
+            for p in current_path.split(':') {
+                if !path_entries.contains(&p.to_string()) {
+                    path_entries.push(p.to_string());
+                }
+            }
+        }
+
+        let sane_path = path_entries.join(":");
+        let user_home_str = user_home.display();
 
         return format!(
             r#"[Unit]
@@ -520,9 +536,32 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 "#,
-            binary = binary.display(),
+            binary = user_binary.display(),
+            user_home = user_home_str,
         );
     }
+
+    let binary = home.join(".local/bin/ntd");
+    let mut path_entries = vec![
+        format!("{}", home.join(".local/bin").display()),
+        format!("{}", home.join(".cargo/bin").display()),
+        "/usr/local/sbin".to_string(),
+        "/usr/local/bin".to_string(),
+        "/usr/sbin".to_string(),
+        "/usr/bin".to_string(),
+        "/sbin".to_string(),
+        "/bin".to_string(),
+    ];
+
+    if let Ok(current_path) = std::env::var("PATH") {
+        for p in current_path.split(':') {
+            if !path_entries.contains(&p.to_string()) {
+                path_entries.push(p.to_string());
+            }
+        }
+    }
+
+    let sane_path = path_entries.join(":");
 
     format!(
         r#"[Unit]
@@ -565,7 +604,18 @@ fn systemd_install(force: bool, system: bool, run_as_user: Option<&str>) {
         return;
     }
 
-    let binary = get_ntd_binary_path();
+    let binary = if system {
+        let username = run_as_user.map(|s| s.to_string()).unwrap_or_else(|| {
+            std::env::var("SUDO_USER")
+                .or_else(|_| std::env::var("USER"))
+                .unwrap_or_else(|_| "nobody".to_string())
+        });
+        get_user_home_dir(&username)
+            .unwrap_or_else(|| PathBuf::from(format!("/home/{username}")))
+            .join(".local/bin/ntd")
+    } else {
+        get_ntd_binary_path()
+    };
     if !binary.exists() {
         eprintln!("ntd binary not found at {}. Run `make install` first.", binary.display());
         std::process::exit(1);
