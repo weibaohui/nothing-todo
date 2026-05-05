@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tokio::sync::mpsc;
 use serde::Serialize;
 
@@ -16,14 +16,14 @@ pub struct TaskInfo {
 pub struct TaskManager {
     tasks: Mutex<HashMap<String, mpsc::UnboundedSender<()>>>,
     /// 存储每个任务的基本信息，用于 WebSocket 连接时同步
-    task_infos: Mutex<HashMap<String, TaskInfo>>,
+    task_infos: RwLock<HashMap<String, TaskInfo>>,
 }
 
 impl TaskManager {
     pub fn new() -> Self {
         Self {
             tasks: Mutex::new(HashMap::new()),
-            task_infos: Mutex::new(HashMap::new()),
+            task_infos: RwLock::new(HashMap::new()),
         }
     }
 
@@ -35,12 +35,12 @@ impl TaskManager {
 
     /// 注册任务信息，用于 WebSocket 同步
     pub async fn register_info(&self, info: TaskInfo) {
-        self.task_infos.lock().await.insert(info.task_id.clone(), info);
+        self.task_infos.write().await.insert(info.task_id.clone(), info);
     }
 
     /// 获取所有当前运行的任务信息
     pub async fn get_all_task_infos(&self) -> Vec<TaskInfo> {
-        self.task_infos.lock().await.values().cloned().collect()
+        self.task_infos.read().await.values().cloned().collect()
     }
 
     pub async fn cancel(&self, task_id: &str) -> bool {
@@ -54,7 +54,7 @@ impl TaskManager {
 
     pub async fn remove(&self, task_id: &str) {
         self.tasks.lock().await.remove(task_id);
-        self.task_infos.lock().await.remove(task_id);
+        self.task_infos.write().await.remove(task_id);
     }
 }
 
