@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use tokio::sync::broadcast;
 use tracing::info;
 
-use ntd::{adapters, cli, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager, tunnel};
+use ntd::{adapters, cli, daemon, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager, tunnel};
 
 /// ntd - Nothing Todo
 #[derive(Parser)]
@@ -53,6 +53,11 @@ enum Commands {
     },
     /// Global statistics
     Stats,
+    /// Manage ntd daemon service (install/uninstall/start/stop/restart/status)
+    Daemon {
+        #[command(subcommand)]
+        action: daemon::DaemonAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -138,6 +143,10 @@ async fn main() {
                 print_structured_error(&e);
                 std::process::exit(1);
             }
+            return;
+        }
+        Some(Commands::Daemon { action }) => {
+            daemon::handle_daemon_command(action);
             return;
         }
         None => {
