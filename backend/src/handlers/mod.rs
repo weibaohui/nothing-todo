@@ -108,6 +108,12 @@ impl From<String> for AppError {
     }
 }
 
+impl From<std::io::Error> for AppError {
+    fn from(err: std::io::Error) -> Self {
+        AppError::Internal(err.to_string())
+    }
+}
+
 impl<T: Serialize> IntoResponse for crate::models::ApiResponse<T> {
     fn into_response(self) -> Response {
         axum::Json(self).into_response()
