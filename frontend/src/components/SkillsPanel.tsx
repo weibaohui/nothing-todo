@@ -96,6 +96,7 @@ interface ExportTask {
   status: 'pending' | 'exporting' | 'completed' | 'failed';
   progress: number;
   error?: string;
+  blobUrl?: string;
 }
 
 // ── Skill 详情抽屉 ──────────────────────────────────────────
@@ -232,15 +233,26 @@ interface ImportExportModalProps {
   open: boolean;
   mode: 'import' | 'export';
   executor: string;
+  data: ExecutorSkills[];
+  initialSelectedSkills?: string[];
   onClose: () => void;
 }
 
-function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalProps) {
-  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+function ImportExportModal({ open, mode, executor, data, initialSelectedSkills, onClose }: ImportExportModalProps) {
+  const [selectedSkills, setSelectedSkills] = useState<string[]>(initialSelectedSkills || []);
   const [exporting, setExporting] = useState(false);
   const [tasks, setTasks] = useState<ExportTask[]>([]);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
+
+  useEffect(() => {
+    if (open && initialSelectedSkills) {
+      setSelectedSkills(initialSelectedSkills);
+    }
+  }, [open, initialSelectedSkills]);
+
+  const executorData = data.find(e => e.executor === executor);
+  const skills = executorData?.skills || [];
 
   const handleExport = async () => {
     if (selectedSkills.length === 0) {
@@ -248,7 +260,6 @@ function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalP
       return;
     }
     setExporting(true);
-    // 模拟导出过程
     const newTasks: ExportTask[] = selectedSkills.map(s => ({
       id: `${Date.now()}-${s}`,
       executor,
@@ -260,18 +271,26 @@ function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalP
 
     for (const task of newTasks) {
       setTasks(prev => prev.map(t =>
-        t.id === task.id ? { ...t, status: 'exporting' as const } : t
+        t.id === task.id ? { ...t, status: 'exporting' } : t
       ));
-      // 模拟进度
-      for (let i = 0; i <= 100; i += 20) {
-        await new Promise(r => setTimeout(r, 100));
+
+      try {
+        const blob = await db.exportSkill(task.executor, task.skillName);
+        const blobUrl = URL.createObjectURL(blob);
+
         setTasks(prev => prev.map(t =>
-          t.id === task.id ? { ...t, progress: i } : t
+          t.id === task.id ? { ...t, status: 'completed', progress: 100, blobUrl } : t
+        ));
+
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = `${task.skillName}.zip`;
+        a.click();
+      } catch (err: any) {
+        setTasks(prev => prev.map(t =>
+          t.id === task.id ? { ...t, status: 'failed', error: err.message } : t
         ));
       }
-      setTasks(prev => prev.map(t =>
-        t.id === task.id ? { ...t, status: 'completed' as const, progress: 100 } : t
-      ));
     }
     setExporting(false);
     message.success(`成功导出 ${selectedSkills.length} 个 Skills`);
@@ -365,8 +384,13 @@ function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalP
                        task.status === 'failed' ? '失败' :
                        task.status === 'exporting' ? `${task.progress}%` : '等待'}
                     </Tag>
-                    {task.status === 'completed' && (
-                      <Button type="link" size="small" icon={<SaveOutlined />}>
+                    {task.status === 'completed' && task.blobUrl && (
+                      <Button type="link" size="small" icon={<SaveOutlined />} onClick={() => {
+                        const a = document.createElement('a');
+                        a.href = task.blobUrl!;
+                        a.download = `${task.skillName}.zip`;
+                        a.click();
+                      }}>
                         保存
                       </Button>
                     )}
@@ -382,11 +406,19 @@ function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalP
                 style={{ width: '100%' }}
               >
                 <Row gutter={[8, 8]}>
-                  {EXECUTORS.find(e => e.value === executor)?.value ? (
+                  {skills.length > 0 ? (
+                    skills.map(skill => (
+                      <Col span={12} key={skill.name}>
+                        <Checkbox value={skill.name}>
+                          <Text ellipsis style={{ maxWidth: 200 }}>{skill.name}</Text>
+                        </Checkbox>
+                      </Col>
+                    ))
+                  ) : (
                     <Col span={24}>
-                      <Text type="secondary">从 {EXECUTORS.find(e => e.value === executor)?.label} 导出</Text>
+                      <Text type="secondary">该执行器暂无 Skills</Text>
                     </Col>
-                  ) : null}
+                  )}
                 </Row>
               </Checkbox.Group>
             </div>
@@ -434,11 +466,13 @@ function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalP
 interface SkillTreeProps {
   data: ExecutorSkills[];
   onSkillClick: (skill: SkillMeta, executor: string) => void;
+  onImport: (executor: string) => void;
+  onExport: (executor: string, all?: boolean) => void;
   searchText: string;
   showCategory: boolean;
 }
 
-function SkillTree({ data, onSkillClick, searchText, showCategory }: SkillTreeProps) {
+function SkillTree({ data, onSkillClick, onImport, onExport, searchText, showCategory }: SkillTreeProps) {
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
 
   const buildTree = useCallback((executorData: ExecutorSkills): SkillTreeNode[] => {
@@ -601,15 +635,22 @@ function SkillTree({ data, onSkillClick, searchText, showCategory }: SkillTreePr
                     type="text"
                     size="small"
                     icon={<UploadOutlined />}
+                    onClick={() => onImport(executorData.executor)}
                   />
                 </Tooltip>
-                <Tooltip title="导出">
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<DownloadOutlined />}
-                  />
-                </Tooltip>
+                <Dropdown
+                  menu={{
+                    items: [
+                      { key: 'export-selected', icon: <ExportOutlined />, label: '导出选中', onClick: () => onExport(executorData.executor, false) },
+                      { key: 'export-all', icon: <DownloadOutlined />, label: '导出全部', onClick: () => onExport(executorData.executor, true) },
+                    ]
+                  }}
+                  trigger={['click']}
+                >
+                  <Tooltip title="导出">
+                    <Button type="text" size="small" icon={<DownloadOutlined />} />
+                  </Tooltip>
+                </Dropdown>
               </Space>
             }
             style={{ marginBottom: 12 }}
@@ -640,11 +681,20 @@ function SkillsOverview() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportMode, setExportMode] = useState<'import' | 'export'>('export');
+  const [initialSelectedSkills, setInitialSelectedSkills] = useState<string[] | undefined>(undefined);
 
   useEffect(() => {
     setLoading(true);
     db.getSkillsList()
-      .then(setData)
+      .then(data => {
+        setData(data);
+        const withSkills = data.find(e => e.skills.length > 0);
+        if (withSkills) {
+          setSelectedExecutor(withSkills.executor);
+        } else if (data.length > 0) {
+          setSelectedExecutor(data[0].executor);
+        }
+      })
       .catch(err => message.error('加载失败: ' + err.message))
       .finally(() => setLoading(false));
   }, []);
@@ -668,8 +718,38 @@ function SkillsOverview() {
   const handleExportMenuClick: MenuProps['onClick'] = ({ key }) => {
     if (key === 'import') {
       setExportMode('import');
+      setInitialSelectedSkills(undefined);
     } else {
       setExportMode('export');
+      if (key === 'export-all') {
+        const executorData = data.find(e => e.executor === selectedExecutor);
+        if (executorData) {
+          setInitialSelectedSkills(executorData.skills.map(s => s.name));
+        }
+      } else {
+        setInitialSelectedSkills(undefined);
+      }
+    }
+    setExportModalOpen(true);
+  };
+
+  const handleImport = (executor: string) => {
+    setSelectedExecutor(executor);
+    setExportMode('import');
+    setInitialSelectedSkills(undefined);
+    setExportModalOpen(true);
+  };
+
+  const handleExport = (executor: string, exportAll?: boolean) => {
+    setSelectedExecutor(executor);
+    setExportMode('export');
+    if (exportAll) {
+      const executorData = data.find(e => e.executor === executor);
+      if (executorData) {
+        setInitialSelectedSkills(executorData.skills.map(s => s.name));
+      }
+    } else {
+      setInitialSelectedSkills(undefined);
     }
     setExportModalOpen(true);
   };
@@ -748,6 +828,8 @@ function SkillsOverview() {
       <SkillTree
         data={data}
         onSkillClick={handleSkillClick}
+        onImport={handleImport}
+        onExport={handleExport}
         searchText={searchText}
         showCategory={showCategory}
       />
@@ -766,7 +848,12 @@ function SkillsOverview() {
         open={exportModalOpen}
         mode={exportMode}
         executor={selectedExecutor}
-        onClose={() => setExportModalOpen(false)}
+        data={data}
+        initialSelectedSkills={initialSelectedSkills}
+        onClose={() => {
+          setExportModalOpen(false);
+          setInitialSelectedSkills(undefined);
+        }}
       />
     </div>
   );
