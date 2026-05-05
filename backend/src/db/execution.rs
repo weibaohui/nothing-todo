@@ -121,11 +121,27 @@ impl Database {
         usage: Option<&ExecutionUsage>,
         model: Option<&str>,
     ) -> Result<(), sea_orm::DbErr> {
+        // Merge new logs with existing logs in DB (since periodic flush may have drained in-memory vec)
+        let existing: Option<String> = execution_records::Entity::find_by_id(id)
+            .one(&self.conn)
+            .await?
+            .and_then(|r| r.logs);
+
+        let merged_logs = match existing {
+            Some(ref json) if !json.is_empty() && json != "[]" => {
+                let mut base: Vec<serde_json::Value> = serde_json::from_str(json).unwrap_or_default();
+                let append: Vec<serde_json::Value> = serde_json::from_str(logs).unwrap_or_default();
+                base.extend(append);
+                serde_json::to_string(&base).unwrap_or_else(|_| logs.to_string())
+            }
+            _ => logs.to_string(),
+        };
+
         let now = crate::models::utc_timestamp();
         let am = execution_records::ActiveModel {
             id: ActiveValue::Unchanged(id),
             status: ActiveValue::Set(Some(status.to_string())),
-            logs: ActiveValue::Set(Some(logs.to_string())),
+            logs: ActiveValue::Set(Some(merged_logs)),
             result: ActiveValue::Set(Some(result.to_string())),
             usage: ActiveValue::Set(usage.map(|u| serde_json::to_string(u).unwrap_or_else(|e| { tracing::error!("Failed to serialize usage: {}", e); String::new() }))),
             model: ActiveValue::Set(model.map(|s| s.to_string())),
@@ -175,11 +191,38 @@ impl Database {
         self.exec_update(am).await
     }
 
-    /// 更新执行记录的 logs 字段（定时批量写入，防止崩溃丢失）
-    pub async fn update_execution_record_logs(&self, id: i64, logs_json: &str) -> Result<(), sea_orm::DbErr> {
+    /// 追加日志条目到执行记录（读取已有日志 + 合并新条目 + 写回，防止覆盖）
+    pub async fn append_execution_record_logs(&self, id: i64, new_logs_json: &str) -> Result<(), sea_orm::DbErr> {
+        let existing: Option<String> = execution_records::Entity::find_by_id(id)
+            .one(&self.conn)
+            .await?
+            .and_then(|r| r.logs);
+
+        let merged = match existing {
+            Some(ref json) if !json.is_empty() && json != "[]" => {
+                let mut base: Vec<serde_json::Value> = match serde_json::from_str(json) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse existing logs JSON for record {}: {}", id, e);
+                        Vec::new()
+                    }
+                };
+                let append: Vec<serde_json::Value> = match serde_json::from_str(new_logs_json) {
+                    Ok(a) => a,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse new logs JSON for record {}: {}", id, e);
+                        Vec::new()
+                    }
+                };
+                base.extend(append);
+                serde_json::to_string(&base).unwrap_or_else(|_| new_logs_json.to_string())
+            }
+            _ => new_logs_json.to_string(),
+        };
+
         let am = execution_records::ActiveModel {
             id: ActiveValue::Unchanged(id),
-            logs: ActiveValue::Set(Some(logs_json.to_string())),
+            logs: ActiveValue::Set(Some(merged)),
             ..Default::default()
         };
         self.exec_update(am).await
