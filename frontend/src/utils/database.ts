@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage } from '../types';
+import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutorSkills, SkillComparison, PaginatedInvocations } from '../types';
 
 interface ApiResp<T> {
   code: number;
@@ -208,4 +208,79 @@ export async function getConfig(): Promise<import('../types').Config> {
 
 export async function updateConfig(config: import('../types').Config): Promise<import('../types').Config> {
   return unwrap(await api.put<ApiResp<import('../types').Config>>('/xyz/config', config));
+}
+
+// Skills APIs
+
+export async function getSkillsList(): Promise<ExecutorSkills[]> {
+  return unwrap(await api.get<ApiResp<ExecutorSkills[]>>('/xyz/skills'));
+}
+
+export async function getSkillsComparison(): Promise<SkillComparison[]> {
+  return unwrap(await api.get<ApiResp<SkillComparison[]>>('/xyz/skills/compare'));
+}
+
+export async function syncSkill(sourceExecutor: string, skillName: string, targetExecutors: string[]): Promise<string> {
+  return unwrap(await api.post<ApiResp<string>>('/xyz/skills/sync', {
+    source_executor: sourceExecutor,
+    skill_name: skillName,
+    target_executors: targetExecutors,
+  }));
+}
+
+export async function getSkillInvocations(params?: { page?: number; limit?: number; skill_name?: string; executor?: string }): Promise<PaginatedInvocations> {
+  return unwrap(await api.get<ApiResp<PaginatedInvocations>>('/xyz/skills/invocations', { params }));
+}
+
+export async function recordSkillInvocation(data: { skill_name: string; executor: string; todo_id: number; status: string; duration_ms?: number }): Promise<number> {
+  return unwrap(await api.post<ApiResp<number>>('/xyz/skills/invocations', data));
+}
+
+// Skill content & files
+export interface SkillFileInfo {
+  path: string;
+  size: number;
+  modified_at: string;
+}
+
+export interface SkillContent {
+  skill_name: string;
+  executor: string;
+  content: string;
+  files: SkillFileInfo[];
+}
+
+export async function getSkillContent(executor: string, skillName: string): Promise<SkillContent> {
+  return unwrap(await api.get<ApiResp<SkillContent>>('/xyz/skills/content', {
+    params: { executor, skill_name: skillName },
+  }));
+}
+
+// Export skill as .zip (returns blob)
+export async function exportSkill(executor: string, skillName: string): Promise<Blob> {
+  const response = await api.get('/xyz/skills/export', {
+    params: { executor, skill_name: skillName },
+    responseType: 'blob',
+  });
+  return response.data;
+}
+
+// Import skill from file
+export interface ImportResult {
+  skill_name: string;
+  imported_files: number;
+  message: string;
+}
+
+export async function importSkill(executor: string, file: File, skillName?: string, flatten?: boolean): Promise<ImportResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (skillName) formData.append('skill_name', skillName);
+  if (flatten !== undefined) formData.append('flatten', String(flatten));
+
+  const response = await api.post<ApiResp<ImportResult>>('/xyz/skills/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    params: { executor, skill_name: skillName, flatten },
+  });
+  return response.data.data as ImportResult;
 }
