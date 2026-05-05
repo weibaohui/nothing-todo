@@ -9,7 +9,7 @@ interface PieSegment {
 interface PieChartProps {
   segments: PieSegment[];
   size?: number;
-  centerText?: string;
+  centerText?: React.ReactNode;
   centerSubtext?: string;
 }
 
