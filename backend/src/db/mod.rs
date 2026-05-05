@@ -610,7 +610,7 @@ mod tests {
         let (records, total) = db.get_execution_records(todo_id, 100, 0).await;
         assert_eq!(total, 1);
         let record = records.iter().find(|r| r.id == record_id).unwrap();
-        assert_eq!(record.status, "running");
+        assert_eq!(record.status, crate::models::ExecutionStatus::Running);
         assert_eq!(record.command, "echo hi");
         assert_eq!(record.executor, Some("claudecode".to_string()));
         assert_eq!(record.trigger_type, "manual");
@@ -657,7 +657,7 @@ mod tests {
         db.update_execution_record(record_id, "success", "[{\"type\":\"info\"}]", "done", Some(&usage), Some("claude-3")).await.unwrap();
         let (records, _) = db.get_execution_records(todo_id, 100, 0).await;
         let record = records.iter().find(|r| r.id == record_id).unwrap();
-        assert_eq!(record.status, "success");
+        assert_eq!(record.status, crate::models::ExecutionStatus::Success);
         assert_eq!(record.logs, "[{\"type\":\"info\"}]");
         assert_eq!(record.result, Some("done".to_string()));
         assert_eq!(record.model, Some("claude-3".to_string()));
