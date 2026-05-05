@@ -301,7 +301,7 @@ export function Dashboard({ onBack }: DashboardProps) {
       >
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
           <MiniStat title="标签" value={stats?.total_tags ?? tags.length} prefix={<TagOutlined />} color="#8b5cf6" loading={loading && !stats} />
-          <MiniStat title="调度任务" value={stats?.scheduled_todos ?? 0} prefix={<ClockCircleOutlined />} color="#f59e0b" loading={loading && !stats} />
+          <MiniStat title="定时" value={stats?.scheduled_todos ?? 0} prefix={<ClockCircleOutlined />} color="#f59e0b" loading={loading && !stats} />
           <MiniStat title="总执行" value={stats?.total_executions ?? 0} prefix={<ThunderboltOutlined />} color="#0d9488" loading={loading && !stats} chineseFormat />
           <MiniStat title="总花费" value={stats ? Math.round(stats.total_cost_usd) : 0} suffix="$" prefix={<DollarOutlined />} color="#dc2626" loading={loading && !stats} />
         </div>
