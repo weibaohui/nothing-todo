@@ -138,6 +138,7 @@ mod execution;
 mod scheduler;
 pub mod backup;
 mod config;
+pub mod skills;
 
 // WebSocket handler
 pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
@@ -298,6 +299,10 @@ pub fn create_app(
         .route("/xyz/backup/database/auto", put(backup::update_auto_backup))
         .route("/xyz/backup/database/file", delete(backup::delete_backup_file))
         .route("/xyz/config", get(config::get_config).put(config::update_config))
+        .route("/xyz/skills", get(skills::list_skills))
+        .route("/xyz/skills/compare", get(skills::compare_skills))
+        .route("/xyz/skills/sync", post(skills::sync_skill))
+        .route("/xyz/skills/invocations", get(skills::list_invocations).post(skills::record_invocation))
         .route("/assets/{*path}", get(static_handler))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
         .layer(CompressionLayer::new())

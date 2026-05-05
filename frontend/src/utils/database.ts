@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage } from '../types';
+import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutorSkills, SkillComparison, SkillInvocation } from '../types';
 
 interface ApiResp<T> {
   code: number;
@@ -208,4 +208,30 @@ export async function getConfig(): Promise<import('../types').Config> {
 
 export async function updateConfig(config: import('../types').Config): Promise<import('../types').Config> {
   return unwrap(await api.put<ApiResp<import('../types').Config>>('/xyz/config', config));
+}
+
+// Skills APIs
+
+export async function getSkillsList(): Promise<ExecutorSkills[]> {
+  return unwrap(await api.get<ApiResp<ExecutorSkills[]>>('/xyz/skills'));
+}
+
+export async function getSkillsComparison(): Promise<SkillComparison[]> {
+  return unwrap(await api.get<ApiResp<SkillComparison[]>>('/xyz/skills/compare'));
+}
+
+export async function syncSkill(sourceExecutor: string, skillName: string, targetExecutors: string[]): Promise<string> {
+  return unwrap(await api.post<ApiResp<string>>('/xyz/skills/sync', {
+    source_executor: sourceExecutor,
+    skill_name: skillName,
+    target_executors: targetExecutors,
+  }));
+}
+
+export async function getSkillInvocations(params?: { page?: number; limit?: number; skill_name?: string; executor?: string }): Promise<SkillInvocation[]> {
+  return unwrap(await api.get<ApiResp<SkillInvocation[]>>('/xyz/skills/invocations', { params }));
+}
+
+export async function recordSkillInvocation(data: { skill_name: string; executor: string; todo_id: number; status: string; duration_ms?: number }): Promise<number> {
+  return unwrap(await api.post<ApiResp<number>>('/xyz/skills/invocations', data));
 }
