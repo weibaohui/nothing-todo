@@ -7,7 +7,7 @@ use crate::adapters::parse_executor_type;
 use crate::executor_service::run_todo_execution;
 use crate::handlers::{ApiJson, AppError, AppState};
 use crate::models::{
-    ApiResponse, DashboardStats, ExecuteRequest, ExecutionRecordsPage, ExecutionSummary, TodoIdQuery,
+    ApiResponse, DashboardStats, ExecuteRequest, ExecutionRecordsPage, ExecutionStatus, ExecutionSummary, TodoIdQuery,
 };
 
 pub async fn get_execution_records(
@@ -103,7 +103,7 @@ pub async fn stop_execution_handler(
     let record = state.db.get_execution_record(req.record_id).await
         .ok_or(AppError::BadRequest("Execution record not found".to_string()))?;
 
-    if record.status != "running" {
+    if record.status != ExecutionStatus::Running {
         return Err(AppError::BadRequest("Execution record is not running".to_string()));
     }
 
@@ -143,7 +143,7 @@ pub async fn resume_execution_handler(
     let record = state.db.get_execution_record(id).await
         .ok_or(AppError::NotFound)?;
 
-    if record.status == "running" {
+    if record.status == ExecutionStatus::Running {
         return Err(AppError::BadRequest("Cannot resume a running execution".to_string()));
     }
 
@@ -219,6 +219,6 @@ pub async fn get_dashboard_stats(
 pub async fn get_running_todos(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<Vec<crate::models::Todo>>, AppError> {
-    let running_todos = state.db.get_running_todos().await;
+    let running_todos = state.db.get_running_todos().await?;
     Ok(ApiResponse::ok(running_todos))
 }

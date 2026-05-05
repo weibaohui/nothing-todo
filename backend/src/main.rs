@@ -1,10 +1,9 @@
 use std::sync::Arc;
-use clap::{Parser, Subcommand, ValueEnum};
-use serde::{Deserialize, Serialize};
+use clap::{Parser, Subcommand};
 use tokio::sync::broadcast;
 use tracing::info;
 
-use ntd::{adapters, cli, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager, tunnel};
+use ntd::{adapters, cli, daemon, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager, tunnel};
 
 /// ntd - Nothing Todo
 #[derive(Parser)]
@@ -16,7 +15,7 @@ struct Cli {
 
     /// Output format
     #[arg(short, long, default_value = "json", value_enum)]
-    output: OutputFormat,
+    output: cli::OutputFormat,
 
     /// Select fields to output (comma-separated, e.g. "id,title,status")
     #[arg(short, long)]
@@ -24,16 +23,6 @@ struct Cli {
 
     #[command(subcommand)]
     command: Option<Commands>,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum OutputFormat {
-    #[default]
-    Json,
-    Pretty,
-    /// Output raw data without ApiResponse wrapper (best for AI parsing)
-    Raw,
 }
 
 #[derive(Subcommand)]
@@ -64,6 +53,11 @@ enum Commands {
     },
     /// Global statistics
     Stats,
+    /// Manage ntd daemon service (install/uninstall/start/stop/restart/status)
+    Daemon {
+        #[command(subcommand)]
+        action: daemon::DaemonAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -115,7 +109,7 @@ async fn main() {
         Some(Commands::Todo { action }) => {
             let cli = cli::Cli {
                 server: cli.server.clone(),
-                output: output_to_cli(&cli.output),
+                output: cli.output,
                 fields: cli.fields.clone(),
                 command: cli::Commands::Todo { action: action.clone() },
             };
@@ -128,7 +122,7 @@ async fn main() {
         Some(Commands::Tag { action }) => {
             let cli = cli::Cli {
                 server: cli.server.clone(),
-                output: output_to_cli(&cli.output),
+                output: cli.output,
                 fields: cli.fields.clone(),
                 command: cli::Commands::Tag { action: action.clone() },
             };
@@ -141,7 +135,7 @@ async fn main() {
         Some(Commands::Stats) => {
             let cli = cli::Cli {
                 server: cli.server.clone(),
-                output: output_to_cli(&cli.output),
+                output: cli.output,
                 fields: cli.fields.clone(),
                 command: cli::Commands::Stats,
             };
@@ -151,19 +145,15 @@ async fn main() {
             }
             return;
         }
+        Some(Commands::Daemon { action }) => {
+            daemon::handle_daemon_command(action);
+            return;
+        }
         None => {
             // No subcommand: start server by default
             println!("Starting ntd server...");
             run_server(None).await;
         }
-    }
-}
-
-fn output_to_cli(output: &OutputFormat) -> cli::OutputFormat {
-    match output {
-        OutputFormat::Json => cli::OutputFormat::Json,
-        OutputFormat::Pretty => cli::OutputFormat::Pretty,
-        OutputFormat::Raw => cli::OutputFormat::Raw,
     }
 }
 
@@ -242,7 +232,8 @@ async fn run_server(cli_port: Option<u16>) {
         sched
     });
 
-    let app = handlers::create_app(db, executor_registry, tx, scheduler, task_manager);
+    let config = Arc::new(tokio::sync::RwLock::new(cfg.clone()));
+    let app = handlers::create_app(db, executor_registry, tx, scheduler, task_manager, config);
 
     let port = cli_port.unwrap_or(cfg.port);
 

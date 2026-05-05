@@ -4,16 +4,22 @@ use sea_orm::{
 
 use crate::db::Database;
 use crate::db::entity::execution_records;
-use crate::models::{ExecutionRecord, ExecutionSummary, ExecutionUsage};
+use crate::models::{ExecutionRecord, ExecutionStatus, ExecutionSummary, ExecutionUsage};
 
 impl From<execution_records::Model> for ExecutionRecord {
     fn from(m: execution_records::Model) -> Self {
         let usage = m.usage.as_deref().and_then(|u| serde_json::from_str(u).ok());
         let execution_stats = m.execution_stats.as_deref().and_then(|s| serde_json::from_str(s).ok());
+        let status = m.status.as_deref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_else(|| {
+                tracing::warn!("Failed to parse execution status, defaulting to Running: {:?}", m.status);
+                ExecutionStatus::Running
+            });
         ExecutionRecord {
             id: m.id,
             todo_id: m.todo_id.unwrap_or(0),
-            status: m.status.unwrap_or_default(),
+            status,
             command: m.command.unwrap_or_default(),
             stdout: m.stdout.unwrap_or_default(),
             stderr: m.stderr.unwrap_or_default(),
@@ -121,11 +127,27 @@ impl Database {
         usage: Option<&ExecutionUsage>,
         model: Option<&str>,
     ) -> Result<(), sea_orm::DbErr> {
+        // Merge new logs with existing logs in DB (since periodic flush may have drained in-memory vec)
+        let existing: Option<String> = execution_records::Entity::find_by_id(id)
+            .one(&self.conn)
+            .await?
+            .and_then(|r| r.logs);
+
+        let merged_logs = match existing {
+            Some(ref json) if !json.is_empty() && json != "[]" => {
+                let mut base: Vec<serde_json::Value> = serde_json::from_str(json).unwrap_or_default();
+                let append: Vec<serde_json::Value> = serde_json::from_str(logs).unwrap_or_default();
+                base.extend(append);
+                serde_json::to_string(&base).unwrap_or_else(|_| logs.to_string())
+            }
+            _ => logs.to_string(),
+        };
+
         let now = crate::models::utc_timestamp();
         let am = execution_records::ActiveModel {
             id: ActiveValue::Unchanged(id),
             status: ActiveValue::Set(Some(status.to_string())),
-            logs: ActiveValue::Set(Some(logs.to_string())),
+            logs: ActiveValue::Set(Some(merged_logs)),
             result: ActiveValue::Set(Some(result.to_string())),
             usage: ActiveValue::Set(usage.map(|u| serde_json::to_string(u).unwrap_or_else(|e| { tracing::error!("Failed to serialize usage: {}", e); String::new() }))),
             model: ActiveValue::Set(model.map(|s| s.to_string())),
@@ -175,23 +197,41 @@ impl Database {
         self.exec_update(am).await
     }
 
-    /// 更新执行记录的 logs 字段（定时批量写入，防止崩溃丢失）
-    pub async fn update_execution_record_logs(&self, id: i64, logs_json: &str) -> Result<(), sea_orm::DbErr> {
+    /// 追加日志条目到执行记录（读取已有日志 + 合并新条目 + 写回，防止覆盖）
+    pub async fn append_execution_record_logs(&self, id: i64, new_logs_json: &str) -> Result<(), sea_orm::DbErr> {
+        let existing: Option<String> = execution_records::Entity::find_by_id(id)
+            .one(&self.conn)
+            .await?
+            .and_then(|r| r.logs);
+
+        let merged = match existing {
+            Some(ref json) if !json.is_empty() && json != "[]" => {
+                let mut base: Vec<serde_json::Value> = match serde_json::from_str(json) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse existing logs JSON for record {}: {}", id, e);
+                        Vec::new()
+                    }
+                };
+                let append: Vec<serde_json::Value> = match serde_json::from_str(new_logs_json) {
+                    Ok(a) => a,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse new logs JSON for record {}: {}", id, e);
+                        Vec::new()
+                    }
+                };
+                base.extend(append);
+                serde_json::to_string(&base).unwrap_or_else(|_| new_logs_json.to_string())
+            }
+            _ => new_logs_json.to_string(),
+        };
+
         let am = execution_records::ActiveModel {
             id: ActiveValue::Unchanged(id),
-            logs: ActiveValue::Set(Some(logs_json.to_string())),
+            logs: ActiveValue::Set(Some(merged)),
             ..Default::default()
         };
         self.exec_update(am).await
-    }
-
-    /// 根据 pid 获取执行记录
-    pub async fn get_execution_record_by_pid(&self, pid: i32) -> Option<execution_records::Model> {
-        execution_records::Entity::find()
-            .filter(execution_records::Column::Pid.eq(pid))
-            .one(&self.conn)
-            .await
-            .unwrap_or_default()
     }
 
     /// 根据 session_id 获取所有执行记录（按 started_at 排序）
@@ -207,62 +247,73 @@ impl Database {
             .collect()
     }
 
-    /// 根据 pid 停止执行记录
-    pub async fn stop_execution_by_pid(&self, pid: i32) -> Result<bool, sea_orm::DbErr> {
-        if let Some(record) = self.get_execution_record_by_pid(pid).await {
-            // 只更新这一条执行记录，不影响 todo 的状态
-            let now = crate::models::utc_timestamp();
-            let am = execution_records::ActiveModel {
-                id: ActiveValue::Unchanged(record.id),
-                status: ActiveValue::Set(Some(crate::models::ExecutionStatus::Failed.as_str().to_string())),
-                finished_at: ActiveValue::Set(Some(now)),
-                result: ActiveValue::Set(Some("任务已被手动停止".to_string())),
-                pid: ActiveValue::Set(None),
-                ..Default::default()
-            };
-            self.exec_update(am).await?;
-
-            tracing::info!("Stopped execution record {} with pid {}", record.id, pid);
-            return Ok(true);
-        }
-        Ok(false)
-    }
-
     pub async fn get_dashboard_stats(&self) -> crate::models::DashboardStats {
         use std::collections::HashMap;
 
-        let todos = self.get_todos().await;
-        let total_todos = todos.len() as i64;
-        let pending_todos = todos.iter().filter(|t| t.status == crate::models::TodoStatus::Pending).count() as i64;
-        let running_todos = todos.iter().filter(|t| t.status == crate::models::TodoStatus::Running).count() as i64;
-        let completed_todos = todos.iter().filter(|t| t.status == crate::models::TodoStatus::Completed).count() as i64;
-        let failed_todos = todos.iter().filter(|t| t.status == crate::models::TodoStatus::Failed).count() as i64;
-        let scheduled_todos = todos.iter().filter(|t| t.scheduler_enabled && t.scheduler_config.is_some()).count() as i64;
-
-        let tags = self.get_tags().await;
-        let total_tags = tags.len() as i64;
-
-        let todo_ids: Vec<i64> = todos.iter().map(|t| t.id).collect();
-        let tag_map = self.fetch_tag_ids_for_many(&todo_ids).await;
-
-        // Build executor and tag stat templates from todos
-        let mut executor_todo_counts: HashMap<String, i64> = HashMap::new();
-        for t in &todos {
-            let exec = t.executor.as_deref().unwrap_or("claudecode").to_string();
-            *executor_todo_counts.entry(exec).or_insert(0) += 1;
-        }
-
-        let mut tag_todo_counts: HashMap<i64, i64> = HashMap::new();
-        for (_, tids) in &tag_map {
-            for tid in tids {
-                *tag_todo_counts.entry(*tid).or_insert(0) += 1;
-            }
-        }
-
-        // SQL-based aggregation for execution records (avoids loading all records into memory)
         let backend = self.conn.get_database_backend();
 
-        // 1. Overall execution stats with token aggregation
+        // 1. Todo status counts via SQL (replaces get_todos() + in-memory filtering)
+        let todo_sql = "SELECT \
+            COUNT(*) as total, \
+            COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) as pending, \
+            COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), 0) as running, \
+            COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) as completed, \
+            COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed, \
+            COALESCE(SUM(CASE WHEN scheduler_enabled = 1 AND scheduler_config IS NOT NULL THEN 1 ELSE 0 END), 0) as scheduled \
+            FROM todos WHERE deleted_at IS NULL";
+
+        let (total_todos, pending_todos, running_todos, completed_todos, failed_todos, scheduled_todos) =
+            if let Ok(Some(row)) = self.conn.query_one(Statement::from_string(backend, todo_sql.to_string())).await {
+                (
+                    row.try_get_by("total").unwrap_or(0i64),
+                    row.try_get_by("pending").unwrap_or(0i64),
+                    row.try_get_by("running").unwrap_or(0i64),
+                    row.try_get_by("completed").unwrap_or(0i64),
+                    row.try_get_by("failed").unwrap_or(0i64),
+                    row.try_get_by("scheduled").unwrap_or(0i64),
+                )
+            } else {
+                (0i64, 0i64, 0i64, 0i64, 0i64, 0i64)
+            };
+
+        let tags = self.get_tags().await.unwrap();
+        let total_tags = tags.len() as i64;
+
+        // Executor todo counts via SQL (replaces in-memory iteration over all todos)
+        let executor_todo_sql = "SELECT \
+            COALESCE(executor, 'claudecode') as executor, \
+            COUNT(*) as todo_count \
+            FROM todos WHERE deleted_at IS NULL \
+            GROUP BY COALESCE(executor, 'claudecode')";
+
+        let executor_todo_counts: HashMap<String, i64> = self.conn
+            .query_all(Statement::from_string(backend, executor_todo_sql.to_string()))
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|row| {
+                let exec: String = row.try_get_by("executor").ok()?;
+                let count: i64 = row.try_get_by("todo_count").ok()?;
+                Some((exec, count))
+            })
+            .collect();
+
+        // Tag todo counts via SQL (replaces fetch_tag_ids_for_many + in-memory counting)
+        let tag_todo_sql = "SELECT tag_id, COUNT(*) as todo_count FROM todo_tags GROUP BY tag_id";
+
+        let tag_todo_counts: HashMap<i64, i64> = self.conn
+            .query_all(Statement::from_string(backend, tag_todo_sql.to_string()))
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|row| {
+                let tag_id: i64 = row.try_get_by("tag_id").ok()?;
+                let count: i64 = row.try_get_by("todo_count").ok()?;
+                Some((tag_id, count))
+            })
+            .collect();
+
+        // 2. Overall execution stats with token aggregation
         let overall_sql = "SELECT \
             COUNT(*) as total, \
             COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success, \
@@ -297,7 +348,7 @@ impl Database {
 
         let avg_duration_ms = if duration_count > 0 { total_duration / duration_count } else { 0 };
 
-        // 2. Executor distribution via SQL
+        // 3. Executor distribution via SQL
         let executor_sql = "SELECT \
             COALESCE(executor, 'claudecode') as executor, \
             COUNT(*) as execution_count, \
@@ -337,7 +388,7 @@ impl Database {
             .collect();
         executor_distribution.sort_by(|a, b| b.execution_count.cmp(&a.execution_count));
 
-        // 3. Model distribution via SQL
+        // 4. Model distribution via SQL
         let model_sql = "SELECT \
             COALESCE(model, 'unknown') as model, \
             COUNT(*) as execution_count, \
@@ -383,7 +434,7 @@ impl Database {
             .collect();
         model_distribution.sort_by(|a, b| b.execution_count.cmp(&a.execution_count));
 
-        // 4. Daily execution stats via SQL
+        // 5. Daily execution stats via SQL
         let daily_sql = "SELECT \
             SUBSTR(COALESCE(started_at, ''), 1, 10) as day, \
             COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success, \
@@ -429,7 +480,7 @@ impl Database {
         daily_executions.reverse();
         daily_token_stats.reverse();
 
-        // 5. Tag distribution via SQL (join through todo_tags)
+        // 6. Tag distribution via SQL (join through todo_tags)
         let tag_sql = "SELECT \
             tt.tag_id, \
             COUNT(*) as execution_count, \
@@ -479,7 +530,7 @@ impl Database {
         }).collect();
         tag_distribution.sort_by(|a, b| b.execution_count.cmp(&a.execution_count));
 
-        // 6. Recent executions (only load 10 rows, not the entire table)
+        // 7. Recent executions (only load 10 rows, not the entire table)
         let recent_records = execution_records::Entity::find()
             .order_by_desc(execution_records::Column::StartedAt)
             .limit(10)
@@ -599,30 +650,4 @@ impl Database {
         }
     }
 
-    /// 标记指定todo的所有running状态执行记录为failed
-    pub async fn mark_execution_records_as_failed(&self, todo_id: i64) {
-        let now = crate::models::utc_timestamp();
-        let backend = self.conn.get_database_backend();
-        let sql = "UPDATE execution_records SET \
-                status = 'failed', \
-                finished_at = $1, \
-                result = '任务已被手动停止' \
-                WHERE todo_id = $2 AND status = 'running'";
-        let result = self.conn.execute(Statement::from_sql_and_values(backend, sql, [now.into(), todo_id.into()])).await;
-        match result {
-            Ok(res) => {
-                let rows = res.rows_affected();
-                if rows > 0 {
-                    tracing::warn!(
-                        "Marked {} running execution records as failed for todo {}",
-                        rows,
-                        todo_id
-                    );
-                }
-            }
-            Err(e) => {
-                tracing::error!("Failed to mark execution records as failed for todo {}: {}", todo_id, e);
-            }
-        }
-    }
 }

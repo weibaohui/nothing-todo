@@ -261,13 +261,13 @@ pub async fn run_todo_execution(
                         let prev = unflushed_for_stdout.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         if prev + 1 >= FLUSH_COUNT_THRESHOLD && !flush_pending_for_stdout.swap(true, std::sync::atomic::Ordering::Relaxed) {
                             unflushed_for_stdout.store(0, std::sync::atomic::Ordering::Relaxed);
-                            let snapshot = logs_for_db.lock().await.clone();
+                            let snapshot = std::mem::take(&mut *logs_for_db.lock().await);
                             let db_flush = db_for_todo.clone();
                             let rid_flush = rid;
                             let fp = flush_pending_for_stdout.clone();
                             let h = tokio::spawn(async move {
                                 if let Ok(json) = serde_json::to_string(&snapshot) {
-                                    let _ = db_flush.update_execution_record_logs(rid_flush, &json).await;
+                                    let _ = db_flush.append_execution_record_logs(rid_flush, &json).await;
                                 }
                                 fp.store(false, std::sync::atomic::Ordering::Relaxed);
                             });
@@ -304,13 +304,13 @@ pub async fn run_todo_execution(
                     let prev = unflushed_for_stderr.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     if prev + 1 >= FLUSH_COUNT_THRESHOLD && !flush_for_stderr.swap(true, std::sync::atomic::Ordering::Relaxed) {
                         unflushed_for_stderr.store(0, std::sync::atomic::Ordering::Relaxed);
-                        let snapshot = logs_for_stderr.lock().await.clone();
+                        let snapshot = std::mem::take(&mut *logs_for_stderr.lock().await);
                         let db_flush = db_for_stderr.clone();
                         let rid_flush = rid_for_stderr;
                         let fp = flush_for_stderr.clone();
                         let h = tokio::spawn(async move {
                             if let Ok(json) = serde_json::to_string(&snapshot) {
-                                let _ = db_flush.update_execution_record_logs(rid_flush, &json).await;
+                                let _ = db_flush.append_execution_record_logs(rid_flush, &json).await;
                             }
                             fp.store(false, std::sync::atomic::Ordering::Relaxed);
                         });
@@ -338,13 +338,13 @@ pub async fn run_todo_execution(
                 }
                 let n = timer_uc.swap(0, std::sync::atomic::Ordering::Relaxed);
                 if n > 0 && !timer_fp.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                    let snapshot = timer_logs.lock().await.clone();
+                    let snapshot = std::mem::take(&mut *timer_logs.lock().await);
                     let db_f = timer_db.clone();
                     let rid_f = record_id;
                     let fp = timer_fp.clone();
                     let h = tokio::spawn(async move {
                         if let Ok(json) = serde_json::to_string(&snapshot) {
-                            let _ = db_f.update_execution_record_logs(rid_f, &json).await;
+                            let _ = db_f.append_execution_record_logs(rid_f, &json).await;
                         }
                         fp.store(false, std::sync::atomic::Ordering::Relaxed);
                     });
@@ -427,13 +427,28 @@ pub async fn run_todo_execution(
             }
         }
 
-        let all_logs_snapshot = logs_for_result.lock().await.clone();
-        let result_str = executor_spawn.get_final_result(&all_logs_snapshot).unwrap_or_default();
-
         // 等待所有进行中的 flush 任务完成，防止旧快照覆盖最终写入
         for h in flush_handles.lock().await.drain(..) {
             let _ = h.await;
         }
+
+        // 从数据库读取完整的日志集（因为定期 flush 会 drain 内存中的 vec）
+        let remaining = std::mem::take(&mut *logs_for_result.lock().await);
+        let all_logs_snapshot = match db_clone.get_execution_record(record_id).await {
+            Some(record) if !record.logs.is_empty() && record.logs != "[]" => {
+                let mut base: Vec<ParsedLogEntry> = match serde_json::from_str(&record.logs) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse execution logs JSON, record_id={}: {}", record_id, e);
+                        Vec::new()
+                    }
+                };
+                base.extend(remaining);
+                base
+            }
+            _ => remaining,
+        };
+        let result_str = executor_spawn.get_final_result(&all_logs_snapshot).unwrap_or_default();
 
         // Extract execution stats from logs
         // tool_calls: tool_use (claudecode), tool_call (kimi), tool (atomcode, opencode)

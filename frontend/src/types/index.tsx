@@ -260,3 +260,54 @@ export function supportsResume(record: ExecutionRecord): boolean {
 export function getExecutorOption(value: string): ExecutorOption {
   return EXECUTORS.find(e => e.value === value.toLowerCase()) || EXECUTORS[0];
 }
+
+// Skills types
+export interface SkillMeta {
+  name: string;
+  description: string;
+  version: string | null;
+  author: string | null;
+  license: string | null;
+  keywords: string[];
+  file_count: number;
+  total_size: number;
+  modified_at: string | null;
+}
+
+export interface ExecutorSkills {
+  executor: string;
+  executor_label: string;
+  skills_dir: string;
+  skills_dir_exists: boolean;
+  skills: SkillMeta[];
+}
+
+export interface SkillPresence {
+  present: boolean;
+  version: string | null;
+  modified_at: string | null;
+}
+
+export interface SkillComparison {
+  skill_name: string;
+  description: string;
+  executors: Record<string, SkillPresence>;
+}
+
+export interface SkillInvocation {
+  id: number;
+  skill_name: string;
+  executor: string;
+  todo_id: number;
+  todo_title: string | null;
+  invoked_at: string;
+  status: string;
+  duration_ms: number | null;
+}
+
+export interface PaginatedInvocations {
+  items: SkillInvocation[];
+  total: number;
+  page: number;
+  limit: number;
+}

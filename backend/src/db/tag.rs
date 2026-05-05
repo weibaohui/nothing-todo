@@ -9,12 +9,12 @@ use crate::models::Tag;
 use crate::models::TagBackup;
 
 impl Database {
-    pub async fn get_tags(&self) -> Vec<Tag> {
-        tags::Entity::find()
+    pub async fn get_tags(&self) -> Result<Vec<Tag>, sea_orm::DbErr> {
+        let models = tags::Entity::find()
             .order_by_asc(tags::Column::Name)
             .all(&self.conn)
-            .await
-            .unwrap_or_default()
+            .await?;
+        Ok(models
             .into_iter()
             .map(|m| Tag {
                 id: m.id,
@@ -22,7 +22,7 @@ impl Database {
                 color: m.color.unwrap_or_default(),
                 created_at: m.created_at.unwrap_or_default(),
             })
-            .collect()
+            .collect())
     }
 
     pub async fn create_tag(&self, name: &str, color: &str) -> Result<i64, sea_orm::DbErr> {
@@ -48,7 +48,7 @@ impl Database {
             todo_id: ActiveValue::Set(todo_id),
             tag_id: ActiveValue::Set(tag_id),
         };
-        let _ = todo_tags::Entity::insert(am)
+        if let Err(e) = todo_tags::Entity::insert(am)
             .on_conflict(
                 sea_orm::sea_query::OnConflict::columns([
                     todo_tags::Column::TodoId,
@@ -58,12 +58,15 @@ impl Database {
                 .to_owned(),
             )
             .exec(&self.conn)
-            .await;
+            .await
+        {
+            tracing::warn!("Failed to add tag {} to todo {}: {}", tag_id, todo_id, e);
+        }
     }
 
     pub async fn set_todo_tags(&self, todo_id: i64, tag_ids: &[i64]) {
         let tag_ids = tag_ids.to_vec();
-        let _ = self
+        if let Err(e) = self
             .conn
             .transaction::<_, (), sea_orm::DbErr>(|txn| {
                 Box::pin(async move {
@@ -99,7 +102,10 @@ impl Database {
                     Ok(())
                 })
             })
-            .await;
+            .await
+        {
+            tracing::warn!("Failed to set tags for todo {}: {}", todo_id, e);
+        }
     }
 
     pub async fn get_tag_backups(&self) -> Vec<TagBackup> {

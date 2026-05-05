@@ -33,40 +33,39 @@ impl Database {
         }
     }
 
-    pub(crate) async fn fetch_tag_ids_for_many(&self, todo_ids: &[i64]) -> std::collections::HashMap<i64, Vec<i64>> {
+    pub(crate) async fn fetch_tag_ids_for_many(&self, todo_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<i64>>, sea_orm::DbErr> {
         if todo_ids.is_empty() {
-            return std::collections::HashMap::new();
+            return Ok(std::collections::HashMap::new());
         }
-        todo_tags::Entity::find()
+        let models = todo_tags::Entity::find()
             .filter(todo_tags::Column::TodoId.is_in(todo_ids.to_vec()))
             .all(&self.conn)
-            .await
-            .unwrap_or_default()
+            .await?;
+        Ok(models
             .into_iter()
             .fold(std::collections::HashMap::new(), |mut map, t| {
                 map.entry(t.todo_id).or_default().push(t.tag_id);
                 map
-            })
+            }))
     }
 
-    pub async fn get_todos(&self) -> Vec<Todo> {
+    pub async fn get_todos(&self) -> Result<Vec<Todo>, sea_orm::DbErr> {
         let models = todos::Entity::find()
             .filter(todos::Column::DeletedAt.is_null())
             .order_by_desc(todos::Column::UpdatedAt)
             .all(&self.conn)
-            .await
-            .unwrap_or_default();
+            .await?;
 
         let ids: Vec<i64> = models.iter().map(|m| m.id).collect();
-        let tag_map = self.fetch_tag_ids_for_many(&ids).await;
+        let tag_map = self.fetch_tag_ids_for_many(&ids).await?;
 
-        models
+        Ok(models
             .into_iter()
             .map(|m| {
                 let tag_ids = tag_map.get(&m.id).cloned().unwrap_or_default();
                 Self::model_to_todo(m, tag_ids)
             })
-            .collect()
+            .collect())
     }
 
     pub async fn create_todo(&self, title: &str, prompt: &str) -> Result<i64, sea_orm::DbErr> {
@@ -207,46 +206,44 @@ impl Database {
         Some(Self::model_to_todo(model, tag_ids))
     }
 
-    pub async fn get_scheduler_todos(&self) -> Vec<Todo> {
+    pub async fn get_scheduler_todos(&self) -> Result<Vec<Todo>, sea_orm::DbErr> {
         let models = todos::Entity::find()
             .filter(todos::Column::DeletedAt.is_null())
             .filter(todos::Column::SchedulerEnabled.eq(true))
             .filter(todos::Column::SchedulerConfig.is_not_null())
             .all(&self.conn)
-            .await
-            .unwrap_or_default();
+            .await?;
 
         let ids: Vec<i64> = models.iter().map(|m| m.id).collect();
-        let tag_map = self.fetch_tag_ids_for_many(&ids).await;
+        let tag_map = self.fetch_tag_ids_for_many(&ids).await?;
 
-        models
+        Ok(models
             .into_iter()
             .map(|m| {
                 let tag_ids = tag_map.get(&m.id).cloned().unwrap_or_default();
                 Self::model_to_todo(m, tag_ids)
             })
-            .collect()
+            .collect())
     }
 
-    pub async fn get_running_todos(&self) -> Vec<Todo> {
+    pub async fn get_running_todos(&self) -> Result<Vec<Todo>, sea_orm::DbErr> {
         let models = todos::Entity::find()
             .filter(todos::Column::DeletedAt.is_null())
             .filter(todos::Column::Status.eq(TodoStatus::Running.to_string()))
             .filter(todos::Column::TaskId.is_not_null())
             .all(&self.conn)
-            .await
-            .unwrap_or_default();
+            .await?;
 
         let ids: Vec<i64> = models.iter().map(|m| m.id).collect();
-        let tag_map = self.fetch_tag_ids_for_many(&ids).await;
+        let tag_map = self.fetch_tag_ids_for_many(&ids).await?;
 
-        models
+        Ok(models
             .into_iter()
             .map(|m| {
                 let tag_ids = tag_map.get(&m.id).cloned().unwrap_or_default();
                 Self::model_to_todo(m, tag_ids)
             })
-            .collect()
+            .collect())
     }
 
     pub async fn update_todo_status(&self, todo_id: i64, status: TodoStatus) -> Result<(), sea_orm::DbErr> {
@@ -294,7 +291,7 @@ impl Database {
             .await
             .unwrap_or(None)?;
 
-        let tag_map = self.fetch_tag_ids_for_many(&[model.id]).await;
+        let tag_map = self.fetch_tag_ids_for_many(&[model.id]).await.unwrap();
         let tag_ids = tag_map.get(&model.id).cloned().unwrap_or_default();
         Some(Self::model_to_todo(model, tag_ids))
     }
@@ -308,7 +305,7 @@ impl Database {
             .unwrap_or_default();
 
         let ids: Vec<i64> = models.iter().map(|m| m.id).collect();
-        let tag_map = self.fetch_tag_ids_for_many(&ids).await;
+        let tag_map = self.fetch_tag_ids_for_many(&ids).await.unwrap();
 
         // 获取所有标签 id -> name 映射
         let all_tags: std::collections::HashMap<i64, String> = tags::Entity::find()
@@ -354,7 +351,7 @@ impl Database {
             .unwrap_or_default();
 
         let model_ids: Vec<i64> = models.iter().map(|m| m.id).collect();
-        let tag_map = self.fetch_tag_ids_for_many(&model_ids).await;
+        let tag_map = self.fetch_tag_ids_for_many(&model_ids).await.unwrap();
 
         let all_tags: std::collections::HashMap<i64, String> = tags::Entity::find()
             .all(&self.conn)
@@ -393,29 +390,6 @@ impl Database {
         }
         tags::Entity::find()
             .filter(tags::Column::Name.is_in(names.iter().map(|s| s.to_string()).collect::<Vec<_>>()))
-            .all(&self.conn)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|t| crate::models::TagBackup {
-                name: t.name,
-                color: t.color.unwrap_or_default(),
-            })
-            .collect()
-    }
-
-    /// 获取指定 todo 列表中涉及的所有 tag 备份数据
-    pub async fn get_tag_backups_for_todos(&self, ids: &[i64]) -> Vec<crate::models::TagBackup> {
-        if ids.is_empty() {
-            return Vec::new();
-        }
-        let tag_map = self.fetch_tag_ids_for_many(ids).await;
-        let tag_ids: std::collections::HashSet<i64> = tag_map.values().flat_map(|v| v.iter()).copied().collect();
-        if tag_ids.is_empty() {
-            return Vec::new();
-        }
-        tags::Entity::find()
-            .filter(tags::Column::Id.is_in(tag_ids.into_iter().collect::<Vec<_>>()))
             .all(&self.conn)
             .await
             .unwrap_or_default()
@@ -503,26 +477,25 @@ impl Database {
 
         let txn = self.conn.begin().await?;
 
-        // 确保所有 tag 都存在（不存在则创建）
+        // 确保所有 tag 都存在（不存在则创建），并构建 name -> id 映射
+        let mut tag_name_map: std::collections::HashMap<String, i64> = tags::Entity::find()
+            .all(&txn)
+            .await?
+            .into_iter()
+            .map(|t| (t.name, t.id))
+            .collect();
+
         for tag in tags_in {
-            // find_or_create_tag
-            {
-                use crate::db::entity::tags;
-                if tags::Entity::find()
-                    .filter(tags::Column::Name.eq(&tag.name))
-                    .one(&txn)
-                    .await?
-                    .is_none()
-                {
-                    let now = crate::models::utc_timestamp();
-                    let am = tags::ActiveModel {
-                        name: ActiveValue::Set(tag.name.clone()),
-                        color: ActiveValue::Set(Some(tag.color.clone())),
-                        created_at: ActiveValue::Set(Some(now)),
-                        ..Default::default()
-                    };
-                    am.insert(&txn).await?;
-                }
+            if !tag_name_map.contains_key(&tag.name) {
+                let now = crate::models::utc_timestamp();
+                let am = tags::ActiveModel {
+                    name: ActiveValue::Set(tag.name.clone()),
+                    color: ActiveValue::Set(Some(tag.color.clone())),
+                    created_at: ActiveValue::Set(Some(now)),
+                    ..Default::default()
+                };
+                let inserted = am.insert(&txn).await?;
+                tag_name_map.insert(tag.name.clone(), inserted.id);
             }
         }
 
@@ -555,12 +528,7 @@ impl Database {
                     .exec(&txn)
                     .await?;
                 for tag_name in &todo.tag_names {
-                    if let Some(tid) = tags::Entity::find()
-                        .filter(tags::Column::Name.eq(tag_name))
-                        .one(&txn)
-                        .await?
-                        .map(|t| t.id)
-                    {
+                    if let Some(&tid) = tag_name_map.get(tag_name) {
                         let rel = todo_tags::ActiveModel {
                             todo_id: ActiveValue::Set(saved.id),
                             tag_id: ActiveValue::Set(tid),
@@ -597,12 +565,7 @@ impl Database {
                 let inserted = am.insert(&txn).await?;
 
                 for tag_name in &todo.tag_names {
-                    if let Some(tid) = tags::Entity::find()
-                        .filter(tags::Column::Name.eq(tag_name))
-                        .one(&txn)
-                        .await?
-                        .map(|t| t.id)
-                    {
+                    if let Some(&tid) = tag_name_map.get(tag_name) {
                         let rel = todo_tags::ActiveModel {
                             todo_id: ActiveValue::Set(inserted.id),
                             tag_id: ActiveValue::Set(tid),

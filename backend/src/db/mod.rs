@@ -47,6 +47,10 @@ impl Database {
 
         let conn = SeaDatabase::connect(opt).await?;
         let db = Self { conn };
+
+        // Set busy_timeout via PRAGMA (SQLite connection-level setting)
+        db.exec("PRAGMA busy_timeout = 5000").await?;
+
         db.init_tables().await?;
         Ok(db)
     }
@@ -172,6 +176,21 @@ impl Database {
         )
         .await.ok(); // 忽略错误，因为字段可能已存在
 
+        // Skill invocations tracking table
+        self.exec(
+            "CREATE TABLE IF NOT EXISTS skill_invocations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                skill_name TEXT NOT NULL,
+                executor TEXT NOT NULL,
+                todo_id INTEGER,
+                status TEXT DEFAULT 'invoked',
+                duration_ms INTEGER,
+                invoked_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc')),
+                FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE
+            )",
+        )
+        .await?;
+
         // --- Indexes for frequently-filtered columns ---
         self.exec("CREATE INDEX IF NOT EXISTS idx_todos_deleted_at ON todos(deleted_at)").await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status)").await?;
@@ -182,6 +201,9 @@ impl Database {
         self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_session_id ON execution_records(session_id)").await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_status ON execution_records(status)").await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_todo_tags_todo_id ON todo_tags(todo_id)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill_name ON skill_invocations(skill_name)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_executor ON skill_invocations(executor)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_todo_id ON skill_invocations(todo_id)").await?;
 
         // Trigger: fill created_at with UTC time on INSERT if not set
         self.exec(
@@ -218,6 +240,7 @@ impl Database {
 mod todo;
 mod tag;
 mod execution;
+mod skills;
 
 #[cfg(test)]
 mod tests {
@@ -303,7 +326,7 @@ mod tests {
         let id = db.create_tag("urgent", "#ff0000").await.unwrap();
         let after = truncate_seconds(Utc::now());
 
-        let tag = db.get_tags().await.into_iter().find(|t| t.id == id).unwrap();
+        let tag = db.get_tags().await.unwrap().into_iter().find(|t| t.id == id).unwrap();
         let created = truncate_seconds(parse_utc(&tag.created_at));
 
         assert!(created >= before);
@@ -374,7 +397,7 @@ mod tests {
         let db = setup_db().await;
         let id = db.create_todo("Active", "Prompt").await.unwrap();
         db.delete_todo(id).await.unwrap();
-        let todos = db.get_todos().await;
+        let todos = db.get_todos().await.unwrap();
         assert!(todos.iter().all(|t| t.id != id));
     }
 
@@ -384,7 +407,7 @@ mod tests {
         let id1 = db.create_todo("First", "Prompt").await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let id2 = db.create_todo("Second", "Prompt").await.unwrap();
-        let todos = db.get_todos().await;
+        let todos = db.get_todos().await.unwrap();
         assert_eq!(todos[0].id, id2);
         assert_eq!(todos[1].id, id1);
     }
@@ -461,7 +484,7 @@ mod tests {
         let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.delete_todo(id).await.unwrap();
         assert!(db.get_todo(id).await.is_none());
-        let todos = db.get_todos().await;
+        let todos = db.get_todos().await.unwrap();
         assert!(todos.iter().all(|t| t.id != id));
     }
 
@@ -502,7 +525,7 @@ mod tests {
         let id1 = db.create_todo("Scheduled", "Prompt").await.unwrap();
         db.update_todo_scheduler(id1, true, Some("0 0 * * *")).await.unwrap();
         let id2 = db.create_todo("Normal", "Prompt").await.unwrap();
-        let scheduled = db.get_scheduler_todos().await;
+        let scheduled = db.get_scheduler_todos().await.unwrap();
         assert_eq!(scheduled.len(), 1);
         assert_eq!(scheduled[0].id, id1);
         assert!(scheduled.iter().all(|t| t.id != id2));
@@ -524,7 +547,7 @@ mod tests {
     async fn test_create_and_get_tag() {
         let db = setup_db().await;
         let id = db.create_tag("urgent", "#ff0000").await.unwrap();
-        let tags = db.get_tags().await;
+        let tags = db.get_tags().await.unwrap();
         let tag = tags.iter().find(|t| t.id == id).unwrap();
         assert_eq!(tag.name, "urgent");
         assert_eq!(tag.color, "#ff0000");
@@ -536,7 +559,7 @@ mod tests {
         db.create_tag("zebra", "#000").await.unwrap();
         db.create_tag("apple", "#fff").await.unwrap();
         db.create_tag("mango", "#aaa").await.unwrap();
-        let tags = db.get_tags().await;
+        let tags = db.get_tags().await.unwrap();
         assert_eq!(tags[0].name, "apple");
         assert_eq!(tags[1].name, "mango");
         assert_eq!(tags[2].name, "zebra");
@@ -547,7 +570,7 @@ mod tests {
         let db = setup_db().await;
         let id = db.create_tag("temp", "#000").await.unwrap();
         db.delete_tag(id).await;
-        let tags = db.get_tags().await;
+        let tags = db.get_tags().await.unwrap();
         assert!(tags.iter().all(|t| t.id != id));
     }
 
@@ -607,7 +630,7 @@ mod tests {
         db.add_todo_tag(todo_id, tag_id).await;
         db.delete_todo(todo_id).await.unwrap();
         // tag should still exist but association should be gone
-        let tags = db.get_tags().await;
+        let tags = db.get_tags().await.unwrap();
         assert!(tags.iter().any(|t| t.id == tag_id));
     }
 
@@ -621,7 +644,7 @@ mod tests {
         let (records, total) = db.get_execution_records(todo_id, 100, 0).await;
         assert_eq!(total, 1);
         let record = records.iter().find(|r| r.id == record_id).unwrap();
-        assert_eq!(record.status, "running");
+        assert_eq!(record.status, crate::models::ExecutionStatus::Running);
         assert_eq!(record.command, "echo hi");
         assert_eq!(record.executor, Some("claudecode".to_string()));
         assert_eq!(record.trigger_type, "manual");
@@ -668,7 +691,7 @@ mod tests {
         db.update_execution_record(record_id, "success", "[{\"type\":\"info\"}]", "done", Some(&usage), Some("claude-3")).await.unwrap();
         let (records, _) = db.get_execution_records(todo_id, 100, 0).await;
         let record = records.iter().find(|r| r.id == record_id).unwrap();
-        assert_eq!(record.status, "success");
+        assert_eq!(record.status, crate::models::ExecutionStatus::Success);
         assert_eq!(record.logs, "[{\"type\":\"info\"}]");
         assert_eq!(record.result, Some("done".to_string()));
         assert_eq!(record.model, Some("claude-3".to_string()));

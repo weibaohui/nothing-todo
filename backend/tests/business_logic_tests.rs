@@ -263,7 +263,7 @@ mod execution_record_tests {
         let record: ExecutionRecord = serde_json::from_str(json).unwrap();
         assert_eq!(record.id, 1);
         assert_eq!(record.todo_id, 10);
-        assert_eq!(record.status, "success");
+        assert_eq!(record.status, ntd::models::ExecutionStatus::Success);
         assert_eq!(record.executor, Some("kimi".to_string()));
         assert!(record.usage.is_some());
         let usage = record.usage.unwrap();
@@ -297,7 +297,7 @@ mod execution_record_tests {
 
         let record: ExecutionRecord = serde_json::from_str(json).unwrap();
         assert_eq!(record.id, 1);
-        assert_eq!(record.status, "running");
+        assert_eq!(record.status, ntd::models::ExecutionStatus::Running);
         assert!(record.usage.is_none());
         assert!(record.pid.is_none());
     }

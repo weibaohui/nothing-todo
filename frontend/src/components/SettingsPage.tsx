@@ -31,6 +31,7 @@ import {
   InboxOutlined,
   DatabaseOutlined,
   ClockCircleOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { Cron } from 'react-js-cron';
 import 'react-js-cron/dist/styles.css';
@@ -40,6 +41,7 @@ import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
 import type { Config, ExecutorPaths } from '../types';
 import yaml from 'js-yaml';
 import { CronPresetSelect } from './CronPresetSelect';
+import { SkillsPanel } from './SkillsPanel';
 
 const { Paragraph } = Typography;
 const { Dragger } = Upload;
@@ -725,6 +727,16 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           </Card>
         </div>
       ),
+    },
+    {
+      key: 'skills',
+      label: (
+        <span>
+          <ThunderboltOutlined style={{ marginRight: 6 }} />
+          Skills 管理
+        </span>
+      ),
+      children: <SkillsPanel />,
     },
   ];
 

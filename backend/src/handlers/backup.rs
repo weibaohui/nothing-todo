@@ -124,7 +124,10 @@ pub async fn download_database(
         return Err(AppError::Internal("Database file not found".to_string()));
     }
 
-    let bytes = std::fs::read(&db_path)
+    let path = db_path.clone();
+    let bytes = tokio::task::spawn_blocking(move || std::fs::read(&path))
+        .await
+        .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?
         .map_err(|e| AppError::Internal(format!("Failed to read database: {}", e)))?;
 
     let filename = format!("ntd-database-{}.db",
@@ -150,14 +153,19 @@ pub async fn trigger_local_backup() -> Result<ApiResponse<String>, AppError> {
     }
 
     let dir = backup_dir();
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| AppError::Internal(format!("Failed to create backup dir: {}", e)))?;
-
-    let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+    let db_path_clone = db_path.clone();
+    let dir_clone = dir.clone();
+    let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
     let backup_path = dir.join(format!("ntd-backup-{}.db", timestamp));
 
-    std::fs::copy(&db_path, &backup_path)
-        .map_err(|e| AppError::Internal(format!("Failed to copy database: {}", e)))?;
+    let backup_path_clone = backup_path.clone();
+    tokio::task::spawn_blocking(move || {
+        std::fs::create_dir_all(&dir_clone)?;
+        std::fs::copy(&db_path_clone, &backup_path_clone)
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?
+    .map_err(|e| AppError::Internal(format!("Failed to copy database: {}", e)))?;
 
     // 清理旧备份，保留最近 30 个
     cleanup_old_backups(30);
@@ -185,30 +193,35 @@ pub async fn get_database_backup_status() -> Result<ApiResponse<BackupStatus>, A
     let cfg = crate::config::Config::load();
     let dir = backup_dir();
 
-    let mut files = Vec::new();
-    if dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().is_some_and(|ext| ext == "db") {
-                    let meta = entry.metadata().ok();
-                    let created = meta.as_ref()
-                        .and_then(|m| m.created().ok())
-                        .map(|t| {
-                            let dt: chrono::DateTime<chrono::Local> = t.into();
-                            dt.format("%Y-%m-%d %H:%M:%S").to_string()
-                        })
-                        .unwrap_or_default();
-                    files.push(BackupFile {
-                        name: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
-                        size: meta.map(|m| m.len()).unwrap_or(0),
-                        created_at: created,
-                    });
+    let files = tokio::task::spawn_blocking(move || {
+        let mut files = Vec::new();
+        if dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().is_some_and(|ext| ext == "db") {
+                        let meta = entry.metadata().ok();
+                        let created = meta.as_ref()
+                            .and_then(|m| m.created().ok())
+                            .map(|t| {
+                                let dt: chrono::DateTime<chrono::Local> = t.into();
+                                dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                            })
+                            .unwrap_or_default();
+                        files.push(BackupFile {
+                            name: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                            size: meta.map(|m| m.len()).unwrap_or(0),
+                            created_at: created,
+                        });
+                    }
                 }
             }
         }
-    }
-    files.sort_by(|a, b| b.name.cmp(&a.name));
+        files.sort_by(|a, b| b.name.cmp(&a.name));
+        files
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?;
 
     let last_backup = files.first().map(|f| f.created_at.clone());
 
@@ -264,7 +277,9 @@ pub async fn delete_backup_file(
     if !path.exists() {
         return Err(AppError::NotFound);
     }
-    std::fs::remove_file(&path)
+    tokio::task::spawn_blocking(move || std::fs::remove_file(&path))
+        .await
+        .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?
         .map_err(|e| AppError::Internal(format!("Failed to delete: {}", e)))?;
     Ok(ApiResponse::ok("已删除".to_string()))
 }
@@ -329,28 +344,23 @@ pub fn start_auto_backup(cron_expr: &str) -> Result<(), String> {
     let schedule = cron::Schedule::from_str(cron_expr)
         .map_err(|e| format!("Invalid cron: {}", e))?;
 
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        rt.block_on(async move {
-            loop {
-                let next = schedule.upcoming(chrono::Utc).next();
-                let delay = match next {
-                    Some(dt) => {
-                        let now = chrono::Utc::now();
-                        (dt - now).to_std().unwrap_or(std::time::Duration::from_secs(60))
-                    }
-                    None => std::time::Duration::from_secs(3600),
-                };
-                tokio::time::sleep(delay).await;
-                match perform_database_backup() {
-                    Ok(msg) => tracing::info!("{}", msg),
-                    Err(e) => tracing::error!("Auto backup failed: {}", e),
+    tokio::spawn(async move {
+        loop {
+            let next = schedule.upcoming(chrono::Utc).next();
+            let delay = match next {
+                Some(dt) => {
+                    let now = chrono::Utc::now();
+                    (dt - now).to_std().unwrap_or(std::time::Duration::from_secs(60))
                 }
+                None => std::time::Duration::from_secs(3600),
+            };
+            tokio::time::sleep(delay).await;
+            match tokio::task::spawn_blocking(perform_database_backup).await {
+                Ok(Ok(msg)) => tracing::info!("{}", msg),
+                Ok(Err(e)) => tracing::error!("Auto backup failed: {}", e),
+                Err(e) => tracing::error!("Auto backup task panicked: {}", e),
             }
-        });
+        }
     });
 
     Ok(())

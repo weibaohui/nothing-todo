@@ -17,6 +17,7 @@ use tokio::sync::broadcast;
 
 use crate::adapters::ExecutorRegistry;
 use crate::Assets;
+use crate::config::Config;
 use crate::db::Database;
 use crate::models::ParsedLogEntry;
 use crate::scheduler::TodoScheduler;
@@ -29,6 +30,7 @@ pub struct AppState {
     pub tx: broadcast::Sender<ExecEvent>,
     pub scheduler: Arc<TodoScheduler>,
     pub task_manager: Arc<TaskManager>,
+    pub config: Arc<tokio::sync::RwLock<Config>>,
 }
 
 impl AppState {
@@ -106,6 +108,12 @@ impl From<String> for AppError {
     }
 }
 
+impl From<std::io::Error> for AppError {
+    fn from(err: std::io::Error) -> Self {
+        AppError::Internal(err.to_string())
+    }
+}
+
 impl<T: Serialize> IntoResponse for crate::models::ApiResponse<T> {
     fn into_response(self) -> Response {
         axum::Json(self).into_response()
@@ -136,6 +144,7 @@ mod execution;
 mod scheduler;
 pub mod backup;
 mod config;
+pub mod skills;
 
 // WebSocket handler
 pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
@@ -226,7 +235,18 @@ pub async fn static_handler(Path(path): axum::extract::Path<String>) -> Response
             } else {
                 "application/octet-stream"
             };
-            ([(header::CONTENT_TYPE, mime)], content.data.to_vec()).into_response()
+            // Vite hashed assets (e.g. index-AbCd1234.js) get immutable cache
+            let cache_control = if path.contains('-')
+                && matches!(mime, "application/javascript" | "text/css" | "font/woff2" | "font/woff" | "font/ttf")
+            {
+                "public, max-age=31536000, immutable"
+            } else {
+                "no-cache"
+            };
+            ([
+                (header::CONTENT_TYPE, mime),
+                (header::CACHE_CONTROL, cache_control),
+            ], content.data.to_vec()).into_response()
         }
         None => match Assets::get("index.html") {
             Some(content) => {
@@ -244,6 +264,7 @@ pub fn create_app(
     tx: broadcast::Sender<ExecEvent>,
     scheduler: Arc<TodoScheduler>,
     task_manager: Arc<TaskManager>,
+    config: Arc<tokio::sync::RwLock<Config>>,
 ) -> Router {
     let state = AppState {
         db,
@@ -251,6 +272,7 @@ pub fn create_app(
         tx,
         scheduler,
         task_manager,
+        config,
     };
 
     Router::new()
@@ -283,6 +305,13 @@ pub fn create_app(
         .route("/xyz/backup/database/auto", put(backup::update_auto_backup))
         .route("/xyz/backup/database/file", delete(backup::delete_backup_file))
         .route("/xyz/config", get(config::get_config).put(config::update_config))
+        .route("/xyz/skills", get(skills::list_skills))
+        .route("/xyz/skills/compare", get(skills::compare_skills))
+        .route("/xyz/skills/sync", post(skills::sync_skill))
+        .route("/xyz/skills/invocations", get(skills::list_invocations).post(skills::record_invocation))
+        .route("/xyz/skills/content", get(skills::get_skill_content))
+        .route("/xyz/skills/export", get(skills::export_skill))
+        .route("/xyz/skills/import", post(skills::import_skill))
         .route("/assets/{*path}", get(static_handler))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
         .layer(CompressionLayer::new())
