@@ -7,10 +7,11 @@ use clap::Subcommand;
 const SERVICE_NAME: &str = "ntd";
 const SERVICE_DESCRIPTION: &str = "Nothing Todo (ntd) - AI Todo Service";
 const LAUNCHD_LABEL: &str = "com.nothing-todo.ntd";
+const TASK_NAME: &str = "ntd";
 
 #[derive(Subcommand)]
 pub enum DaemonAction {
-    /// Install ntd as a system daemon (launchd on macOS, systemd on Linux)
+    /// Install ntd as a system daemon (launchd/systemd/Task Scheduler)
     Install {
         /// Force reinstall even if already installed
         #[arg(short, long)]
@@ -58,35 +59,23 @@ pub enum DaemonAction {
 }
 
 pub fn handle_daemon_command(action: &DaemonAction) {
-    if cfg!(target_os = "macos") {
-        handle_launchd(action);
-    } else if cfg!(target_os = "linux") {
-        handle_systemd(action);
-    } else {
+    #[cfg(target_os = "macos")]
+    { handle_launchd(action); }
+    #[cfg(target_os = "linux")]
+    { handle_systemd(action); }
+    #[cfg(target_os = "windows")]
+    { handle_task_scheduler(action); }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        let _ = action;
         eprintln!("Daemon service is not supported on this platform.");
         std::process::exit(1);
     }
 }
 
 // =============================================================================
-// macOS: launchd
+// Shared helpers
 // =============================================================================
-
-fn handle_launchd(action: &DaemonAction) {
-    match action {
-        DaemonAction::Install { force, .. } => launchd_install(*force),
-        DaemonAction::Uninstall { .. } => launchd_uninstall(),
-        DaemonAction::Start { .. } => launchd_start(),
-        DaemonAction::Stop { .. } => launchd_stop(),
-        DaemonAction::Restart { .. } => launchd_restart(),
-        DaemonAction::Status { verbose, .. } => launchd_status(*verbose),
-    }
-}
-
-fn get_launchd_plist_path() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-    home.join("Library").join("LaunchAgents").join(format!("{LAUNCHD_LABEL}.plist"))
-}
 
 fn get_ntd_binary_path() -> PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
@@ -98,21 +87,39 @@ fn get_ntd_dir() -> PathBuf {
     home.join(".ntd")
 }
 
-fn get_current_uid() -> u32 {
-    #[cfg(unix)]
-    {
-        unsafe { libc::getuid() }
-    }
-    #[cfg(not(unix))]
-    {
-        0
+// =============================================================================
+// macOS: launchd
+// =============================================================================
+
+#[cfg(target_os = "macos")]
+fn handle_launchd(action: &DaemonAction) {
+    match action {
+        DaemonAction::Install { force, .. } => launchd_install(*force),
+        DaemonAction::Uninstall { .. } => launchd_uninstall(),
+        DaemonAction::Start { .. } => launchd_start(),
+        DaemonAction::Stop { .. } => launchd_stop(),
+        DaemonAction::Restart { .. } => launchd_restart(),
+        DaemonAction::Status { verbose, .. } => launchd_status(*verbose),
     }
 }
 
+#[cfg(target_os = "macos")]
+fn get_launchd_plist_path() -> PathBuf {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
+    home.join("Library").join("LaunchAgents").join(format!("{LAUNCHD_LABEL}.plist"))
+}
+
+#[cfg(target_os = "macos")]
+fn get_current_uid() -> u32 {
+    unsafe { libc::getuid() }
+}
+
+#[cfg(target_os = "macos")]
 fn get_launchd_domain() -> String {
     format!("gui/{}", get_current_uid())
 }
 
+#[cfg(target_os = "macos")]
 fn generate_launchd_plist() -> String {
     let binary = get_ntd_binary_path();
     let ntd_dir = get_ntd_dir();
@@ -191,6 +198,7 @@ fn generate_launchd_plist() -> String {
     )
 }
 
+#[cfg(target_os = "macos")]
 fn launchd_install(force: bool) {
     let plist_path = get_launchd_plist_path();
     let binary = get_ntd_binary_path();
@@ -221,7 +229,6 @@ fn launchd_install(force: bool) {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        // bootstrap returns error if already loaded, which is fine
         if !stderr.contains("already loaded") && !stderr.contains("Bootstrap failed") {
             eprintln!("Failed to bootstrap service: {}", stderr.trim());
         }
@@ -235,6 +242,7 @@ fn launchd_install(force: bool) {
     println!("  tail -f ~/.ntd/run.log         # View logs");
 }
 
+#[cfg(target_os = "macos")]
 fn launchd_uninstall() {
     let plist_path = get_launchd_plist_path();
     let domain = get_launchd_domain();
@@ -252,6 +260,7 @@ fn launchd_uninstall() {
     println!("Service uninstalled");
 }
 
+#[cfg(target_os = "macos")]
 fn launchd_start() {
     let plist_path = get_launchd_plist_path();
     let domain = get_launchd_domain();
@@ -289,6 +298,7 @@ fn launchd_start() {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn launchd_stop() {
     let domain = get_launchd_domain();
     let label = LAUNCHD_LABEL;
@@ -311,12 +321,14 @@ fn launchd_stop() {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn launchd_restart() {
     launchd_stop();
     std::thread::sleep(std::time::Duration::from_millis(500));
     launchd_start();
 }
 
+#[cfg(target_os = "macos")]
 fn launchd_status(verbose: bool) {
     let plist_path = get_launchd_plist_path();
     let label = LAUNCHD_LABEL;
@@ -337,7 +349,6 @@ fn launchd_status(verbose: bool) {
             if stdout.contains(label) {
                 println!("Service is loaded");
 
-                // Try to extract PID
                 for line in stdout.lines() {
                     let parts: Vec<&str> = line.split_whitespace().collect();
                     if parts.len() >= 3 && parts[2] == label {
@@ -385,6 +396,7 @@ fn launchd_status(verbose: bool) {
 // Linux: systemd
 // =============================================================================
 
+#[cfg(target_os = "linux")]
 fn handle_systemd(action: &DaemonAction) {
     match action {
         DaemonAction::Install { force, system, run_as_user } => {
@@ -398,6 +410,7 @@ fn handle_systemd(action: &DaemonAction) {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn systemctl_cmd(system: bool) -> Vec<&'static str> {
     if system {
         vec!["systemctl"]
@@ -406,6 +419,7 @@ fn systemctl_cmd(system: bool) -> Vec<&'static str> {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn get_systemd_unit_path(system: bool) -> PathBuf {
     let name = format!("{SERVICE_NAME}.service");
     if system {
@@ -416,32 +430,29 @@ fn get_systemd_unit_path(system: bool) -> PathBuf {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn run_systemctl(system: bool, args: &[&str]) -> std::process::ExitStatus {
     let cmd = systemctl_cmd(system);
     let full_args: Vec<&str> = cmd.iter().copied().chain(args.iter().copied()).collect();
 
-    let cmd_name = full_args[0];
-    let cmd_args = &full_args[1..];
-
-    Command::new(cmd_name)
-        .args(cmd_args)
+    Command::new(full_args[0])
+        .args(&full_args[1..])
         .status()
         .expect("Failed to run systemctl. Is systemd installed?")
 }
 
+#[cfg(target_os = "linux")]
 fn run_systemctl_output(system: bool, args: &[&str]) -> std::process::Output {
     let cmd = systemctl_cmd(system);
     let full_args: Vec<&str> = cmd.iter().copied().chain(args.iter().copied()).collect();
 
-    let cmd_name = full_args[0];
-    let cmd_args = &full_args[1..];
-
-    Command::new(cmd_name)
-        .args(cmd_args)
+    Command::new(full_args[0])
+        .args(&full_args[1..])
         .output()
         .expect("Failed to run systemctl")
 }
 
+#[cfg(target_os = "linux")]
 fn generate_systemd_unit(system: bool, run_as_user: Option<&str>) -> String {
     let binary = get_ntd_binary_path();
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
@@ -539,6 +550,7 @@ WantedBy=default.target
     )
 }
 
+#[cfg(target_os = "linux")]
 fn systemd_install(force: bool, system: bool, run_as_user: Option<&str>) {
     if system && unsafe { libc::geteuid() } != 0 {
         eprintln!("System service install requires root. Re-run with sudo.");
@@ -588,6 +600,7 @@ fn systemd_install(force: bool, system: bool, run_as_user: Option<&str>) {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn systemd_uninstall(system: bool) {
     if system && unsafe { libc::geteuid() } != 0 {
         eprintln!("System service uninstall requires root. Re-run with sudo.");
@@ -607,6 +620,7 @@ fn systemd_uninstall(system: bool) {
     println!("Service uninstalled");
 }
 
+#[cfg(target_os = "linux")]
 fn systemd_start(system: bool) {
     if system && unsafe { libc::geteuid() } != 0 {
         eprintln!("System service start requires root. Re-run with sudo.");
@@ -622,6 +636,7 @@ fn systemd_start(system: bool) {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn systemd_stop(system: bool) {
     if system && unsafe { libc::geteuid() } != 0 {
         eprintln!("System service stop requires root. Re-run with sudo.");
@@ -637,6 +652,7 @@ fn systemd_stop(system: bool) {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn systemd_restart(system: bool) {
     if system && unsafe { libc::geteuid() } != 0 {
         eprintln!("System service restart requires root. Re-run with sudo.");
@@ -652,6 +668,7 @@ fn systemd_restart(system: bool) {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn systemd_status(system: bool, verbose: bool) {
     let unit_path = get_systemd_unit_path(system);
 
@@ -697,6 +714,7 @@ fn systemd_status(system: bool, verbose: bool) {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn check_linger() {
     let username = std::env::var("USER")
         .or_else(|_| std::env::var("LOGNAME"))
@@ -732,3 +750,226 @@ fn check_linger() {
         }
     }
 }
+
+// =============================================================================
+// Windows: Task Scheduler
+// =============================================================================
+
+#[cfg(target_os = "windows")]
+fn handle_task_scheduler(action: &DaemonAction) {
+    match action {
+        DaemonAction::Install { force, .. } => task_scheduler_install(*force),
+        DaemonAction::Uninstall { .. } => task_scheduler_uninstall(),
+        DaemonAction::Start { .. } => task_scheduler_start(),
+        DaemonAction::Stop { .. } => task_scheduler_stop(),
+        DaemonAction::Restart { .. } => task_scheduler_restart(),
+        DaemonAction::Status { verbose, .. } => task_scheduler_status(*verbose),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_ntd_binary_path_windows() -> PathBuf {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("C:\\"));
+    home.join(".local").join("bin").join("ntd.exe")
+}
+
+#[cfg(target_os = "windows")]
+fn task_scheduler_install(force: bool) {
+    let binary = get_ntd_binary_path_windows();
+
+    if !binary.exists() {
+        eprintln!("ntd binary not found at {}. Run `make install` first.", binary.display());
+        std::process::exit(1);
+    }
+
+    // Check if task already exists
+    let query = Command::new("schtasks")
+        .args(["/query", "/tn", TASK_NAME])
+        .output();
+
+    if query.is_ok() && query.unwrap().status.success() && !force {
+        println!("Task already exists: {}", TASK_NAME);
+        println!("Use --force to reinstall");
+        return;
+    }
+
+    // Delete existing task if force
+    if force {
+        let _ = Command::new("schtasks")
+            .args(["/delete", "/tn", TASK_NAME, "/f"])
+            .output();
+    }
+
+    let binary_str = binary.to_string_lossy();
+
+    // Create a task that runs at logon, repeats every 1 minute for 1 day (auto-restart),
+    // and restarts on failure
+    let output = Command::new("schtasks")
+        .args([
+            "/create",
+            "/tn", TASK_NAME,
+            "/tr", &format!("\"{}\" server start", binary_str),
+            "/sc", "onlogon",
+            "/rl", "limited",
+            "/f",
+            "/it",  // Run only when user is logged on (interactive)
+        ])
+        .output()
+        .expect("Failed to run schtasks");
+
+    if output.status.success() {
+        println!();
+        println!("Task Scheduler task created!");
+        println!();
+        println!("The service will start automatically at logon.");
+        println!();
+        println!("Next steps:");
+        println!("  ntd daemon start                # Start now");
+        println!("  ntd daemon status               # Check status");
+        println!("  ntd daemon stop                 # Stop");
+
+        // Create a wrapper script for restart-on-failure behavior
+        let ntd_dir = get_ntd_dir();
+        fs::create_dir_all(&ntd_dir).ok();
+
+        let wrapper_path = ntd_dir.join("ntd_watchdog.bat");
+        let wrapper_content = format!(
+            "@echo off\r\n:restart\r\n\"{}\" server start\r\necho ntd exited, restarting in 5 seconds...\r\ntimeout /t 5 /nobreak >nul\r\ngoto restart\r\n",
+            binary_str
+        );
+        fs::write(&wrapper_path, wrapper_content).ok();
+        println!();
+        println!("Watchdog script: {}", wrapper_path.display());
+        println!("For auto-restart on crash, use the watchdog script as the task action.");
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprintln!("Failed to create task: {}", stderr.trim());
+        std::process::exit(1);
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn task_scheduler_uninstall() {
+    let output = Command::new("schtasks")
+        .args(["/delete", "/tn", TASK_NAME, "/f"])
+        .output();
+
+    match output {
+        Ok(o) if o.status.success() => {
+            println!("Task deleted");
+            // Clean up watchdog script
+            let watchdog = get_ntd_dir().join("ntd_watchdog.bat");
+            if watchdog.exists() {
+                fs::remove_file(&watchdog).ok();
+            }
+        }
+        Ok(o) => {
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            if stderr.contains("does not exist") || stderr.contains("The system cannot find") {
+                println!("Task does not exist");
+            } else {
+                eprintln!("Failed to delete task: {}", stderr.trim());
+            }
+        }
+        Err(e) => eprintln!("Failed to run schtasks: {}", e),
+    }
+
+    println!("Service uninstalled");
+}
+
+#[cfg(target_os = "windows")]
+fn task_scheduler_start() {
+    let output = Command::new("schtasks")
+        .args(["/run", "/tn", TASK_NAME])
+        .output();
+
+    match output {
+        Ok(o) if o.status.success() => println!("Service started"),
+        Ok(o) => {
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            if stderr.contains("already running") {
+                println!("Service is already running");
+            } else {
+                eprintln!("Failed to start task: {}", stderr.trim());
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to run schtasks: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn task_scheduler_stop() {
+    let output = Command::new("schtasks")
+        .args(["/end", "/tn", TASK_NAME])
+        .output();
+
+    match output {
+        Ok(o) if o.status.success() => println!("Service stopped"),
+        Ok(o) => {
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            if stderr.contains("not running") || stderr.contains("does not exist") {
+                println!("Service is not running");
+            } else {
+                eprintln!("Failed to stop task: {}", stderr.trim());
+            }
+        }
+        Err(e) => eprintln!("Failed to run schtasks: {}", e),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn task_scheduler_restart() {
+    task_scheduler_stop();
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    task_scheduler_start();
+}
+
+#[cfg(target_os = "windows")]
+fn task_scheduler_status(verbose: bool) {
+    let output = Command::new("schtasks")
+        .args(["/query", "/tn", TASK_NAME, "/fo", "list"])
+        .output();
+
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            println!("{}", stdout);
+
+            if stdout.contains("Running") {
+                println!("Status: running");
+            } else if stdout.contains("Ready") {
+                println!("Status: ready (not running)");
+                println!("  Run: ntd daemon start");
+            }
+        }
+        Ok(_) => {
+            println!("Task is not installed");
+            println!("  Run: ntd daemon install");
+        }
+        Err(_) => {
+            println!("Task is not installed");
+            println!("  Run: ntd daemon install");
+        }
+    }
+
+    if verbose {
+        println!();
+        println!("Binary: {}", get_ntd_binary_path_windows().display());
+
+        let log_path = get_ntd_dir().join("run.log");
+        if log_path.exists() {
+            println!();
+            println!("Recent logs ({}):", log_path.display());
+            if let Ok(content) = fs::read_to_string(&log_path) {
+                for line in content.lines().rev().take(20) {
+                    println!("  {}", line);
+                }
+            }
+        }
+    }
+}
+
