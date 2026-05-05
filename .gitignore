@@ -49,3 +49,4 @@ step6-same-again.png
 .atomcode
 datalog
 .cc-connect
+frontend/test-results/.last-run.json
