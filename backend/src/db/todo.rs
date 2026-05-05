@@ -404,29 +404,6 @@ impl Database {
             .collect()
     }
 
-    /// 获取指定 todo 列表中涉及的所有 tag 备份数据
-    pub async fn get_tag_backups_for_todos(&self, ids: &[i64]) -> Vec<crate::models::TagBackup> {
-        if ids.is_empty() {
-            return Vec::new();
-        }
-        let tag_map = self.fetch_tag_ids_for_many(ids).await;
-        let tag_ids: std::collections::HashSet<i64> = tag_map.values().flat_map(|v| v.iter()).copied().collect();
-        if tag_ids.is_empty() {
-            return Vec::new();
-        }
-        tags::Entity::find()
-            .filter(tags::Column::Id.is_in(tag_ids.into_iter().collect::<Vec<_>>()))
-            .all(&self.conn)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|t| crate::models::TagBackup {
-                name: t.name,
-                color: t.color.unwrap_or_default(),
-            })
-            .collect()
-    }
-
     /// 从备份数据导入 todo（清空现有数据后导入，失败时自动回滚）
     pub async fn import_backup(&self, tags_in: &[crate::models::TagBackup], todos_in: &[TodoBackup]) -> Result<(), sea_orm::DbErr> {
         use sea_orm::TransactionTrait;

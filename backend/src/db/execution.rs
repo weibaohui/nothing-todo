@@ -185,15 +185,6 @@ impl Database {
         self.exec_update(am).await
     }
 
-    /// 根据 pid 获取执行记录
-    pub async fn get_execution_record_by_pid(&self, pid: i32) -> Option<execution_records::Model> {
-        execution_records::Entity::find()
-            .filter(execution_records::Column::Pid.eq(pid))
-            .one(&self.conn)
-            .await
-            .unwrap_or_default()
-    }
-
     /// 根据 session_id 获取所有执行记录（按 started_at 排序）
     pub async fn get_execution_records_by_session(&self, session_id: &str) -> Vec<ExecutionRecord> {
         execution_records::Entity::find()
@@ -205,27 +196,6 @@ impl Database {
             .into_iter()
             .map(Into::into)
             .collect()
-    }
-
-    /// 根据 pid 停止执行记录
-    pub async fn stop_execution_by_pid(&self, pid: i32) -> Result<bool, sea_orm::DbErr> {
-        if let Some(record) = self.get_execution_record_by_pid(pid).await {
-            // 只更新这一条执行记录，不影响 todo 的状态
-            let now = crate::models::utc_timestamp();
-            let am = execution_records::ActiveModel {
-                id: ActiveValue::Unchanged(record.id),
-                status: ActiveValue::Set(Some(crate::models::ExecutionStatus::Failed.as_str().to_string())),
-                finished_at: ActiveValue::Set(Some(now)),
-                result: ActiveValue::Set(Some("任务已被手动停止".to_string())),
-                pid: ActiveValue::Set(None),
-                ..Default::default()
-            };
-            self.exec_update(am).await?;
-
-            tracing::info!("Stopped execution record {} with pid {}", record.id, pid);
-            return Ok(true);
-        }
-        Ok(false)
     }
 
     pub async fn get_dashboard_stats(&self) -> crate::models::DashboardStats {
@@ -599,30 +569,4 @@ impl Database {
         }
     }
 
-    /// 标记指定todo的所有running状态执行记录为failed
-    pub async fn mark_execution_records_as_failed(&self, todo_id: i64) {
-        let now = crate::models::utc_timestamp();
-        let backend = self.conn.get_database_backend();
-        let sql = "UPDATE execution_records SET \
-                status = 'failed', \
-                finished_at = $1, \
-                result = '任务已被手动停止' \
-                WHERE todo_id = $2 AND status = 'running'";
-        let result = self.conn.execute(Statement::from_sql_and_values(backend, sql, [now.into(), todo_id.into()])).await;
-        match result {
-            Ok(res) => {
-                let rows = res.rows_affected();
-                if rows > 0 {
-                    tracing::warn!(
-                        "Marked {} running execution records as failed for todo {}",
-                        rows,
-                        todo_id
-                    );
-                }
-            }
-            Err(e) => {
-                tracing::error!("Failed to mark execution records as failed for todo {}: {}", todo_id, e);
-            }
-        }
-    }
 }
