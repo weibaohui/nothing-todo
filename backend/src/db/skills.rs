@@ -1,4 +1,4 @@
-use sea_orm::{ConnectionTrait, Statement, DbBackend};
+use sea_orm::{ConnectionTrait, Statement, DbBackend, Value};
 
 use crate::db::Database;
 use crate::handlers::skills::SkillInvocation;
@@ -11,31 +11,53 @@ impl Database {
         skill_name: Option<&str>,
         executor: Option<&str>,
     ) -> Result<Vec<SkillInvocation>, sea_orm::DbErr> {
-        let mut where_clauses = Vec::new();
-        if let Some(name) = skill_name {
-            where_clauses.push(format!("si.skill_name = '{}'", name.replace('\'', "''")));
-        }
-        if let Some(ex) = executor {
-            where_clauses.push(format!("si.executor = '{}'", ex.replace('\'', "''")));
-        }
+        let backend = self.conn.get_database_backend();
 
-        let where_sql = if where_clauses.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", where_clauses.join(" AND "))
+        let (sql, params): (String, Vec<Value>) = match (skill_name, executor) {
+            (Some(name), Some(ex)) => (
+                "SELECT si.id, si.skill_name, si.executor, si.todo_id, t.title as todo_title, \
+                 si.status, si.duration_ms, si.invoked_at \
+                 FROM skill_invocations si \
+                 LEFT JOIN todos t ON t.id = si.todo_id \
+                 WHERE si.skill_name = $1 AND si.executor = $2 \
+                 ORDER BY si.invoked_at DESC \
+                 LIMIT $3 OFFSET $4".to_string(),
+                vec![name.into(), ex.into(), limit.into(), offset.into()],
+            ),
+            (Some(name), None) => (
+                "SELECT si.id, si.skill_name, si.executor, si.todo_id, t.title as todo_title, \
+                 si.status, si.duration_ms, si.invoked_at \
+                 FROM skill_invocations si \
+                 LEFT JOIN todos t ON t.id = si.todo_id \
+                 WHERE si.skill_name = $1 \
+                 ORDER BY si.invoked_at DESC \
+                 LIMIT $2 OFFSET $3".to_string(),
+                vec![name.into(), limit.into(), offset.into()],
+            ),
+            (None, Some(ex)) => (
+                "SELECT si.id, si.skill_name, si.executor, si.todo_id, t.title as todo_title, \
+                 si.status, si.duration_ms, si.invoked_at \
+                 FROM skill_invocations si \
+                 LEFT JOIN todos t ON t.id = si.todo_id \
+                 WHERE si.executor = $1 \
+                 ORDER BY si.invoked_at DESC \
+                 LIMIT $2 OFFSET $3".to_string(),
+                vec![ex.into(), limit.into(), offset.into()],
+            ),
+            (None, None) => (
+                "SELECT si.id, si.skill_name, si.executor, si.todo_id, t.title as todo_title, \
+                 si.status, si.duration_ms, si.invoked_at \
+                 FROM skill_invocations si \
+                 LEFT JOIN todos t ON t.id = si.todo_id \
+                 ORDER BY si.invoked_at DESC \
+                 LIMIT $1 OFFSET $2".to_string(),
+                vec![limit.into(), offset.into()],
+            ),
         };
 
-        let sql = format!(
-            "SELECT si.id, si.skill_name, si.executor, si.todo_id, t.title as todo_title, \
-             si.status, si.duration_ms, si.invoked_at \
-             FROM skill_invocations si \
-             LEFT JOIN todos t ON t.id = si.todo_id \
-             {where_sql} \
-             ORDER BY si.invoked_at DESC \
-             LIMIT {limit} OFFSET {offset}"
-        );
+        let statement = Statement::from_sql_and_values(backend, sql, params);
+        let rows = self.conn.query_all(statement).await?;
 
-        let rows = self.conn.query_all(Statement::from_string(DbBackend::Sqlite, sql)).await?;
         let mut invocations = Vec::new();
         for row in rows {
             let id: i64 = row.try_get_by_index(0)?;
@@ -69,26 +91,32 @@ impl Database {
         status: &str,
         duration_ms: Option<i64>,
     ) -> Result<i64, sea_orm::DbErr> {
-        let duration_sql = duration_ms
-            .map(|d| d.to_string())
-            .unwrap_or_else(|| "NULL".to_string());
+        let backend = self.conn.get_database_backend();
 
-        let sql = format!(
-            "INSERT INTO skill_invocations (skill_name, executor, todo_id, status, duration_ms) \
-             VALUES ('{}', '{}', {}, '{}', {duration_sql})",
-            skill_name.replace('\'', "''"),
-            executor.replace('\'', "''"),
-            todo_id,
-            status.replace('\'', "''"),
-        );
+        let (sql, params) = if let Some(d) = duration_ms {
+            (
+                "INSERT INTO skill_invocations (skill_name, executor, todo_id, status, duration_ms) \
+                 VALUES ($1, $2, $3, $4, $5)".to_string(),
+                vec![skill_name.into(), executor.into(), todo_id.into(), status.into(), d.into()],
+            )
+        } else {
+            (
+                "INSERT INTO skill_invocations (skill_name, executor, todo_id, status) \
+                 VALUES ($1, $2, $3, $4)".to_string(),
+                vec![skill_name.into(), executor.into(), todo_id.into(), status.into()],
+            )
+        };
 
-        self.conn.execute(Statement::from_string(DbBackend::Sqlite, sql)).await?;
+        self.conn.execute(Statement::from_sql_and_values(backend, sql, params)).await?;
 
         let result = self.conn.query_one(Statement::from_string(
             DbBackend::Sqlite,
             "SELECT last_insert_rowid()".to_string(),
         )).await?;
 
-        Ok(result.map(|r| r.try_get_by_index(0).unwrap_or(0)).unwrap_or(0))
+        result
+            .and_then(|r| r.try_get_by_index(0).ok())
+            .flatten()
+            .ok_or_else(|| sea_orm::DbErr::Query(sea_orm::RuntimeErr::Internal("Failed to get last_insert_rowid".to_string())))
     }
 }
