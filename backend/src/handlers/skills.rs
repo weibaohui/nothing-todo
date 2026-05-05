@@ -668,7 +668,10 @@ pub async fn sync_skill(
         std::fs::create_dir_all(&target_dir)
             .map_err(|e| AppError::Internal(format!("Failed to create target dir: {}", e)))?;
 
-        let dest = target_dir.join(&req.skill_name);
+        // Flatten directory: take only the last part of the skill name
+        // e.g., "creative/joke-teller" -> "joke-teller"
+        let target_skill_name = req.skill_name.split('/').last().unwrap_or(&req.skill_name);
+        let dest = target_dir.join(target_skill_name);
 
         // Remove existing if present
         if dest.exists() {
@@ -676,9 +679,9 @@ pub async fn sync_skill(
                 .map_err(|e| AppError::Internal(format!("Failed to remove existing: {}", e)))?;
         }
 
-        // Copy recursively
-        match copy_dir_recursive(&skill_dir, &dest) {
-            Ok(_) => synced.push(target.clone()),
+        // Copy recursively with flattening
+        match copy_dir_recursive_flat(&skill_dir, &dest, true) {
+            Ok(_) => synced.push(format!("{} ({})", target, target_skill_name)),
             Err(e) => errors.push(format!("Failed to sync to {}: {}", target, e)),
         }
     }
@@ -687,7 +690,7 @@ pub async fn sync_skill(
         return Err(AppError::Internal(errors.join("; ")));
     }
 
-    let mut msg = format!("Synced '{}' to: {}", req.skill_name, synced.join(", "));
+    let mut msg = format!("Synced '{}' (flattened) to: {}", req.skill_name, synced.join(", "));
     if !errors.is_empty() {
         msg.push_str(&format!(" | Errors: {}", errors.join("; ")));
     }
@@ -695,20 +698,31 @@ pub async fn sync_skill(
     Ok(ApiResponse::ok(msg))
 }
 
-fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+/// Copy directory recursively, optionally flattening subdirectories
+fn copy_dir_recursive_flat(src: &std::path::Path, dst: &std::path::Path, flatten: bool) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
+        let file_name = entry.file_name();
+
         if src_path.is_dir() {
-            copy_dir_recursive(&src_path, &dst_path)?;
+            if flatten {
+                // When flattening, copy files directly without subdirectory structure
+                // e.g., skill_dir/creative/something -> dest/something
+                copy_dir_recursive_flat(&src_path, dst, flatten)?;
+            } else {
+                // Preserve structure
+                let dst_path = dst.join(&file_name);
+                copy_dir_recursive_flat(&src_path, &dst_path, flatten)?;
+            }
         } else {
-            std::fs::copy(&src_path, &dst_path)?;
+            std::fs::copy(&src_path, &dst.join(&file_name))?;
         }
     }
     Ok(())
 }
+
 
 /// GET /xyz/skills/invocations - List skill invocation records
 pub async fn list_invocations(

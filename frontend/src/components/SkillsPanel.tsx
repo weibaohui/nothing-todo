@@ -19,15 +19,11 @@ import {
   Col,
   Modal,
   Drawer,
-  Tabs,
   Dropdown,
-  Divider,
   Alert,
   List,
   Descriptions,
-  Timeline,
-  Switch,
-  Segmented,
+  Upload,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -39,33 +35,24 @@ import {
   CopyOutlined,
   ReloadOutlined,
   SearchOutlined,
-  EyeOutlined,
   DownloadOutlined,
   UploadOutlined,
   FolderOutlined,
   FileOutlined,
-  DeleteOutlined,
   FolderOpenOutlined,
-  SyncOutlined,
-  SettingOutlined,
   ExportOutlined,
   ImportOutlined,
-  FilterOutlined,
-  CheckSquareOutlined,
-  BorderOutlined,
   InfoCircleOutlined,
   CaretRightOutlined,
   CaretDownOutlined,
   FileTextOutlined,
-  FileZipOutlined,
   SaveOutlined,
-  CloseCircleOutlined,
 } from '@ant-design/icons';
 import * as db from '../utils/database';
 import type { ExecutorSkills, SkillComparison, SkillInvocation, SkillMeta } from '../types';
 import { EXECUTORS } from '../types';
 
-const { Text, Paragraph, Title } = Typography;
+const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
 
 // ── 工具函数 ────────────────────────────────────────────────
@@ -196,7 +183,7 @@ function SkillDetailDrawer({ skill, executor, executorLabel, open, onClose }: Sk
               {formatSize(skill?.total_size || 0)}
             </Descriptions.Item>
             <Descriptions.Item label="更新时间" span={2}>
-              {formatTime(skill?.modified_at)}
+              {formatTime(skill?.modified_at ?? null)}
             </Descriptions.Item>
             {skill?.keywords && skill.keywords.length > 0 && (
               <Descriptions.Item label="关键词" span={2}>
@@ -207,7 +194,7 @@ function SkillDetailDrawer({ skill, executor, executorLabel, open, onClose }: Sk
             )}
           </Descriptions>
 
-          <Divider orientation="left">内容预览</Divider>
+          <h3 style={{ margin: '16px 0 8px', color: '#595959' }}>内容预览</h3>
           <TextArea
             value={content}
             autoSize={{ minRows: 10, maxRows: 30 }}
@@ -275,7 +262,6 @@ function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalP
   };
 
   const completedCount = tasks.filter(t => t.status === 'completed').length;
-  const failedCount = tasks.filter(t => t.status === 'failed').length;
 
   return (
     <Modal
@@ -470,7 +456,7 @@ function SkillTree({ data, onSkillClick, searchText, showCategory }: SkillTreePr
     return nodes;
   }, [searchText, showCategory]);
 
-  const renderNode = (node: SkillTreeNode, executorLabel: string) => {
+  const renderNode = (node: SkillTreeNode) => {
     if (node.type === 'category') {
       return (
         <div
@@ -584,118 +570,11 @@ function SkillTree({ data, onSkillClick, searchText, showCategory }: SkillTreePr
             ) : nodes.length === 0 ? (
               <Empty description={searchText ? "无匹配结果" : "暂无 Skills"} image={Empty.PRESENTED_IMAGE_SIMPLE} />
             ) : (
-              nodes.map(node => renderNode(node, executorLabel))
+              nodes.map(node => renderNode(node))
             )}
           </Card>
         );
       })}
-    </div>
-  );
-}
-
-// ── 同步管理 ────────────────────────────────────────────────
-
-function SyncManagement() {
-  const [syncMode, setSyncMode] = useState<'flatten' | 'preserve'>('flatten');
-  const [syncing, setSyncing] = useState(false);
-  const [syncLog, setSyncLog] = useState<string[]>([]);
-
-  const handleSync = async () => {
-    setSyncing(true);
-    setSyncLog([]);
-
-    const logs: string[] = [];
-    logs.push(`[${new Date().toLocaleTimeString()}] 开始同步...`);
-    logs.push(`[${new Date().toLocaleTimeString()}] 同步模式: ${syncMode === 'flatten' ? '扁平化（丢弃一级目录）' : '保留目录结构'}`);
-    setSyncLog([...logs]);
-
-    // 模拟同步过程
-    for (let i = 0; i < 5; i++) {
-      await new Promise(r => setTimeout(r, 500));
-      logs.push(`[${new Date().toLocaleTimeString()}] 同步中... ${(i + 1) * 20}%`);
-      setSyncLog([...logs]);
-    }
-
-    logs.push(`[${new Date().toLocaleTimeString()}] 同步完成`);
-    setSyncLog([...logs]);
-    setSyncing(false);
-    message.success('同步完成');
-  };
-
-  return (
-    <div>
-      <Card
-        title={
-          <Space>
-            <SyncOutlined />
-            <span>同步设置</span>
-          </Space>
-        }
-        style={{ marginBottom: 16 }}
-      >
-        <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          <Alert
-            message="目录层级说明"
-            description={
-              <ul style={{ margin: '8px 0', paddingLeft: 20 }}>
-                <li><b>扁平化（推荐）</b>：将两级目录如 <code>creative/joke-teller</code> 保存为 <code>joke-teller</code></li>
-                <li><b>保留目录</b>：保持原有的目录结构，部分应用可能无法识别</li>
-              </ul>
-            }
-            type="info"
-            showIcon
-          />
-
-          <div>
-            <Text strong style={{ display: 'block', marginBottom: 8 }}>同步模式</Text>
-            <Segmented
-              value={syncMode}
-              onChange={v => setSyncMode(v as typeof syncMode)}
-              options={[
-                { label: '扁平化（丢弃一级）', value: 'flatten' },
-                { label: '保留目录结构', value: 'preserve' },
-              ]}
-            />
-          </div>
-
-          <div>
-            <Button
-              type="primary"
-              icon={<SyncOutlined spin={syncing} />}
-              onClick={handleSync}
-              loading={syncing}
-            >
-              开始同步
-            </Button>
-          </div>
-        </Space>
-      </Card>
-
-      <Card
-        title="同步日志"
-        extra={
-          <Button
-            type="text"
-            size="small"
-            icon={<DeleteOutlined />}
-            onClick={() => setSyncLog([])}
-            disabled={syncLog.length === 0}
-          >
-            清空
-          </Button>
-        }
-      >
-        {syncLog.length === 0 ? (
-          <Empty description="暂无同步日志" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        ) : (
-          <Timeline
-            items={syncLog.map(log => ({
-              color: log.includes('完成') ? 'green' : log.includes('开始') ? 'blue' : 'gray',
-              children: log,
-            }))}
-          />
-        )}
-      </Card>
     </div>
   );
 }
@@ -1314,7 +1193,7 @@ function SkillTracking() {
 
 // ── 主 Skills Panel ────────────────────────────────────────
 
-type SubView = 'overview' | 'compare' | 'sync' | 'tracking' | 'settings';
+type SubView = 'overview' | 'compare' | 'sync' | 'tracking';
 
 export function SkillsPanel() {
   const [activeView, setActiveView] = useState<SubView>('overview');
@@ -1324,7 +1203,6 @@ export function SkillsPanel() {
     { key: 'compare', label: '对比分析', icon: <BarChartOutlined /> },
     { key: 'sync', label: '同步管理', icon: <SwapOutlined /> },
     { key: 'tracking', label: '调用追踪', icon: <ThunderboltOutlined /> },
-    { key: 'settings', label: '设置', icon: <SettingOutlined /> },
   ];
 
   return (
@@ -1354,7 +1232,6 @@ export function SkillsPanel() {
       {activeView === 'compare' && <SkillsComparison />}
       {activeView === 'sync' && <SkillSync />}
       {activeView === 'tracking' && <SkillTracking />}
-      {activeView === 'settings' && <SyncManagement />}
     </div>
   );
 }
