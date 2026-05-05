@@ -48,12 +48,12 @@ import {
   FileTextOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
+import XMarkdown from '@ant-design/x-markdown';
 import * as db from '../utils/database';
 import type { ExecutorSkills, SkillComparison, SkillInvocation, SkillMeta } from '../types';
 import { EXECUTORS } from '../types';
 
 const { Text, Paragraph } = Typography;
-const { TextArea } = Input;
 
 // ── 工具函数 ────────────────────────────────────────────────
 
@@ -210,15 +210,16 @@ function SkillDetailDrawer({ skill, executor, executorLabel, open, onClose }: Sk
           </Descriptions>
 
           <h3 style={{ margin: '16px 0 8px', color: '#595959' }}>内容预览</h3>
-          <TextArea
-            value={content}
-            autoSize={{ minRows: 10, maxRows: 30 }}
-            readOnly
+          <XMarkdown
+            content={content}
+            escapeRawHtml={true}
             style={{
               fontFamily: 'Fira Code, monospace',
               fontSize: 13,
               background: '#1e1e1e',
               color: '#d4d4d4',
+              padding: '12px',
+              borderRadius: '8px',
             }}
           />
         </div>
@@ -650,27 +651,20 @@ function SkillTree({ data, onSkillClick, onImport, onExport, searchText, showCat
             }
             extra={
               <Space size="small">
-                <Tooltip title="导入">
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<UploadOutlined />}
-                    onClick={() => onImport(executorData.executor)}
-                  />
-                </Tooltip>
-                <Dropdown
-                  menu={{
-                    items: [
-                      { key: 'export-selected', icon: <ExportOutlined />, label: '导出选中', onClick: () => onExport(executorData.executor, false) },
-                      { key: 'export-all', icon: <DownloadOutlined />, label: '导出全部', onClick: () => onExport(executorData.executor, true) },
-                    ]
-                  }}
-                  trigger={['click']}
-                >
-                  <Tooltip title="导出">
-                    <Button type="text" size="small" icon={<DownloadOutlined />} />
-                  </Tooltip>
-                </Dropdown>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<UploadOutlined />}
+                  aria-label="导入 Skills"
+                  onClick={() => onImport(executorData.executor)}
+                />
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<DownloadOutlined />}
+                  aria-label="导出 Skills"
+                  onClick={() => onExport(executorData.executor, false)}
+                />
               </Space>
             }
             style={{ marginBottom: 12 }}
