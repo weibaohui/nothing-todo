@@ -12,7 +12,10 @@ impl From<execution_records::Model> for ExecutionRecord {
         let execution_stats = m.execution_stats.as_deref().and_then(|s| serde_json::from_str(s).ok());
         let status = m.status.as_deref()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(ExecutionStatus::Running);
+            .unwrap_or_else(|| {
+                tracing::warn!("Failed to parse execution status, defaulting to Running: {:?}", m.status);
+                ExecutionStatus::Running
+            });
         ExecutionRecord {
             id: m.id,
             todo_id: m.todo_id.unwrap_or(0),
