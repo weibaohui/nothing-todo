@@ -172,6 +172,17 @@ impl Database {
         )
         .await.ok(); // 忽略错误，因为字段可能已存在
 
+        // --- Indexes for frequently-filtered columns ---
+        self.exec("CREATE INDEX IF NOT EXISTS idx_todos_deleted_at ON todos(deleted_at)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_todos_task_id ON todos(task_id)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_todo_id ON execution_records(todo_id)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_task_id ON execution_records(task_id)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_pid ON execution_records(pid)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_session_id ON execution_records(session_id)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_status ON execution_records(status)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_todo_tags_todo_id ON todo_tags(todo_id)").await?;
+
         // Trigger: fill created_at with UTC time on INSERT if not set
         self.exec(
             "CREATE TRIGGER IF NOT EXISTS set_todos_created_at_utc AFTER INSERT ON todos
