@@ -34,9 +34,9 @@ impl Database {
     /// path: database file path or ":memory:".
     pub async fn new(path: &str) -> Result<Self, sea_orm::DbErr> {
         let url = if path == ":memory:" {
-            "sqlite::memory:?_pragma=busy_timeout(5000)".to_string()
+            "sqlite::memory:".to_string()
         } else {
-            format!("sqlite://{}?mode=rwc&_pragma=busy_timeout(5000)", path)
+            format!("sqlite://{}?mode=rwc", path)
         };
 
         let mut opt = ConnectOptions::new(url);
@@ -47,6 +47,9 @@ impl Database {
 
         let conn = SeaDatabase::connect(opt).await?;
         let db = Self { conn };
+
+        // Set busy_timeout via PRAGMA (SQLite connection-level setting)
+        db.exec("PRAGMA busy_timeout = 5000").await?;
 
         db.init_tables().await?;
         Ok(db)

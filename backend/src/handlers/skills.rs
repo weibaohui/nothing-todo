@@ -8,9 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::io::Write;
-use flate2::write::GzEncoder;
-use flate2::read::GzDecoder;
-use flate2::Compression;
+use zip::write::FileOptions;
+use zip::ZipArchive;
 
 use crate::models::ExecutorType;
 use crate::handlers::{AppError, AppState, ApiJson};
@@ -409,7 +408,7 @@ pub async fn get_skill_content(
     }))
 }
 
-/// GET /xyz/skills/export - Export skill as .tar.gz
+/// GET /xyz/skills/export - Export skill as .zip
 pub async fn export_skill(
     Query(query): Query<SkillExportQuery>,
 ) -> Result<Vec<u8>, AppError> {
@@ -424,24 +423,29 @@ pub async fn export_skill(
         return Err(AppError::NotFound);
     }
 
-    // Create tar.gz in memory
-    let mut tar_data = Vec::new();
+    // Create zip in memory
+    let mut zip_data = Vec::new();
     {
-        let encoder = GzEncoder::new(&mut tar_data, Compression::default());
-        let mut tar_builder = tar::Builder::new(encoder);
-        add_dir_to_tar(&mut tar_builder, &skill_dir, &query.skill_name)
+        let mut zip_writer = zip::ZipWriter::new(std::io::Cursor::new(&mut zip_data));
+        let options = FileOptions::<()>::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .unix_permissions(0o644);
+
+        add_dir_to_zip(&mut zip_writer, &skill_dir, &query.skill_name, &options)
             .map_err(|e| AppError::Internal(format!("Failed to create archive: {}", e)))?;
-        tar_builder.finish()
+
+        zip_writer.finish()
             .map_err(|e| AppError::Internal(format!("Failed to finish archive: {}", e)))?;
     }
 
-    Ok(tar_data)
+    Ok(zip_data)
 }
 
-fn add_dir_to_tar<W: Write>(
-    builder: &mut tar::Builder<W>,
+fn add_dir_to_zip<W: std::io::Write + std::io::Seek>(
+    zip_writer: &mut zip::ZipWriter<W>,
     dir: &std::path::Path,
     prefix: &str,
+    options: &FileOptions<()>,
 ) -> std::io::Result<()> {
     if !dir.is_dir() {
         return Ok(());
@@ -453,17 +457,18 @@ fn add_dir_to_tar<W: Write>(
         let name = format!("{}/{}", prefix, path.file_name().unwrap().to_string_lossy());
 
         if path.is_dir() {
-            add_dir_to_tar(builder, &path, &name)?;
+            add_dir_to_zip(zip_writer, &path, &name, options)?;
         } else {
+            zip_writer.start_file(name, options.clone())?;
             let mut file = std::fs::File::open(&path)?;
-            builder.append_file(&name, &mut file)?;
+            std::io::copy(&mut file, zip_writer)?;
         }
     }
 
     Ok(())
 }
 
-/// POST /xyz/skills/import - Import skill from .tar.gz
+/// POST /xyz/skills/import - Import skill from .zip
 pub async fn import_skill(
     State(_state): State<AppState>,
     params: Query<ImportRequest>,
@@ -478,10 +483,10 @@ pub async fn import_skill(
     std::fs::create_dir_all(&skills_dir)
         .map_err(|e| AppError::Internal(format!("Failed to create skills dir: {}", e)))?;
 
-    // Decode tar.gz
+    // Decode zip
     let cursor = std::io::Cursor::new(body.to_vec());
-    let decoder = GzDecoder::new(cursor);
-    let mut archive = tar::Archive::new(decoder);
+    let mut archive = ZipArchive::new(cursor)
+        .map_err(|e| AppError::BadRequest(format!("Invalid zip archive: {}", e)))?;
 
     let flatten = params.flatten.unwrap_or(true);
     let skill_name = params.skill_name.clone().unwrap_or_else(|| "imported-skill".to_string());
@@ -508,18 +513,19 @@ pub async fn import_skill(
         .map_err(|e| AppError::Internal(format!("Failed to create target dir: {}", e)))?;
 
     let mut imported_files = 0i32;
-    for entry in archive.entries().map_err(|e| AppError::Internal(format!("Failed to read archive: {}", e)))? {
-        let mut entry = entry.map_err(|e| AppError::Internal(format!("Failed to read entry: {}", e)))?;
-        let path = entry.path()
-            .map_err(|e| AppError::Internal(format!("Invalid path: {}", e)))?
-            .into_owned();
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)
+            .map_err(|e| AppError::Internal(format!("Failed to read zip entry: {}", e)))?;
+
+        let path = file.mangled_name();
+        let outpath = path.clone();
 
         // Reject absolute paths and paths with parent directory traversal
-        if path.is_absolute() || path.components().any(|c| c.as_os_str() == "..") {
-            return Err(AppError::BadRequest(format!("Invalid path in archive: {}", path.display())));
+        if outpath.is_absolute() || outpath.components().any(|c| c.as_os_str() == "..") {
+            return Err(AppError::BadRequest(format!("Invalid path in archive: {}", outpath.display())));
         }
 
-        let file_name = path.file_name()
+        let file_name = outpath.file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
 
@@ -533,14 +539,14 @@ pub async fn import_skill(
             target_dir.join(&file_name)
         } else {
             // Preserve structure
-            target_dir.join(&path)
+            target_dir.join(&outpath)
         };
 
         // Verify dest_path is still under target_dir
-        let dest_path_canonical = dest_path.canonicalize()
-            .map_err(|e| AppError::Internal(format!("Failed to resolve dest path: {}", e)))?;
-        if !dest_path_canonical.starts_with(&target_dir) {
-            return Err(AppError::BadRequest(format!("Path escapes target directory: {}", path.display())));
+        if let Ok(dest_path_canonical) = dest_path.canonicalize() {
+            if !dest_path_canonical.starts_with(&target_dir) {
+                return Err(AppError::BadRequest(format!("Path escapes target directory: {}", outpath.display())));
+            }
         }
 
         if let Some(parent) = dest_path.parent() {
@@ -548,8 +554,9 @@ pub async fn import_skill(
                 .map_err(|e| AppError::Internal(format!("Failed to create dir: {}", e)))?;
         }
 
-        entry.unpack(&dest_path)
-            .map_err(|e| AppError::Internal(format!("Failed to extract {}: {}", file_name, e)))?;
+        let mut outfile = std::fs::File::create(&dest_path)
+            .map_err(|e| AppError::Internal(format!("Failed to create file: {}", e)))?;
+        std::io::copy(&mut file, &mut outfile)?;
         imported_files += 1;
     }
 

@@ -256,7 +256,7 @@ export async function getSkillContent(executor: string, skillName: string): Prom
   }));
 }
 
-// Export skill as .tar.gz (returns blob)
+// Export skill as .zip (returns blob)
 export async function exportSkill(executor: string, skillName: string): Promise<Blob> {
   const response = await api.get('/xyz/skills/export', {
     params: { executor, skill_name: skillName },

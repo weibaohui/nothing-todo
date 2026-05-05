@@ -134,7 +134,7 @@ function SkillDetailDrawer({ skill, executor, executorLabel, open, onClose }: Sk
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${skill.name}.tar.gz`;
+      a.download = `${skill.name}.zip`;
       a.click();
       URL.revokeObjectURL(url);
       message.success(`导出 ${skill.name} 成功`);
@@ -342,7 +342,7 @@ function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalP
         <div>
           <Alert
             message="导出说明"
-            description="导出的文件为 .tar.gz 压缩包格式，包含 SKILL.md 和所有相关文件。导出后可导入到其他支持 Skills 的应用。"
+            description="导出的文件为 .zip 压缩包格式，包含 SKILL.md 和所有相关文件。导出后可导入到其他支持 Skills 的应用。"
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
@@ -405,13 +405,13 @@ function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalP
         <div>
           <Alert
             message="导入说明"
-            description="支持导入 .tar.gz 压缩包格式的 Skills。导入时可根据目标应用自动处理目录层级。"
+            description="支持导入 .zip 压缩包格式的 Skills。导入时可根据目标应用自动处理目录层级。"
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
           />
           <Upload.Dragger
-            accept=".zip,.tar.gz"
+            accept=".zip"
             beforeUpload={(file) => {
               setImportFile(file);
               return false;
@@ -421,7 +421,7 @@ function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalP
               <UploadOutlined style={{ fontSize: 48, color: '#7C3AED' }} />
             </p>
             <p className="ant-upload-text">点击或拖拽上传 Skills 压缩包</p>
-            <p className="ant-upload-hint">支持 .tar.gz 格式</p>
+            <p className="ant-upload-hint">支持 .zip 格式</p>
           </Upload.Dragger>
         </div>
       )}
