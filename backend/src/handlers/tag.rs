@@ -8,7 +8,7 @@ use crate::models::{ApiResponse, CreateTagRequest, Tag, utc_timestamp};
 pub async fn get_tags(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<Vec<Tag>>, AppError> {
-    Ok(ApiResponse::ok(state.db.get_tags().await))
+    Ok(ApiResponse::ok(state.db.get_tags().await?))
 }
 
 pub async fn create_tag(

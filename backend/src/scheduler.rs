@@ -32,7 +32,7 @@ impl TodoScheduler {
         tx: broadcast::Sender<ExecEvent>,
         task_manager: Arc<TaskManager>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let todos = db.get_scheduler_todos().await;
+        let todos = db.get_scheduler_todos().await?;
 
         for todo in todos {
             if let Some(ref config) = todo.scheduler_config {

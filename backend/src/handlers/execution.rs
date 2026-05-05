@@ -219,6 +219,6 @@ pub async fn get_dashboard_stats(
 pub async fn get_running_todos(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<Vec<crate::models::Todo>>, AppError> {
-    let running_todos = state.db.get_running_todos().await;
+    let running_todos = state.db.get_running_todos().await?;
     Ok(ApiResponse::ok(running_todos))
 }
