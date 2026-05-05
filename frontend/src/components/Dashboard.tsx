@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Table, Badge, Tag, Empty, Spin, Masonry, App, Button } from 'antd';
+import { Card, Table, Badge, Tag, Empty, Masonry, App, Button } from 'antd';
 import {
   ArrowLeftOutlined,
   FileTextOutlined,
@@ -68,24 +68,12 @@ function MiniStat({ title, value, suffix, prefix, color, loading, decimals = 0, 
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 2 }}>{title}</div>
         <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--color-text)', lineHeight: 1.2 }}>
-          {loading ? (
-            <Spin size="small" />
-          ) : (
-            <>
-              <AnimatedNumber value={value} duration={0.8} decimals={decimals} chineseFormat={chineseFormat} />
-              {suffix && <span style={{ fontSize: 13, fontWeight: 500, marginLeft: 2 }}>{suffix}</span>}
-            </>
-          )}
+          <AnimatedNumber value={loading ? 0 : value} duration={0.8} decimals={decimals} chineseFormat={chineseFormat} />
+          {suffix && <span style={{ fontSize: 13, fontWeight: 500, marginLeft: 2 }}>{suffix}</span>}
         </div>
       </div>
     </div>
   );
-}
-
-function formatTokens(n: number): string {
-  if (n >= 1_0000_0000) return (n / 1_0000_0000).toFixed(1) + '亿';
-  if (n >= 1_0000) return (n / 1_0000).toFixed(1) + '万';
-  return String(n);
 }
 
 function CompactRow({ name, value, sub, color, barPct }: {
@@ -331,7 +319,7 @@ export function Dashboard({ onBack }: DashboardProps) {
       >
         {statusSegments.length > 0 ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
-            <PieChart segments={statusSegments} size={140} centerText={String(totalTodos)} centerSubtext="总计" />
+            <PieChart segments={statusSegments} size={140} centerText={<AnimatedNumber value={totalTodos} duration={1.2} chineseFormat />} centerSubtext="总计" />
             <PieChartLegend segments={statusSegments} />
           </div>
         ) : (
@@ -439,13 +427,8 @@ export function Dashboard({ onBack }: DashboardProps) {
               size={140}
               centerText={
                 stats
-                  ? formatTokens(
-                      stats.total_input_tokens +
-                      stats.total_output_tokens +
-                      stats.total_cache_read_tokens +
-                      stats.total_cache_creation_tokens
-                    )
-                  : '0'
+                  ? <AnimatedNumber value={stats.total_input_tokens + stats.total_output_tokens + stats.total_cache_read_tokens + stats.total_cache_creation_tokens} duration={1.2} chineseFormat />
+                  : <AnimatedNumber value={0} duration={1.2} chineseFormat />
               }
               centerSubtext="Tokens"
             />
@@ -567,10 +550,18 @@ export function Dashboard({ onBack }: DashboardProps) {
             const padT = 12;
             const chartW = w - padL - padR;
             const chartH = h - padT - padB;
-            const barW = tokenTrendData.length > 0 ? chartW / tokenTrendData.length * 0.7 : 0;
-            const gap = tokenTrendData.length > 0 ? chartW / tokenTrendData.length * 0.3 : 0;
 
             const yTicks = [0, maxToken * 0.5, maxToken];
+
+            const points = tokenTrendData.map((d, i) => {
+              const x = padL + (i / Math.max(tokenTrendData.length - 1, 1)) * chartW;
+              const inputY = padT + chartH - (d.input_tokens / maxToken) * chartH;
+              const outputY = padT + chartH - (d.output_tokens / maxToken) * chartH;
+              return { x, inputY, outputY, date: d.date };
+            });
+
+            const inputPath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.inputY}`).join(' ');
+            const outputPath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.outputY}`).join(' ');
 
             return (
               <>
@@ -585,41 +576,24 @@ export function Dashboard({ onBack }: DashboardProps) {
                     </g>
                   );
                 })}
-                {tokenTrendData.map((d, i) => {
-                  const x = padL + i * (barW + gap) + gap / 2;
-                  const inputH = d.input_tokens / maxToken * chartH;
-                  const outputH = d.output_tokens / maxToken * chartH;
-                  return (
-                    <g key={i}>
-                      <rect
-                        x={x}
-                        y={padT + chartH - inputH}
-                        width={barW}
-                        height={inputH}
-                        fill="#3b82f6"
-                        rx={2}
-                      />
-                      <rect
-                        x={x}
-                        y={padT + chartH - inputH - outputH}
-                        width={barW}
-                        height={outputH}
-                        fill="#22c55e"
-                        rx={2}
-                      />
-                      <text
-                        x={x + barW / 2}
-                        y={h - 6}
-                        textAnchor="middle"
-                        fontSize={9}
-                        fill="var(--color-text-tertiary)"
-                        transform={tokenTrendData.length > 14 ? `rotate(-35, ${x + barW / 2}, ${h - 6})` : undefined}
-                      >
-                        {d.date.slice(5)}
-                      </text>
-                    </g>
-                  );
-                })}
+                <path d={inputPath} fill="none" stroke="#3b82f6" strokeWidth={2} strokeLinejoin="round" />
+                <path d={outputPath} fill="none" stroke="#22c55e" strokeWidth={2} strokeLinejoin="round" />
+                {points.map((p, i) => (
+                  <g key={i}>
+                    <circle cx={p.x} cy={p.inputY} r={3} fill="#3b82f6" />
+                    <circle cx={p.x} cy={p.outputY} r={3} fill="#22c55e" />
+                    <text
+                      x={p.x}
+                      y={h - 6}
+                      textAnchor="middle"
+                      fontSize={9}
+                      fill="var(--color-text-tertiary)"
+                      transform={tokenTrendData.length > 14 ? `rotate(-35, ${p.x}, ${h - 6})` : undefined}
+                    >
+                      {p.date.slice(5)}
+                    </text>
+                  </g>
+                ))}
               </>
             );
           })()}
@@ -672,34 +646,19 @@ export function Dashboard({ onBack }: DashboardProps) {
             <div style={{ padding: '12px 14px', borderRadius: 10, background: '#3b82f610', textAlign: 'center' }}>
               <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>推理输入</div>
               <div style={{ fontSize: 20, fontWeight: 700, color: '#3b82f6' }}>
-                {loading ? <Spin size="small" /> : (
-                  <>
-                    {(totalInput / 10000).toFixed(2)}
-                    <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 2 }}>万</span>
-                  </>
-                )}
+                <AnimatedNumber value={loading ? 0 : totalInput / 10000} duration={1.2} decimals={2} suffix="万" />
               </div>
             </div>
             <div style={{ padding: '12px 14px', borderRadius: 10, background: '#f59e0b10', textAlign: 'center' }}>
               <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>成本</div>
               <div style={{ fontSize: 20, fontWeight: 700, color: '#f59e0b' }}>
-                {loading ? <Spin size="small" /> : (
-                  <>
-                    ${totalCost < 10000 ? totalCost.toFixed(2) : (totalCost / 10000).toFixed(2)}
-                    {totalCost >= 10000 && <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 2 }}>万</span>}
-                  </>
-                )}
+                <AnimatedNumber value={loading ? 0 : totalCost} duration={1.2} prefix="$" decimals={2} />
               </div>
             </div>
             <div style={{ padding: '12px 14px', borderRadius: 10, background: '#22c55e10', textAlign: 'center' }}>
               <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>输出率</div>
               <div style={{ fontSize: 20, fontWeight: 700, color: '#22c55e' }}>
-                {loading ? <Spin size="small" /> : (
-                  <>
-                    {outputRate.toFixed(1)}
-                    <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 2 }}>%</span>
-                  </>
-                )}
+                <AnimatedNumber value={loading ? 0 : outputRate} duration={1.2} decimals={1} suffix="%" />
               </div>
             </div>
           </div>
@@ -720,7 +679,7 @@ export function Dashboard({ onBack }: DashboardProps) {
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
               <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>成功率</span>
-              <span style={{ fontSize: 15, fontWeight: 700, color: '#22c55e' }}>{successRate.toFixed(1)}%</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#22c55e' }}><AnimatedNumber value={successRate} duration={1.2} decimals={1} suffix="%" /></span>
             </div>
             <div style={{ height: 6, borderRadius: 3, background: 'var(--color-fill-quaternary)', overflow: 'hidden' }}>
               <div style={{ height: '100%', width: `${successRate}%`, borderRadius: 3, background: 'linear-gradient(90deg, #22c55e, #4ade80)', transition: 'width 0.8s ease' }} />
@@ -738,12 +697,12 @@ export function Dashboard({ onBack }: DashboardProps) {
             <div style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--color-fill-quaternary)' }}>
               <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 2 }}>平均耗时</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-text)' }}>
-                {stats && stats.avg_duration_ms > 0 ? `${(stats.avg_duration_ms / 1000).toFixed(1)}s` : '-'}
+                {stats && stats.avg_duration_ms > 0 ? <AnimatedNumber value={stats.avg_duration_ms / 1000} duration={1.2} decimals={1} suffix="s" /> : '-'}
               </div>
             </div>
             <div style={{ padding: '10px 14px', borderRadius: 10, background: '#f59e0b10' }}>
               <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 2 }}>总花费</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#f59e0b' }}>${stats ? Math.round(stats.total_cost_usd) : 0}</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#f59e0b' }}><AnimatedNumber value={stats ? Math.round(stats.total_cost_usd) : 0} duration={1.2} prefix="$" /></div>
             </div>
           </div>
         </div>
