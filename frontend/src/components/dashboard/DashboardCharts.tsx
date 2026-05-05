@@ -99,14 +99,13 @@ export function TrendChart({ data, height = 160 }: TrendChartProps) {
     const chartW = w - padL - padR;
     const chartH = h - padT - padB;
 
-    const maxVal = Math.max(...data.map((d) => d.success + d.failed), 1);
+    const maxVal = Math.max(...data.map((d) => Math.max(d.success, d.failed)), 1);
 
     const points = data.map((d, i) => {
       const x = padL + (i / Math.max(data.length - 1, 1)) * chartW;
-      const totalY = padT + chartH - ((d.success + d.failed) / maxVal) * chartH;
       const succY = padT + chartH - (d.success / maxVal) * chartH;
       const failY = padT + chartH - (d.failed / maxVal) * chartH;
-      return { x, totalY, succY, failY, date: d.date };
+      return { x, succY, failY, date: d.date };
     });
 
     const yTicks = [0, maxVal * 0.5, maxVal];
