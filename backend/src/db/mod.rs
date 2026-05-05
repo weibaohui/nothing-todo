@@ -36,7 +36,7 @@ impl Database {
         let url = if path == ":memory:" {
             "sqlite::memory:".to_string()
         } else {
-            format!("sqlite://{}?mode=rwc&busy_timeout=5000", path)
+            format!("sqlite://{}?mode=rwc", path)
         };
 
         let mut opt = ConnectOptions::new(url);
@@ -47,6 +47,10 @@ impl Database {
 
         let conn = SeaDatabase::connect(opt).await?;
         let db = Self { conn };
+
+        // Set busy_timeout via PRAGMA (SQLite connection-level setting)
+        db.exec("PRAGMA busy_timeout = 5000").await?;
+
         db.init_tables().await?;
         Ok(db)
     }
@@ -172,6 +176,21 @@ impl Database {
         )
         .await.ok(); // 忽略错误，因为字段可能已存在
 
+        // Skill invocations tracking table
+        self.exec(
+            "CREATE TABLE IF NOT EXISTS skill_invocations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                skill_name TEXT NOT NULL,
+                executor TEXT NOT NULL,
+                todo_id INTEGER,
+                status TEXT DEFAULT 'invoked',
+                duration_ms INTEGER,
+                invoked_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc')),
+                FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE
+            )",
+        )
+        .await?;
+
         // --- Indexes for frequently-filtered columns ---
         self.exec("CREATE INDEX IF NOT EXISTS idx_todos_deleted_at ON todos(deleted_at)").await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status)").await?;
@@ -182,6 +201,9 @@ impl Database {
         self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_session_id ON execution_records(session_id)").await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_status ON execution_records(status)").await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_todo_tags_todo_id ON todo_tags(todo_id)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill_name ON skill_invocations(skill_name)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_executor ON skill_invocations(executor)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_todo_id ON skill_invocations(todo_id)").await?;
 
         // Trigger: fill created_at with UTC time on INSERT if not set
         self.exec(
@@ -218,6 +240,7 @@ impl Database {
 mod todo;
 mod tag;
 mod execution;
+mod skills;
 
 #[cfg(test)]
 mod tests {
