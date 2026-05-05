@@ -115,18 +115,32 @@ function SkillDetailDrawer({ skill, executor, executorLabel, open, onClose }: Sk
   useEffect(() => {
     if (open && skill) {
       setLoading(true);
-      // TODO: 调用 API 获取 skill 内容
-      setTimeout(() => {
-        setContent(`# ${skill.name}\n\n${skill.description || '暂无描述'}\n\n## 元信息\n- 版本: ${skill.version || '未指定'}\n- 作者: ${skill.author || '未知'}\n- 许可证: ${skill.license || '未指定'}\n- 文件数: ${skill.file_count}\n- 大小: ${formatSize(skill.total_size)}\n- 更新时间: ${formatTime(skill.modified_at)}`);
-        setLoading(false);
-      }, 300);
+      db.getSkillContent(executor, skill.name)
+        .then(data => {
+          const meta = `# ${data.skill_name}\n\n## 元信息\n- 文件数: ${data.files.length}\n- 大小: ${formatSize(skill.total_size)}\n- 更新时间: ${formatTime(skill.modified_at)}\n\n---\n\n${data.content}`;
+          setContent(meta);
+        })
+        .catch(() => {
+          setContent(`# ${skill.name}\n\n${skill.description || '暂无描述'}\n\n## 元信息\n- 版本: ${skill.version || '未指定'}\n- 作者: ${skill.author || '未知'}\n- 许可证: ${skill.license || '未指定'}\n- 文件数: ${skill.file_count}\n- 大小: ${formatSize(skill.total_size)}\n- 更新时间: ${formatTime(skill.modified_at)}`);
+        })
+        .finally(() => setLoading(false));
     }
-  }, [open, skill]);
+  }, [open, skill, executor]);
 
   const handleExport = async () => {
     if (!skill) return;
-    // TODO: 调用导出 API
-    message.success(`导出 ${skill.name} 成功`);
+    try {
+      const blob = await db.exportSkill(executor, skill.name);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${skill.name}.tar.gz`;
+      a.click();
+      URL.revokeObjectURL(url);
+      message.success(`导出 ${skill.name} 成功`);
+    } catch {
+      message.error(`导出 ${skill.name} 失败`);
+    }
   };
 
   return (
@@ -225,6 +239,8 @@ function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalP
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [exporting, setExporting] = useState(false);
   const [tasks, setTasks] = useState<ExportTask[]>([]);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const handleExport = async () => {
     if (selectedSkills.length === 0) {
@@ -261,6 +277,24 @@ function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalP
     message.success(`成功导出 ${selectedSkills.length} 个 Skills`);
   };
 
+  const handleImport = async () => {
+    if (!importFile) {
+      message.warning('请选择要导入的文件');
+      return;
+    }
+    setImporting(true);
+    try {
+      const result = await db.importSkill(executor, importFile);
+      message.success(`导入成功: ${result.skill_name}，共 ${result.imported_files} 个文件`);
+      setImportFile(null);
+      onClose();
+    } catch {
+      message.error('导入失败');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const completedCount = tasks.filter(t => t.status === 'completed').length;
 
   return (
@@ -291,7 +325,13 @@ function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalP
         ) : (
           <Space>
             <Button onClick={onClose}>取消</Button>
-            <Button type="primary" icon={<UploadOutlined />}>
+            <Button
+              type="primary"
+              icon={<UploadOutlined />}
+              onClick={handleImport}
+              loading={importing}
+              disabled={!importFile}
+            >
               导入
             </Button>
           </Space>
@@ -371,9 +411,11 @@ function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalP
             style={{ marginBottom: 16 }}
           />
           <Upload.Dragger
-            accept=".zip"
-            multiple
-            beforeUpload={() => false}
+            accept=".zip,.tar.gz"
+            beforeUpload={(file) => {
+              setImportFile(file);
+              return false;
+            }}
           >
             <p className="ant-upload-drag-icon">
               <UploadOutlined style={{ fontSize: 48, color: '#7C3AED' }} />
