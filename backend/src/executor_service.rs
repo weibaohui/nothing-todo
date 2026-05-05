@@ -436,7 +436,13 @@ pub async fn run_todo_execution(
         let remaining = std::mem::take(&mut *logs_for_result.lock().await);
         let all_logs_snapshot = match db_clone.get_execution_record(record_id).await {
             Some(record) if !record.logs.is_empty() && record.logs != "[]" => {
-                let mut base: Vec<ParsedLogEntry> = serde_json::from_str(&record.logs).unwrap_or_default();
+                let mut base: Vec<ParsedLogEntry> = match serde_json::from_str(&record.logs) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse execution logs JSON, record_id={}: {}", record_id, e);
+                        Vec::new()
+                    }
+                };
                 base.extend(remaining);
                 base
             }

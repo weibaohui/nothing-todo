@@ -200,8 +200,20 @@ impl Database {
 
         let merged = match existing {
             Some(ref json) if !json.is_empty() && json != "[]" => {
-                let mut base: Vec<serde_json::Value> = serde_json::from_str(json).unwrap_or_default();
-                let append: Vec<serde_json::Value> = serde_json::from_str(new_logs_json).unwrap_or_default();
+                let mut base: Vec<serde_json::Value> = match serde_json::from_str(json) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse existing logs JSON for record {}: {}", id, e);
+                        Vec::new()
+                    }
+                };
+                let append: Vec<serde_json::Value> = match serde_json::from_str(new_logs_json) {
+                    Ok(a) => a,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse new logs JSON for record {}: {}", id, e);
+                        Vec::new()
+                    }
+                };
                 base.extend(append);
                 serde_json::to_string(&base).unwrap_or_else(|_| new_logs_json.to_string())
             }
