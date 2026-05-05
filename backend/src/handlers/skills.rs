@@ -120,6 +120,14 @@ pub struct InvocationQuery {
     pub executor: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct PaginatedInvocations {
+    pub items: Vec<SkillInvocation>,
+    pub total: i64,
+    pub page: i64,
+    pub limit: i64,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct RecordInvocationRequest {
     pub skill_name: String,
@@ -157,6 +165,7 @@ fn parse_skill_yaml_header(content: &str) -> SkillMeta {
     let mut author = None;
     let mut license = None;
     let mut keywords = Vec::new();
+    let mut in_keywords_section = false;
 
     // Parse YAML front matter between --- markers
     if let Some(yaml_content) = extract_yaml_front_matter(content) {
@@ -177,8 +186,12 @@ fn parse_skill_yaml_header(content: &str) -> SkillMeta {
                 author = Some(val.trim().trim_matches('"').to_string());
             } else if let Some(val) = line.strip_prefix("license:") {
                 license = Some(val.trim().trim_matches('"').to_string());
+            } else if line.contains("keywords:") {
+                in_keywords_section = true;
+            } else if line.trim().is_empty() {
+                in_keywords_section = false;
             } else if let Some(val) = line.strip_prefix("  - ") {
-                if !keywords.is_empty() || line.contains("keywords:") {
+                if in_keywords_section {
                     keywords.push(val.trim_matches('"').to_string());
                 }
             }
@@ -472,7 +485,24 @@ pub async fn import_skill(
 
     let flatten = params.flatten.unwrap_or(true);
     let skill_name = params.skill_name.clone().unwrap_or_else(|| "imported-skill".to_string());
+
+    // Validate skill_name: reject absolute paths and parent directory traversal
+    if skill_name.starts_with('/') || skill_name.contains("..") {
+        return Err(AppError::BadRequest("Invalid skill name: absolute paths and parent directory traversal are not allowed".to_string()));
+    }
+
     let target_dir = skills_dir.join(&skill_name);
+
+    // Canonicalize target_dir to verify it's under skills_dir
+    let target_dir = target_dir.canonicalize()
+        .map_err(|e| AppError::Internal(format!("Failed to resolve target dir: {}", e)))?;
+
+    // Verify target_dir is still under skills_dir
+    let skills_dir_canonical = skills_dir.canonicalize()
+        .map_err(|e| AppError::Internal(format!("Failed to resolve skills dir: {}", e)))?;
+    if !target_dir.starts_with(&skills_dir_canonical) {
+        return Err(AppError::BadRequest("Invalid skill name: would escape skills directory".to_string()));
+    }
 
     std::fs::create_dir_all(&target_dir)
         .map_err(|e| AppError::Internal(format!("Failed to create target dir: {}", e)))?;
@@ -483,6 +513,11 @@ pub async fn import_skill(
         let path = entry.path()
             .map_err(|e| AppError::Internal(format!("Invalid path: {}", e)))?
             .into_owned();
+
+        // Reject absolute paths and paths with parent directory traversal
+        if path.is_absolute() || path.components().any(|c| c.as_os_str() == "..") {
+            return Err(AppError::BadRequest(format!("Invalid path in archive: {}", path.display())));
+        }
 
         let file_name = path.file_name()
             .map(|n| n.to_string_lossy().to_string())
@@ -500,6 +535,13 @@ pub async fn import_skill(
             // Preserve structure
             target_dir.join(&path)
         };
+
+        // Verify dest_path is still under target_dir
+        let dest_path_canonical = dest_path.canonicalize()
+            .map_err(|e| AppError::Internal(format!("Failed to resolve dest path: {}", e)))?;
+        if !dest_path_canonical.starts_with(&target_dir) {
+            return Err(AppError::BadRequest(format!("Path escapes target directory: {}", path.display())));
+        }
 
         if let Some(parent) = dest_path.parent() {
             std::fs::create_dir_all(parent)
@@ -673,16 +715,42 @@ pub async fn sync_skill(
         let target_skill_name = req.skill_name.split('/').last().unwrap_or(&req.skill_name);
         let dest = target_dir.join(target_skill_name);
 
-        // Remove existing if present
-        if dest.exists() {
-            std::fs::remove_dir_all(&dest)
-                .map_err(|e| AppError::Internal(format!("Failed to remove existing: {}", e)))?;
+        // Use temporary directory for atomic replace
+        let temp_dest = target_dir.join(format!("{}.tmp.{}", target_skill_name, std::process::id()));
+
+        // Clean up any existing temp dir from previous failed runs
+        if temp_dest.exists() {
+            let _ = std::fs::remove_dir_all(&temp_dest);
         }
 
-        // Copy recursively with flattening
-        match copy_dir_recursive_flat(&skill_dir, &dest, true) {
-            Ok(_) => synced.push(format!("{} ({})", target, target_skill_name)),
-            Err(e) => errors.push(format!("Failed to sync to {}: {}", target, e)),
+        // Copy to temporary directory
+        match copy_dir_recursive_flat(&skill_dir, &temp_dest, true) {
+            Ok(_) => {
+                // Remove existing destination if present
+                if dest.exists() {
+                    if let Err(e) = std::fs::remove_dir_all(&dest) {
+                        errors.push(format!("Failed to remove existing {}: {}", target, e));
+                        let _ = std::fs::remove_dir_all(&temp_dest);
+                        continue;
+                    }
+                }
+
+                // Atomically rename temp to destination
+                if let Err(e) = std::fs::rename(&temp_dest, &dest) {
+                    // On some systems rename cannot overwrite, try copy+remove
+                    if let Err(e2) = copy_dir_recursive_flat(&temp_dest, &dest, true) {
+                        errors.push(format!("Failed to sync to {}: {} (rename failed: {})", target, e2, e));
+                        let _ = std::fs::remove_dir_all(&temp_dest);
+                        continue;
+                    }
+                    let _ = std::fs::remove_dir_all(&temp_dest);
+                }
+                synced.push(format!("{} ({})", target, target_skill_name));
+            }
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&temp_dest);
+                errors.push(format!("Failed to sync to {}: {}", target, e));
+            }
         }
     }
 
@@ -728,10 +796,10 @@ fn copy_dir_recursive_flat(src: &std::path::Path, dst: &std::path::Path, flatten
 pub async fn list_invocations(
     State(state): State<AppState>,
     Query(query): Query<InvocationQuery>,
-) -> Result<ApiResponse<Vec<SkillInvocation>>, AppError> {
+) -> Result<ApiResponse<PaginatedInvocations>, AppError> {
     let page = query.page.unwrap_or(1).max(1);
-    let limit = query.limit.unwrap_or(20).min(100);
-    let offset = (page - 1) * limit;
+    let limit = query.limit.unwrap_or(20).clamp(1, 100);
+    let offset = ((page - 1).max(0)) * limit;
 
     let invocations = state.db.get_skill_invocations(
         offset,
@@ -740,7 +808,17 @@ pub async fn list_invocations(
         query.executor.as_deref(),
     ).await.map_err(|e| AppError::Internal(e.to_string()))?;
 
-    Ok(ApiResponse::ok(invocations))
+    let total = state.db.get_skill_invocations_count(
+        query.skill_name.as_deref(),
+        query.executor.as_deref(),
+    ).await.map_err(|e| AppError::Internal(e.to_string()))?;
+
+    Ok(ApiResponse::ok(PaginatedInvocations {
+        items: invocations,
+        total,
+        page,
+        limit,
+    }))
 }
 
 /// POST /xyz/skills/invocations - Record a skill invocation

@@ -83,6 +83,40 @@ impl Database {
         Ok(invocations)
     }
 
+    pub async fn get_skill_invocations_count(
+        &self,
+        skill_name: Option<&str>,
+        executor: Option<&str>,
+    ) -> Result<i64, sea_orm::DbErr> {
+        let backend = self.conn.get_database_backend();
+
+        let (sql, params): (String, Vec<Value>) = match (skill_name, executor) {
+            (Some(name), Some(ex)) => (
+                "SELECT COUNT(*) FROM skill_invocations WHERE skill_name = $1 AND executor = $2".to_string(),
+                vec![name.into(), ex.into()],
+            ),
+            (Some(name), None) => (
+                "SELECT COUNT(*) FROM skill_invocations WHERE skill_name = $1".to_string(),
+                vec![name.into()],
+            ),
+            (None, Some(ex)) => (
+                "SELECT COUNT(*) FROM skill_invocations WHERE executor = $1".to_string(),
+                vec![ex.into()],
+            ),
+            (None, None) => (
+                "SELECT COUNT(*) FROM skill_invocations".to_string(),
+                vec![],
+            ),
+        };
+
+        let statement = Statement::from_sql_and_values(backend, sql, params);
+        let row = self.conn.query_one(statement).await?;
+
+        row.and_then(|r| r.try_get_by_index(0).ok())
+            .flatten()
+            .ok_or_else(|| sea_orm::DbErr::Query(sea_orm::RuntimeErr::Internal("Failed to get count".to_string())))
+    }
+
     pub async fn record_skill_invocation(
         &self,
         skill_name: &str,
@@ -96,23 +130,18 @@ impl Database {
         let (sql, params) = if let Some(d) = duration_ms {
             (
                 "INSERT INTO skill_invocations (skill_name, executor, todo_id, status, duration_ms) \
-                 VALUES ($1, $2, $3, $4, $5)".to_string(),
+                 VALUES ($1, $2, $3, $4, $5) RETURNING id".to_string(),
                 vec![skill_name.into(), executor.into(), todo_id.into(), status.into(), d.into()],
             )
         } else {
             (
                 "INSERT INTO skill_invocations (skill_name, executor, todo_id, status) \
-                 VALUES ($1, $2, $3, $4)".to_string(),
+                 VALUES ($1, $2, $3, $4) RETURNING id".to_string(),
                 vec![skill_name.into(), executor.into(), todo_id.into(), status.into()],
             )
         };
 
-        self.conn.execute(Statement::from_sql_and_values(backend, sql, params)).await?;
-
-        let result = self.conn.query_one(Statement::from_string(
-            DbBackend::Sqlite,
-            "SELECT last_insert_rowid()".to_string(),
-        )).await?;
+        let result = self.conn.query_one(Statement::from_sql_and_values(backend, sql, params)).await?;
 
         result
             .and_then(|r| r.try_get_by_index(0).ok())

@@ -304,3 +304,10 @@ export interface SkillInvocation {
   status: string;
   duration_ms: number | null;
 }
+
+export interface PaginatedInvocations {
+  items: SkillInvocation[];
+  total: number;
+  page: number;
+  limit: number;
+}

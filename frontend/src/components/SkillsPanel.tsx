@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, type ReactNode } from 'react';
 import {
   Card,
   Table,
@@ -342,7 +342,7 @@ function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalP
         <div>
           <Alert
             message="导出说明"
-            description="导出的文件为 .zip 压缩包格式，包含 SKILL.md 和所有相关文件。导出后可导入到其他支持 Skills 的应用。"
+            description="导出的文件为 .tar.gz 压缩包格式，包含 SKILL.md 和所有相关文件。导出后可导入到其他支持 Skills 的应用。"
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
@@ -405,7 +405,7 @@ function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalP
         <div>
           <Alert
             message="导入说明"
-            description="支持导入 .zip 压缩包格式的 Skills。导入时可根据目标应用自动处理目录层级。"
+            description="支持导入 .tar.gz 压缩包格式的 Skills。导入时可根据目标应用自动处理目录层级。"
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
@@ -421,7 +421,7 @@ function ImportExportModal({ open, mode, executor, onClose }: ImportExportModalP
               <UploadOutlined style={{ fontSize: 48, color: '#7C3AED' }} />
             </p>
             <p className="ant-upload-text">点击或拖拽上传 Skills 压缩包</p>
-            <p className="ant-upload-hint">支持 .zip 格式，可批量导入</p>
+            <p className="ant-upload-hint">支持 .tar.gz 格式</p>
           </Upload.Dragger>
         </div>
       )}
@@ -500,29 +500,36 @@ function SkillTree({ data, onSkillClick, searchText, showCategory }: SkillTreePr
 
   const renderNode = (node: SkillTreeNode) => {
     if (node.type === 'category') {
+      const isExpanded = expandedKeys.includes(node.key);
       return (
-        <div
-          key={node.key}
-          style={{
-            padding: '8px 12px',
-            marginBottom: 4,
-            borderRadius: 6,
-            background: `${node.color}10`,
-            borderLeft: `3px solid ${node.color}`,
-            cursor: 'pointer',
-          }}
-          onClick={() => setExpandedKeys(prev =>
-            prev.includes(node.key)
-              ? prev.filter(k => k !== node.key)
-              : [...prev, node.key]
+        <div key={node.key}>
+          <div
+            style={{
+              padding: '8px 12px',
+              marginBottom: 4,
+              borderRadius: 6,
+              background: `${node.color}10`,
+              borderLeft: `3px solid ${node.color}`,
+              cursor: 'pointer',
+            }}
+            onClick={() => setExpandedKeys(prev =>
+              prev.includes(node.key)
+                ? prev.filter(k => k !== node.key)
+                : [...prev, node.key]
+            )}
+          >
+            <Space>
+              {isExpanded ? <CaretDownOutlined /> : <CaretRightOutlined />}
+              <FolderOutlined style={{ color: node.color }} />
+              <Text strong style={{ color: node.color }}>{node.name}</Text>
+              <Badge count={node.children?.length} style={{ backgroundColor: node.color }} />
+            </Space>
+          </div>
+          {isExpanded && node.children && (
+            <div style={{ marginLeft: 16 }}>
+              {node.children.map(child => renderNode(child))}
+            </div>
           )}
-        >
-          <Space>
-            {expandedKeys.includes(node.key) ? <CaretDownOutlined /> : <CaretRightOutlined />}
-            <FolderOutlined style={{ color: node.color }} />
-            <Text strong style={{ color: node.color }}>{node.name}</Text>
-            <Badge count={node.children?.length} style={{ backgroundColor: node.color }} />
-          </Space>
         </div>
       );
     }
@@ -1072,6 +1079,7 @@ function SkillTracking() {
   const [loading, setLoading] = useState(true);
   const [invocations, setInvocations] = useState<SkillInvocation[]>([]);
   const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [filterSkill, setFilterSkill] = useState<string | undefined>();
   const [filterExecutor, setFilterExecutor] = useState<string | undefined>();
 
@@ -1084,7 +1092,8 @@ function SkillTracking() {
         skill_name: skill,
         executor,
       });
-      setInvocations(data);
+      setInvocations(data.items);
+      setTotalCount(data.total);
     } catch (err: any) {
       message.error('加载失败: ' + err.message);
     } finally {
@@ -1165,6 +1174,7 @@ function SkillTracking() {
           pagination={{
             current: page,
             pageSize: 20,
+            total: totalCount,
             onChange: p => { setPage(p); loadData(p, filterSkill, filterExecutor); },
           }}
           columns={[
@@ -1218,7 +1228,7 @@ function SkillTracking() {
               title: '耗时',
               dataIndex: 'duration_ms',
               width: 100,
-              render: (ms: number | null) => ms ? `${(ms / 1000).toFixed(1)}s` : '-',
+              render: (ms: number | null) => ms != null ? `${(ms / 1000).toFixed(1)}s` : '-',
             },
             {
               title: '调用时间',
@@ -1240,7 +1250,7 @@ type SubView = 'overview' | 'compare' | 'sync' | 'tracking';
 export function SkillsPanel() {
   const [activeView, setActiveView] = useState<SubView>('overview');
 
-  const views: { key: SubView; label: string; icon: React.ReactNode }[] = [
+  const views: { key: SubView; label: string; icon: ReactNode }[] = [
     { key: 'overview', label: 'Skills 总览', icon: <AppstoreOutlined /> },
     { key: 'compare', label: '对比分析', icon: <BarChartOutlined /> },
     { key: 'sync', label: '同步管理', icon: <SwapOutlined /> },

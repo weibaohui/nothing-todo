@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutorSkills, SkillComparison, SkillInvocation } from '../types';
+import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutorSkills, SkillComparison, PaginatedInvocations } from '../types';
 
 interface ApiResp<T> {
   code: number;
@@ -228,8 +228,8 @@ export async function syncSkill(sourceExecutor: string, skillName: string, targe
   }));
 }
 
-export async function getSkillInvocations(params?: { page?: number; limit?: number; skill_name?: string; executor?: string }): Promise<SkillInvocation[]> {
-  return unwrap(await api.get<ApiResp<SkillInvocation[]>>('/xyz/skills/invocations', { params }));
+export async function getSkillInvocations(params?: { page?: number; limit?: number; skill_name?: string; executor?: string }): Promise<PaginatedInvocations> {
+  return unwrap(await api.get<ApiResp<PaginatedInvocations>>('/xyz/skills/invocations', { params }));
 }
 
 export async function recordSkillInvocation(data: { skill_name: string; executor: string; todo_id: number; status: string; duration_ms?: number }): Promise<number> {
