@@ -292,7 +292,7 @@ mod tests {
         let id = db.create_tag("urgent", "#ff0000").await.unwrap();
         let after = truncate_seconds(Utc::now());
 
-        let tag = db.get_tags().await.into_iter().find(|t| t.id == id).unwrap();
+        let tag = db.get_tags().await.unwrap().into_iter().find(|t| t.id == id).unwrap();
         let created = truncate_seconds(parse_utc(&tag.created_at));
 
         assert!(created >= before);
@@ -363,7 +363,7 @@ mod tests {
         let db = setup_db().await;
         let id = db.create_todo("Active", "Prompt").await.unwrap();
         db.delete_todo(id).await.unwrap();
-        let todos = db.get_todos().await;
+        let todos = db.get_todos().await.unwrap();
         assert!(todos.iter().all(|t| t.id != id));
     }
 
@@ -373,7 +373,7 @@ mod tests {
         let id1 = db.create_todo("First", "Prompt").await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let id2 = db.create_todo("Second", "Prompt").await.unwrap();
-        let todos = db.get_todos().await;
+        let todos = db.get_todos().await.unwrap();
         assert_eq!(todos[0].id, id2);
         assert_eq!(todos[1].id, id1);
     }
@@ -450,7 +450,7 @@ mod tests {
         let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.delete_todo(id).await.unwrap();
         assert!(db.get_todo(id).await.is_none());
-        let todos = db.get_todos().await;
+        let todos = db.get_todos().await.unwrap();
         assert!(todos.iter().all(|t| t.id != id));
     }
 
@@ -491,7 +491,7 @@ mod tests {
         let id1 = db.create_todo("Scheduled", "Prompt").await.unwrap();
         db.update_todo_scheduler(id1, true, Some("0 0 * * *")).await.unwrap();
         let id2 = db.create_todo("Normal", "Prompt").await.unwrap();
-        let scheduled = db.get_scheduler_todos().await;
+        let scheduled = db.get_scheduler_todos().await.unwrap();
         assert_eq!(scheduled.len(), 1);
         assert_eq!(scheduled[0].id, id1);
         assert!(scheduled.iter().all(|t| t.id != id2));
@@ -513,7 +513,7 @@ mod tests {
     async fn test_create_and_get_tag() {
         let db = setup_db().await;
         let id = db.create_tag("urgent", "#ff0000").await.unwrap();
-        let tags = db.get_tags().await;
+        let tags = db.get_tags().await.unwrap();
         let tag = tags.iter().find(|t| t.id == id).unwrap();
         assert_eq!(tag.name, "urgent");
         assert_eq!(tag.color, "#ff0000");
@@ -525,7 +525,7 @@ mod tests {
         db.create_tag("zebra", "#000").await.unwrap();
         db.create_tag("apple", "#fff").await.unwrap();
         db.create_tag("mango", "#aaa").await.unwrap();
-        let tags = db.get_tags().await;
+        let tags = db.get_tags().await.unwrap();
         assert_eq!(tags[0].name, "apple");
         assert_eq!(tags[1].name, "mango");
         assert_eq!(tags[2].name, "zebra");
@@ -536,7 +536,7 @@ mod tests {
         let db = setup_db().await;
         let id = db.create_tag("temp", "#000").await.unwrap();
         db.delete_tag(id).await;
-        let tags = db.get_tags().await;
+        let tags = db.get_tags().await.unwrap();
         assert!(tags.iter().all(|t| t.id != id));
     }
 
@@ -596,7 +596,7 @@ mod tests {
         db.add_todo_tag(todo_id, tag_id).await;
         db.delete_todo(todo_id).await.unwrap();
         // tag should still exist but association should be gone
-        let tags = db.get_tags().await;
+        let tags = db.get_tags().await.unwrap();
         assert!(tags.iter().any(|t| t.id == tag_id));
     }
 

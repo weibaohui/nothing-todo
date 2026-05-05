@@ -24,7 +24,7 @@ fn validate_cron_expression(expr: &str) -> Result<(), String> {
 pub async fn get_todos(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<Vec<Todo>>, AppError> {
-    Ok(ApiResponse::ok(state.db.get_todos().await))
+    Ok(ApiResponse::ok(state.db.get_todos().await?))
 }
 
 pub async fn get_todo(

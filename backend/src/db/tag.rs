@@ -9,12 +9,12 @@ use crate::models::Tag;
 use crate::models::TagBackup;
 
 impl Database {
-    pub async fn get_tags(&self) -> Vec<Tag> {
-        tags::Entity::find()
+    pub async fn get_tags(&self) -> Result<Vec<Tag>, sea_orm::DbErr> {
+        let models = tags::Entity::find()
             .order_by_asc(tags::Column::Name)
             .all(&self.conn)
-            .await
-            .unwrap_or_default()
+            .await?;
+        Ok(models
             .into_iter()
             .map(|m| Tag {
                 id: m.id,
@@ -22,7 +22,7 @@ impl Database {
                 color: m.color.unwrap_or_default(),
                 created_at: m.created_at.unwrap_or_default(),
             })
-            .collect()
+            .collect())
     }
 
     pub async fn create_tag(&self, name: &str, color: &str) -> Result<i64, sea_orm::DbErr> {
