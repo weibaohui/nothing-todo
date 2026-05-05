@@ -229,6 +229,11 @@ function SkillDetailDrawer({ skill, executor, executorLabel, open, onClose }: Sk
 
 // ── 导入导出 Modal ───────────────────────────────────────────
 
+// 规范化执行器名称：统一转换为小写，用于匹配
+function normalizeExecutor(name: string): string {
+  return name.toLowerCase().replace(/[_\s-]/g, '');
+}
+
 interface ImportExportModalProps {
   open: boolean;
   mode: 'import' | 'export';
@@ -239,19 +244,35 @@ interface ImportExportModalProps {
 }
 
 function ImportExportModal({ open, mode, executor, data, initialSelectedSkills, onClose }: ImportExportModalProps) {
-  const [selectedSkills, setSelectedSkills] = useState<string[]>(initialSelectedSkills || []);
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [exporting, setExporting] = useState(false);
   const [tasks, setTasks] = useState<ExportTask[]>([]);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
 
   useEffect(() => {
-    if (open && initialSelectedSkills) {
-      setSelectedSkills(initialSelectedSkills);
+    // 每次模态框打开时，重置选中状态
+    if (open) {
+      setSelectedSkills(initialSelectedSkills || []);
+      setTasks([]);
     }
   }, [open, initialSelectedSkills]);
 
-  const executorData = data.find(e => e.executor === executor);
+  // 使用规范化匹配执行器（前后端执行器名称格式可能不一致）
+  const executorData = useMemo(() => {
+    const normalized = normalizeExecutor(executor);
+    // 优先精确匹配
+    let found = data.find(e => e.executor === executor);
+    if (!found) {
+      // 尝试规范化后匹配（处理 claude_code vs claudecode 等情况）
+      found = data.find(e => normalizeExecutor(e.executor) === normalized);
+    }
+    if (!found && data.length > 0) {
+      // 如果都匹配不上，使用传入的 executor 作为 fallback
+      found = { executor, executor_label: executor, skills: [], skills_dir: '', skills_dir_exists: false };
+    }
+    return found;
+  }, [data, executor]);
   const skills = executorData?.skills || [];
 
   const handleExport = async () => {
@@ -722,7 +743,8 @@ function SkillsOverview() {
     } else {
       setExportMode('export');
       if (key === 'export-all') {
-        const executorData = data.find(e => e.executor === selectedExecutor);
+        const normalized = normalizeExecutor(selectedExecutor);
+        const executorData = data.find(e => normalizeExecutor(e.executor) === normalized);
         if (executorData) {
           setInitialSelectedSkills(executorData.skills.map(s => s.name));
         }
@@ -744,7 +766,8 @@ function SkillsOverview() {
     setSelectedExecutor(executor);
     setExportMode('export');
     if (exportAll) {
-      const executorData = data.find(e => e.executor === executor);
+      const normalized = normalizeExecutor(executor);
+      const executorData = data.find(e => normalizeExecutor(e.executor) === normalized);
       if (executorData) {
         setInitialSelectedSkills(executorData.skills.map(s => s.name));
       }
