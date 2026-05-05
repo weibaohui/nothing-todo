@@ -48,7 +48,7 @@ impl Database {
             todo_id: ActiveValue::Set(todo_id),
             tag_id: ActiveValue::Set(tag_id),
         };
-        let _ = todo_tags::Entity::insert(am)
+        if let Err(e) = todo_tags::Entity::insert(am)
             .on_conflict(
                 sea_orm::sea_query::OnConflict::columns([
                     todo_tags::Column::TodoId,
@@ -58,12 +58,15 @@ impl Database {
                 .to_owned(),
             )
             .exec(&self.conn)
-            .await;
+            .await
+        {
+            tracing::warn!("Failed to add tag {} to todo {}: {}", tag_id, todo_id, e);
+        }
     }
 
     pub async fn set_todo_tags(&self, todo_id: i64, tag_ids: &[i64]) {
         let tag_ids = tag_ids.to_vec();
-        let _ = self
+        if let Err(e) = self
             .conn
             .transaction::<_, (), sea_orm::DbErr>(|txn| {
                 Box::pin(async move {
@@ -99,7 +102,10 @@ impl Database {
                     Ok(())
                 })
             })
-            .await;
+            .await
+        {
+            tracing::warn!("Failed to set tags for todo {}: {}", todo_id, e);
+        }
     }
 
     pub async fn get_tag_backups(&self) -> Vec<TagBackup> {

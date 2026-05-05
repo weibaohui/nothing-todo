@@ -54,7 +54,9 @@ pub async fn create_todo(
 
     // Update executor if specified
     if let Some(ref exec) = req.executor {
-        state.db.update_todo_executor(id, exec).await.ok();
+        if let Err(e) = state.db.update_todo_executor(id, exec).await {
+            tracing::warn!("Failed to update executor for todo {}: {}", id, e);
+        }
     }
 
     for tag_id in &req.tag_ids {
@@ -140,7 +142,7 @@ pub async fn delete_todo(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<ApiResponse<()>, AppError> {
-    let _ = state.db.delete_todo(id).await;
+    state.db.delete_todo(id).await.map_err(AppError::from)?;
     Ok(ApiResponse::ok(()))
 }
 
@@ -150,7 +152,7 @@ pub async fn force_update_todo_status(
     ApiJson(req): ApiJson<UpdateTodoRequest>,
 ) -> Result<ApiResponse<Todo>, AppError> {
     if let Some(status) = req.status {
-        let _ = state.db.force_update_todo_status(id, status).await;
+        state.db.force_update_todo_status(id, status).await.map_err(AppError::from)?;
     }
     let todo = state.require_todo(id).await?;
     Ok(ApiResponse::ok(todo))
