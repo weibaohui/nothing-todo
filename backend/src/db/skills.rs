@@ -1,4 +1,4 @@
-use sea_orm::{ConnectionTrait, Statement, DbBackend, Value};
+use sea_orm::{ConnectionTrait, Statement, Value};
 
 use crate::db::Database;
 use crate::handlers::skills::SkillInvocation;
