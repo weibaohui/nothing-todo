@@ -10,6 +10,9 @@ fn main() {
         println!("cargo:rerun-if-changed={}", dist_path.display());
     }
 
+    // Note: GIT_DIR environment variable is automatically picked up by vergen
+    // when the .git directory is in a non-standard location (e.g., when using
+    // cross for Docker-based builds)
     let gitcl = GitclBuilder::default()
         .sha(true)
         .describe(true, true, None)
