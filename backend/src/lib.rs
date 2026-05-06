@@ -13,6 +13,20 @@ pub mod tunnel;
 
 use rust_embed::RustEmbed;
 
-#[derive(RustEmbed)]
-#[folder = "../frontend/dist/"]
-pub struct Assets;
+#[cfg(cross_build)]
+mod assets {
+    use super::RustEmbed;
+    #[derive(RustEmbed)]
+    #[folder = "/project/frontend/dist"]
+    pub struct Assets;
+}
+
+#[cfg(not(cross_build))]
+mod assets {
+    use super::RustEmbed;
+    #[derive(RustEmbed)]
+    #[folder = "../frontend/dist"]
+    pub struct Assets;
+}
+
+pub use assets::Assets;

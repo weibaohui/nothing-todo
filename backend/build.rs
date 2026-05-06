@@ -51,6 +51,23 @@ pub const GIT_DESCRIBE: &str = "{}";
     println!("cargo:rustc-env=NTD_VERSION_FULL={}", git_describe);
     println!("cargo:rustc-env=NTD_GIT_SHA={}", git_sha);
 
+    // Set FRONTEND_DIST_PATH for rust-embed
+    // In cross builds, the path is mounted at /project/frontend/dist
+    // In native builds, it's relative to CARGO_MANIFEST_DIR
+    let is_cross = env::var("CROSS_TARGET").is_ok();
+    let frontend_dist_path = if is_cross {
+        "/project/frontend/dist".to_string()
+    } else {
+        PathBuf::from(&manifest_dir).join("../frontend/dist")
+            .to_string_lossy().into_owned()
+    };
+    println!("cargo:rustc-env=FRONTEND_DIST_PATH={}", frontend_dist_path);
+
+    // Set cfg flag for cross builds so we use the correct path in lib.rs
+    if is_cross {
+        println!("cargo:rustc-cfg=cross_build");
+    }
+
     // Note: GIT_DIR environment variable is automatically picked up by vergen
     // when the .git directory is in a non-standard location (e.g., when using
     // cross for Docker-based builds)
