@@ -6,6 +6,7 @@
 use axum::extract::{Query, State};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::PathBuf;
 use zip::write::FileOptions;
 use zip::ZipArchive;
@@ -511,7 +512,12 @@ pub async fn import_skill(
         return Err(AppError::BadRequest("Invalid skill name: would escape skills directory".to_string()));
     }
 
+    // Zip bomb protection: limits for extracted files
+    const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;    // 50 MB per file
+    const MAX_TOTAL_SIZE: u64 = 200 * 1024 * 1024;   // 200 MB total
+    let mut total_extracted: u64 = 0;
     let mut imported_files = 0i32;
+
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)
             .map_err(|e| AppError::Internal(format!("Failed to read zip entry: {}", e)))?;
@@ -531,6 +537,14 @@ pub async fn import_skill(
         // Skip directories and hidden files
         if file_name.starts_with('.') || file_name.is_empty() {
             continue;
+        }
+
+        // Check declared size early to reject obviously large files
+        let declared_size = file.size();
+        if declared_size > MAX_FILE_SIZE {
+            return Err(AppError::BadRequest(format!(
+                "File too large in archive: {} ({} bytes)", file_name, declared_size
+            )));
         }
 
         let dest_path = if flatten {
@@ -555,7 +569,22 @@ pub async fn import_skill(
 
         let mut outfile = std::fs::File::create(&dest_path)
             .map_err(|e| AppError::Internal(format!("Failed to create file: {}", e)))?;
-        std::io::copy(&mut file, &mut outfile)?;
+
+        // Use take() to enforce per-file size limit, protecting against zip bombs
+        let mut reader = file.by_ref().take(MAX_FILE_SIZE + 1);
+        let written = std::io::copy(&mut reader, &mut outfile)?;
+        if written > MAX_FILE_SIZE {
+            std::fs::remove_file(&dest_path).ok();
+            return Err(AppError::BadRequest(format!(
+                "File exceeds size limit during extraction: {} ({} bytes)", file_name, written
+            )));
+        }
+        total_extracted += written;
+        if total_extracted > MAX_TOTAL_SIZE {
+            return Err(AppError::BadRequest(format!(
+                "Total extracted size exceeds limit ({} bytes)", MAX_TOTAL_SIZE
+            )));
+        }
         imported_files += 1;
     }
 
