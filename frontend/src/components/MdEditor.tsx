@@ -4,24 +4,23 @@ import MDEditor from '@uiw/react-md-editor';
 interface MdEditorProps {
   value: string;
   onChange: (value: string) => void;
-  height?: number;
+  height?: number | string;
 }
 
 export function MdEditor({
   value,
   onChange,
-  height = 400,
+  height,
 }: MdEditorProps) {
   const { themeMode } = useTheme();
 
   return (
-    <div data-color-mode={themeMode}>
+    <div data-color-mode={themeMode} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <MDEditor
         value={value}
         onChange={(val) => onChange(val || '')}
-        height={height}
         preview="edit"
-        style={{ height, minHeight: height }}
+        style={{ flex: 1, minHeight: typeof height === 'number' ? height : (height || '100%') }}
       />
     </div>
   );

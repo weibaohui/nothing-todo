@@ -96,11 +96,11 @@ export function TodoEditDrawer({ open, todo, onClose, onSave }: TodoEditDrawerPr
         </div>
 
         {/* Editor */}
-        <div style={{ flex: 1, padding: '8px 20px 20px', overflow: 'hidden' }}>
+        <div style={{ flex: 1, padding: '8px 20px 20px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <MdEditor
             value={prompt}
             onChange={setPrompt}
-            height={400}
+            height="100%"
           />
         </div>
       </div>
