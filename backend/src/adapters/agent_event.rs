@@ -5,12 +5,29 @@ use serde::Deserialize;
 pub struct AgentEvent {
     #[serde(rename = "type")]
     pub event_type: String,
-    #[serde(default)]
-    pub timestamp: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_timestamp")]
+    pub timestamp: Option<f64>,
     #[serde(default, rename = "sessionID")]
     pub session_id: Option<String>,
     #[serde(default)]
     pub part: Option<AgentPart>,
+}
+
+// Custom deserializer that accepts both string and number formats for timestamp
+fn deserialize_timestamp<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt = Option::<serde_json::Value>::deserialize(deserializer)?;
+    match opt {
+        Some(serde_json::Value::Number(n)) => {
+            Ok(Some(n.as_f64().unwrap_or(0.0)))
+        }
+        Some(serde_json::Value::String(s)) => {
+            Ok(s.parse::<f64>().ok())
+        }
+        _ => Ok(None),
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
