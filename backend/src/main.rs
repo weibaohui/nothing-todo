@@ -76,9 +76,9 @@ async fn main() {
 
     match &cli.command {
         Some(Commands::Version) => {
-            println!("ntd {}", env!("CARGO_PKG_VERSION"));
-            println!("git: {}", option_env!("VERGEN_GIT_SHA").unwrap_or("unknown"));
-            if let Some(desc) = option_env!("VERGEN_GIT_DESCRIBE") {
+            println!("ntd {}", env!("NTD_VERSION"));
+            println!("git: {}", option_env!("NTD_GIT_SHA").unwrap_or("unknown"));
+            if let Some(desc) = option_env!("NTD_VERSION_FULL") {
                 println!("tag: {}", desc);
             }
             return;
