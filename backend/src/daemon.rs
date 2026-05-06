@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use clap::Subcommand;
@@ -77,14 +77,28 @@ pub fn handle_daemon_command(action: &DaemonAction) {
 // Shared helpers
 // =============================================================================
 
+/// Get the path of the currently running ntd binary
+/// Uses args()[0] to get the actual command path (handles sudo correctly)
+/// Falls back to current_exe if args[0] is not an absolute path
 fn get_ntd_binary_path() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-    home.join(".local/bin/ntd")
+    std::env::args()
+        .next()
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(|| std::env::current_exe().expect("Failed to get current executable path"))
 }
 
 fn get_ntd_dir() -> PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
     home.join(".ntd")
+}
+
+/// Get the directory containing the ntd binary (for PATH in service definition)
+fn get_ntd_bin_dir() -> PathBuf {
+    get_ntd_binary_path()
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("/usr/local/bin"))
 }
 
 // =============================================================================
@@ -484,10 +498,12 @@ fn generate_systemd_unit(system: bool, run_as_user: Option<&str>) -> String {
 
         let user_home = get_user_home_dir(&username)
             .unwrap_or_else(|| PathBuf::from(format!("/home/{username}")));
-        let user_binary = user_home.join(".local/bin/ntd");
+        let user_binary = get_ntd_binary_path();
 
         let mut path_entries = vec![
+            get_ntd_bin_dir().display().to_string(),
             format!("{}", user_home.join(".local/bin").display()),
+            format!("{}", user_home.join(".npm-global/bin").display()),
             format!("{}", user_home.join(".cargo/bin").display()),
             "/usr/local/sbin".to_string(),
             "/usr/local/bin".to_string(),
@@ -541,9 +557,11 @@ WantedBy=multi-user.target
         );
     }
 
-    let binary = home.join(".local/bin/ntd");
+    let binary = get_ntd_binary_path();
     let mut path_entries = vec![
+        get_ntd_bin_dir().display().to_string(),
         format!("{}", home.join(".local/bin").display()),
+        format!("{}", home.join(".npm-global/bin").display()),
         format!("{}", home.join(".cargo/bin").display()),
         "/usr/local/sbin".to_string(),
         "/usr/local/bin".to_string(),
@@ -610,9 +628,9 @@ fn systemd_install(force: bool, system: bool, run_as_user: Option<&str>) {
                 .or_else(|_| std::env::var("USER"))
                 .unwrap_or_else(|_| "nobody".to_string())
         });
-        get_user_home_dir(&username)
-            .unwrap_or_else(|| PathBuf::from(format!("/home/{username}")))
-            .join(".local/bin/ntd")
+        let user_home = get_user_home_dir(&username)
+            .unwrap_or_else(|| PathBuf::from(format!("/home/{username}")));
+        get_ntd_binary_path()
     } else {
         get_ntd_binary_path()
     };
@@ -818,14 +836,8 @@ fn handle_task_scheduler(action: &DaemonAction) {
 }
 
 #[cfg(target_os = "windows")]
-fn get_ntd_binary_path_windows() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("C:\\"));
-    home.join(".local").join("bin").join("ntd.exe")
-}
-
-#[cfg(target_os = "windows")]
 fn task_scheduler_install(force: bool) {
-    let binary = get_ntd_binary_path_windows();
+    let binary = get_ntd_binary_path();
 
     if !binary.exists() {
         eprintln!("ntd binary not found at {}. Run `make install` first.", binary.display());
@@ -1008,7 +1020,7 @@ fn task_scheduler_status(verbose: bool) {
 
     if verbose {
         println!();
-        println!("Binary: {}", get_ntd_binary_path_windows().display());
+        println!("Binary: {}", get_ntd_binary_path().display());
 
         let log_path = get_ntd_dir().join("run.log");
         if log_path.exists() {
