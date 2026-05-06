@@ -846,7 +846,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         </span>
       ),
       children: (
-        <div style={{ maxWidth: 700 }}>
+        <div className="settings-messages-tab" style={{ maxWidth: 700 }}>
           <Card
             title="绑定消息接收智能体"
             size="small"
@@ -857,12 +857,13 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 icon={<QrcodeOutlined />}
                 onClick={handleStartFeishuBind}
                 loading={binding}
+                size="small"
               >
-                绑定飞书智能体
+                绑定飞书
               </Button>
             }
           >
-            <Paragraph type="secondary" style={{ marginBottom: 16 }}>
+            <Paragraph type="secondary" style={{ marginBottom: 16, fontSize: 13 }}>
               绑定飞书智能体 Bot 后，可以接收任务执行结果和通知消息。支持绑定多个 Bot。
             </Paragraph>
 
@@ -873,74 +874,66 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 <List
                   dataSource={agentBots}
                   renderItem={(bot) => (
-                    <List.Item
+                    <div
+                      key={bot.id}
                       style={{
-                        padding: '12px 16px',
+                        padding: '12px',
                         background: 'var(--color-bg)',
                         borderRadius: 8,
                         marginBottom: 8,
                         border: '1px solid var(--color-border-light)',
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 10,
                       }}
-                      actions={[
-                        <Popconfirm
-                          key="delete"
-                          title="删除确认"
-                          description={`确定要删除 "${bot.bot_name}" 吗？`}
-                          onConfirm={() => handleDeleteBot(bot.id)}
-                          okText="删除"
-                          cancelText="取消"
-                          okButtonProps={{ danger: true }}
-                        >
-                          <Button type="text" danger icon={<DeleteOutlined />} size="small">
-                            删除
-                          </Button>
-                        </Popconfirm>,
-                      ]}
                     >
-                      <List.Item.Meta
-                        avatar={
-                          <div
-                            style={{
-                              width: 40,
-                              height: 40,
-                              borderRadius: 8,
-                              background: bot.bot_type === 'feishu' ? '#1976D2' : '#888',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              color: '#fff',
-                              fontWeight: 700,
-                              fontSize: 16,
-                            }}
-                          >
-                            {bot.bot_type === 'feishu' ? '飞' : '其他'}
+                      <div
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 8,
+                          background: bot.bot_type === 'feishu' ? '#1976D2' : '#888',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#fff',
+                          fontWeight: 700,
+                          fontSize: 14,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {bot.bot_type === 'feishu' ? '飞' : '其他'}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                          <span style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bot.bot_name}</span>
+                          <AntTag color={bot.enabled ? 'green' : 'default'} style={{ marginRight: 0 }}>
+                            {bot.enabled ? '已启用' : '已禁用'}
+                          </AntTag>
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', wordBreak: 'break-all', lineHeight: 1.6 }}>
+                          App ID: {bot.app_id}
+                        </div>
+                        {bot.domain && (
+                          <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                            平台: {bot.domain === 'lark' ? 'Lark 国际版' : '飞书'}
                           </div>
-                        }
-                        title={
-                          <Space>
-                            <span>{bot.bot_name}</span>
-                            <AntTag color={bot.enabled ? 'green' : 'default'}>
-                              {bot.enabled ? '已启用' : '已禁用'}
-                            </AntTag>
-                          </Space>
-                        }
-                        description={
-                          <Space direction="vertical" size={2}>
-                            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-                              App ID: {bot.app_id}
-                            </div>
-                            {bot.domain && (
-                              <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-                                平台: {bot.domain === 'lark' ? 'Lark 国际版' : '飞书'}
-                              </div>
-                            )}
-                            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                              绑定时间: {new Date(bot.created_at).toLocaleString()}
-                            </div>
-                          </Space>
-                        }
-                      />
-                    </List.Item>
+                        )}
+                        <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 2 }}>
+                          绑定时间: {new Date(bot.created_at).toLocaleString()}
+                        </div>
+                      </div>
+                      <Popconfirm
+                        title="删除确认"
+                        description={`确定要删除 "${bot.bot_name}" 吗？`}
+                        onConfirm={() => handleDeleteBot(bot.id)}
+                        okText="删除"
+                        cancelText="取消"
+                        okButtonProps={{ danger: true }}
+                      >
+                        <Button type="text" danger icon={<DeleteOutlined />} size="small" style={{ flexShrink: 0 }} />
+                      </Popconfirm>
+                    </div>
                   )}
                 />
               )}
@@ -956,20 +949,19 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
             }
             open={bindModalOpen}
             onCancel={() => {
-              if (!binding) {
-                setBindModalOpen(false);
-                setQrCodeUrl('');
-                setPollError('');
-                setBindSuccess(false);
-              }
+              setBindModalOpen(false);
+              setQrCodeUrl('');
+              setPollError('');
+              setBindSuccess(false);
             }}
             footer={null}
             width={400}
             centered
+            className="settings-bind-modal"
           >
-            <div style={{ textAlign: 'center', padding: '20px 0' }}>
+            <div style={{ textAlign: 'center', padding: '16px 0' }}>
               {pollError && (
-                <div style={{ marginBottom: 16, color: '#ff4d4f' }}>
+                <div style={{ marginBottom: 16, color: '#ff4d4f', fontSize: 13 }}>
                   {pollError}
                 </div>
               )}
@@ -982,11 +974,11 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 <>
                   {qrCodeUrl ? (
                     <div style={{ marginBottom: 16 }}>
-                      <img src={qrCodeUrl} alt="QR Code" style={{ width: 200, height: 200 }} />
-                      <div style={{ marginTop: 16, color: 'var(--color-text-secondary)' }}>
+                      <img src={qrCodeUrl} alt="QR Code" style={{ width: '100%', maxWidth: 200, height: 'auto' }} />
+                      <div style={{ marginTop: 12, color: 'var(--color-text-secondary)', fontSize: 13 }}>
                         请使用飞书 App 扫描二维码绑定
                       </div>
-                      <div style={{ marginTop: 8, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                      <div style={{ marginTop: 6, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
                         二维码有效期 10 分钟，请尽快完成
                       </div>
                     </div>
@@ -997,7 +989,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               )}
 
               {binding && !qrCodeUrl && (
-                <div style={{ marginTop: 16, color: 'var(--color-text-secondary)' }}>
+                <div style={{ marginTop: 16, color: 'var(--color-text-secondary)', fontSize: 13 }}>
                   正在生成二维码...
                 </div>
               )}
@@ -1053,6 +1045,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
   return (
     <div
+      className="settings-page-root"
       style={{
         height: '100%',
         overflowY: 'auto',
@@ -1074,19 +1067,20 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               display: 'flex',
               alignItems: 'center',
               gap: 4,
+              flexShrink: 0,
             }}
           >
             ← 返回
           </button>
         )}
-        <div>
+        <div style={{ minWidth: 0 }}>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>配置管理</h2>
-          <Paragraph type="secondary" style={{ marginTop: 4 }}>
+          <Paragraph type="secondary" style={{ marginTop: 4, fontSize: 13 }}>
             管理系统配置、执行器路径、标签、备份和消息智能体
           </Paragraph>
         </div>
       </div>
-      <Tabs items={tabItems} type="card" />
+      <Tabs items={tabItems} type="card" size="small" />
 
       <Modal
         title="导入预览"

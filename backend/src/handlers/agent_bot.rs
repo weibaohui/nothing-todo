@@ -58,8 +58,6 @@ pub struct FeishuBeginResponse {
 }
 
 pub async fn feishu_begin() -> Result<impl IntoResponse, AppError> {
-    tracing::info!("Feishu begin called");
-
     let client = Client::new();
     let form = [
         ("action", "begin"),
@@ -76,7 +74,6 @@ pub async fn feishu_begin() -> Result<impl IntoResponse, AppError> {
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
     let body: serde_json::Value = res.json().await.map_err(|e| AppError::Internal(e.to_string()))?;
-    tracing::info!("Feishu begin response: {:?}", body);
 
     let device_code = body
         .get("device_code")
@@ -165,8 +162,6 @@ pub async fn feishu_poll(
 
         let body: serde_json::Value = res.json().await.map_err(|e| AppError::Internal(e.to_string()))?;
 
-        tracing::info!("Feishu poll response: {:?}", body);
-
         // 授权成功
         if let (Some(app_id), Some(app_secret)) = (
             body.get("client_id").and_then(|v| v.as_str()),
@@ -182,8 +177,6 @@ pub async fn feishu_poll(
                 Some("feishu".to_string())
             };
 
-            tracing::info!("Feishu authorization successful! app_id: {}, domain: {:?}", app_id, domain);
-
             let bot_name = probe_bot(app_id, app_secret).await.ok();
 
             let bot_id = state
@@ -191,8 +184,6 @@ pub async fn feishu_poll(
                 .create_agent_bot("feishu", bot_name.as_deref().unwrap_or("Feishu Bot"), app_id, app_secret, open_id.map(String::from), domain.clone())
                 .await
                 .map_err(|e| AppError::Internal(e.to_string()))?;
-
-            tracing::info!("Created agent bot with id: {}", bot_id);
 
             return Ok(ApiResponse::ok(FeishuPollResponse {
                 success: true,
@@ -209,7 +200,6 @@ pub async fn feishu_poll(
         // 终端错误
         if let Some(err) = body.get("error").and_then(|v| v.as_str()) {
             if err == "access_denied" || err == "expired_token" {
-                tracing::info!("Feishu poll error: {}", err);
                 return Ok(ApiResponse::ok(FeishuPollResponse {
                     success: false,
                     error: Some(err.to_string()),
