@@ -287,3 +287,14 @@ export async function importSkill(executor: string, file: File, skillName?: stri
   });
   return response.data.data as ImportResult;
 }
+
+// Version API
+export interface VersionInfo {
+  version: string;
+  git_sha: string;
+  git_describe: string;
+}
+
+export async function getVersion(): Promise<VersionInfo> {
+  return unwrap(await api.get<ApiResp<VersionInfo>>('/xyz/version'));
+}
