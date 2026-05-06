@@ -87,6 +87,10 @@ pub async fn feishu_begin() -> Result<impl IntoResponse, AppError> {
         .ok_or_else(|| AppError::Internal("Missing verification_uri_complete".to_string()))?
         .to_string();
 
+    if !qr_url.starts_with("https://accounts.feishu.cn/") {
+        return Err(AppError::Internal("Invalid verification URI domain".to_string()));
+    }
+
     let user_code = body
         .get("user_code")
         .and_then(|v| v.as_str())
@@ -137,8 +141,9 @@ pub async fn feishu_poll(
     Json(req): Json<FeishuPollRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let client = Client::new();
-    let interval = Duration::from_secs(req.interval.unwrap_or(5));
-    let deadline = std::time::Instant::now() + Duration::from_secs(req.expire_in.unwrap_or(600));
+    let expire_in = req.expire_in.unwrap_or(600).min(600);
+    let interval = Duration::from_secs(req.interval.unwrap_or(5).max(1).min(30));
+    let deadline = std::time::Instant::now() + Duration::from_secs(expire_in);
 
     loop {
         if std::time::Instant::now() > deadline {
@@ -177,7 +182,13 @@ pub async fn feishu_poll(
                 Some("feishu".to_string())
             };
 
-            let bot_name = probe_bot(app_id, app_secret).await.ok();
+            let bot_name = match probe_bot(app_id, app_secret).await {
+                Ok(name) => Some(name),
+                Err(e) => {
+                    tracing::warn!("probe_bot failed for app_id {}: {}", app_id, e);
+                    None
+                }
+            };
 
             let bot_id = state
                 .db
