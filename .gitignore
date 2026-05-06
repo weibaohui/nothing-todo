@@ -50,3 +50,4 @@ step6-same-again.png
 datalog
 .cc-connect
 frontend/test-results/.last-run.json
+.deepseek/trusted
