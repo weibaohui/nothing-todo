@@ -233,6 +233,23 @@ impl Database {
         )
         .await?;
 
+        // Agent Bots table
+        self.exec(
+            "CREATE TABLE IF NOT EXISTS agent_bots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_type TEXT NOT NULL,
+                bot_name TEXT NOT NULL,
+                app_id TEXT NOT NULL,
+                app_secret TEXT NOT NULL,
+                bot_open_id TEXT,
+                domain TEXT,
+                enabled INTEGER DEFAULT 1,
+                created_at TEXT,
+                updated_at TEXT
+            )",
+        )
+        .await?;
+
         Ok(())
     }
 }
@@ -241,6 +258,7 @@ mod todo;
 mod tag;
 mod execution;
 mod skills;
+mod agent_bot;
 
 #[cfg(test)]
 mod tests {

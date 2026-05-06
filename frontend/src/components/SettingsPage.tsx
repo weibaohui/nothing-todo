@@ -33,8 +33,11 @@ import {
   ClockCircleOutlined,
   ThunderboltOutlined,
   InfoCircleOutlined,
+  MessageOutlined,
+  QrcodeOutlined,
 } from '@ant-design/icons';
 import { Cron } from 'react-js-cron';
+import QRCode from 'qrcode';
 import 'react-js-cron/dist/styles.css';
 import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
@@ -121,6 +124,15 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [versionInfo, setVersionInfo] = useState<{ version: string; git_sha: string; git_describe: string } | null>(null);
   const [versionLoading, setVersionLoading] = useState(false);
 
+  // Agent Bots state
+  const [agentBots, setAgentBots] = useState<db.AgentBot[]>([]);
+  const [botsLoading, setBotsLoading] = useState(false);
+  const [binding, setBinding] = useState(false);
+  const [bindModalOpen, setBindModalOpen] = useState(false);
+  const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [pollError, setPollError] = useState('');
+  const [bindSuccess, setBindSuccess] = useState(false);
+
   // Import wizard state
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardItems, setWizardItems] = useState<ImportItem[]>([]);
@@ -191,6 +203,104 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       .catch(() => {})
       .finally(() => setVersionLoading(false));
   }, []);
+
+  // Load agent bots
+  const loadAgentBots = () => {
+    setBotsLoading(true);
+    db.getAgentBots()
+      .then((bots) => setAgentBots(bots))
+      .catch(() => {})
+      .finally(() => setBotsLoading(false));
+  };
+
+  useEffect(() => {
+    loadAgentBots();
+  }, []);
+
+  // 飞书绑定
+  const handleStartFeishuBind = async () => {
+    setBinding(true);
+    setBindSuccess(false);
+    setPollError('');
+    setQrCodeUrl('');
+    setBindModalOpen(true);
+
+    try {
+      // 先初始化检查环境
+      const initRes = await db.feishuInit();
+      if (!initRes.supported) {
+        setPollError('当前环境不支持 client_secret 认证');
+        setBinding(false);
+        return;
+      }
+
+      // 获取二维码
+      const beginRes = await db.feishuBegin();
+
+      // 生成二维码
+      const qrDataUrl = await QRCode.toDataURL(beginRes.qr_url, {
+        width: 256,
+        margin: 2,
+      });
+      setQrCodeUrl(qrDataUrl);
+
+      // 开始轮询
+      pollFeishuBinding(beginRes.device_code, beginRes.interval, beginRes.expire_in);
+    } catch (err: any) {
+      setPollError(err?.message || '启动绑定失败');
+      setBinding(false);
+    }
+  };
+
+  const pollFeishuBinding = async (deviceCode: string, interval: number, expireIn: number) => {
+    const deadline = Date.now() + expireIn * 1000;
+
+    const poll = async () => {
+      if (Date.now() > deadline) {
+        setPollError('绑定超时，请重试');
+        setBinding(false);
+        return;
+      }
+
+      try {
+        const res = await db.feishuPoll(deviceCode, interval, expireIn);
+        if (res.success) {
+          setBindSuccess(true);
+          setBinding(false);
+          message.success(`绑定成功！Bot: ${res.bot_name || 'Feishu Bot'}`);
+          loadAgentBots();
+          setTimeout(() => {
+            setBindModalOpen(false);
+            setQrCodeUrl('');
+          }, 2000);
+          return;
+        }
+
+        if (res.error === 'access_denied') {
+          setPollError('用户拒绝了绑定请求');
+          setBinding(false);
+          return;
+        }
+
+        // 继续轮询
+        setTimeout(poll, interval * 1000);
+      } catch (err) {
+        setTimeout(poll, interval * 1000);
+      }
+    };
+
+    poll();
+  };
+
+  const handleDeleteBot = async (botId: number) => {
+    try {
+      await db.deleteAgentBot(botId);
+      message.success('已删除');
+      loadAgentBots();
+    } catch (err: any) {
+      message.error(err?.message || '删除失败');
+    }
+  };
 
   const handleSaveConfig = async () => {
     try {
@@ -755,6 +865,175 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       children: <SkillsPanel />,
     },
     {
+      key: 'messages',
+      label: (
+        <span>
+          <MessageOutlined style={{ marginRight: 6 }} />
+          消息
+        </span>
+      ),
+      children: (
+        <div style={{ maxWidth: 700 }}>
+          <Card
+            title="绑定消息接收智能体"
+            size="small"
+            style={{ marginBottom: 24 }}
+            extra={
+              <Button
+                type="primary"
+                icon={<QrcodeOutlined />}
+                onClick={handleStartFeishuBind}
+                loading={binding}
+              >
+                绑定飞书智能体
+              </Button>
+            }
+          >
+            <Paragraph type="secondary" style={{ marginBottom: 16 }}>
+              绑定飞书智能体 Bot 后，可以接收任务执行结果和通知消息。支持绑定多个 Bot。
+            </Paragraph>
+
+            <Spin spinning={botsLoading}>
+              {agentBots.length === 0 ? (
+                <Empty description="暂无绑定的智能体" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              ) : (
+                <List
+                  dataSource={agentBots}
+                  renderItem={(bot) => (
+                    <List.Item
+                      style={{
+                        padding: '12px 16px',
+                        background: 'var(--color-bg)',
+                        borderRadius: 8,
+                        marginBottom: 8,
+                        border: '1px solid var(--color-border-light)',
+                      }}
+                      actions={[
+                        <Popconfirm
+                          key="delete"
+                          title="删除确认"
+                          description={`确定要删除 "${bot.bot_name}" 吗？`}
+                          onConfirm={() => handleDeleteBot(bot.id)}
+                          okText="删除"
+                          cancelText="取消"
+                          okButtonProps={{ danger: true }}
+                        >
+                          <Button type="text" danger icon={<DeleteOutlined />} size="small">
+                            删除
+                          </Button>
+                        </Popconfirm>,
+                      ]}
+                    >
+                      <List.Item.Meta
+                        avatar={
+                          <div
+                            style={{
+                              width: 40,
+                              height: 40,
+                              borderRadius: 8,
+                              background: bot.bot_type === 'feishu' ? '#1976D2' : '#888',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: '#fff',
+                              fontWeight: 700,
+                              fontSize: 16,
+                            }}
+                          >
+                            {bot.bot_type === 'feishu' ? '飞' : '其他'}
+                          </div>
+                        }
+                        title={
+                          <Space>
+                            <span>{bot.bot_name}</span>
+                            <AntTag color={bot.enabled ? 'green' : 'default'}>
+                              {bot.enabled ? '已启用' : '已禁用'}
+                            </AntTag>
+                          </Space>
+                        }
+                        description={
+                          <Space direction="vertical" size={2}>
+                            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                              App ID: {bot.app_id}
+                            </div>
+                            {bot.domain && (
+                              <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                                平台: {bot.domain === 'lark' ? 'Lark 国际版' : '飞书'}
+                              </div>
+                            )}
+                            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                              绑定时间: {new Date(bot.created_at).toLocaleString()}
+                            </div>
+                          </Space>
+                        }
+                      />
+                    </List.Item>
+                  )}
+                />
+              )}
+            </Spin>
+          </Card>
+
+          <Modal
+            title={
+              <Space>
+                <QrcodeOutlined />
+                绑定飞书智能体
+              </Space>
+            }
+            open={bindModalOpen}
+            onCancel={() => {
+              if (!binding) {
+                setBindModalOpen(false);
+                setQrCodeUrl('');
+                setPollError('');
+                setBindSuccess(false);
+              }
+            }}
+            footer={null}
+            width={400}
+            centered
+          >
+            <div style={{ textAlign: 'center', padding: '20px 0' }}>
+              {pollError && (
+                <div style={{ marginBottom: 16, color: '#ff4d4f' }}>
+                  {pollError}
+                </div>
+              )}
+
+              {bindSuccess ? (
+                <div style={{ color: '#52c41a', fontSize: 48, marginBottom: 16 }}>
+                  ✓
+                </div>
+              ) : (
+                <>
+                  {qrCodeUrl ? (
+                    <div style={{ marginBottom: 16 }}>
+                      <img src={qrCodeUrl} alt="QR Code" style={{ width: 200, height: 200 }} />
+                      <div style={{ marginTop: 16, color: 'var(--color-text-secondary)' }}>
+                        请使用飞书 App 扫描二维码绑定
+                      </div>
+                      <div style={{ marginTop: 8, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                        二维码有效期 10 分钟，请尽快完成
+                      </div>
+                    </div>
+                  ) : (
+                    <Spin size="large" />
+                  )}
+                </>
+              )}
+
+              {binding && !qrCodeUrl && (
+                <div style={{ marginTop: 16, color: 'var(--color-text-secondary)' }}>
+                  正在生成二维码...
+                </div>
+              )}
+            </div>
+          </Modal>
+        </div>
+      ),
+    },
+    {
       key: 'about',
       label: (
         <span>
@@ -830,7 +1109,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         <div>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>配置管理</h2>
           <Paragraph type="secondary" style={{ marginTop: 4 }}>
-            管理系统配置、执行器路径、标签和备份
+            管理系统配置、执行器路径、标签、备份和消息智能体
           </Paragraph>
         </div>
       </div>
