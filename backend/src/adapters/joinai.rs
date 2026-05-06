@@ -74,7 +74,8 @@ impl CodeExecutor for JoinaiExecutor {
                 // - Milliseconds (13+ digits, e.g., 1700000000000)
                 // - Seconds with decimal (10 digits, e.g., 1778032233.261)
                 // Use magnitude to determine: > 1e12 means milliseconds, < 1e12 means seconds
-                let ts_ms = if ts > 1e12 { ts as i64 } else { (ts * 1000.0) as i64 };
+                let ts_f = ts as f64;
+                let ts_ms = if ts_f > 1e12 { ts_f as i64 } else { (ts_f * 1000.0) as i64 };
                 chrono::DateTime::from_timestamp_millis(ts_ms)
             })
             .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
