@@ -51,6 +51,9 @@ pub const GIT_DESCRIBE: &str = "{}";
     println!("cargo:rustc-env=NTD_VERSION_FULL={}", git_describe);
     println!("cargo:rustc-env=NTD_GIT_SHA={}", git_sha);
 
+    // Note: GIT_DIR environment variable is automatically picked up by vergen
+    // when the .git directory is in a non-standard location (e.g., when using
+    // cross for Docker-based builds)
     let gitcl = GitclBuilder::default()
         .sha(true)
         .describe(true, true, None)

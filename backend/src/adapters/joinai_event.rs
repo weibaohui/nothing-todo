@@ -1,37 +1,26 @@
+//! JoinAI-specific event parsing.
+//!
+//! JoinAI uses underscore-separated event types (e.g., step_start, tool_use) and
+//! follows a different naming convention.
+
 use std::collections::HashMap;
 use serde::Deserialize;
 
+/// JoinAI agent event with underscore-separated type names
 #[derive(Debug, Clone, Deserialize)]
-pub struct AgentEvent {
+pub struct JoinaiAgentEvent {
     #[serde(rename = "type")]
     pub event_type: String,
-    #[serde(default, deserialize_with = "deserialize_timestamp")]
-    pub timestamp: Option<f64>,
-    #[serde(default, rename = "sessionID")]
+    #[serde(default)]
+    pub timestamp: Option<u64>,
+    #[serde(default)]
     pub session_id: Option<String>,
     #[serde(default)]
-    pub part: Option<AgentPart>,
-}
-
-// Custom deserializer that accepts both string and number formats for timestamp
-fn deserialize_timestamp<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let opt = Option::<serde_json::Value>::deserialize(deserializer)?;
-    match opt {
-        Some(serde_json::Value::Number(n)) => {
-            Ok(Some(n.as_f64().unwrap_or(0.0)))
-        }
-        Some(serde_json::Value::String(s)) => {
-            Ok(s.parse::<f64>().ok())
-        }
-        _ => Ok(None),
-    }
+    pub part: Option<JoinaiAgentPart>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct AgentPart {
+pub struct JoinaiAgentPart {
     #[serde(rename = "type")]
     pub part_type: Option<String>,
     #[serde(default)]
@@ -43,13 +32,13 @@ pub struct AgentPart {
     #[serde(default)]
     pub call_id: Option<String>,
     #[serde(default)]
-    pub state: Option<AgentToolState>,
+    pub state: Option<JoinaiAgentToolState>,
     #[serde(default)]
     pub message_id: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,
     #[serde(default)]
-    pub tokens: Option<AgentTokens>,
+    pub tokens: Option<JoinaiAgentTokens>,
     #[serde(default)]
     pub cost: Option<f64>,
     #[serde(default)]
@@ -57,17 +46,17 @@ pub struct AgentPart {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct AgentToolState {
+pub struct JoinaiAgentToolState {
     #[serde(default)]
     pub status: Option<String>,
     #[serde(default)]
-    pub input: Option<AgentToolInput>,
+    pub input: Option<JoinaiAgentToolInput>,
     #[serde(default)]
     pub output: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct AgentToolInput {
+pub struct JoinaiAgentToolInput {
     #[serde(default)]
     pub command: Option<String>,
     #[serde(default)]
@@ -76,7 +65,7 @@ pub struct AgentToolInput {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
-impl AgentToolInput {
+impl JoinaiAgentToolInput {
     pub fn to_full_json(&self) -> String {
         let mut map = serde_json::Map::new();
         if let Some(ref cmd) = self.command {
@@ -93,18 +82,18 @@ impl AgentToolInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct AgentTokens {
+pub struct JoinaiAgentTokens {
     pub total: u64,
     pub input: u64,
     pub output: u64,
     #[serde(default)]
     pub reasoning: u64,
     #[serde(default)]
-    pub cache: AgentCacheTokens,
+    pub cache: JoinaiAgentCacheTokens,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct AgentCacheTokens {
+pub struct JoinaiAgentCacheTokens {
     #[serde(default)]
     pub read: u64,
     #[serde(default)]

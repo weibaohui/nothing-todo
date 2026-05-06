@@ -10,6 +10,7 @@ use tower::ServiceExt;
 
 use ntd::{
     adapters::{ExecutorRegistry, claude_code::ClaudeCodeExecutor},
+    config::Config,
     db::Database,
     handlers::create_app,
     scheduler::TodoScheduler,
@@ -32,7 +33,9 @@ async fn create_test_app() -> axum::Router {
         .unwrap();
     scheduler.start().await.unwrap();
 
-    create_app(db, executor_registry, tx, scheduler, task_manager)
+    let config = Arc::new(tokio::sync::RwLock::new(Config::default()));
+
+    create_app(db, executor_registry, tx, scheduler, task_manager, config)
 }
 
 async fn read_json_body<T: serde::de::DeserializeOwned>(
