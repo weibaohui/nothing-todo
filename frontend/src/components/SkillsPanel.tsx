@@ -275,12 +275,33 @@ function ImportExportModal({ open, mode, executor, data, initialSelectedSkills, 
       setTasks([]);
     }
   }, [open, initialSelectedSkills]);
+  // Helper to revoke all blob URLs from tasks
+  const revokeTasksBlobUrls = useCallback((taskList: ExportTask[]) => {
+    taskList.forEach(t => { if (t.blobUrl) URL.revokeObjectURL(t.blobUrl); });
+  }, []);
+
+  // Cleanup blob URLs when modal closes
+  useEffect(() => {
+    if (!open) {
+      setTasks(prev => {
+        revokeTasksBlobUrls(prev);
+        return [];
+      });
+      setSelectedSkills([]);
+    }
+  }, [open, revokeTasksBlobUrls]);
+
   const handleExport = async () => {
     if (selectedSkills.length === 0) {
       message.warning('请选择要导出的 Skills');
       return;
     }
     setExporting(true);
+    // Revoke old blob URLs before starting new export
+    setTasks(prev => {
+      revokeTasksBlobUrls(prev);
+      return prev;
+    });
     const newTasks: ExportTask[] = selectedSkills.map(s => ({
       id: `${Date.now()}-${s}`,
       executor,
@@ -289,6 +310,9 @@ function ImportExportModal({ open, mode, executor, data, initialSelectedSkills, 
       progress: 0,
     }));
     setTasks(newTasks);
+
+    let successCount = 0;
+    let failCount = 0;
 
     for (const task of newTasks) {
       setTasks(prev => prev.map(t =>
@@ -307,14 +331,22 @@ function ImportExportModal({ open, mode, executor, data, initialSelectedSkills, 
         a.href = blobUrl;
         a.download = `${task.skillName}.zip`;
         a.click();
+        successCount++;
       } catch (err: any) {
         setTasks(prev => prev.map(t =>
           t.id === task.id ? { ...t, status: 'failed', error: err.message } : t
         ));
+        failCount++;
       }
     }
     setExporting(false);
-    message.success(`成功导出 ${selectedSkills.length} 个 Skills`);
+    if (failCount === 0) {
+      message.success(`成功导出 ${successCount} 个 Skills`);
+    } else if (successCount === 0) {
+      message.error(`导出失败，共 ${failCount} 个 Skills`);
+    } else {
+      message.info(`导出完成: ${successCount} 个成功, ${failCount} 个失败`);
+    }
   };
 
   const handleImport = async () => {
