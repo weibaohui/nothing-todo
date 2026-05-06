@@ -17,15 +17,29 @@ env:
 jobs:
   build-frontend:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps
+
       - name: Build frontend
-        run: cd frontend && npm ci --legacy-peer-deps && npm run build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Verify frontend dist
+        run: |
+          echo "==== frontend/dist ===="
+          find frontend/dist -type f | sort | head -100
+
       - uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
@@ -33,6 +47,7 @@ jobs:
 
   build:
     needs: build-frontend
+
     strategy:
       matrix:
         include:
@@ -69,13 +84,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v4
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v4
         with:
           name: frontend-dist
-          path: frontend/dist
+          path: frontend/dist/
 
-      - name: Verify frontend dist
-        run: ls -la frontend/dist/
+      - name: Verify downloaded frontend dist
+        run: |
+          echo "==== downloaded frontend/dist ===="
+          find frontend/dist -type f | sort | head -100
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -86,23 +104,40 @@ jobs:
         if: matrix.use-cross == true
         run: cargo install cross --locked
 
+      - name: Debug mounted frontend path
+        if: matrix.use-cross == true
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/frontend/dist:/project/frontend/dist:ro \
+            alpine:latest \
+            sh -c "echo '==== inside container ====' && find /project/frontend/dist | head -50"
+
       - name: Build (cross)
         if: matrix.use-cross == true
+        working-directory: backend
         env:
-          # Mount frontend/dist for rust-embed + .git for vergen
-          CROSS_CONTAINER_OPTS: "-v ${{ github.workspace }}/frontend/dist:/frontend/dist:ro -v ${{ github.workspace }}/.git:/project/.git:ro"
-          # Point GIT_DIR to where .git is mounted inside the container
+          CROSS_CONTAINER_OPTS: >-
+            -v ${{ github.workspace }}/frontend/dist:/project/frontend/dist:ro
+            -v ${{ github.workspace }}/.git:/project/.git:ro
           GIT_DIR: /project/.git
-        run: cd backend && cross build --release --target ${{ matrix.target }}
+        run: |
+          cargo clean
+          cross build --release --target ${{ matrix.target }}
 
       - name: Build (native)
         if: matrix.use-cross == false
-        run: cd backend && cargo build --release --target ${{ matrix.target }}
+        working-directory: backend
+        run: |
+          cargo clean
+          cargo build --release --target ${{ matrix.target }}
 
       - name: Prepare binary for upload
         run: |
           mkdir -p dist
-          cp backend/target/${{ matrix.target }}/release/${{ matrix.bin }} "dist/${{ matrix.name }}"
+
+          cp backend/target/${{ matrix.target }}/release/${{ matrix.bin }} \
+            "dist/${{ matrix.name }}"
+
           chmod +x "dist/${{ matrix.name }}" || true
 
       - name: Upload artifact
@@ -113,8 +148,11 @@ jobs:
 
   release:
     needs: build
+
     if: startsWith(github.ref, 'refs/tags/v')
+
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -139,49 +177,75 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
 
       - name: Prepare npm packages
         run: |
           VERSION=${GITHUB_REF_NAME#v}
+
           echo "Publishing version: $VERSION"
 
-          # Copy binaries to package bin/ directories
           mkdir -p packages/nothing-todo-linux-x64/bin
           mkdir -p packages/nothing-todo-linux-arm64/bin
           mkdir -p packages/nothing-todo-darwin-arm64/bin
           mkdir -p packages/nothing-todo-windows-x64/bin
 
-          cp artifacts/nothing-todo-linux-x64/ntd-linux-x64 packages/nothing-todo-linux-x64/bin/ntd
-          cp artifacts/nothing-todo-linux-arm64/ntd-linux-arm64 packages/nothing-todo-linux-arm64/bin/ntd
-          cp artifacts/nothing-todo-darwin-arm64/ntd-darwin-arm64 packages/nothing-todo-darwin-arm64/bin/ntd
-          cp artifacts/nothing-todo-windows-x64/ntd-windows-x64.exe packages/nothing-todo-windows-x64/bin/ntd.exe
+          cp artifacts/nothing-todo-linux-x64/ntd-linux-x64 \
+            packages/nothing-todo-linux-x64/bin/ntd
+
+          cp artifacts/nothing-todo-linux-arm64/ntd-linux-arm64 \
+            packages/nothing-todo-linux-arm64/bin/ntd
+
+          cp artifacts/nothing-todo-darwin-arm64/ntd-darwin-arm64 \
+            packages/nothing-todo-darwin-arm64/bin/ntd
+
+          cp artifacts/nothing-todo-windows-x64/ntd-windows-x64.exe \
+            packages/nothing-todo-windows-x64/bin/ntd.exe
 
           chmod +x packages/nothing-todo-linux-x64/bin/ntd
           chmod +x packages/nothing-todo-linux-arm64/bin/ntd
           chmod +x packages/nothing-todo-darwin-arm64/bin/ntd
 
-          # Update version in all package.json files
-          for pkg in nothing-todo-linux-x64 nothing-todo-linux-arm64 nothing-todo-darwin-arm64 nothing-todo-windows-x64 nothing-todo; do
-            node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('packages/$pkg/package.json','utf8')); p.version='$VERSION'; fs.writeFileSync('packages/$pkg/package.json', JSON.stringify(p, null, 2)+'\n');"
+          for pkg in \
+            nothing-todo-linux-x64 \
+            nothing-todo-linux-arm64 \
+            nothing-todo-darwin-arm64 \
+            nothing-todo-windows-x64 \
+            nothing-todo
+          do
+            node -e "
+              const fs=require('fs');
+              const p=JSON.parse(fs.readFileSync('packages/$pkg/package.json','utf8'));
+              p.version='$VERSION';
+              fs.writeFileSync(
+                'packages/$pkg/package.json',
+                JSON.stringify(p, null, 2) + '\n'
+              );
+            "
+
             echo "Updated $pkg to $VERSION"
           done
 
       - name: Publish platform packages to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for pkg in nothing-todo-linux-x64 nothing-todo-linux-arm64 nothing-todo-darwin-arm64 nothing-todo-windows-x64; do
+          for pkg in \
+            nothing-todo-linux-x64 \
+            nothing-todo-linux-arm64 \
+            nothing-todo-darwin-arm64 \
+            nothing-todo-windows-x64
+          do
             echo "Publishing @weibaohui/$pkg..."
+
             cd packages/$pkg
             npm publish --access public
             cd ../..
           done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish wrapper package to npm
-        run: |
-          cd packages/nothing-todo
-          npm publish --access public
+        working-directory: packages/nothing-todo
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
