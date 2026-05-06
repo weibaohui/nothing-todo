@@ -2,7 +2,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
-use super::agent_event::AgentEvent;
+use super::opencode_event::OpencodeAgentEvent;
 use crate::models::utc_timestamp;
 
 pub struct OpencodeExecutor {
@@ -76,12 +76,12 @@ impl CodeExecutor for OpencodeExecutor {
     }
 
     fn extract_session_id(&self, line: &str) -> Option<String> {
-        let event: AgentEvent = serde_json::from_str(line).ok()?;
+        let event: OpencodeAgentEvent = serde_json::from_str(line).ok()?;
         event.session_id.or_else(|| event.part.as_ref()?.session_id.clone())
     }
 
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
-        let event: AgentEvent = serde_json::from_str(line).ok()?;
+        let event: OpencodeAgentEvent = serde_json::from_str(line).ok()?;
 
         let timestamp = event.timestamp
             .and_then(|ts| chrono::DateTime::from_timestamp_millis(ts as i64))
