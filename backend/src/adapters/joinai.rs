@@ -2,7 +2,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
-use super::agent_event::AgentEvent;
+use super::joinai_event::JoinaiAgentEvent;
 use crate::models::utc_timestamp;
 
 pub struct JoinaiExecutor {
@@ -61,15 +61,22 @@ impl CodeExecutor for JoinaiExecutor {
     }
 
     fn extract_session_id(&self, line: &str) -> Option<String> {
-        let event: AgentEvent = serde_json::from_str(line).ok()?;
+        let event: JoinaiAgentEvent = serde_json::from_str(line).ok()?;
         event.session_id.or_else(|| event.part.as_ref()?.session_id.clone())
     }
 
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
-        let event: AgentEvent = serde_json::from_str(line).ok()?;
+        let event: JoinaiAgentEvent = serde_json::from_str(line).ok()?;
 
         let timestamp = event.timestamp
-            .and_then(|ts| chrono::DateTime::from_timestamp_millis(ts as i64))
+            .and_then(|ts| {
+                // JoinAI may send timestamps as either:
+                // - Milliseconds (13+ digits, e.g., 1700000000000)
+                // - Seconds with decimal (10 digits, e.g., 1778032233.261)
+                // Use magnitude to determine: > 1e12 means milliseconds, < 1e12 means seconds
+                let ts_ms = if ts > 1e12 { ts as i64 } else { (ts * 1000.0) as i64 };
+                chrono::DateTime::from_timestamp_millis(ts_ms)
+            })
             .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
             .unwrap_or_else(utc_timestamp);
 
@@ -281,6 +288,28 @@ mod tests {
     fn test_get_model_always_none() {
         let executor = JoinaiExecutor::new("joinai".to_string());
         assert!(executor.get_model().is_none());
+    }
+
+    #[test]
+    fn test_parse_output_line_with_string_timestamp_seconds() {
+        // JoinAI may send timestamps as strings in seconds format (e.g., "1778032233.261")
+        let executor = JoinaiExecutor::new("joinai".to_string());
+        let line = r#"{"type":"step_start","timestamp":"1778032233.261","content":"Step started"}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "step_start");
+        assert_eq!(entry.content, "Step started");
+        // The timestamp should be parsed and formatted as ISO 8601
+        assert!(entry.timestamp.starts_with("2026-"));
+    }
+
+    #[test]
+    fn test_parse_output_line_with_number_timestamp_milliseconds() {
+        // Milliseconds format (13+ digits) should still work
+        let executor = JoinaiExecutor::new("joinai".to_string());
+        let line = r#"{"type":"step_start","timestamp":1700000000000,"content":"Step started"}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "step_start");
+        assert!(entry.timestamp.starts_with("2023-"));
     }
 }
 
