@@ -217,7 +217,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     loadAgentBots();
   }, []);
 
-  // 飞书绑定
+  // 飞书绑定 — 后端轮询模式，前端只需一次调用
   const handleStartFeishuBind = async () => {
     setBinding(true);
     setBindSuccess(false);
@@ -226,7 +226,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     setBindModalOpen(true);
 
     try {
-      // 先初始化检查环境
       const initRes = await db.feishuInit();
       if (!initRes.supported) {
         setPollError('当前环境不支持 client_secret 认证');
@@ -234,62 +233,36 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         return;
       }
 
-      // 获取二维码
       const beginRes = await db.feishuBegin();
 
-      // 生成二维码
       const qrDataUrl = await QRCode.toDataURL(beginRes.qr_url, {
         width: 256,
         margin: 2,
       });
       setQrCodeUrl(qrDataUrl);
 
-      // 开始轮询
-      pollFeishuBinding(beginRes.device_code, beginRes.interval, beginRes.expire_in);
+      // 后端内部轮询，等待扫码结果
+      const pollRes = await db.feishuPoll(beginRes.device_code, beginRes.interval, beginRes.expire_in);
+
+      if (pollRes.success) {
+        setBindSuccess(true);
+        message.success(`绑定成功！Bot: ${pollRes.bot_name || 'Feishu Bot'}`);
+        loadAgentBots();
+        setTimeout(() => {
+          setBindModalOpen(false);
+          setQrCodeUrl('');
+        }, 2000);
+      } else {
+        const errMsg = pollRes.error === 'access_denied' ? '用户拒绝了绑定请求'
+          : pollRes.error === 'expired_token' ? '二维码已过期，请重新绑定'
+          : '绑定超时，请重试';
+        setPollError(errMsg);
+      }
     } catch (err: any) {
       setPollError(err?.message || '启动绑定失败');
+    } finally {
       setBinding(false);
     }
-  };
-
-  const pollFeishuBinding = async (deviceCode: string, interval: number, expireIn: number) => {
-    const deadline = Date.now() + expireIn * 1000;
-
-    const poll = async () => {
-      if (Date.now() > deadline) {
-        setPollError('绑定超时，请重试');
-        setBinding(false);
-        return;
-      }
-
-      try {
-        const res = await db.feishuPoll(deviceCode, interval, expireIn);
-        if (res.success) {
-          setBindSuccess(true);
-          setBinding(false);
-          message.success(`绑定成功！Bot: ${res.bot_name || 'Feishu Bot'}`);
-          loadAgentBots();
-          setTimeout(() => {
-            setBindModalOpen(false);
-            setQrCodeUrl('');
-          }, 2000);
-          return;
-        }
-
-        if (res.error === 'access_denied') {
-          setPollError('用户拒绝了绑定请求');
-          setBinding(false);
-          return;
-        }
-
-        // 继续轮询
-        setTimeout(poll, interval * 1000);
-      } catch (err) {
-        setTimeout(poll, interval * 1000);
-      }
-    };
-
-    poll();
   };
 
   const handleDeleteBot = async (botId: number) => {

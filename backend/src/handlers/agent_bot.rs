@@ -1,26 +1,15 @@
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
-    routing::{delete, get, post},
-    Router,
     Json,
 };
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tokio::time::{sleep, Duration};
+use std::time::Duration;
+use tokio::time::sleep;
 
-use crate::db::Database;
 use crate::handlers::{AppError, AppState};
-
-pub fn router(state: AppState) -> Router {
-    Router::new()
-        .route("/xyz/agent-bots", get(list_agent_bots))
-        .route("/xyz/agent-bots/:id", delete(delete_agent_bot))
-        .route("/xyz/agent-bots/feishu/init", post(feishu_init))
-        .route("/xyz/agent-bots/feishu/begin", post(feishu_begin))
-        .route("/xyz/agent-bots/feishu/poll", post(feishu_poll))
-        .with_state(state)
-}
+use crate::models::ApiResponse;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeishuInitResponse {
@@ -52,10 +41,11 @@ pub async fn feishu_init() -> Result<impl IntoResponse, AppError> {
 
     let supported = supported_auth_methods.contains(&"client_secret".to_string());
 
-    Ok(Json(serde_json::json!({
-        "supported": supported,
-        "auth_methods": supported_auth_methods
-    })))
+    let response = FeishuInitResponse {
+        supported,
+        auth_methods: supported_auth_methods,
+    };
+    Ok(ApiResponse::ok(response))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,21 +58,25 @@ pub struct FeishuBeginResponse {
 }
 
 pub async fn feishu_begin() -> Result<impl IntoResponse, AppError> {
+    tracing::info!("Feishu begin called");
+
     let client = Client::new();
+    let form = [
+        ("action", "begin"),
+        ("archetype", "PersonalAgent"),
+        ("auth_method", "client_secret"),
+        ("request_user_info", "open_id"),
+    ];
     let res = client
         .post("https://accounts.feishu.cn/oauth/v1/app/registration")
         .header("Content-Type", "application/x-www-form-urlencoded")
-        .form(&[
-            ("action", "begin"),
-            ("archetype", "PersonalAgent"),
-            ("auth_method", "client_secret"),
-            ("request_user_info", "open_id"),
-        ])
+        .form(&form)
         .send()
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
     let body: serde_json::Value = res.json().await.map_err(|e| AppError::Internal(e.to_string()))?;
+    tracing::info!("Feishu begin response: {:?}", body);
 
     let device_code = body
         .get("device_code")
@@ -90,18 +84,11 @@ pub async fn feishu_begin() -> Result<impl IntoResponse, AppError> {
         .ok_or_else(|| AppError::Internal("Missing device_code".to_string()))?
         .to_string();
 
-    let mut qr_url = body
+    let qr_url = body
         .get("verification_uri_complete")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::Internal("Missing verification_uri_complete".to_string()))?
         .to_string();
-
-    // 添加追踪参数
-    if qr_url.contains('?') {
-        qr_url += "&from=ntd&tp=ntd";
-    } else {
-        qr_url += "?from=ntd&tp=ntd";
-    }
 
     let user_code = body
         .get("user_code")
@@ -119,13 +106,14 @@ pub async fn feishu_begin() -> Result<impl IntoResponse, AppError> {
         .and_then(|v| v.as_u64())
         .unwrap_or(600);
 
-    Ok(Json(serde_json::json!({
-        "device_code": device_code,
-        "qr_url": qr_url,
-        "user_code": user_code,
-        "interval": interval,
-        "expire_in": expire_in
-    })))
+    let response = FeishuBeginResponse {
+        device_code,
+        qr_url,
+        user_code,
+        interval,
+        expire_in,
+    };
+    Ok(ApiResponse::ok(response))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,15 +140,16 @@ pub async fn feishu_poll(
     Json(req): Json<FeishuPollRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let client = Client::new();
+    let interval = Duration::from_secs(req.interval.unwrap_or(5));
     let deadline = std::time::Instant::now() + Duration::from_secs(req.expire_in.unwrap_or(600));
-    let interval = req.interval.unwrap_or(5);
 
     loop {
         if std::time::Instant::now() > deadline {
-            return Ok(Json(serde_json::json!({
-                "success": false,
-                "error": "timeout"
-            })));
+            return Ok(ApiResponse::ok(FeishuPollResponse {
+                success: false,
+                error: Some("timeout".to_string()),
+                ..Default::default()
+            }));
         }
 
         let res = client
@@ -169,7 +158,6 @@ pub async fn feishu_poll(
             .form(&[
                 ("action", "poll"),
                 ("device_code", &req.device_code),
-                ("tp", "ob_app"),
             ])
             .send()
             .await
@@ -177,7 +165,9 @@ pub async fn feishu_poll(
 
         let body: serde_json::Value = res.json().await.map_err(|e| AppError::Internal(e.to_string()))?;
 
-        // 检查是否成功
+        tracing::info!("Feishu poll response: {:?}", body);
+
+        // 授权成功
         if let (Some(app_id), Some(app_secret)) = (
             body.get("client_id").and_then(|v| v.as_str()),
             body.get("client_secret").and_then(|v| v.as_str()),
@@ -192,47 +182,69 @@ pub async fn feishu_poll(
                 Some("feishu".to_string())
             };
 
-            // 尝试获取 bot 信息
+            tracing::info!("Feishu authorization successful! app_id: {}, domain: {:?}", app_id, domain);
+
             let bot_name = probe_bot(app_id, app_secret).await.ok();
 
-            // 保存到数据库
             let bot_id = state
                 .db
                 .create_agent_bot("feishu", bot_name.as_deref().unwrap_or("Feishu Bot"), app_id, app_secret, open_id.map(String::from), domain.clone())
                 .await
                 .map_err(|e| AppError::Internal(e.to_string()))?;
 
-            return Ok(Json(serde_json::json!({
-                "success": true,
-                "app_id": app_id,
-                "app_secret": app_secret,
-                "domain": domain,
-                "open_id": open_id,
-                "bot_name": bot_name,
-                "bot_id": bot_id
-            })));
+            tracing::info!("Created agent bot with id: {}", bot_id);
+
+            return Ok(ApiResponse::ok(FeishuPollResponse {
+                success: true,
+                app_id: Some(app_id.to_string()),
+                app_secret: Some(app_secret.to_string()),
+                domain,
+                open_id: open_id.map(String::from),
+                bot_name,
+                bot_id: Some(bot_id),
+                error: None,
+            }));
         }
 
-        // 检查是否失败
-        let error = body.get("error").and_then(|v| v.as_str());
-        if let Some(err) = error {
+        // 终端错误
+        if let Some(err) = body.get("error").and_then(|v| v.as_str()) {
             if err == "access_denied" || err == "expired_token" {
-                return Ok(Json(serde_json::json!({
-                    "success": false,
-                    "error": err
-                })));
+                tracing::info!("Feishu poll error: {}", err);
+                return Ok(ApiResponse::ok(FeishuPollResponse {
+                    success: false,
+                    error: Some(err.to_string()),
+                    ..Default::default()
+                }));
+            }
+            if err == "slow_down" {
+                sleep(interval + Duration::from_secs(5)).await;
+                continue;
             }
         }
 
-        // 继续轮询
-        sleep(Duration::from_secs(interval)).await;
+        // authorization_pending，等待后重试
+        sleep(interval).await;
+    }
+}
+
+impl Default for FeishuPollResponse {
+    fn default() -> Self {
+        Self {
+            success: false,
+            app_id: None,
+            app_secret: None,
+            domain: None,
+            open_id: None,
+            bot_name: None,
+            bot_id: None,
+            error: None,
+        }
     }
 }
 
 async fn probe_bot(app_id: &str, app_secret: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let client = Client::new();
 
-    // 获取 tenant_access_token
     let token_res = client
         .post("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal")
         .json(&serde_json::json!({
@@ -248,7 +260,6 @@ async fn probe_bot(app_id: &str, app_secret: &str) -> Result<String, Box<dyn std
         .and_then(|v| v.as_str())
         .ok_or("Missing tenant_access_token")?;
 
-    // 获取 bot 信息
     let bot_res = client
         .get("https://open.feishu.cn/open-apis/bot/v3/info")
         .header("Authorization", format!("Bearer {}", token))
@@ -296,7 +307,7 @@ pub async fn list_agent_bots(
         })
         .collect();
 
-    Ok(Json(response))
+    Ok(ApiResponse::ok(response))
 }
 
 pub async fn delete_agent_bot(
@@ -304,5 +315,5 @@ pub async fn delete_agent_bot(
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
     state.db.delete_agent_bot(id).await.map_err(|e| AppError::Internal(e.to_string()))?;
-    Ok(Json(serde_json::json!({"success": true})))
+    Ok(ApiResponse::ok(serde_json::json!({"success": true})))
 }
