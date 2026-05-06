@@ -19,7 +19,7 @@ use crate::adapters::ExecutorRegistry;
 use crate::Assets;
 use crate::config::Config;
 use crate::db::Database;
-use crate::models::ParsedLogEntry;
+use crate::models::{ApiResponse, ParsedLogEntry};
 use crate::scheduler::TodoScheduler;
 use crate::task_manager::{TaskManager, TaskInfo};
 
@@ -257,6 +257,25 @@ pub async fn static_handler(Path(path): axum::extract::Path<String>) -> Response
     }
 }
 
+#[derive(serde::Serialize)]
+struct VersionResponse {
+    version: String,
+    git_sha: String,
+    git_describe: String,
+}
+
+async fn version_handler() -> impl IntoResponse {
+    let version = option_env!("NTD_VERSION").unwrap_or("unknown");
+    let git_sha = option_env!("NTD_GIT_SHA").unwrap_or("unknown");
+    let git_describe = option_env!("NTD_VERSION_FULL").unwrap_or("unknown");
+    let response = VersionResponse {
+        version: version.to_string(),
+        git_sha: git_sha.to_string(),
+        git_describe: git_describe.to_string(),
+    };
+    ApiResponse::ok(response)
+}
+
 // Build router
 pub fn create_app(
     db: Arc<Database>,
@@ -313,6 +332,7 @@ pub fn create_app(
         .route("/xyz/skills/export", get(skills::export_skill))
         .route("/xyz/skills/import", post(skills::import_skill))
         .route("/assets/{*path}", get(static_handler))
+        .route("/xyz/version", get(version_handler))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
         .layer(CompressionLayer::new())
         .layer(
