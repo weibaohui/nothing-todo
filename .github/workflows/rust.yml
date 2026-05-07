@@ -75,11 +75,10 @@ jobs:
 
       - name: Build (cross)
         if: matrix.use-cross == true
+        env:
+          # Mount frontend/dist to both possible locations inside cross container
+          CROSS_CONTAINER_OPTS: "-v ${{ github.workspace }}/frontend/dist:/project/frontend/dist:ro -v ${{ github.workspace }}/frontend/dist:/home/runner/work/nothing-todo/nothing-todo/frontend/dist:ro"
         run: |
-          echo "=== Host: checking frontend/dist ==="
-          ls -la frontend/dist/ 2>&1 | head -5
-          echo "=== Host: checking backend/../ ==="
-          ls -la backend/../ 2>&1 | head -5
           echo "=== Running cross build ==="
           cd backend && cross build --release --target ${{ matrix.target }} 2>&1
 
