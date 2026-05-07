@@ -31,6 +31,7 @@ pub struct AppState {
     pub task_manager: Arc<TaskManager>,
     pub config: Arc<tokio::sync::RwLock<Config>>,
     pub feishu_listener: Arc<FeishuListener>,
+    pub feishu_push_mutator: broadcast::Sender<crate::services::feishu_push::PushConfigUpdate>,
 }
 
 impl AppState {
@@ -304,14 +305,20 @@ pub fn create_app(
         }
     });
 
+    // Create and start Feishu push service before AppState
+    use crate::services::feishu_push::FeishuPushService;
+    let (push_service, push_mutator) = FeishuPushService::new(db.clone(), feishu_listener.clone());
+    push_service.start(tx.subscribe());
+
     let state = AppState {
         db,
         executor_registry,
-        tx,
+        tx: tx.clone(),
         scheduler,
         task_manager,
         config,
-        feishu_listener,
+        feishu_listener: feishu_listener.clone(),
+        feishu_push_mutator: push_mutator,
     };
 
     Router::new()
@@ -355,6 +362,7 @@ pub fn create_app(
         .route("/xyz/agent-bots/feishu/init", post(agent_bot::feishu_init))
         .route("/xyz/agent-bots/feishu/begin", post(agent_bot::feishu_begin))
         .route("/xyz/agent-bots/feishu/poll", post(agent_bot::feishu_poll))
+        .route("/xyz/agent-bots/feishu/push", get(agent_bot::get_feishu_push).put(agent_bot::update_feishu_push))
         .route("/xyz/agent-bots/{id}", delete(agent_bot::delete_agent_bot))
         .route("/xyz/agent-bots/{id}/config", put(agent_bot::update_agent_bot_config))
         .route("/assets/{*path}", get(static_handler))

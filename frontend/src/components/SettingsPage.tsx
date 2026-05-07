@@ -41,6 +41,7 @@ import QRCode from 'qrcode';
 import 'react-js-cron/dist/styles.css';
 import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
+import type { FeishuPushStatus } from '../utils/database';
 import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
 import type { Config, ExecutorPaths } from '../types';
 import yaml from 'js-yaml';
@@ -127,6 +128,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   // Agent Bots state
   const [agentBots, setAgentBots] = useState<db.AgentBot[]>([]);
   const [botsLoading, setBotsLoading] = useState(false);
+  const [feishuPushStatus, setFeishuPushStatus] = useState<FeishuPushStatus[]>([]);
   const [binding, setBinding] = useState(false);
   const [bindModalOpen, setBindModalOpen] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
@@ -213,8 +215,15 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       .finally(() => setBotsLoading(false));
   };
 
+  const loadFeishuPush = () => {
+    db.getFeishuPush()
+      .then((status) => setFeishuPushStatus(status))
+      .catch(() => {});
+  };
+
   useEffect(() => {
     loadAgentBots();
+    loadFeishuPush();
   }, []);
 
   // 飞书绑定 — 后端轮询模式，前端只需一次调用
@@ -248,6 +257,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         setBindSuccess(true);
         message.success(`绑定成功！Bot: ${pollRes.bot_name || 'Feishu Bot'}`);
         loadAgentBots();
+        loadFeishuPush();
         setTimeout(() => {
           setBindModalOpen(false);
           setQrCodeUrl('');
@@ -887,6 +897,17 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                       }
                     };
 
+                    const botPushStatus = feishuPushStatus.find(p => p.bot_id === bot.id);
+                    const hasPushTarget = !!botPushStatus && (botPushStatus.receive_id || botPushStatus.chat_id);
+                    const handlePushLevelChange = async (level: db.FeishuPushLevel) => {
+                      try {
+                        await db.updateFeishuPush(bot.id, level);
+                        loadFeishuPush();
+                      } catch (e: any) {
+                        message.error('设置推送失败: ' + (e.message || '未知错误'));
+                      }
+                    };
+
                     return (
                       <div
                         key={bot.id}
@@ -967,6 +988,22 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                 Echo 回复
                               </span>
                             </div>
+                            {hasPushTarget && (
+                              <div style={{ marginTop: 8 }}>
+                                <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6 }}>实时推送 {botPushStatus.receive_id_type === 'open_id' ? '(私聊)' : '(群聊)'}</div>
+                                <Select
+                                  size="small"
+                                  value={botPushStatus.push_level}
+                                  onChange={handlePushLevelChange}
+                                  style={{ width: 120 }}
+                                  options={[
+                                    { value: 'disabled', label: '关闭' },
+                                    { value: 'result_only', label: '仅结论' },
+                                    { value: 'all', label: '全部' },
+                                  ]}
+                                />
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

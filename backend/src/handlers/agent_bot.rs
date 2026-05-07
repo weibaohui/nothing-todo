@@ -357,3 +357,67 @@ pub async fn update_agent_bot_config(
 
     Ok(ApiResponse::ok(serde_json::json!({"success": true})))
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FeishuPushStatus {
+    pub bot_id: i64,
+    pub push_level: String,
+    pub chat_id: Option<String>,
+    pub receive_id: String,
+    pub receive_id_type: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateFeishuPushRequest {
+    pub bot_id: i64,
+    pub push_level: String,
+}
+
+pub async fn get_feishu_push(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let bots = state.db.get_agent_bots().await.map_err(|e| AppError::Internal(e.to_string()))?;
+    let mut statuses = Vec::new();
+
+    for bot in bots.into_iter().filter(|b| b.bot_type == "feishu") {
+        let target = state.db.get_feishu_push_target(bot.id).await.ok().flatten();
+        statuses.push(FeishuPushStatus {
+            bot_id: bot.id,
+            push_level: target.as_ref().map(|t| t.push_level.clone()).unwrap_or_else(|| "disabled".to_string()),
+            chat_id: target.as_ref().and_then(|t| t.chat_id.clone()),
+            receive_id: target.as_ref().map(|t| t.receive_id.clone()).unwrap_or_default(),
+            receive_id_type: target.as_ref().map(|t| t.receive_id_type.clone()).unwrap_or_default(),
+        });
+    }
+
+    Ok(ApiResponse::ok(statuses))
+}
+
+pub async fn update_feishu_push(
+    State(state): State<AppState>,
+    Json(req): Json<UpdateFeishuPushRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let target = state
+        .db
+        .get_feishu_push_target(req.bot_id)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?
+        .ok_or(AppError::NotFound)?;
+
+    state
+        .db
+        .update_feishu_push_level(req.bot_id, &req.push_level)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    // Refresh push service cache
+    let _ = state.feishu_push_mutator.send(crate::services::feishu_push::PushConfigUpdate::Refresh);
+
+    Ok(ApiResponse::ok(FeishuPushStatus {
+        bot_id: req.bot_id,
+        push_level: req.push_level,
+        chat_id: target.chat_id,
+        receive_id: target.receive_id,
+        receive_id_type: target.receive_id_type,
+    }))
+}
