@@ -298,3 +298,58 @@ export interface VersionInfo {
 export async function getVersion(): Promise<VersionInfo> {
   return unwrap(await api.get<ApiResp<VersionInfo>>('/xyz/version'));
 }
+
+// Agent Bot APIs
+export interface AgentBot {
+  id: number;
+  bot_type: string;
+  bot_name: string;
+  app_id: string;
+  bot_open_id?: string;
+  domain?: string;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface FeishuBeginResponse {
+  device_code: string;
+  qr_url: string;
+  user_code: string;
+  interval: number;
+  expire_in: number;
+}
+
+export interface FeishuPollResponse {
+  success: boolean;
+  app_id?: string;
+  app_secret?: string;
+  domain?: string;
+  open_id?: string;
+  bot_name?: string;
+  bot_id?: number;
+  error?: string;
+}
+
+export async function getAgentBots(): Promise<AgentBot[]> {
+  return unwrap(await api.get<ApiResp<AgentBot[]>>('/xyz/agent-bots'));
+}
+
+export async function deleteAgentBot(id: number): Promise<void> {
+  await api.delete(`/xyz/agent-bots/${id}`);
+}
+
+export async function feishuInit(): Promise<{ supported: boolean; auth_methods: string[] }> {
+  return unwrap(await api.post<ApiResp<{ supported: boolean; auth_methods: string[] }>>('/xyz/agent-bots/feishu/init'));
+}
+
+export async function feishuBegin(): Promise<FeishuBeginResponse> {
+  return unwrap(await api.post<ApiResp<FeishuBeginResponse>>('/xyz/agent-bots/feishu/begin'));
+}
+
+export async function feishuPoll(device_code: string, interval?: number, expire_in?: number): Promise<FeishuPollResponse> {
+  return unwrap(await api.post<ApiResp<FeishuPollResponse>>('/xyz/agent-bots/feishu/poll', {
+    device_code,
+    interval,
+    expire_in,
+  }));
+}

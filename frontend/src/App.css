@@ -1939,3 +1939,35 @@ code {
 [data-theme="dark"] .ant-empty-description {
   color: var(--color-text-secondary);
 }
+
+/* ---------- Settings Page Mobile Responsive ---------- */
+@media (max-width: 767px) {
+  .settings-page-root {
+    padding: 12px 12px !important;
+  }
+
+  /* Card header: stack title and extra button vertically on mobile */
+  .settings-messages-tab .ant-card-head {
+    flex-wrap: wrap;
+  }
+
+  .settings-messages-tab .ant-card-head-wrapper {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .settings-messages-tab .ant-card-extra {
+    margin-left: 0;
+  }
+
+  /* Bind modal responsive */
+  .settings-bind-modal .ant-modal {
+    max-width: calc(100vw - 32px) !important;
+    margin: 16px auto;
+  }
+
+  .settings-bind-modal .ant-modal-body {
+    padding: 12px;
+  }
+}
