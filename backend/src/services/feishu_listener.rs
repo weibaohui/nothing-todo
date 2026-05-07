@@ -148,6 +148,12 @@ impl FeishuListener {
             return;
         }
 
+        // /feishupush command (toggle push)
+        if content == "/feishupush" {
+            Self::handle_feishupush(db, credentials, bot_id, chat_type, &msg.sender, &msg.channel, &msg.id, reaction_id.as_deref()).await;
+            return;
+        }
+
         // DM: check dm_enabled
         if chat_type == "p2p" {
             if !bot_config.dm_enabled {
@@ -197,7 +203,7 @@ impl FeishuListener {
     ) {
         let (receive_id, receive_id_type, chat_id) = match chat_type {
             "p2p" => (sender.to_string(), "open_id", None),
-            _ => (channel.to_string(), "chat", Some(channel.to_string())),
+            _ => (channel.to_string(), "chat_id", Some(channel.to_string())),
         };
 
         match db
@@ -215,8 +221,115 @@ impl FeishuListener {
             }
         }
 
+        // Also store as push target (default to result_only)
+        if let Err(e) = db
+            .set_feishu_push_target(bot_id, chat_id.as_deref(), &receive_id, receive_id_type, "result_only")
+            .await
+        {
+            tracing::error!("[feishu:{}] set push target failed: {e}", bot_id);
+        }
+
+        // Send confirmation
+        let chat_type_label = if chat_type == "p2p" { "私聊" } else { "群聊" };
+        let target_desc = if chat_type == "p2p" { "此私聊" } else { channel };
+        let confirm = format!("✅ 已设置推送目标为此 {chat_type_label} ({target_desc})，执行过程将实时推送。\n\n如需关闭推送，请发送 /feishupush");
+        Self::send_text(credentials, bot_id, &receive_id, &receive_id_type, &confirm).await;
+
         if let Some(rid) = reaction_id {
             Self::delete_reaction(credentials, bot_id, message_id, rid).await;
+        }
+    }
+
+    /// Handle /feishupush - cycle push level: disabled -> result_only -> all -> disabled.
+    async fn handle_feishupush(
+        db: &Database,
+        credentials: &DashMap<i64, (String, String, String)>,
+        bot_id: i64,
+        chat_type: &str,
+        sender: &str,
+        channel: &str,
+        message_id: &str,
+        reaction_id: Option<&str>,
+    ) {
+        let (receive_id, receive_id_type) = match chat_type {
+            "p2p" => (sender.to_string(), "open_id"),
+            _ => (channel.to_string(), "chat_id"),
+        };
+
+        let target = db.get_feishu_push_target(bot_id).await.ok().flatten();
+        let current_level = target.as_ref().map(|t| t.push_level.as_str()).unwrap_or("disabled");
+        let new_level = match current_level {
+            "disabled" => "result_only",
+            "result_only" => "all",
+            "all" => "disabled",
+            _ => "disabled",
+        };
+
+        if let Err(e) = db.update_feishu_push_level(bot_id, new_level).await {
+            tracing::error!("[feishu:{}] /feishupush update failed: {e}", bot_id);
+            let msg = "⚠️ 操作失败，请稍后重试";
+            Self::send_text(credentials, bot_id, &receive_id, &receive_id_type, msg).await;
+        } else {
+            let (status_text, status_emoji) = match new_level {
+                "disabled" => ("关闭", "ℹ️"),
+                "result_only" => ("已切换为仅结论", "✅"),
+                "all" => ("已切换为全部", "✅"),
+                _ => ("未知", "⚠️"),
+            };
+            let msg = format!("{} 推送{}。", status_emoji, status_text);
+            Self::send_text(credentials, bot_id, &receive_id, &receive_id_type, &msg).await;
+            tracing::info!("[feishu:{}] /feishupush: push level changed to {} for bot_id={}", bot_id, new_level, bot_id);
+        }
+
+        if let Some(rid) = reaction_id {
+            Self::delete_reaction(credentials, bot_id, message_id, rid).await;
+        }
+    }
+
+    /// Send a plain text message to a Feishu recipient.
+    async fn send_text(
+        credentials: &DashMap<i64, (String, String, String)>,
+        bot_id: i64,
+        receive_id: &str,
+        receive_id_type: &str,
+        text: &str,
+    ) {
+        let base_url = match Self::base_url(credentials, bot_id) {
+            Some(u) => u,
+            None => return,
+        };
+        let token = match Self::get_tenant_token(credentials, bot_id).await {
+            Some(t) => t,
+            None => return,
+        };
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/open-apis/im/v1/messages?receive_id_type={}", base_url, receive_id_type);
+        let body = serde_json::json!({
+            "receive_id": receive_id,
+            "msg_type": "text",
+            "content": serde_json::to_string(&serde_json::json!({ "text": text })).unwrap_or_default()
+        });
+
+        match client
+            .post(&url)
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+        {
+            Ok(res) => {
+                let status = res.status();
+                if !status.is_success() {
+                    tracing::error!("[feishu:{}] send_text failed: status={}", bot_id, status);
+                } else {
+                    tracing::debug!("[feishu:{}] send_text ok to {} ({})", bot_id, receive_id, receive_id_type);
+                }
+            }
+            Err(e) => {
+                tracing::error!("[feishu:{}] send_text request failed: {e}", bot_id);
+            }
         }
     }
 
@@ -228,6 +341,45 @@ impl FeishuListener {
         } else {
             anyhow::bail!("bot {} not running", bot_id)
         }
+    }
+
+    /// Send a raw text message using a specific receive_id_type.
+    pub async fn send_raw(
+        &self,
+        bot_id: i64,
+        receive_id: &str,
+        receive_id_type: &str,
+        text: &str,
+    ) -> anyhow::Result<()> {
+        let base_url = Self::base_url(&self.bot_credentials, bot_id)
+            .ok_or_else(|| anyhow::anyhow!("no credentials for bot {}", bot_id))?;
+        let token = Self::get_tenant_token(&self.bot_credentials, bot_id)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("no token for bot {}", bot_id))?;
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/open-apis/im/v1/messages?receive_id_type={}", base_url, receive_id_type);
+        let body = serde_json::json!({
+            "receive_id": receive_id,
+            "msg_type": "text",
+            "content": serde_json::to_string(&serde_json::json!({ "text": text })).unwrap_or_default()
+        });
+
+        let res = client
+            .post(&url)
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await?;
+
+        let status = res.status();
+        if !status.is_success() {
+            let body: serde_json::Value = res.json().await.unwrap_or_default();
+            return Err(anyhow::anyhow!("send_raw failed: {} {:?}", status, body));
+        }
+
+        Ok(())
     }
 
     // --- Feishu API helpers ---

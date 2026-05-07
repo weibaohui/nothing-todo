@@ -1,0 +1,194 @@
+use std::sync::Arc;
+use std::time::Instant;
+use tokio::sync::broadcast;
+use tracing::{debug, error, info, warn};
+
+use crate::db::Database;
+use crate::handlers::ExecEvent;
+use crate::services::feishu_listener::FeishuListener;
+
+/// Subscribe to ExecEvent broadcast and push formatted messages to Feishu.
+pub struct FeishuPushService {
+    db: Arc<Database>,
+    feishu_listener: Arc<FeishuListener>,
+    mutator: broadcast::Sender<PushConfigUpdate>,
+}
+
+#[derive(Clone, Debug)]
+pub enum PushConfigUpdate {
+    Refresh,
+}
+
+impl FeishuPushService {
+    pub fn new(
+        db: Arc<Database>,
+        feishu_listener: Arc<FeishuListener>,
+    ) -> (Self, broadcast::Sender<PushConfigUpdate>) {
+        let (mutator, _) = broadcast::channel(4);
+        let service = Self {
+            db,
+            feishu_listener,
+            mutator: mutator.clone(),
+        };
+        (service, mutator)
+    }
+
+    /// Start the push loop. Call this once after construction.
+    pub fn start(&self, mut rx: broadcast::Receiver<ExecEvent>) {
+        let db = self.db.clone();
+        let feishu_listener = self.feishu_listener.clone();
+        let mut config_rx = self.mutator.subscribe();
+        let mut targets_cache: Vec<(i64, String, String, String)> = Vec::new();
+        let mut last_refresh = Instant::now();
+
+        tokio::spawn(async move {
+            // Initial load
+            Self::refresh_targets(&db, &mut targets_cache).await;
+
+            loop {
+                tokio::select! {
+                    event = rx.recv() => {
+                        match event {
+                            Ok(ev) => {
+                                // Refresh targets every 60 seconds
+                                if last_refresh.elapsed().as_secs() > 60 {
+                                    Self::refresh_targets(&db, &mut targets_cache).await;
+                                    last_refresh = Instant::now();
+                                }
+
+                                if targets_cache.is_empty() {
+                                    continue;
+                                }
+
+                                let Some(text) = Self::format_event(&ev) else {
+                                    continue;
+                                };
+
+                                for (bot_id, receive_id, receive_id_type, push_level) in targets_cache.iter() {
+                                    if !Self::should_send(push_level, &ev) {
+                                        continue;
+                                    }
+                                    if let Err(e) = feishu_listener.send_raw(*bot_id, receive_id, receive_id_type, &text).await {
+                                        warn!("[feishu-push] send failed for bot {}: {}", bot_id, e);
+                                    } else {
+                                        debug!("[feishu-push] sent to bot {}: {}", bot_id, &text[..text.len().min(60)]);
+                                    }
+                                }
+                            }
+                            Err(broadcast::error::RecvError::Lagged(n)) => {
+                                warn!("[feishu-push] lagged {} events, skipping", n);
+                            }
+                            Err(broadcast::error::RecvError::Closed) => {
+                                info!("[feishu-push] channel closed, stopping");
+                                break;
+                            }
+                        }
+                    }
+                    update = config_rx.recv() => {
+                        if update.is_ok() {
+                            Self::refresh_targets(&db, &mut targets_cache).await;
+                            last_refresh = Instant::now();
+                            debug!("[feishu-push] targets refreshed");
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    pub fn mutator(&self) -> broadcast::Sender<PushConfigUpdate> {
+        self.mutator.clone()
+    }
+
+    /// Check if an event should be sent based on push_level.
+    /// - "disabled": never send
+    /// - "result_only": only send Finished events
+    /// - "all": send all events
+    fn should_send(push_level: &str, event: &ExecEvent) -> bool {
+        match push_level {
+            "disabled" => false,
+            "result_only" => matches!(event, ExecEvent::Finished { .. }),
+            "all" => true,
+            _ => false,
+        }
+    }
+
+    async fn refresh_targets(db: &Database, targets: &mut Vec<(i64, String, String, String)>) {
+        targets.clear();
+        match db.get_enabled_feishu_push_targets().await {
+            Ok(targets_list) => {
+                for t in targets_list {
+                    targets.push((t.bot_id, t.receive_id, t.receive_id_type, t.push_level));
+                }
+            }
+            Err(e) => {
+                error!("[feishu-push] failed to load push targets: {}", e);
+            }
+        }
+    }
+
+    /// Format an ExecEvent into a text message (if not a sync event).
+    fn format_event(event: &ExecEvent) -> Option<String> {
+        match event {
+            ExecEvent::Started { task_id, todo_title, executor, .. } => {
+                Some(format!(
+                    "🟢 [开始执行]\n📋 {}\n⚡ 执行器: {}\n🆔 TaskID: {}",
+                    todo_title, executor, task_id
+                ))
+            }
+            ExecEvent::Output { task_id, entry } => {
+                let prefix = match entry.log_type.as_str() {
+                    "error" | "stderr" => "🔴",
+                    "warning" => "⚠️",
+                    "success" => "✅",
+                    "user" | "input" => "👤",
+                    _ => "📝",
+                };
+                let content = entry.content.trim();
+                if content.is_empty() {
+                    None
+                } else {
+                    let preview = if content.chars().count() > 200 {
+                        content.chars().take(200).collect::<String>() + "..."
+                    } else {
+                        content.to_string()
+                    };
+                    Some(format!("{} {}\n🆔 {}", prefix, preview, task_id))
+                }
+            }
+            ExecEvent::Finished { success, result, todo_title, executor, .. } => {
+                let result_preview = result.as_ref()
+                    .map(|r| format!("\n\n📤 结果: {}", if r.chars().count() > 100 { r.chars().take(100).collect::<String>() + "..." } else { r.clone() }))
+                    .unwrap_or_default();
+                Some(format!(
+                    "📋 {}\n⚡ 执行器: {}\n{}{}",
+                    todo_title,
+                    executor,
+                    if *success { "✅ 成功" } else { "❌ 失败" },
+                    result_preview
+                ))
+            }
+            ExecEvent::TodoProgress { task_id, progress } => {
+                if progress.is_empty() {
+                    None
+                } else {
+                    let items: Vec<String> = progress.iter().take(5).map(|t| {
+                        format!("• {} [{}]", t.content, t.status)
+                    }).collect();
+                    Some(format!(
+                        "📋 [进度更新] TaskID: {}\n{}",
+                        task_id,
+                        items.join("\n")
+                    ))
+                }
+            }
+            ExecEvent::ExecutionStats { task_id, stats } => {
+                Some(format!(
+                    "📊 [执行统计] TaskID: {}\n🔧 工具调用: {}\n💬 对话轮次: {}",
+                    task_id, stats.tool_calls, stats.conversation_turns
+                ))
+            }
+            ExecEvent::Sync { .. } => None,
+        }
+    }
+}

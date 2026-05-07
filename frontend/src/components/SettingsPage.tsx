@@ -35,12 +35,14 @@ import {
   InfoCircleOutlined,
   MessageOutlined,
   QrcodeOutlined,
+  CopyOutlined,
 } from '@ant-design/icons';
 import { Cron } from 'react-js-cron';
 import QRCode from 'qrcode';
 import 'react-js-cron/dist/styles.css';
 import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
+import type { FeishuPushStatus } from '../utils/database';
 import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
 import type { Config, ExecutorPaths } from '../types';
 import yaml from 'js-yaml';
@@ -127,6 +129,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   // Agent Bots state
   const [agentBots, setAgentBots] = useState<db.AgentBot[]>([]);
   const [botsLoading, setBotsLoading] = useState(false);
+  const [feishuPushStatus, setFeishuPushStatus] = useState<FeishuPushStatus[]>([]);
   const [binding, setBinding] = useState(false);
   const [bindModalOpen, setBindModalOpen] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
@@ -213,8 +216,15 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       .finally(() => setBotsLoading(false));
   };
 
+  const loadFeishuPush = () => {
+    db.getFeishuPush()
+      .then((status) => setFeishuPushStatus(status))
+      .catch(() => {});
+  };
+
   useEffect(() => {
     loadAgentBots();
+    loadFeishuPush();
   }, []);
 
   // 飞书绑定 — 后端轮询模式，前端只需一次调用
@@ -248,6 +258,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         setBindSuccess(true);
         message.success(`绑定成功！Bot: ${pollRes.bot_name || 'Feishu Bot'}`);
         loadAgentBots();
+        loadFeishuPush();
         setTimeout(() => {
           setBindModalOpen(false);
           setQrCodeUrl('');
@@ -887,6 +898,32 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                       }
                     };
 
+                    const botPushStatus = feishuPushStatus.find(p => p.bot_id === bot.id);
+                    const hasPushTarget = !!botPushStatus && (botPushStatus.receive_id || botPushStatus.chat_id);
+                    const handlePushLevelChange = async (level: db.FeishuPushLevel) => {
+                      try {
+                        await db.updateFeishuPush({ botId: bot.id, pushLevel: level });
+                        loadFeishuPush();
+                      } catch (e: any) {
+                        message.error('设置推送失败: ' + (e.message || '未知错误'));
+                      }
+                    };
+                    const handlePushTargetUpdate = async (field: 'receive_id' | 'receive_id_type' | 'chat_id', value: string) => {
+                      try {
+                        await db.updateFeishuPush({ botId: bot.id, [field]: value });
+                        loadFeishuPush();
+                      } catch (e: any) {
+                        message.error('更新推送目标失败: ' + (e.message || '未知错误'));
+                      }
+                    };
+                    const copyToClipboard = (text: string, label: string) => {
+                      navigator.clipboard.writeText(text).then(() => {
+                        message.success(`${label} 已复制`);
+                      }).catch(() => {
+                        message.error('复制失败');
+                      });
+                    };
+
                     return (
                       <div
                         key={bot.id}
@@ -967,6 +1004,61 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                 Echo 回复
                               </span>
                             </div>
+                            {hasPushTarget && (
+                              <div style={{ marginTop: 8 }}>
+                                <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6 }}>实时推送 {botPushStatus.receive_id_type === 'open_id' ? '(私聊)' : '(群聊)'}</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                                  <Select
+                                    size="small"
+                                    value={botPushStatus.push_level}
+                                    onChange={handlePushLevelChange}
+                                    style={{ width: 100 }}
+                                    options={[
+                                      { value: 'disabled', label: '关闭' },
+                                      { value: 'result_only', label: '仅结论' },
+                                      { value: 'all', label: '全部' },
+                                    ]}
+                                  />
+                                </div>
+                                <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>推送目标信息（可编辑）</div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>接收ID:</span>
+                                    <Input
+                                      size="small"
+                                      value={botPushStatus.receive_id}
+                                      onChange={(e) => handlePushTargetUpdate('receive_id', e.target.value)}
+                                      style={{ flex: 1, fontSize: 11 }}
+                                    />
+                                    <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.receive_id, 'receive_id')} />
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>群ID:</span>
+                                    <Input
+                                      size="small"
+                                      value={botPushStatus.chat_id || ''}
+                                      onChange={(e) => handlePushTargetUpdate('chat_id', e.target.value)}
+                                      style={{ flex: 1, fontSize: 11 }}
+                                    />
+                                    <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.chat_id || '', 'chat_id')} />
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>推送类型:</span>
+                                    <Select
+                                      size="small"
+                                      value={botPushStatus.receive_id_type}
+                                      onChange={(v) => handlePushTargetUpdate('receive_id_type', v)}
+                                      style={{ width: 100 }}
+                                      options={[
+                                        { value: 'open_id', label: '私聊' },
+                                        { value: 'chat_id', label: '群聊' },
+                                      ]}
+                                    />
+                                    <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.receive_id_type, 'receive_id_type')} />
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

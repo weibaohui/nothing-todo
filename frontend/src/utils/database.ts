@@ -358,3 +358,35 @@ export async function feishuPoll(device_code: string, interval?: number, expire_
     expire_in,
   }));
 }
+
+export type FeishuPushLevel = 'disabled' | 'result_only' | 'all';
+
+export interface FeishuPushStatus {
+  bot_id: number;
+  push_level: FeishuPushLevel;
+  chat_id?: string;
+  receive_id: string;
+  receive_id_type: string;
+}
+
+export async function getFeishuPush(): Promise<FeishuPushStatus[]> {
+  return unwrap(await api.get<ApiResp<FeishuPushStatus[]>>('/xyz/agent-bots/feishu/push'));
+}
+
+export interface UpdateFeishuPushParams {
+  botId: number;
+  pushLevel?: FeishuPushLevel;
+  receiveId?: string;
+  receiveIdType?: string;
+  chatId?: string;
+}
+
+export async function updateFeishuPush(params: UpdateFeishuPushParams): Promise<FeishuPushStatus> {
+  return unwrap(await api.put<ApiResp<FeishuPushStatus>>('/xyz/agent-bots/feishu/push', {
+    bot_id: params.botId,
+    push_level: params.pushLevel,
+    receive_id: params.receiveId,
+    receive_id_type: params.receiveIdType,
+    chat_id: params.chatId,
+  }));
+}
