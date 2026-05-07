@@ -76,11 +76,15 @@ jobs:
       - name: Build (cross)
         if: matrix.use-cross == true
         env:
-          # Mount frontend/dist for rust-embed + .git for vergen
-          CROSS_CONTAINER_OPTS: "-v ${{ github.workspace }}/frontend/dist:/project/frontend/dist:ro -v ${{ github.workspace }}/.git:/project/.git:ro"
+          # Mount .git for vergen git hash generation
+          CROSS_CONTAINER_OPTS: "-v ${{ github.workspace }}/.git:/project/.git:ro"
           # Point GIT_DIR to where .git is mounted inside the container
           GIT_DIR: /project/.git
-        run: cd backend && cross build --release --target ${{ matrix.target }}
+        run: |
+          # Copy frontend dist to where rust-embed expects it (next to backend)
+          mkdir -p backend/../frontend
+          cp -r frontend/dist backend/../frontend/
+          cd backend && cross build --release --target ${{ matrix.target }}
 
       - name: Build (native)
         if: matrix.use-cross == false
