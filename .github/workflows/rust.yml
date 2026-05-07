@@ -75,7 +75,10 @@ jobs:
 
       - name: Build (cross)
         if: matrix.use-cross == true
-        run: cd backend && cross build --release --target ${{ matrix.target }}
+        run: |
+          # Debug: check what path cross uses
+          docker run --rm ghcr.io/cross-rs/x86_64-unknown-linux-gnu:0.2.5 sh -c "pwd && ls -la /home/" 2>&1 || true
+          cd backend && cross build --release --target ${{ matrix.target }}
 
       - name: Build (native)
         if: matrix.use-cross == false
