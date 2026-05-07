@@ -370,7 +370,10 @@ pub struct FeishuPushStatus {
 #[derive(Debug, Clone, Deserialize)]
 pub struct UpdateFeishuPushRequest {
     pub bot_id: i64,
-    pub push_level: String,
+    pub push_level: Option<String>,
+    pub receive_id: Option<String>,
+    pub receive_id_type: Option<String>,
+    pub chat_id: Option<String>,
 }
 
 pub async fn get_feishu_push(
@@ -404,20 +407,45 @@ pub async fn update_feishu_push(
         .map_err(|e| AppError::Internal(e.to_string()))?
         .ok_or(AppError::NotFound)?;
 
-    state
-        .db
-        .update_feishu_push_level(req.bot_id, &req.push_level)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+    // Update push_level if provided
+    if let Some(level) = &req.push_level {
+        state
+            .db
+            .update_feishu_push_level(req.bot_id, level)
+            .await
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+    }
+
+    // Update receive fields if provided
+    if req.receive_id.is_some() || req.receive_id_type.is_some() || req.chat_id.is_some() {
+        state
+            .db
+            .set_feishu_push_target(
+                req.bot_id,
+                req.chat_id.as_deref(),
+                req.receive_id.as_deref().unwrap_or(&target.receive_id),
+                req.receive_id_type.as_deref().unwrap_or(&target.receive_id_type),
+                target.push_level.as_str(),
+            )
+            .await
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+    }
 
     // Refresh push service cache
     let _ = state.feishu_push_mutator.send(crate::services::feishu_push::PushConfigUpdate::Refresh);
 
+    // Fetch updated target
+    let updated = state
+        .db
+        .get_feishu_push_target(req.bot_id)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
     Ok(ApiResponse::ok(FeishuPushStatus {
         bot_id: req.bot_id,
-        push_level: req.push_level,
-        chat_id: target.chat_id,
-        receive_id: target.receive_id,
-        receive_id_type: target.receive_id_type,
+        push_level: updated.as_ref().map(|t| t.push_level.clone()).unwrap_or_default(),
+        chat_id: updated.as_ref().and_then(|t| t.chat_id.clone()),
+        receive_id: updated.as_ref().map(|t| t.receive_id.clone()).unwrap_or_default(),
+        receive_id_type: updated.as_ref().map(|t| t.receive_id_type.clone()).unwrap_or_default(),
     }))
 }

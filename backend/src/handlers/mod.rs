@@ -57,6 +57,8 @@ pub enum ExecEvent {
     Finished {
         task_id: String,
         todo_id: i64,
+        todo_title: String,
+        executor: String,
         success: bool,
         result: Option<String>,
     },

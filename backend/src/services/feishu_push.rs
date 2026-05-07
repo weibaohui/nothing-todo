@@ -156,15 +156,15 @@ impl FeishuPushService {
                     Some(format!("{} {}\n🆔 {}", prefix, preview, task_id))
                 }
             }
-            ExecEvent::Finished { success, result, .. } => {
-                let status = if *success { "✅ 成功" } else { "❌ 失败" };
+            ExecEvent::Finished { success, result, todo_title, executor, .. } => {
                 let result_preview = result.as_ref()
-                    .map(|r| format!("\n📤 结果: {}", if r.chars().count() > 100 { r.chars().take(100).collect::<String>() + "..." } else { r.clone() }))
+                    .map(|r| format!("\n\n📤 结果: {}", if r.chars().count() > 100 { r.chars().take(100).collect::<String>() + "..." } else { r.clone() }))
                     .unwrap_or_default();
                 Some(format!(
-                    "{} [执行完成] {}{}",
-                    if *success { "✅" } else { "❌" },
-                    status,
+                    "📋 {}\n⚡ 执行器: {}\n{}{}",
+                    todo_title,
+                    executor,
+                    if *success { "✅ 成功" } else { "❌ 失败" },
                     result_preview
                 ))
             }
