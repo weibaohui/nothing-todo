@@ -163,9 +163,10 @@ pub async fn run_todo_execution(
         let mut child = match cmd.group_spawn() {
             Ok(c) => c,
             Err(e) => {
-                let entry = ParsedLogEntry::error(format!("Failed to spawn executor: {}", e));
+                let error_msg = format!("Failed to spawn executor: {}", e);
+                let entry = ParsedLogEntry::error(error_msg.clone());
                 send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
-                send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string(), success: false, result: None });
+                send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string(), success: false, result: Some(error_msg) });
                 let _ = db_clone.finish_todo_execution(todo_id, false).await;
                 task_manager_spawn.remove(&task_id).await;
                 return;
@@ -394,7 +395,7 @@ pub async fn run_todo_execution(
 
                 let entry = ParsedLogEntry::error("Execution cancelled by user");
                 send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
-                send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string(), success: false, result: None });
+                send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string(), success: false, result: Some("Task was cancelled by user".to_string()) });
                 task_manager_spawn.remove(&task_id).await;
                 return;
             }
