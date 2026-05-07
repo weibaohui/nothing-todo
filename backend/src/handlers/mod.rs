@@ -19,6 +19,7 @@ use crate::config::Config;
 use crate::db::Database;
 use crate::models::{ApiResponse, ParsedLogEntry};
 use crate::scheduler::TodoScheduler;
+use crate::services::feishu_listener::FeishuListener;
 use crate::task_manager::{TaskManager, TaskInfo};
 
 #[derive(Clone)]
@@ -29,6 +30,7 @@ pub struct AppState {
     pub scheduler: Arc<TodoScheduler>,
     pub task_manager: Arc<TaskManager>,
     pub config: Arc<tokio::sync::RwLock<Config>>,
+    pub feishu_listener: Arc<FeishuListener>,
 }
 
 impl AppState {
@@ -284,6 +286,24 @@ pub fn create_app(
     task_manager: Arc<TaskManager>,
     config: Arc<tokio::sync::RwLock<Config>>,
 ) -> Router {
+    let feishu_listener = Arc::new(FeishuListener::new(db.clone()));
+
+    // Auto-start Feishu listeners for enabled bots
+    let fl_clone = feishu_listener.clone();
+    let db_clone = db.clone();
+    tokio::spawn(async move {
+        match db_clone.get_agent_bots().await {
+            Ok(bots) => {
+                for bot in bots.iter().filter(|b| b.bot_type == "feishu" && b.enabled) {
+                    if let Err(e) = fl_clone.start_bot(bot).await {
+                        tracing::error!("failed to start feishu bot {}: {e}", bot.id);
+                    }
+                }
+            }
+            Err(e) => tracing::error!("failed to load agent bots: {e}"),
+        }
+    });
+
     let state = AppState {
         db,
         executor_registry,
@@ -291,6 +311,7 @@ pub fn create_app(
         scheduler,
         task_manager,
         config,
+        feishu_listener,
     };
 
     Router::new()
@@ -335,6 +356,7 @@ pub fn create_app(
         .route("/xyz/agent-bots/feishu/begin", post(agent_bot::feishu_begin))
         .route("/xyz/agent-bots/feishu/poll", post(agent_bot::feishu_poll))
         .route("/xyz/agent-bots/{id}", delete(agent_bot::delete_agent_bot))
+        .route("/xyz/agent-bots/{id}/config", put(agent_bot::update_agent_bot_config))
         .route("/assets/{*path}", get(static_handler))
         .route("/xyz/version", get(version_handler))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB

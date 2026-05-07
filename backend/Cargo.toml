@@ -28,6 +28,14 @@ tower-http = { version = "0.6", features = ["trace", "cors", "timeout", "compres
 parking_lot = "0.12"
 command-group = { version = "5", features = ["with-tokio"] }
 zip = "2"
+prost = "0.13"
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+quick_cache = "0.6"
+futures-util = "0.3"
+url = "2"
+thiserror = "2"
+log = "0.4"
+dashmap = "6"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

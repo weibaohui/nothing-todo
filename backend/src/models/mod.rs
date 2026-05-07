@@ -124,7 +124,35 @@ pub struct AgentBot {
     pub bot_open_id: Option<String>,
     pub domain: Option<String>,
     pub enabled: bool,
+    pub config: String,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BotConfig {
+    #[serde(default = "default_true")]
+    pub dm_enabled: bool,
+    #[serde(default = "default_true")]
+    pub group_enabled: bool,
+    #[serde(default = "default_true")]
+    pub group_require_mention: bool,
+    #[serde(default = "default_true")]
+    pub echo_reply: bool,
+}
+
+impl Default for BotConfig {
+    fn default() -> Self {
+        Self {
+            dm_enabled: true,
+            group_enabled: true,
+            group_require_mention: true,
+            echo_reply: true,
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_trigger_type() -> String { "manual".to_string() }

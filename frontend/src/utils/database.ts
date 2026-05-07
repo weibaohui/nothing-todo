@@ -308,6 +308,7 @@ export interface AgentBot {
   bot_open_id?: string;
   domain?: string;
   enabled: boolean;
+  config: string;
   created_at: string;
 }
 
@@ -336,6 +337,10 @@ export async function getAgentBots(): Promise<AgentBot[]> {
 
 export async function deleteAgentBot(id: number): Promise<void> {
   await api.delete(`/xyz/agent-bots/${id}`);
+}
+
+export async function updateAgentBotConfig(id: number, config: string): Promise<void> {
+  await api.put(`/xyz/agent-bots/${id}/config`, { config });
 }
 
 export async function feishuInit(): Promise<{ supported: boolean; auth_methods: string[] }> {
