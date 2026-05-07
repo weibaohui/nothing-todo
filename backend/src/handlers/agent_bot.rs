@@ -286,6 +286,7 @@ pub struct AgentBotResponse {
     pub bot_open_id: Option<String>,
     pub domain: Option<String>,
     pub enabled: bool,
+    pub config: String,
     pub created_at: String,
 }
 
@@ -304,6 +305,7 @@ pub async fn list_agent_bots(
             bot_open_id: b.bot_open_id,
             domain: b.domain,
             enabled: b.enabled,
+            config: b.config,
             created_at: b.created_at,
         })
         .collect();
@@ -316,5 +318,42 @@ pub async fn delete_agent_bot(
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
     state.db.delete_agent_bot(id).await.map_err(|e| AppError::Internal(e.to_string()))?;
+    Ok(ApiResponse::ok(serde_json::json!({"success": true})))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateBotConfigRequest {
+    pub config: String,
+}
+
+pub async fn update_agent_bot_config(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<UpdateBotConfigRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    // Validate config JSON
+    let _: serde_json::Value = serde_json::from_str(&req.config)
+        .map_err(|e| AppError::BadRequest(format!("Invalid config JSON: {e}")))?;
+
+    state
+        .db
+        .update_agent_bot_config(id, &req.config)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    // Restart the bot listener if it's running
+    if state.feishu_listener.has_bot(id) {
+        if let Ok(Some(bot)) = state.db.get_agent_bot(id).await {
+            if bot.enabled {
+                let listener = state.feishu_listener.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = listener.start_bot(&bot).await {
+                        tracing::error!("failed to restart feishu bot {}: {e}", bot.id);
+                    }
+                });
+            }
+        }
+    }
+
     Ok(ApiResponse::ok(serde_json::json!({"success": true})))
 }

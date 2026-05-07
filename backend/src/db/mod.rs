@@ -244,8 +244,62 @@ impl Database {
                 bot_open_id TEXT,
                 domain TEXT,
                 enabled INTEGER DEFAULT 1,
+                config TEXT DEFAULT '{}',
                 created_at TEXT,
                 updated_at TEXT
+            )",
+        )
+        .await?;
+
+        // Migrate: add config column if missing (existing databases)
+        let cols = self
+            .conn
+            .query_all(Statement::from_string(
+                DbBackend::Sqlite,
+                "PRAGMA table_info(agent_bots)".to_string(),
+            ))
+            .await
+            .unwrap_or_default();
+        let has_config = cols.iter().any(|row| {
+            row.try_get::<String>("", "name").map(|n| n == "config").unwrap_or(false)
+        });
+        if !has_config {
+            self.exec("ALTER TABLE agent_bots ADD COLUMN config TEXT DEFAULT '{}'")
+                .await?;
+        }
+
+        // Feishu Homes table
+        self.exec(
+            "CREATE TABLE IF NOT EXISTS feishu_homes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id INTEGER NOT NULL,
+                user_open_id TEXT NOT NULL,
+                chat_id TEXT,
+                receive_id TEXT NOT NULL,
+                receive_id_type TEXT NOT NULL,
+                created_at TEXT,
+                updated_at TEXT,
+                FOREIGN KEY (bot_id) REFERENCES agent_bots(id),
+                UNIQUE(bot_id, user_open_id)
+            )",
+        )
+        .await?;
+
+        // Feishu Messages table
+        self.exec(
+            "CREATE TABLE IF NOT EXISTS feishu_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id INTEGER NOT NULL,
+                message_id TEXT NOT NULL UNIQUE,
+                chat_id TEXT NOT NULL,
+                chat_type TEXT NOT NULL,
+                sender_open_id TEXT NOT NULL,
+                content TEXT,
+                msg_type TEXT NOT NULL DEFAULT 'text',
+                is_mention INTEGER DEFAULT 0,
+                processed INTEGER DEFAULT 0,
+                created_at TEXT,
+                FOREIGN KEY (bot_id) REFERENCES agent_bots(id)
             )",
         )
         .await?;
@@ -259,6 +313,8 @@ mod tag;
 mod execution;
 mod skills;
 mod agent_bot;
+mod feishu_home;
+mod feishu_message;
 
 #[cfg(test)]
 mod tests {
