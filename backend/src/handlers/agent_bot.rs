@@ -87,8 +87,8 @@ pub async fn feishu_begin() -> Result<impl IntoResponse, AppError> {
         .ok_or_else(|| AppError::Internal("Missing verification_uri_complete".to_string()))?
         .to_string();
 
-    if !qr_url.starts_with("https://accounts.feishu.cn/") {
-        return Err(AppError::Internal("Invalid verification URI domain".to_string()));
+    if !qr_url.starts_with("https://accounts.feishu.cn/") && !qr_url.starts_with("https://accounts.larksuite.com/") && !qr_url.starts_with("https://open.feishu.cn/") && !qr_url.starts_with("https://open.larksuite.com/") {
+        return Err(AppError::Internal(format!("Invalid verification URI domain: {}", qr_url)));
     }
 
     let user_code = body
