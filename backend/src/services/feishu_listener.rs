@@ -162,14 +162,22 @@ impl FeishuListener {
             return;
         }
 
-        // Group: check group_enabled
+        // Group: check group_enabled and group_require_mention
+        // NOTE: 默认只接收 @bot 的群消息。开启飞书权限 im:message.group_msg 后可接收所有群消息。
         if chat_type == "group" {
             if !bot_config.group_enabled {
+                return;
+            }
+            if bot_config.group_require_mention && !is_mention {
                 return;
             }
             if bot_config.echo_reply {
                 tracing::info!("[feishu:{}] Group {} @mention from {}: {}", bot_id, msg.channel, msg.sender, content);
             }
+            if let Some(rid) = &reaction_id {
+                Self::delete_reaction(credentials, bot_id, &msg.id, rid).await;
+            }
+            return;
         }
 
         if let Some(rid) = &reaction_id {
