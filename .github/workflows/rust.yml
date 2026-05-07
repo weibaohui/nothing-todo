@@ -15,7 +15,24 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  build-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build frontend
+        run: cd frontend && npm ci --legacy-peer-deps && npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+
   build:
+    needs: build-frontend
     strategy:
       matrix:
         include:
@@ -52,14 +69,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/download-artifact@v4
         with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Build frontend
-        run: cd frontend && npm ci --legacy-peer-deps && npm run build
+          name: frontend-dist
+          path: frontend/dist
 
       - name: Verify frontend dist
         run: ls -la frontend/dist/
@@ -76,11 +89,11 @@ jobs:
       - name: Build (cross)
         if: matrix.use-cross == true
         env:
-          # Mount frontend/dist to both possible locations inside cross container
-          CROSS_CONTAINER_OPTS: "-v ${{ github.workspace }}/frontend/dist:/project/frontend/dist:ro -v ${{ github.workspace }}/frontend/dist:/home/runner/work/nothing-todo/nothing-todo/frontend/dist:ro"
-        run: |
-          echo "=== Running cross build ==="
-          cd backend && cross build --release --target ${{ matrix.target }} 2>&1
+          # Mount .git for vergen git hash generation
+          CROSS_CONTAINER_OPTS: "-v ${{ github.workspace }}/.git:/project/.git:ro"
+          # Point GIT_DIR to where .git is mounted inside the container
+          GIT_DIR: /project/.git
+        run: cd backend && cross build --release --target ${{ matrix.target }}
 
       - name: Build (native)
         if: matrix.use-cross == false
