@@ -5,10 +5,8 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::{delete, get, post, put},
 };
-use std::time::Duration;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{CorsLayer, Any};
-use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use axum::extract::DefaultBodyLimit;
 use serde::Serialize;
@@ -145,6 +143,7 @@ mod scheduler;
 pub mod backup;
 mod config;
 pub mod skills;
+pub mod agent_bot;
 
 // WebSocket handler
 pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
@@ -331,6 +330,11 @@ pub fn create_app(
         .route("/xyz/skills/content", get(skills::get_skill_content))
         .route("/xyz/skills/export", get(skills::export_skill))
         .route("/xyz/skills/import", post(skills::import_skill))
+        .route("/xyz/agent-bots", get(agent_bot::list_agent_bots))
+        .route("/xyz/agent-bots/feishu/init", post(agent_bot::feishu_init))
+        .route("/xyz/agent-bots/feishu/begin", post(agent_bot::feishu_begin))
+        .route("/xyz/agent-bots/feishu/poll", post(agent_bot::feishu_poll))
+        .route("/xyz/agent-bots/{id}", delete(agent_bot::delete_agent_bot))
         .route("/assets/{*path}", get(static_handler))
         .route("/xyz/version", get(version_handler))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
@@ -342,6 +346,5 @@ pub fn create_app(
                 .allow_headers(Any),
         )
         .layer(TraceLayer::new_for_http())
-        .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(30)))
         .with_state(state)
 }

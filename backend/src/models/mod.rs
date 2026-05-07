@@ -113,6 +113,20 @@ pub struct Tag {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentBot {
+    pub id: i64,
+    pub bot_type: String,
+    pub bot_name: String,
+    pub app_id: String,
+    #[serde(skip_serializing)]
+    pub app_secret: String,
+    pub bot_open_id: Option<String>,
+    pub domain: Option<String>,
+    pub enabled: bool,
+    pub created_at: String,
+}
+
 fn default_trigger_type() -> String { "manual".to_string() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
