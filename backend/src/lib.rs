@@ -4,6 +4,7 @@ pub mod config;
 pub mod daemon;
 pub mod db;
 pub mod executor_service;
+pub mod feishu;
 pub mod handlers;
 pub mod models;
 pub mod scheduler;

@@ -1,0 +1,112 @@
+[package]
+edition = "2021"
+name = "open-lark"
+version = "0.14.0"
+authors = ["ZoOL <zhooul@gmail.com>"]
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "Lark/Feishu Open API SDK (stripped for ntd)"
+license = "Apache-2.0"
+
+[features]
+default = ["im"]
+im = []
+websocket = ["tokio-tungstenite", "prost"]
+
+[lib]
+name = "open_lark"
+path = "src/lib.rs"
+
+[dependencies.anyhow]
+version = "1.0.86"
+
+[dependencies.async-trait]
+version = "0.1.83"
+
+[dependencies.base64]
+version = "0.22.1"
+
+[dependencies.chrono]
+version = "0.4.38"
+features = ["serde"]
+
+[dependencies.futures-util]
+version = "0.3.30"
+features = ["sink", "std"]
+default-features = false
+
+[dependencies.hmac]
+version = "0.12.1"
+
+[dependencies.log]
+version = "0.4.21"
+
+[dependencies.prost]
+version = "0.13"
+optional = true
+
+[dependencies.quick_cache]
+version = "0.6.3"
+
+[dependencies.rand]
+version = "0.8"
+
+[dependencies.regex]
+version = "1.10"
+
+[dependencies.reqwest]
+version = "0.12.7"
+features = ["json", "multipart", "rustls-tls"]
+default-features = false
+
+[dependencies.serde]
+version = "1.0"
+features = ["derive"]
+
+[dependencies.serde_json]
+version = "1.0"
+
+[dependencies.serde_repr]
+version = "0.1.19"
+
+[dependencies.sha2]
+version = "0.10.8"
+
+[dependencies.simd-adler32]
+version = "0.3.7"
+
+[dependencies.strum]
+version = "0.27"
+
+[dependencies.strum_macros]
+version = "0.27"
+
+[dependencies.thiserror]
+version = "2.0"
+
+[dependencies.tokio]
+version = "1.38"
+features = ["rt", "rt-multi-thread", "macros"]
+
+[dependencies.tokio-tungstenite]
+version = "0.23"
+features = ["rustls-tls-native-roots"]
+optional = true
+
+[dependencies.tracing]
+version = "0.1"
+
+[dependencies.tracing-subscriber]
+version = "0.3"
+features = ["env-filter", "json"]
+
+[dependencies.url]
+version = "2.5.0"
+features = ["serde"]
+
+[dependencies.walkdir]
+version = "2.4"

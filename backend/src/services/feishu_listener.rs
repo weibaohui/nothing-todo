@@ -2,8 +2,8 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use tokio::sync::mpsc;
 
-use clawrs_feishu::{
-    create_channel, Channel, ChannelMessage,
+use crate::feishu::{
+    create_channel, ChannelMessage,
     FeishuConfig, FeishuConnectionMode, FeishuDomain,
     FeishuChannelService,
 };
