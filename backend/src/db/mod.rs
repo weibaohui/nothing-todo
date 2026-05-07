@@ -304,6 +304,22 @@ impl Database {
         )
         .await?;
 
+        // Feishu Push Targets table
+        self.exec(
+            "CREATE TABLE IF NOT EXISTS feishu_push_targets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id INTEGER NOT NULL UNIQUE,
+                chat_id TEXT,
+                receive_id TEXT NOT NULL,
+                receive_id_type TEXT NOT NULL,
+                push_enabled INTEGER DEFAULT 1,
+                created_at TEXT,
+                updated_at TEXT,
+                FOREIGN KEY (bot_id) REFERENCES agent_bots(id)
+            )",
+        )
+        .await?;
+
         Ok(())
     }
 }
@@ -315,6 +331,7 @@ mod skills;
 mod agent_bot;
 mod feishu_home;
 mod feishu_message;
+mod feishu_push_target;
 
 #[cfg(test)]
 mod tests {
