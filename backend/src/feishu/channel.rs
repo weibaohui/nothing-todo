@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use open_lark::client::LarkClient;
-use open_lark::core::constants::AppType;
-use open_lark::service::im::v1::message::{CreateMessageRequest, CreateMessageRequestBody};
+use super::sdk::{AppType, CreateMessageRequest, CreateMessageRequestBody, LarkClient};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
@@ -106,8 +104,7 @@ impl FeishuChannelService {
                     .expect("Failed to create tokio runtime for WS listener");
 
                 rt.block_on(async move {
-                    use open_lark::client::ws_client::LarkWsClient;
-                    use open_lark::event::dispatcher::EventDispatcherHandler;
+                    use crate::feishu::sdk::{EventDispatcherHandler, LarkWsClient};
 
                     let tx = tx_clone;
                     let event_handler = EventDispatcherHandler::builder()
