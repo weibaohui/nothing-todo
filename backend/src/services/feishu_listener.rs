@@ -77,7 +77,6 @@ impl FeishuListener {
         };
         self.bot_credentials.insert(bot.id, (bot.app_id.clone(), bot.app_secret.clone(), domain_str.to_string()));
 
-        // Resolve the real bot open_id via API (database value may be wrong)
         let real_bot_open_id = Self::resolve_bot_open_id(&self.bot_credentials, bot.id).await
             .or(bot.bot_open_id.clone())
             .unwrap_or_default();
@@ -117,7 +116,6 @@ impl FeishuListener {
             bot_id, msg.sender, bot_open_id, msg.content, msg.chat_type
         );
 
-        // Filter self-sent messages to prevent loops
         if msg.sender == bot_open_id {
             tracing::info!("[feishu:{}] skipping self-sent message", bot_id);
             return;
@@ -142,11 +140,11 @@ impl FeishuListener {
         let content = msg.content.trim();
 
         // Add "processing" reaction
-        let reaction_id = Self::add_reaction(credentials, bot_id, &msg.id, "👀").await;
+        let reaction_id = Self::add_reaction(credentials, bot_id, &msg.id, "THUMBSUP").await;
 
         // /sethome command
         if content == "/sethome" {
-            Self::handle_sethome(db, credentials, bot_id, chat_type, &msg.sender, &msg.channel, &msg.id, &reaction_id).await;
+            Self::handle_sethome(db, credentials, bot_id, chat_type, &msg.sender, &msg.channel, &msg.id, reaction_id.as_deref()).await;
             return;
         }
 
@@ -157,6 +155,9 @@ impl FeishuListener {
             }
             if bot_config.echo_reply {
                 tracing::info!("[feishu:{}] DM from {}: {}", bot_id, msg.sender, content);
+            }
+            if let Some(rid) = &reaction_id {
+                Self::delete_reaction(credentials, bot_id, &msg.id, rid).await;
             }
             return;
         }
@@ -171,7 +172,6 @@ impl FeishuListener {
             }
         }
 
-        // Remove "processing" reaction
         if let Some(rid) = &reaction_id {
             Self::delete_reaction(credentials, bot_id, &msg.id, rid).await;
         }
@@ -185,7 +185,7 @@ impl FeishuListener {
         sender: &str,
         channel: &str,
         message_id: &str,
-        reaction_id: &Option<String>,
+        reaction_id: Option<&str>,
     ) {
         let (receive_id, receive_id_type, chat_id) = match chat_type {
             "p2p" => (sender.to_string(), "open_id", None),
@@ -207,7 +207,6 @@ impl FeishuListener {
             }
         }
 
-        // Remove "processing" reaction
         if let Some(rid) = reaction_id {
             Self::delete_reaction(credentials, bot_id, message_id, rid).await;
         }
@@ -223,36 +222,16 @@ impl FeishuListener {
         }
     }
 
-    // --- Feishu Bot Info API ---
+    // --- Feishu API helpers ---
 
-    async fn resolve_bot_open_id(
-        credentials: &DashMap<i64, (String, String, String)>,
-        bot_id: i64,
-    ) -> Option<String> {
-        let token = Self::get_tenant_token(credentials, bot_id).await?;
+    fn base_url(credentials: &DashMap<i64, (String, String, String)>, bot_id: i64) -> Option<String> {
         let domain = credentials.get(&bot_id)?.2.clone();
-        let base_url = if domain == "lark" {
-            "https://open.larksuite.com"
+        Some(if domain == "lark" {
+            "https://open.larksuite.com".to_string()
         } else {
-            "https://open.feishu.cn"
-        };
-
-        let client = reqwest::Client::new();
-        let res = client
-            .get(format!("{base_url}/open-apis/bot/v3/info"))
-            .header("Authorization", format!("Bearer {token}"))
-            .send()
-            .await
-            .ok()?;
-
-        let body: serde_json::Value = res.json().await.ok()?;
-        body.get("bot")
-            .and_then(|b| b.get("open_id"))
-            .and_then(|v| v.as_str())
-            .map(String::from)
+            "https://open.feishu.cn".to_string()
+        })
     }
-
-    // --- Feishu Reaction API ---
 
     async fn get_tenant_token(credentials: &DashMap<i64, (String, String, String)>, bot_id: i64) -> Option<String> {
         let ref_val = credentials.get(&bot_id)?;
@@ -275,42 +254,90 @@ impl FeishuListener {
             .ok()?;
 
         let body: serde_json::Value = res.json().await.ok()?;
+        tracing::info!("[feishu:{}] get_tenant_token response code={}", bot_id, body.get("code").and_then(|v| v.as_i64()).unwrap_or(-1));
         body.get("tenant_access_token").and_then(|v| v.as_str()).map(String::from)
     }
 
-    async fn add_reaction(
+    async fn resolve_bot_open_id(
         credentials: &DashMap<i64, (String, String, String)>,
         bot_id: i64,
-        message_id: &str,
-        emoji: &str,
     ) -> Option<String> {
         let token = Self::get_tenant_token(credentials, bot_id).await?;
-        let domain = credentials.get(&bot_id)?.2.clone();
-        let base_url = if domain == "lark" {
-            "https://open.larksuite.com"
-        } else {
-            "https://open.feishu.cn"
-        };
+        let base_url = Self::base_url(credentials, bot_id)?;
 
         let client = reqwest::Client::new();
         let res = client
-            .post(format!("{base_url}/open-apis/im/v1/messages/{message_id}/reactions"))
+            .get(format!("{base_url}/open-apis/bot/v3/info"))
             .header("Authorization", format!("Bearer {token}"))
-            .json(&serde_json::json!({
-                "reaction_type": "emoji",
-                "emoji": emoji
-            }))
             .send()
             .await
             .ok()?;
 
         let body: serde_json::Value = res.json().await.ok()?;
-        body.get("data")
-            .and_then(|d| d.get("reaction_id"))
+        body.get("bot")
+            .and_then(|b| b.get("open_id"))
             .and_then(|v| v.as_str())
             .map(String::from)
     }
 
+    /// Add reaction, returns reaction_id on success.
+    async fn add_reaction(
+        credentials: &DashMap<i64, (String, String, String)>,
+        bot_id: i64,
+        message_id: &str,
+        emoji_type: &str,
+    ) -> Option<String> {
+        let token = Self::get_tenant_token(credentials, bot_id).await?;
+        let base_url = Self::base_url(credentials, bot_id)?;
+
+        let client = reqwest::Client::new();
+        let url = format!("{base_url}/open-apis/im/v1/messages/{message_id}/reactions");
+        let body_json = serde_json::json!({
+            "reaction_type": {
+                "emoji_type": emoji_type
+            }
+        });
+        tracing::info!("[feishu:{}] add_reaction POST {} token={}... body={}", bot_id, url, &token[..token.len().min(10)], body_json);
+        let res = match client
+            .post(&url)
+            .header("Authorization", format!("Bearer {token}"))
+            .json(&body_json)
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("[feishu:{}] add_reaction request failed: {e}", bot_id);
+                return None;
+            }
+        };
+
+        let status = res.status();
+        let body: serde_json::Value = match res.json().await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::error!("[feishu:{}] add_reaction parse failed: {e}", bot_id);
+                return None;
+            }
+        };
+
+        let code = body.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+        if code != 0 {
+            tracing::error!("[feishu:{}] add_reaction API error (status={}): {body}", bot_id, status);
+            return None;
+        }
+
+        let reaction_id = body
+            .get("data")
+            .and_then(|d| d.get("reaction_id"))
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        tracing::info!("[feishu:{}] add_reaction {} ok, reaction_id={:?}", bot_id, emoji_type, reaction_id);
+        reaction_id
+    }
+
+    /// Delete reaction by reaction_id.
     async fn delete_reaction(
         credentials: &DashMap<i64, (String, String, String)>,
         bot_id: i64,
@@ -321,21 +348,30 @@ impl FeishuListener {
             Some(t) => t,
             None => return,
         };
-        let domain = match credentials.get(&bot_id) {
-            Some(r) => r.2.clone(),
+        let base_url = match Self::base_url(credentials, bot_id) {
+            Some(u) => u,
             None => return,
-        };
-        let base_url = if domain == "lark" {
-            "https://open.larksuite.com"
-        } else {
-            "https://open.feishu.cn"
         };
 
         let client = reqwest::Client::new();
-        let _ = client
+        match client
             .delete(format!("{base_url}/open-apis/im/v1/messages/{message_id}/reactions/{reaction_id}"))
             .header("Authorization", format!("Bearer {token}"))
             .send()
-            .await;
+            .await
+        {
+            Ok(res) => {
+                let body: serde_json::Value = res.json().await.unwrap_or_default();
+                let code = body.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+                if code == 0 {
+                    tracing::info!("[feishu:{}] delete_reaction ok", bot_id);
+                } else {
+                    tracing::error!("[feishu:{}] delete_reaction API error: {body}", bot_id);
+                }
+            }
+            Err(e) => {
+                tracing::error!("[feishu:{}] delete_reaction request failed: {e}", bot_id);
+            }
+        }
     }
 }
