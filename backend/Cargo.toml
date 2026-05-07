@@ -42,6 +42,3 @@ tower = { version = "0.5", features = ["util"] }
 
 [build-dependencies]
 vergen-gitcl = "1"
-
-[patch.crates-io]
-open-lark = { path = "crates/lark" }
