@@ -28,6 +28,8 @@ tower-http = { version = "0.6", features = ["trace", "cors", "timeout", "compres
 parking_lot = "0.12"
 command-group = { version = "5", features = ["with-tokio"] }
 zip = "2"
+dashmap = "6"
+clawrs-feishu = { git = "https://github.com/AgenticWeb4/ZClaw-Channel-Feishu.git", branch = "main" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -40,3 +42,7 @@ tower = { version = "0.5", features = ["util"] }
 
 [build-dependencies]
 vergen-gitcl = "1"
+
+# Patch open-lark to fix nullable user_id in message receive event
+[patch.crates-io]
+open-lark = { path = "vendor/open-lark" }

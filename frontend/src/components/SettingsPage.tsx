@@ -873,68 +873,105 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               ) : (
                 <List
                   dataSource={agentBots}
-                  renderItem={(bot) => (
-                    <div
-                      key={bot.id}
-                      style={{
-                        padding: '12px',
-                        background: 'var(--color-bg)',
-                        borderRadius: 8,
-                        marginBottom: 8,
-                        border: '1px solid var(--color-border-light)',
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: 10,
-                      }}
-                    >
+                  renderItem={(bot) => {
+                    let botConfig: Record<string, boolean> = { dm_enabled: true, group_enabled: true, group_require_mention: true, echo_reply: true };
+                    try { botConfig = JSON.parse(bot.config || '{}'); } catch {}
+                    const isFeishu = bot.bot_type === 'feishu';
+                    const handleConfigChange = async (key: string, val: boolean) => {
+                      const newConfig = { ...botConfig, [key]: val };
+                      try {
+                        await db.updateAgentBotConfig(bot.id, JSON.stringify(newConfig));
+                        setAgentBots(prev => prev.map(b => b.id === bot.id ? { ...b, config: JSON.stringify(newConfig) } : b));
+                      } catch (e: any) {
+                        message.error('保存配置失败: ' + (e.message || '未知错误'));
+                      }
+                    };
+
+                    return (
                       <div
+                        key={bot.id}
                         style={{
-                          width: 36,
-                          height: 36,
+                          padding: '12px',
+                          background: 'var(--color-bg)',
                           borderRadius: 8,
-                          background: bot.bot_type === 'feishu' ? '#1976D2' : '#888',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: '#fff',
-                          fontWeight: 700,
-                          fontSize: 14,
-                          flexShrink: 0,
+                          marginBottom: 8,
+                          border: '1px solid var(--color-border-light)',
                         }}
                       >
-                        {bot.bot_type === 'feishu' ? '飞' : '其他'}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                          <span style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bot.bot_name}</span>
-                          <AntTag color={bot.enabled ? 'green' : 'default'} style={{ marginRight: 0 }}>
-                            {bot.enabled ? '已启用' : '已禁用'}
-                          </AntTag>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                          <div
+                            style={{
+                              width: 36,
+                              height: 36,
+                              borderRadius: 8,
+                              background: isFeishu ? '#1976D2' : '#888',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: '#fff',
+                              fontWeight: 700,
+                              fontSize: 14,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {isFeishu ? '飞' : '其他'}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                              <span style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bot.bot_name}</span>
+                              <AntTag color={bot.enabled ? 'green' : 'default'} style={{ marginRight: 0 }}>
+                                {bot.enabled ? '已启用' : '已禁用'}
+                              </AntTag>
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', wordBreak: 'break-all', lineHeight: 1.6 }}>
+                              App ID: {bot.app_id}
+                            </div>
+                            {bot.domain && (
+                              <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                                平台: {bot.domain === 'lark' ? 'Lark 国际版' : '飞书'}
+                              </div>
+                            )}
+                            <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 2 }}>
+                              绑定时间: {new Date(bot.created_at).toLocaleString()}
+                            </div>
+                          </div>
+                          <Popconfirm
+                            title="删除确认"
+                            description={`确定要删除 "${bot.bot_name}" 吗？`}
+                            onConfirm={() => handleDeleteBot(bot.id)}
+                            okText="删除"
+                            cancelText="取消"
+                            okButtonProps={{ danger: true }}
+                          >
+                            <Button type="text" danger icon={<DeleteOutlined />} size="small" style={{ flexShrink: 0 }} />
+                          </Popconfirm>
                         </div>
-                        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', wordBreak: 'break-all', lineHeight: 1.6 }}>
-                          App ID: {bot.app_id}
-                        </div>
-                        {bot.domain && (
-                          <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-                            平台: {bot.domain === 'lark' ? 'Lark 国际版' : '飞书'}
+                        {isFeishu && (
+                          <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--color-border-light)' }}>
+                            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6 }}>消息配置</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                                <Switch size="small" checked={botConfig.dm_enabled !== false} onChange={v => handleConfigChange('dm_enabled', v)} />
+                                接收单聊消息
+                              </span>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                                <Switch size="small" checked={botConfig.group_enabled !== false} onChange={v => handleConfigChange('group_enabled', v)} />
+                                接收群聊消息
+                              </span>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                                <Switch size="small" checked={botConfig.group_require_mention !== false} onChange={v => handleConfigChange('group_require_mention', v)} />
+                                群聊仅处理@
+                              </span>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                                <Switch size="small" checked={botConfig.echo_reply !== false} onChange={v => handleConfigChange('echo_reply', v)} />
+                                Echo 回复
+                              </span>
+                            </div>
                           </div>
                         )}
-                        <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 2 }}>
-                          绑定时间: {new Date(bot.created_at).toLocaleString()}
-                        </div>
                       </div>
-                      <Popconfirm
-                        title="删除确认"
-                        description={`确定要删除 "${bot.bot_name}" 吗？`}
-                        onConfirm={() => handleDeleteBot(bot.id)}
-                        okText="删除"
-                        cancelText="取消"
-                        okButtonProps={{ danger: true }}
-                      >
-                        <Button type="text" danger icon={<DeleteOutlined />} size="small" style={{ flexShrink: 0 }} />
-                      </Popconfirm>
-                    </div>
-                  )}
+                    );
+                  }}
                 />
               )}
             </Spin>
