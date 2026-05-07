@@ -77,8 +77,19 @@ impl FeishuListener {
         };
         self.bot_credentials.insert(bot.id, (bot.app_id.clone(), bot.app_secret.clone(), domain_str.to_string()));
 
+        // Resolve the real bot open_id via API (database value may be wrong)
+        let real_bot_open_id = Self::resolve_bot_open_id(&self.bot_credentials, bot.id).await
+            .or(bot.bot_open_id.clone())
+            .unwrap_or_default();
+        if real_bot_open_id != bot.bot_open_id.clone().unwrap_or_default() {
+            tracing::info!(
+                "[feishu:{}] corrected bot_open_id from {:?} to {}",
+                bot.id, bot.bot_open_id, real_bot_open_id
+            );
+        }
+
         let db = self.db.clone();
-        let bot_open_id = bot.bot_open_id.clone().unwrap_or_default();
+        let bot_open_id = real_bot_open_id;
         let bot_config_clone = bot_config;
         let credentials = self.bot_credentials.clone();
         tokio::spawn(async move {
@@ -210,6 +221,35 @@ impl FeishuListener {
         } else {
             anyhow::bail!("bot {} not running", bot_id)
         }
+    }
+
+    // --- Feishu Bot Info API ---
+
+    async fn resolve_bot_open_id(
+        credentials: &DashMap<i64, (String, String, String)>,
+        bot_id: i64,
+    ) -> Option<String> {
+        let token = Self::get_tenant_token(credentials, bot_id).await?;
+        let domain = credentials.get(&bot_id)?.2.clone();
+        let base_url = if domain == "lark" {
+            "https://open.larksuite.com"
+        } else {
+            "https://open.feishu.cn"
+        };
+
+        let client = reqwest::Client::new();
+        let res = client
+            .get(format!("{base_url}/open-apis/bot/v3/info"))
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+            .await
+            .ok()?;
+
+        let body: serde_json::Value = res.json().await.ok()?;
+        body.get("bot")
+            .and_then(|b| b.get("open_id"))
+            .and_then(|v| v.as_str())
+            .map(String::from)
     }
 
     // --- Feishu Reaction API ---
