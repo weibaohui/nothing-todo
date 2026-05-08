@@ -395,7 +395,7 @@ export async function updateFeishuPush(params: UpdateFeishuPushParams): Promise<
 
 export async function getFeishuHistoryMessages(params?: {
   chat_id?: string;
-  bot_id?: number;
+  sender_open_id?: string;
   is_history?: boolean;
   page?: number;
   page_size?: number;
@@ -403,13 +403,15 @@ export async function getFeishuHistoryMessages(params?: {
   return unwrap(await api.get<ApiResp<FeishuHistoryMessagesPage>>('/xyz/feishu/history-messages', { params }));
 }
 
-export interface FeishuBotIdItem {
-  bot_id: number;
+export interface FeishuSenderItem {
+  sender_open_id: string;
+  sender_type: string | null;
+  sender_nickname: string | null;
   count: number;
 }
 
-export async function getFeishuBotIds(): Promise<FeishuBotIdItem[]> {
-  return unwrap(await api.get<ApiResp<FeishuBotIdItem[]>>('/xyz/feishu/bot-ids'));
+export async function getFeishuSenders(): Promise<FeishuSenderItem[]> {
+  return unwrap(await api.get<ApiResp<FeishuSenderItem[]>>('/xyz/feishu/senders'));
 }
 
 export async function getFeishuHistoryChats(): Promise<FeishuHistoryChat[]> {

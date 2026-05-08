@@ -125,8 +125,8 @@ impl Database {
 
     pub async fn get_feishu_history_messages(
         &self,
-        bot_id: Option<i64>,
         chat_id: Option<&str>,
+        sender_open_id: Option<&str>,
         is_history: Option<bool>,
         page: u64,
         page_size: u64,
@@ -134,8 +134,8 @@ impl Database {
         let mut query = feishu_messages::Entity::find()
             .order_by_desc(feishu_messages::Column::CreatedAt);
 
-        if let Some(bid) = bot_id {
-            query = query.filter(feishu_messages::Column::BotId.eq(bid));
+        if let Some(sid) = sender_open_id {
+            query = query.filter(feishu_messages::Column::SenderOpenId.eq(sid.to_string()));
         }
 
         if let Some(history) = is_history {
@@ -187,13 +187,13 @@ impl Database {
         Ok(result.is_some())
     }
 
-    pub async fn get_distinct_bot_ids(&self) -> Result<Vec<(i64, i64)>, sea_orm::DbErr> {
-        // Returns distinct bot_ids with their message count
-        let models: Vec<(i64, i64)> = feishu_messages::Entity::find()
+    pub async fn get_distinct_senders(&self) -> Result<Vec<(String, i64)>, sea_orm::DbErr> {
+        // Returns distinct sender_open_ids with their message count
+        let models: Vec<(String, i64)> = feishu_messages::Entity::find()
             .select_only()
-            .column(feishu_messages::Column::BotId)
-            .column_as(feishu_messages::Column::BotId.count(), "count")
-            .group_by(feishu_messages::Column::BotId)
+            .column(feishu_messages::Column::SenderOpenId)
+            .column_as(feishu_messages::Column::SenderOpenId.count(), "count")
+            .group_by(feishu_messages::Column::SenderOpenId)
             .into_tuple()
             .all(&self.conn)
             .await?;
