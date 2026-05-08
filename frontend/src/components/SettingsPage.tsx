@@ -144,6 +144,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   // Feishu history state
   const [historyMessages, setHistoryMessages] = useState<FeishuHistoryMessage[]>([]);
   const [historyChats, setHistoryChats] = useState<FeishuHistoryChat[]>([]);
+  const [historyBotIds, setHistoryBotIds] = useState<db.FeishuBotIdItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyTotal, setHistoryTotal] = useState(0);
   const [historyPage, setHistoryPage] = useState(1);
@@ -268,8 +269,18 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     }
   };
 
+  const loadHistoryBotIds = async () => {
+    try {
+      const data = await db.getFeishuBotIds();
+      setHistoryBotIds(data);
+    } catch (e) {
+      console.error('加载 Bot ID 列表失败', e);
+    }
+  };
+
   useEffect(() => {
     loadHistoryChats();
+    loadHistoryBotIds();
   }, []);
 
   useEffect(() => {
@@ -1268,9 +1279,9 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                           setHistoryPage(1);
                         }}
                       >
-                        {agentBots.filter(b => b.bot_type === 'feishu').map((bot) => (
-                          <Select.Option key={bot.id} value={bot.id}>
-                            {bot.bot_name}
+                        {historyBotIds.map((item) => (
+                          <Select.Option key={item.bot_id} value={item.bot_id}>
+                            Bot {item.bot_id} ({item.count}条)
                           </Select.Option>
                         ))}
                       </Select>

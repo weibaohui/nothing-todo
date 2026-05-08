@@ -125,15 +125,18 @@ impl Database {
 
     pub async fn get_feishu_history_messages(
         &self,
-        bot_id: i64,
+        bot_id: Option<i64>,
         chat_id: Option<&str>,
         is_history: Option<bool>,
         page: u64,
         page_size: u64,
     ) -> Result<(Vec<FeishuMessageRecord>, i64), sea_orm::DbErr> {
         let mut query = feishu_messages::Entity::find()
-            .order_by_desc(feishu_messages::Column::CreatedAt)
-            .filter(feishu_messages::Column::BotId.eq(bot_id));
+            .order_by_desc(feishu_messages::Column::CreatedAt);
+
+        if let Some(bid) = bot_id {
+            query = query.filter(feishu_messages::Column::BotId.eq(bid));
+        }
 
         if let Some(history) = is_history {
             query = query.filter(feishu_messages::Column::IsHistory.eq(Some(history)));
@@ -182,6 +185,19 @@ impl Database {
             .one(&self.conn)
             .await?;
         Ok(result.is_some())
+    }
+
+    pub async fn get_distinct_bot_ids(&self) -> Result<Vec<(i64, i64)>, sea_orm::DbErr> {
+        // Returns distinct bot_ids with their message count
+        let models: Vec<(i64, i64)> = feishu_messages::Entity::find()
+            .select_only()
+            .column(feishu_messages::Column::BotId)
+            .column_as(feishu_messages::Column::BotId.count(), "count")
+            .group_by(feishu_messages::Column::BotId)
+            .into_tuple()
+            .all(&self.conn)
+            .await?;
+        Ok(models)
     }
 
     /// Get the latest message create_time for a specific chat (for incremental fetching)
