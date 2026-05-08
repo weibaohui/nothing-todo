@@ -9,6 +9,7 @@ use crate::models::ApiResponse;
 pub struct HistoryMessagesQuery {
     pub chat_id: Option<String>,
     pub bot_id: Option<i64>,
+    pub is_history: Option<bool>,
     pub page: Option<u64>,
     pub page_size: Option<u64>,
 }
@@ -32,6 +33,7 @@ pub struct HistoryMessageItem {
     pub sender_type: Option<String>,
     pub content: Option<String>,
     pub msg_type: String,
+    pub is_history: bool,
     pub created_at: Option<String>,
 }
 
@@ -65,6 +67,7 @@ pub async fn get_history_messages(
     let (messages, total) = state.db.get_feishu_history_messages(
         bot_id,
         query.chat_id.as_deref(),
+        query.is_history,
         page,
         page_size,
     ).await?;
@@ -81,6 +84,7 @@ pub async fn get_history_messages(
             sender_type: m.sender_type,
             content: m.content,
             msg_type: m.msg_type,
+            is_history: m.is_history,
             created_at: m.created_at,
         })
         .collect();

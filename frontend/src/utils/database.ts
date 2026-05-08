@@ -395,6 +395,8 @@ export async function updateFeishuPush(params: UpdateFeishuPushParams): Promise<
 
 export async function getFeishuHistoryMessages(params?: {
   chat_id?: string;
+  bot_id?: number;
+  is_history?: boolean;
   page?: number;
   page_size?: number;
 }): Promise<FeishuHistoryMessagesPage> {
