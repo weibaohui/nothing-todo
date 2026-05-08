@@ -82,6 +82,50 @@ pub struct MentionEvent {
     pub tenant_key: String,
 }
 
+// --- P2ImMessageReactionDeletedV1 ---
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct P2ImMessageReactionDeletedV1 {
+    pub schema: String,
+    pub header: EventHeader,
+    pub event: P2ImMessageReactionDeletedV1Data,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct P2ImMessageReactionDeletedV1Data {
+    #[serde(default)]
+    pub sender: Option<EventSender>,
+    pub message_id: String,
+    #[serde(default)]
+    pub chat_id: Option<String>,
+    #[serde(default)]
+    pub reaction_type: serde_json::Value,
+    #[serde(default)]
+    pub create_time: Option<String>,
+}
+
+// --- P2ImMessageReactionCreatedV1 ---
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct P2ImMessageReactionCreatedV1 {
+    pub schema: String,
+    pub header: EventHeader,
+    pub event: P2ImMessageReactionCreatedV1Data,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct P2ImMessageReactionCreatedV1Data {
+    #[serde(default)]
+    pub sender: Option<EventSender>,
+    pub message_id: String,
+    #[serde(default)]
+    pub chat_id: Option<String>,
+    #[serde(default)]
+    pub reaction_type: serde_json::Value,
+    #[serde(default)]
+    pub create_time: Option<String>,
+}
+
 // --- Event dispatcher ---
 
 pub trait EventHandler {
@@ -102,6 +146,42 @@ where
     fn handle(&self, payload: &[u8]) -> anyhow::Result<()> {
         let message: P2ImMessageReceiveV1 = serde_json::from_slice(payload)?;
         (self.f)(message);
+        Ok(())
+    }
+}
+
+struct P2ImMessageReactionDeletedV1Handler<F>
+where
+    F: Fn(P2ImMessageReactionDeletedV1) + 'static,
+{
+    f: F,
+}
+
+impl<F> EventHandler for P2ImMessageReactionDeletedV1Handler<F>
+where
+    F: Fn(P2ImMessageReactionDeletedV1) + 'static + Sync + Send,
+{
+    fn handle(&self, payload: &[u8]) -> anyhow::Result<()> {
+        let event: P2ImMessageReactionDeletedV1 = serde_json::from_slice(payload)?;
+        (self.f)(event);
+        Ok(())
+    }
+}
+
+struct P2ImMessageReactionCreatedV1Handler<F>
+where
+    F: Fn(P2ImMessageReactionCreatedV1) + 'static,
+{
+    f: F,
+}
+
+impl<F> EventHandler for P2ImMessageReactionCreatedV1Handler<F>
+where
+    F: Fn(P2ImMessageReactionCreatedV1) + 'static + Sync + Send,
+{
+    fn handle(&self, payload: &[u8]) -> anyhow::Result<()> {
+        let event: P2ImMessageReactionCreatedV1 = serde_json::from_slice(payload)?;
+        (self.f)(event);
         Ok(())
     }
 }
@@ -164,6 +244,32 @@ impl EventDispatcherHandlerBuilder {
             return Err(format!("processor already registered, type: {key}"));
         }
         let processor = P2ImMessageReceiveV1Handler { f };
+        self.processor_map.insert(key, Box::new(processor));
+        Ok(self)
+    }
+
+    pub fn register_p2_im_message_reaction_deleted_v1<F>(mut self, f: F) -> Result<Self, String>
+    where
+        F: Fn(P2ImMessageReactionDeletedV1) + 'static + Sync + Send,
+    {
+        let key = "p2.im.message.reaction.deleted_v1".to_string();
+        if self.processor_map.contains_key(&key) {
+            return Err(format!("processor already registered, type: {key}"));
+        }
+        let processor = P2ImMessageReactionDeletedV1Handler { f };
+        self.processor_map.insert(key, Box::new(processor));
+        Ok(self)
+    }
+
+    pub fn register_p2_im_message_reaction_created_v1<F>(mut self, f: F) -> Result<Self, String>
+    where
+        F: Fn(P2ImMessageReactionCreatedV1) + 'static + Sync + Send,
+    {
+        let key = "p2.im.message.reaction.created_v1".to_string();
+        if self.processor_map.contains_key(&key) {
+            return Err(format!("processor already registered, type: {key}"));
+        }
+        let processor = P2ImMessageReactionCreatedV1Handler { f };
         self.processor_map.insert(key, Box::new(processor));
         Ok(self)
     }
