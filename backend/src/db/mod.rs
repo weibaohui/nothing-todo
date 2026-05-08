@@ -294,12 +294,44 @@ impl Database {
                 chat_id TEXT NOT NULL,
                 chat_type TEXT NOT NULL,
                 sender_open_id TEXT NOT NULL,
+                sender_nickname TEXT,
                 content TEXT,
                 msg_type TEXT NOT NULL DEFAULT 'text',
                 is_mention INTEGER DEFAULT 0,
                 processed INTEGER DEFAULT 0,
+                is_history INTEGER DEFAULT 0,
+                fetch_time TEXT,
                 created_at TEXT,
                 FOREIGN KEY (bot_id) REFERENCES agent_bots(id)
+            )",
+        )
+        .await?;
+
+        // 添加 sender_nickname 字段的迁移（向后兼容）
+        self.exec("ALTER TABLE feishu_messages ADD COLUMN sender_nickname TEXT")
+            .await.ok();
+
+        // 添加 is_history 字段的迁移（向后兼容）
+        self.exec("ALTER TABLE feishu_messages ADD COLUMN is_history INTEGER DEFAULT 0")
+            .await.ok();
+
+        // 添加 fetch_time 字段的迁移（向后兼容）
+        self.exec("ALTER TABLE feishu_messages ADD COLUMN fetch_time TEXT")
+            .await.ok();
+
+        // Feishu History Chats table
+        self.exec(
+            "CREATE TABLE IF NOT EXISTS feishu_history_chats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id INTEGER NOT NULL,
+                chat_id TEXT NOT NULL,
+                chat_name TEXT,
+                enabled INTEGER DEFAULT 1,
+                last_fetch_time TEXT,
+                polling_interval_secs INTEGER DEFAULT 60,
+                created_at TEXT,
+                FOREIGN KEY (bot_id) REFERENCES agent_bots(id),
+                UNIQUE(bot_id, chat_id)
             )",
         )
         .await?;
@@ -338,6 +370,7 @@ mod agent_bot;
 mod feishu_home;
 mod feishu_message;
 mod feishu_push_target;
+mod feishu_history_chat;
 
 #[cfg(test)]
 mod tests {

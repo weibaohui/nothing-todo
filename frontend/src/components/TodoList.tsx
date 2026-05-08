@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty, Tooltip } from 'antd';
-import { PlusOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, SettingOutlined, SunOutlined, MoonOutlined, DesktopOutlined } from '@ant-design/icons';
+import { PlusOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, SettingOutlined, SunOutlined, MoonOutlined, DesktopOutlined, HistoryOutlined } from '@ant-design/icons';
 import { useTheme } from '../hooks/useTheme';
 import { StatusPicker } from './StatusPicker';
 import * as db from '../utils/database';
@@ -13,6 +13,7 @@ interface TodoListProps {
   onSelectTodo?: (todoId: string | number) => void;
   onShowDashboard?: () => void;
   onShowSettings?: () => void;
+  onShowFeishuHistory?: () => void;
 }
 
 function SkeletonRow() {
@@ -29,7 +30,7 @@ function SkeletonList() {
   );
 }
 
-export function TodoList({ onOpenCreateModal, onSelectTodo, onShowDashboard, onShowSettings }: TodoListProps) {
+export function TodoList({ onOpenCreateModal, onSelectTodo, onShowDashboard, onShowSettings, onShowFeishuHistory }: TodoListProps) {
   const { state, dispatch } = useApp();
   const { themeMode, toggleTheme } = useTheme();
   const { todos, selectedTodoId, selectedTagId, tags } = state;
@@ -103,6 +104,16 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onShowDashboard, onS
             className="tag-btn"
             aria-label="配置管理"
           />
+          <Tooltip title="飞书历史消息">
+            <Button
+              type="text"
+              size="small"
+              icon={<HistoryOutlined />}
+              onClick={onShowFeishuHistory}
+              className="tag-btn"
+              aria-label="飞书历史消息"
+            />
+          </Tooltip>
           {!isMobile && (
             <Button
               type="primary"
