@@ -8,7 +8,7 @@ use crate::models::ApiResponse;
 #[derive(Debug, Deserialize)]
 pub struct HistoryMessagesQuery {
     pub chat_id: Option<String>,
-    pub bot_id: Option<i64>,
+    pub sender_open_id: Option<String>,
     pub is_history: Option<bool>,
     pub page: Option<u64>,
     pub page_size: Option<u64>,
@@ -64,8 +64,8 @@ pub async fn get_history_messages(
     let page_size = query.page_size.unwrap_or(20).min(50);
 
     let (messages, total) = state.db.get_feishu_history_messages(
-        query.bot_id,
         query.chat_id.as_deref(),
+        query.sender_open_id.as_deref(),
         query.is_history,
         page,
         page_size,
@@ -177,16 +177,24 @@ pub async fn update_history_chat(
 }
 
 #[derive(Debug, Serialize)]
-pub struct BotIdItem {
-    pub bot_id: i64,
+pub struct SenderItem {
+    pub sender_open_id: String,
+    pub sender_type: Option<String>,
+    pub sender_nickname: Option<String>,
     pub count: i64,
 }
 
-pub async fn get_distinct_bot_ids(
+pub async fn get_distinct_senders(
     State(state): State<AppState>,
-) -> Result<Json<ApiResponse<Vec<BotIdItem>>>, AppError> {
-    let bot_ids = state.db.get_distinct_bot_ids().await?;
-    let items = bot_ids.into_iter().map(|(bot_id, count)| BotIdItem { bot_id, count }).collect();
+) -> Result<Json<ApiResponse<Vec<SenderItem>>>, AppError> {
+    let senders = state.db.get_distinct_senders().await?;
+    // For each sender, we need to get additional info. For simplicity, we'll just return what's available.
+    let items = senders.into_iter().map(|(sender_open_id, count)| SenderItem {
+        sender_open_id,
+        sender_type: None,
+        sender_nickname: None,
+        count,
+    }).collect();
     Ok(Json(ApiResponse::ok(items)))
 }
 

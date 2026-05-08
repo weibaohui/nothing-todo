@@ -144,14 +144,14 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   // Feishu history state
   const [historyMessages, setHistoryMessages] = useState<FeishuHistoryMessage[]>([]);
   const [historyChats, setHistoryChats] = useState<FeishuHistoryChat[]>([]);
-  const [historyBotIds, setHistoryBotIds] = useState<db.FeishuBotIdItem[]>([]);
+  const [historySenders, setHistorySenders] = useState<db.FeishuSenderItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyTotal, setHistoryTotal] = useState(0);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyPageSize, setHistoryPageSize] = useState(20);
   const [historySelectedChatId, setHistorySelectedChatId] = useState<string | undefined>(undefined);
   const [historyIsHistory, setHistoryIsHistory] = useState<boolean | undefined>(undefined);
-  const [historySelectedBotId, setHistorySelectedBotId] = useState<number | undefined>(undefined);
+  const [historySelectedSenderId, setHistorySelectedSenderId] = useState<string | undefined>(undefined);
   const [historyAddModalOpen, setHistoryAddModalOpen] = useState(false);
   const [historyForm] = Form.useForm();
 
@@ -247,7 +247,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       const data = await db.getFeishuHistoryMessages({
         chat_id: historySelectedChatId,
         is_history: historyIsHistory,
-        bot_id: historySelectedBotId,
+        sender_open_id: historySelectedSenderId,
         page: historyPage,
         page_size: historyPageSize,
       });
@@ -269,23 +269,23 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     }
   };
 
-  const loadHistoryBotIds = async () => {
+  const loadHistorySenders = async () => {
     try {
-      const data = await db.getFeishuBotIds();
-      setHistoryBotIds(data);
+      const data = await db.getFeishuSenders();
+      setHistorySenders(data);
     } catch (e) {
-      console.error('加载 Bot ID 列表失败', e);
+      console.error('加载发送者列表失败', e);
     }
   };
 
   useEffect(() => {
     loadHistoryChats();
-    loadHistoryBotIds();
+    loadHistorySenders();
   }, []);
 
   useEffect(() => {
     loadHistoryMessages();
-  }, [historyPage, historyPageSize, historySelectedChatId, historyIsHistory, historySelectedBotId]);
+  }, [historyPage, historyPageSize, historySelectedChatId, historyIsHistory, historySelectedSenderId]);
 
   const handleAddHistoryChat = async () => {
     try {
@@ -1266,22 +1266,22 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                         ))}
                       </Select>
                       <Select
-                        placeholder="筛选 Bot"
+                        placeholder="筛选发送者"
                         allowClear
-                        style={{ width: 130 }}
-                        value={historySelectedBotId}
+                        style={{ width: 150 }}
+                        value={historySelectedSenderId}
                         onChange={(v) => {
-                          setHistorySelectedBotId(v);
+                          setHistorySelectedSenderId(v);
                           setHistoryPage(1);
                         }}
                         onClear={() => {
-                          setHistorySelectedBotId(undefined);
+                          setHistorySelectedSenderId(undefined);
                           setHistoryPage(1);
                         }}
                       >
-                        {historyBotIds.map((item) => (
-                          <Select.Option key={item.bot_id} value={item.bot_id}>
-                            Bot {item.bot_id} ({item.count}条)
+                        {historySenders.map((item) => (
+                          <Select.Option key={item.sender_open_id} value={item.sender_open_id}>
+                            {item.sender_nickname || item.sender_open_id.slice(0, 12)} ({item.count}条)
                           </Select.Option>
                         ))}
                       </Select>
