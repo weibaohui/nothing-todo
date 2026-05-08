@@ -8,6 +8,7 @@ use crate::models::ApiResponse;
 #[derive(Debug, Deserialize)]
 pub struct HistoryMessagesQuery {
     pub chat_id: Option<String>,
+    pub bot_id: Option<i64>,
     pub page: Option<u64>,
     pub page_size: Option<u64>,
 }
@@ -57,7 +58,7 @@ pub async fn get_history_messages(
     State(state): State<AppState>,
     Query(query): Query<HistoryMessagesQuery>,
 ) -> Result<Json<ApiResponse<HistoryMessagesResponse>>, AppError> {
-    let bot_id = 1i64;
+    let bot_id = query.bot_id.unwrap_or(1i64);
     let page = query.page.unwrap_or(1).max(1);
     let page_size = query.page_size.unwrap_or(20).min(50);
 
@@ -92,10 +93,16 @@ pub async fn get_history_messages(
     })))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct HistoryChatsQuery {
+    pub bot_id: Option<i64>,
+}
+
 pub async fn get_history_chats(
     State(state): State<AppState>,
+    Query(query): Query<HistoryChatsQuery>,
 ) -> Result<Json<ApiResponse<Vec<HistoryChatItem>>>, AppError> {
-    let bot_id = 1i64;
+    let bot_id = query.bot_id.unwrap_or(1i64);
 
     let chats = state.db.get_feishu_history_chats(bot_id).await?;
 
