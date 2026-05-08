@@ -320,6 +320,12 @@ impl Database {
         )
         .await?;
 
+        // 添加 push_level 字段的迁移（向后兼容）
+        self.exec(
+            "ALTER TABLE feishu_push_targets ADD COLUMN push_level TEXT DEFAULT 'all'"
+        )
+        .await.ok(); // 忽略错误，因为字段可能已存在
+
         Ok(())
     }
 }

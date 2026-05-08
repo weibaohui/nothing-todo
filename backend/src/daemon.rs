@@ -1,13 +1,13 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 use clap::Subcommand;
 
-const SERVICE_NAME: &str = "ntd";
-const SERVICE_DESCRIPTION: &str = "Nothing Todo (ntd) - AI Todo Service";
+#[allow(unused)] const SERVICE_NAME: &str = "ntd";
+#[allow(unused)] const SERVICE_DESCRIPTION: &str = "Nothing Todo (ntd) - AI Todo Service";
 const LAUNCHD_LABEL: &str = "com.nothing-todo.ntd";
-const TASK_NAME: &str = "ntd";
+#[allow(unused)] const TASK_NAME: &str = "ntd";
 
 #[derive(Subcommand)]
 pub enum DaemonAction {
@@ -94,6 +94,7 @@ fn get_ntd_dir() -> PathBuf {
 }
 
 /// Get the directory containing the ntd binary (for PATH in service definition)
+#[allow(unused)]
 fn get_ntd_bin_dir() -> PathBuf {
     get_ntd_binary_path()
         .parent()
