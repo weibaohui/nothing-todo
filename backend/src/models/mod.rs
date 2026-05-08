@@ -710,3 +710,49 @@ mod tests {
         assert!(req.scheduler_config.is_none());
     }
 }
+
+/// Replace placeholders in a string using a map of key-value pairs.
+/// Format: `&{key}` will be replaced with the corresponding value from the map.
+/// If a key is not found in the map, it remains unchanged.
+pub fn replace_placeholders(text: &str, params: &std::collections::HashMap<String, String>) -> String {
+    let mut result = text.to_string();
+    for (key, value) in params {
+        let placeholder = format!("&{{{}}}", key);
+        result = result.replace(&placeholder, value);
+    }
+    result
+}
+
+#[cfg(test)]
+mod placeholder_tests {
+    use super::*;
+
+    #[test]
+    fn test_replace_placeholders() {
+        let mut params = std::collections::HashMap::new();
+        params.insert("name".to_string(), "Alice".to_string());
+        params.insert("task".to_string(), "review code".to_string());
+
+        let text = "Hello &{name}, please &{task}.";
+        let result = replace_placeholders(text, &params);
+        assert_eq!(result, "Hello Alice, please review code.");
+    }
+
+    #[test]
+    fn test_replace_placeholders_missing_key() {
+        let mut params = std::collections::HashMap::new();
+        params.insert("name".to_string(), "Bob".to_string());
+
+        let text = "Hello &{name}, please &{unknown}.";
+        let result = replace_placeholders(text, &params);
+        assert_eq!(result, "Hello Bob, please &{unknown}.");
+    }
+
+    #[test]
+    fn test_replace_placeholders_empty_params() {
+        let params = std::collections::HashMap::new();
+        let text = "Hello &{name}!";
+        let result = replace_placeholders(text, &params);
+        assert_eq!(result, "Hello &{name}!");
+    }
+}
