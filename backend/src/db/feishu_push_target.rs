@@ -70,6 +70,21 @@ impl Database {
             .collect())
     }
 
+    /// Get all push targets configured for group chat (receive_id_type = "chat_id").
+    /// Returns (bot_id, chat_id) pairs.
+    pub async fn get_group_chat_push_targets(
+        &self,
+    ) -> Result<Vec<(i64, String)>, sea_orm::DbErr> {
+        let targets = feishu_push_targets::Entity::find()
+            .all(&self.conn)
+            .await?;
+        Ok(targets
+            .into_iter()
+            .filter(|t| t.receive_id_type == "chat_id" && !t.receive_id.is_empty())
+            .map(|t| (t.bot_id, t.receive_id))
+            .collect())
+    }
+
     /// Update push level for a bot.
     pub async fn update_feishu_push_level(
         &self,

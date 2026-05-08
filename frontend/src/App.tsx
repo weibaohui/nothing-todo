@@ -10,6 +10,7 @@ import { Dashboard } from './components/Dashboard';
 import { SettingsPage } from './components/SettingsPage';
 import { ExecutionPanel } from './components/ExecutionPanel';
 import { CreateTodoModal } from './components/CreateTodoModal';
+import { FeishuHistoryPage } from './components/FeishuHistoryPage';
 import zhCN from 'antd/locale/zh_CN';
 import './App.css';
 
@@ -22,7 +23,7 @@ function AppContent() {
   const [todoModalOpen, setTodoModalOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [selectedPanel, setSelectedPanel] = useState<'list' | 'detail'>('list');
-  const [activeView, setActiveView] = useState<'dashboard' | 'settings'>('dashboard');
+  const [activeView, setActiveView] = useState<'dashboard' | 'settings' | 'feishu-history'>('dashboard');
   const [panelCollapsed, setPanelCollapsed] = useState(() => {
     try {
       return localStorage.getItem('execution_panel_collapsed') === 'true';
@@ -68,6 +69,12 @@ function AppContent() {
   const handleShowSettings = () => {
     clearSelection();
     setActiveView('settings');
+    setSelectedPanel('detail');
+  };
+
+  const handleShowFeishuHistory = () => {
+    clearSelection();
+    setActiveView('feishu-history');
     setSelectedPanel('detail');
   };
 
@@ -118,6 +125,7 @@ function AppContent() {
               onSelectTodo={handleSelectTodo}
               onShowDashboard={handleShowDashboard}
               onShowSettings={handleShowSettings}
+              onShowFeishuHistory={handleShowFeishuHistory}
             />
           </div>
 
@@ -135,6 +143,8 @@ function AppContent() {
               <TodoDetail onBack={isMobile ? handleBackToList : undefined} />
             ) : activeView === 'settings' ? (
               <SettingsPage onBack={isMobile ? handleBackToList : undefined} />
+            ) : activeView === 'feishu-history' ? (
+              <FeishuHistoryPage onBack={isMobile ? handleBackToList : undefined} />
             ) : (
               <Dashboard onBack={isMobile ? handleBackToList : undefined} />
             )}
