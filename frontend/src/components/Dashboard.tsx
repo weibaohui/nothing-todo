@@ -256,20 +256,15 @@ export function Dashboard({ onBack }: DashboardProps) {
               })}
             </div>
           ) : (
-            <div style={{ color: 'var(--color-text-secondary)', padding: '20px 0' }}>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 8, color: 'var(--color-text)' }}>
-                  everything is todo
-                </div>
-                <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: 'var(--color-text)' }}>
-                  but now nothing todo
-                </div>
-                <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>
-                  万事皆待办，此刻无事可干。
-                </div>
+            <div style={{ textAlign: 'center', color: 'var(--color-text-secondary)', padding: '20px 0' }}>
+              <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 8, color: 'var(--color-text)' }}>
+                nothing todo
               </div>
-              <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                💭 人类，你在忙，而我无事可干。
+              <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: 'var(--color-text)' }}>
+                but everything is todo
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>
+                万事皆待办，此刻无事可干。
               </div>
             </div>
           )}
