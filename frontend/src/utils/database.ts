@@ -403,6 +403,15 @@ export async function getFeishuHistoryMessages(params?: {
   return unwrap(await api.get<ApiResp<FeishuHistoryMessagesPage>>('/xyz/feishu/history-messages', { params }));
 }
 
+export interface FeishuBotIdItem {
+  bot_id: number;
+  count: number;
+}
+
+export async function getFeishuBotIds(): Promise<FeishuBotIdItem[]> {
+  return unwrap(await api.get<ApiResp<FeishuBotIdItem[]>>('/xyz/feishu/bot-ids'));
+}
+
 export async function getFeishuHistoryChats(): Promise<FeishuHistoryChat[]> {
   return unwrap(await api.get<ApiResp<FeishuHistoryChat[]>>('/xyz/feishu/history-chats'));
 }

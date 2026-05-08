@@ -391,6 +391,7 @@ pub fn create_app(
         .route("/xyz/agent-bots/feishu/poll", post(agent_bot::feishu_poll))
         .route("/xyz/agent-bots/feishu/push", get(agent_bot::get_feishu_push).put(agent_bot::update_feishu_push))
         .route("/xyz/feishu/history-messages", get(feishu_history::get_history_messages))
+        .route("/xyz/feishu/bot-ids", get(feishu_history::get_distinct_bot_ids))
         .route("/xyz/feishu/history-chats", get(feishu_history::get_history_chats).post(feishu_history::create_history_chat))
         .route("/xyz/feishu/history-chats/{id}", delete(feishu_history::delete_history_chat).put(feishu_history::update_history_chat))
         .route("/xyz/agent-bots/{id}", delete(agent_bot::delete_agent_bot))

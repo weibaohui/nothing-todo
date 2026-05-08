@@ -60,12 +60,11 @@ pub async fn get_history_messages(
     State(state): State<AppState>,
     Query(query): Query<HistoryMessagesQuery>,
 ) -> Result<Json<ApiResponse<HistoryMessagesResponse>>, AppError> {
-    let bot_id = query.bot_id.unwrap_or(1i64);
     let page = query.page.unwrap_or(1).max(1);
     let page_size = query.page_size.unwrap_or(20).min(50);
 
     let (messages, total) = state.db.get_feishu_history_messages(
-        bot_id,
+        query.bot_id,
         query.chat_id.as_deref(),
         query.is_history,
         page,
@@ -175,6 +174,20 @@ pub async fn update_history_chat(
     ).await?;
 
     Ok(Json(ApiResponse::ok(())))
+}
+
+#[derive(Debug, Serialize)]
+pub struct BotIdItem {
+    pub bot_id: i64,
+    pub count: i64,
+}
+
+pub async fn get_distinct_bot_ids(
+    State(state): State<AppState>,
+) -> Result<Json<ApiResponse<Vec<BotIdItem>>>, AppError> {
+    let bot_ids = state.db.get_distinct_bot_ids().await?;
+    let items = bot_ids.into_iter().map(|(bot_id, count)| BotIdItem { bot_id, count }).collect();
+    Ok(Json(ApiResponse::ok(items)))
 }
 
 pub async fn delete_history_chat(
