@@ -127,13 +127,17 @@ impl Database {
         &self,
         bot_id: i64,
         chat_id: Option<&str>,
+        is_history: Option<bool>,
         page: u64,
         page_size: u64,
     ) -> Result<(Vec<FeishuMessageRecord>, i64), sea_orm::DbErr> {
         let mut query = feishu_messages::Entity::find()
             .order_by_desc(feishu_messages::Column::CreatedAt)
-            .filter(feishu_messages::Column::BotId.eq(bot_id))
-            .filter(feishu_messages::Column::IsHistory.eq(Some(true)));
+            .filter(feishu_messages::Column::BotId.eq(bot_id));
+
+        if let Some(history) = is_history {
+            query = query.filter(feishu_messages::Column::IsHistory.eq(Some(history)));
+        }
 
         if let Some(cid) = chat_id {
             query = query.filter(feishu_messages::Column::ChatId.eq(cid.to_string()));

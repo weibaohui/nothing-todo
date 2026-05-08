@@ -323,6 +323,7 @@ export interface FeishuHistoryMessage {
   sender_type: string | null;
   content: string | null;
   msg_type: string;
+  is_history: boolean;
   created_at: string | null;
 }
 

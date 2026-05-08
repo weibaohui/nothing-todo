@@ -20,6 +20,7 @@ import {
   Table,
   Tag as AntTag,
   Switch,
+  Tooltip,
 } from 'antd';
 import {
   SettingOutlined,
@@ -39,6 +40,7 @@ import {
   ReloadOutlined,
   PlusOutlined,
   HistoryOutlined,
+  QuestionCircleOutlined,
 } from '@ant-design/icons';
 import { Cron } from 'react-js-cron';
 import QRCode from 'qrcode';
@@ -147,6 +149,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [historyPage, setHistoryPage] = useState(1);
   const [historyPageSize, setHistoryPageSize] = useState(20);
   const [historySelectedChatId, setHistorySelectedChatId] = useState<string | undefined>(undefined);
+  const [historyIsHistory, setHistoryIsHistory] = useState<boolean | undefined>(undefined);
   const [historyAddModalOpen, setHistoryAddModalOpen] = useState(false);
   const [historyForm] = Form.useForm();
 
@@ -241,6 +244,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     try {
       const data = await db.getFeishuHistoryMessages({
         chat_id: historySelectedChatId,
+        is_history: historyIsHistory,
         page: historyPage,
         page_size: historyPageSize,
       });
@@ -268,7 +272,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
   useEffect(() => {
     loadHistoryMessages();
-  }, [historyPage, historyPageSize, historySelectedChatId]);
+  }, [historyPage, historyPageSize, historySelectedChatId, historyIsHistory]);
 
   const handleAddHistoryChat = async () => {
     try {
@@ -1215,7 +1219,17 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                   >
                     <Space>
                       <HistoryOutlined />
-                      <span style={{ fontWeight: 600 }}>飞书历史消息</span>
+                      <span style={{ fontWeight: 600 }}>飞书群聊消息</span>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        <Tooltip title={
+                          <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                            <b>实时消息：</b>通过 WebSocket 实时接收的消息，接收后立即处理并触发相关事件<br/>
+                            <b>历史消息：</b>通过轮询 API 拉取的群聊历史记录，不会触发实时处理事件
+                          </div>
+                        }>
+                          <span style={{ cursor: 'help' }}><QuestionCircleOutlined /></span>
+                        </Tooltip>
+                      </Typography.Text>
                     </Space>
                     <Space wrap>
                       <Select
@@ -1223,14 +1237,33 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                         allowClear
                         style={{ width: 200 }}
                         value={historySelectedChatId}
-                        onChange={setHistorySelectedChatId}
-                        onClear={() => setHistorySelectedChatId(undefined)}
+                        onChange={(v) => {
+                          setHistorySelectedChatId(v);
+                          setHistoryPage(1);
+                        }}
+                        onClear={() => {
+                          setHistorySelectedChatId(undefined);
+                          setHistoryPage(1);
+                        }}
                       >
                         {historyChats.map((chat) => (
                           <Select.Option key={chat.chat_id} value={chat.chat_id}>
                             {chat.chat_name || chat.chat_id}
                           </Select.Option>
                         ))}
+                      </Select>
+                      <Select
+                        placeholder="消息来源"
+                        style={{ width: 130 }}
+                        value={historyIsHistory}
+                        onChange={(v) => {
+                          setHistoryIsHistory(v);
+                          setHistoryPage(1);
+                        }}
+                        allowClear
+                      >
+                        <Select.Option value={true}>仅历史消息</Select.Option>
+                        <Select.Option value={false}>仅实时消息</Select.Option>
                       </Select>
                       <Button icon={<ReloadOutlined />} onClick={loadHistoryMessages} size="middle">
                         刷新
@@ -1270,6 +1303,16 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                           const d = new Date(text);
                           return isNaN(d.getTime()) ? text : d.toLocaleString('zh-CN');
                         },
+                      },
+                      {
+                        title: '来源',
+                        key: 'source',
+                        width: 90,
+                        render: (_, record) => (
+                          <AntTag color={record.is_history ? 'orange' : 'cyan'}>
+                            {record.is_history ? '历史' : '实时'}
+                          </AntTag>
+                        ),
                       },
                       {
                         title: '发送者',
