@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutorSkills, SkillComparison, PaginatedInvocations, FeishuHistoryMessagesPage, FeishuHistoryChat } from '../types';
+import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutorSkills, SkillComparison, PaginatedInvocations } from '../types';
 
 interface ApiResp<T> {
   code: number;
@@ -389,42 +389,4 @@ export async function updateFeishuPush(params: UpdateFeishuPushParams): Promise<
     receive_id_type: params.receiveIdType,
     chat_id: params.chatId,
   }));
-}
-
-// Feishu History APIs
-
-export async function getFeishuHistoryMessages(params?: {
-  chat_id?: string;
-  page?: number;
-  page_size?: number;
-}): Promise<FeishuHistoryMessagesPage> {
-  return unwrap(await api.get<ApiResp<FeishuHistoryMessagesPage>>('/xyz/feishu/history-messages', { params }));
-}
-
-export async function getFeishuHistoryChats(): Promise<FeishuHistoryChat[]> {
-  return unwrap(await api.get<ApiResp<FeishuHistoryChat[]>>('/xyz/feishu/history-chats'));
-}
-
-export interface CreateFeishuHistoryChatParams {
-  bot_id: number;
-  chat_id: string;
-  chat_name?: string;
-}
-
-export async function createFeishuHistoryChat(params: CreateFeishuHistoryChatParams): Promise<FeishuHistoryChat> {
-  return unwrap(await api.post<ApiResp<FeishuHistoryChat>>('/xyz/feishu/history-chats', params));
-}
-
-export interface UpdateFeishuHistoryChatParams {
-  chat_name?: string;
-  enabled?: boolean;
-  polling_interval_secs?: number;
-}
-
-export async function updateFeishuHistoryChat(id: number, params: UpdateFeishuHistoryChatParams): Promise<void> {
-  await api.put(`/xyz/feishu/history-chats/${id}`, params);
-}
-
-export async function deleteFeishuHistoryChat(id: number): Promise<void> {
-  await api.delete(`/xyz/feishu/history-chats/${id}`);
 }
