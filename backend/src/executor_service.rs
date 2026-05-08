@@ -518,3 +518,34 @@ pub async fn run_todo_execution(
 
     ExecutionResult { task_id: task_id_return, record_id: Some(record_id) }
 }
+
+/// Run a todo execution with parameter substitution.
+/// Replaces placeholders `&{key}` in the message with corresponding values from params before execution.
+pub async fn run_todo_execution_with_params(
+    db: Arc<Database>,
+    executor_registry: Arc<ExecutorRegistry>,
+    tx: broadcast::Sender<ExecEvent>,
+    todo_id: i64,
+    message: String,
+    req_executor: Option<String>,
+    trigger_type: &str,
+    task_manager: Arc<TaskManager>,
+    params: std::collections::HashMap<String, String>,
+    resume_session_id: Option<String>,
+    resume_message: Option<String>,
+) -> ExecutionResult {
+    let message_with_params = crate::models::replace_placeholders(&message, &params);
+    run_todo_execution(
+        db,
+        executor_registry,
+        tx,
+        todo_id,
+        message_with_params,
+        req_executor,
+        trigger_type,
+        task_manager,
+        resume_session_id,
+        resume_message,
+    )
+    .await
+}
