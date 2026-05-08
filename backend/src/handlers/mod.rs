@@ -149,7 +149,6 @@ pub mod backup;
 mod config;
 pub mod skills;
 pub mod agent_bot;
-mod feishu_history;
 
 // WebSocket handler
 pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
@@ -313,30 +312,6 @@ pub fn create_app(
     let (push_service, push_mutator) = FeishuPushService::new(db.clone(), feishu_listener.clone());
     push_service.start(tx.subscribe());
 
-    // Start Feishu history fetcher (async initialization)
-    use crate::services::feishu_history_fetcher::FeishuHistoryFetcher;
-    let fetcher = FeishuHistoryFetcher::new(db.clone());
-    let db_for_fetcher = db.clone();
-    tokio::spawn(async move {
-        tracing::info!("[feishu-history-fetcher] starting initialization");
-        let bots_for_fetcher: Vec<(i64, String, String)> = match db_for_fetcher.get_agent_bots().await {
-            Ok(bots) => {
-                let filtered: Vec<_> = bots.into_iter()
-                    .filter(|b| b.bot_type == "feishu" && b.enabled)
-                    .map(|b| (b.id, b.app_id.clone(), b.app_secret.clone()))
-                    .collect();
-                tracing::info!("[feishu-history-fetcher] found {} feishu bots", filtered.len());
-                filtered
-            }
-            Err(e) => {
-                tracing::error!("[feishu-history-fetcher] failed to get agent bots: {}", e);
-                Vec::new()
-            }
-        };
-        tracing::info!("[feishu-history-fetcher] starting with {} bots", bots_for_fetcher.len());
-        fetcher.start(bots_for_fetcher);
-    });
-
     let state = AppState {
         db,
         executor_registry,
@@ -390,9 +365,6 @@ pub fn create_app(
         .route("/xyz/agent-bots/feishu/begin", post(agent_bot::feishu_begin))
         .route("/xyz/agent-bots/feishu/poll", post(agent_bot::feishu_poll))
         .route("/xyz/agent-bots/feishu/push", get(agent_bot::get_feishu_push).put(agent_bot::update_feishu_push))
-        .route("/xyz/feishu/history-messages", get(feishu_history::get_history_messages))
-        .route("/xyz/feishu/history-chats", get(feishu_history::get_history_chats).post(feishu_history::create_history_chat))
-        .route("/xyz/feishu/history-chats/{id}", delete(feishu_history::delete_history_chat).put(feishu_history::update_history_chat))
         .route("/xyz/agent-bots/{id}", delete(agent_bot::delete_agent_bot))
         .route("/xyz/agent-bots/{id}/config", put(agent_bot::update_agent_bot_config))
         .route("/assets/{*path}", get(static_handler))

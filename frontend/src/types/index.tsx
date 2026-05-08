@@ -311,35 +311,3 @@ export interface PaginatedInvocations {
   page: number;
   limit: number;
 }
-
-// Feishu History types
-export interface FeishuHistoryMessage {
-  id: number;
-  message_id: string;
-  chat_id: string;
-  chat_type: string;
-  sender_open_id: string;
-  sender_nickname: string | null;
-  sender_type: string | null;
-  content: string | null;
-  msg_type: string;
-  created_at: string | null;
-}
-
-export interface FeishuHistoryMessagesPage {
-  messages: FeishuHistoryMessage[];
-  total: number;
-  page: number;
-  page_size: number;
-}
-
-export interface FeishuHistoryChat {
-  id: number;
-  bot_id: number;
-  chat_id: string;
-  chat_name: string | null;
-  enabled: boolean;
-  last_fetch_time: string | null;
-  polling_interval_secs: number;
-  created_at: string | null;
-}
