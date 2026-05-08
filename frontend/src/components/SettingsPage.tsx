@@ -150,6 +150,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [historyPageSize, setHistoryPageSize] = useState(20);
   const [historySelectedChatId, setHistorySelectedChatId] = useState<string | undefined>(undefined);
   const [historyIsHistory, setHistoryIsHistory] = useState<boolean | undefined>(undefined);
+  const [historySelectedBotId, setHistorySelectedBotId] = useState<number | undefined>(undefined);
   const [historyAddModalOpen, setHistoryAddModalOpen] = useState(false);
   const [historyForm] = Form.useForm();
 
@@ -245,6 +246,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       const data = await db.getFeishuHistoryMessages({
         chat_id: historySelectedChatId,
         is_history: historyIsHistory,
+        bot_id: historySelectedBotId,
         page: historyPage,
         page_size: historyPageSize,
       });
@@ -272,7 +274,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
   useEffect(() => {
     loadHistoryMessages();
-  }, [historyPage, historyPageSize, historySelectedChatId, historyIsHistory]);
+  }, [historyPage, historyPageSize, historySelectedChatId, historyIsHistory, historySelectedBotId]);
 
   const handleAddHistoryChat = async () => {
     try {
@@ -1249,6 +1251,26 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                         {historyChats.map((chat) => (
                           <Select.Option key={chat.chat_id} value={chat.chat_id}>
                             {chat.chat_name || chat.chat_id}
+                          </Select.Option>
+                        ))}
+                      </Select>
+                      <Select
+                        placeholder="筛选 Bot"
+                        allowClear
+                        style={{ width: 130 }}
+                        value={historySelectedBotId}
+                        onChange={(v) => {
+                          setHistorySelectedBotId(v);
+                          setHistoryPage(1);
+                        }}
+                        onClear={() => {
+                          setHistorySelectedBotId(undefined);
+                          setHistoryPage(1);
+                        }}
+                      >
+                        {agentBots.filter(b => b.bot_type === 'feishu').map((bot) => (
+                          <Select.Option key={bot.id} value={bot.id}>
+                            {bot.bot_name}
                           </Select.Option>
                         ))}
                       </Select>
