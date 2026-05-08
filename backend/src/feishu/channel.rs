@@ -148,6 +148,24 @@ impl FeishuChannelService {
                                 error!("Failed to forward message to channel bus: {e}");
                             }
                         })
+                        .and_then(|builder| {
+                            builder.register_p2_im_message_reaction_deleted_v1(|event| {
+                                tracing::debug!(
+                                    "WebSocket: reaction deleted on message {} in chat {:?}",
+                                    event.event.message_id,
+                                    event.event.chat_id
+                                );
+                            })
+                        })
+                        .and_then(|builder| {
+                            builder.register_p2_im_message_reaction_created_v1(|event| {
+                                tracing::debug!(
+                                    "WebSocket: reaction created on message {} in chat {:?}",
+                                    event.event.message_id,
+                                    event.event.chat_id
+                                );
+                            })
+                        })
                         .expect("Failed to register event handler")
                         .build();
 
