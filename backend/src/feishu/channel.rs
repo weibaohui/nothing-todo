@@ -183,8 +183,7 @@ impl FeishuChannelService {
 
             match result {
                 Ok(()) => {
-                    info!("WebSocket: connection closed normally");
-                    return Ok(());
+                    info!("WebSocket: connection closed normally, reconnecting...");
                 }
                 Err(e) => {
                     warn!("WebSocket: connection error: {e}");
