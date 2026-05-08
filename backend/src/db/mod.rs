@@ -319,6 +319,23 @@ impl Database {
         self.exec("ALTER TABLE feishu_messages ADD COLUMN fetch_time TEXT")
             .await.ok();
 
+        // Feishu History Chats table
+        self.exec(
+            "CREATE TABLE IF NOT EXISTS feishu_history_chats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id INTEGER NOT NULL,
+                chat_id TEXT NOT NULL,
+                chat_name TEXT,
+                enabled INTEGER DEFAULT 1,
+                last_fetch_time TEXT,
+                polling_interval_secs INTEGER DEFAULT 60,
+                created_at TEXT,
+                FOREIGN KEY (bot_id) REFERENCES agent_bots(id),
+                UNIQUE(bot_id, chat_id)
+            )",
+        )
+        .await?;
+
         // Feishu Push Targets table
         self.exec(
             "CREATE TABLE IF NOT EXISTS feishu_push_targets (
@@ -353,6 +370,7 @@ mod agent_bot;
 mod feishu_home;
 mod feishu_message;
 mod feishu_push_target;
+mod feishu_history_chat;
 
 #[cfg(test)]
 mod tests {

@@ -36,6 +36,9 @@ import {
   MessageOutlined,
   QrcodeOutlined,
   CopyOutlined,
+  ReloadOutlined,
+  PlusOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import { Cron } from 'react-js-cron';
 import QRCode from 'qrcode';
@@ -44,7 +47,7 @@ import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
 import type { FeishuPushStatus } from '../utils/database';
 import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
-import type { Config, ExecutorPaths } from '../types';
+import type { Config, ExecutorPaths, FeishuHistoryMessage, FeishuHistoryChat } from '../types';
 import yaml from 'js-yaml';
 import { CronPresetSelect } from './CronPresetSelect';
 import { SkillsPanel } from './SkillsPanel';
@@ -136,6 +139,17 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [pollError, setPollError] = useState('');
   const [bindSuccess, setBindSuccess] = useState(false);
 
+  // Feishu history state
+  const [historyMessages, setHistoryMessages] = useState<FeishuHistoryMessage[]>([]);
+  const [historyChats, setHistoryChats] = useState<FeishuHistoryChat[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(20);
+  const [historySelectedChatId, setHistorySelectedChatId] = useState<string | undefined>(undefined);
+  const [historyAddModalOpen, setHistoryAddModalOpen] = useState(false);
+  const [historyForm] = Form.useForm();
+
   // Import wizard state
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardItems, setWizardItems] = useState<ImportItem[]>([]);
@@ -220,6 +234,55 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     db.getFeishuPush()
       .then((status) => setFeishuPushStatus(status))
       .catch(() => {});
+  };
+
+  const loadHistoryMessages = async () => {
+    setHistoryLoading(true);
+    try {
+      const data = await db.getFeishuHistoryMessages({
+        chat_id: historySelectedChatId,
+        page: historyPage,
+        page_size: historyPageSize,
+      });
+      setHistoryMessages(data.messages);
+      setHistoryTotal(data.total);
+    } catch {
+      message.error('加载历史消息失败');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const loadHistoryChats = async () => {
+    try {
+      const data = await db.getFeishuHistoryChats();
+      setHistoryChats(data);
+    } catch (e) {
+      console.error('加载群聊配置失败', e);
+    }
+  };
+
+  useEffect(() => {
+    loadHistoryChats();
+  }, []);
+
+  useEffect(() => {
+    loadHistoryMessages();
+  }, [historyPage, historyPageSize, historySelectedChatId]);
+
+  const handleAddHistoryChat = async () => {
+    try {
+      const values = await historyForm.validateFields();
+      await db.createFeishuHistoryChat(values);
+      message.success('添加成功');
+      setHistoryAddModalOpen(false);
+      historyForm.resetFields();
+      loadHistoryChats();
+    } catch (e) {
+      if (e instanceof Error) {
+        message.error(e.message);
+      }
+    }
   };
 
   useEffect(() => {
@@ -857,274 +920,436 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         </span>
       ),
       children: (
-        <div className="settings-messages-tab" style={{ maxWidth: 700 }}>
-          <Card
-            title="绑定消息接收智能体"
-            size="small"
-            style={{ marginBottom: 24 }}
-            extra={
-              <Button
-                type="primary"
-                icon={<QrcodeOutlined />}
-                onClick={handleStartFeishuBind}
-                loading={binding}
-                size="small"
-              >
-                绑定飞书
-              </Button>
-            }
-          >
-            <Paragraph type="secondary" style={{ marginBottom: 16, fontSize: 13 }}>
-              绑定飞书智能体 Bot 后，可以接收任务执行结果和通知消息。支持绑定多个 Bot。
-            </Paragraph>
-
-            <Spin spinning={botsLoading}>
-              {agentBots.length === 0 ? (
-                <Empty description="暂无绑定的智能体" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-              ) : (
-                <List
-                  dataSource={agentBots}
-                  renderItem={(bot) => {
-                    let botConfig: Record<string, boolean> = { dm_enabled: true, group_enabled: true, group_require_mention: true, echo_reply: true };
-                    try { botConfig = JSON.parse(bot.config || '{}'); } catch {}
-                    const isFeishu = bot.bot_type === 'feishu';
-                    const handleConfigChange = async (key: string, val: boolean) => {
-                      const newConfig = { ...botConfig, [key]: val };
-                      try {
-                        await db.updateAgentBotConfig(bot.id, JSON.stringify(newConfig));
-                        setAgentBots(prev => prev.map(b => b.id === bot.id ? { ...b, config: JSON.stringify(newConfig) } : b));
-                      } catch (e: any) {
-                        message.error('保存配置失败: ' + (e.message || '未知错误'));
-                      }
-                    };
-
-                    const botPushStatus = feishuPushStatus.find(p => p.bot_id === bot.id);
-                    const hasPushTarget = !!botPushStatus && (botPushStatus.receive_id || botPushStatus.chat_id);
-                    const handlePushLevelChange = async (level: db.FeishuPushLevel) => {
-                      try {
-                        await db.updateFeishuPush({ botId: bot.id, pushLevel: level });
-                        loadFeishuPush();
-                      } catch (e: any) {
-                        message.error('设置推送失败: ' + (e.message || '未知错误'));
-                      }
-                    };
-                    const handlePushTargetUpdate = async (field: 'receive_id' | 'receive_id_type' | 'chat_id', value: string) => {
-                      try {
-                        await db.updateFeishuPush({ botId: bot.id, [field]: value });
-                        loadFeishuPush();
-                      } catch (e: any) {
-                        message.error('更新推送目标失败: ' + (e.message || '未知错误'));
-                      }
-                    };
-                    const copyToClipboard = (text: string, label: string) => {
-                      navigator.clipboard.writeText(text).then(() => {
-                        message.success(`${label} 已复制`);
-                      }).catch(() => {
-                        message.error('复制失败');
-                      });
-                    };
-
-                    return (
-                      <div
-                        key={bot.id}
-                        style={{
-                          padding: '12px',
-                          background: 'var(--color-bg)',
-                          borderRadius: 8,
-                          marginBottom: 8,
-                          border: '1px solid var(--color-border-light)',
-                        }}
+        <Tabs
+          defaultActiveKey="bind"
+          size="small"
+          items={[
+            {
+              key: 'bind',
+              label: '绑定',
+              children: (
+                <div className="settings-messages-tab" style={{ maxWidth: 700 }}>
+                  <Card
+                    title="绑定消息接收智能体"
+                    size="small"
+                    style={{ marginBottom: 24 }}
+                    extra={
+                      <Button
+                        type="primary"
+                        icon={<QrcodeOutlined />}
+                        onClick={handleStartFeishuBind}
+                        loading={binding}
+                        size="small"
                       >
-                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                          <div
-                            style={{
-                              width: 36,
-                              height: 36,
-                              borderRadius: 8,
-                              background: isFeishu ? '#1976D2' : '#888',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              color: '#fff',
-                              fontWeight: 700,
-                              fontSize: 14,
-                              flexShrink: 0,
-                            }}
-                          >
-                            {isFeishu ? '飞' : '其他'}
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                              <span style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bot.bot_name}</span>
-                              <AntTag color={bot.enabled ? 'green' : 'default'} style={{ marginRight: 0 }}>
-                                {bot.enabled ? '已启用' : '已禁用'}
-                              </AntTag>
-                            </div>
-                            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', wordBreak: 'break-all', lineHeight: 1.6 }}>
-                              App ID: {bot.app_id}
-                            </div>
-                            {bot.domain && (
-                              <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-                                平台: {bot.domain === 'lark' ? 'Lark 国际版' : '飞书'}
+                        绑定飞书
+                      </Button>
+                    }
+                  >
+                    <Paragraph type="secondary" style={{ marginBottom: 16, fontSize: 13 }}>
+                      绑定飞书智能体 Bot 后，可以接收任务执行结果和通知消息。支持绑定多个 Bot。
+                    </Paragraph>
+
+                    <Spin spinning={botsLoading}>
+                      {agentBots.length === 0 ? (
+                        <Empty description="暂无绑定的智能体" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                      ) : (
+                        <List
+                          dataSource={agentBots}
+                          renderItem={(bot) => {
+                            let botConfig: Record<string, boolean> = { dm_enabled: true, group_enabled: true, group_require_mention: true, echo_reply: true };
+                            try { botConfig = JSON.parse(bot.config || '{}'); } catch {}
+                            const isFeishu = bot.bot_type === 'feishu';
+                            const handleConfigChange = async (key: string, val: boolean) => {
+                              const newConfig = { ...botConfig, [key]: val };
+                              try {
+                                await db.updateAgentBotConfig(bot.id, JSON.stringify(newConfig));
+                                setAgentBots(prev => prev.map(b => b.id === bot.id ? { ...b, config: JSON.stringify(newConfig) } : b));
+                              } catch (e: any) {
+                                message.error('保存配置失败: ' + (e.message || '未知错误'));
+                              }
+                            };
+
+                            const botPushStatus = feishuPushStatus.find(p => p.bot_id === bot.id);
+                            const hasPushTarget = !!botPushStatus && (botPushStatus.receive_id || botPushStatus.chat_id);
+                            const handlePushLevelChange = async (level: db.FeishuPushLevel) => {
+                              try {
+                                await db.updateFeishuPush({ botId: bot.id, pushLevel: level });
+                                loadFeishuPush();
+                              } catch (e: any) {
+                                message.error('设置推送失败: ' + (e.message || '未知错误'));
+                              }
+                            };
+                            const handlePushTargetUpdate = async (field: 'receive_id' | 'receive_id_type' | 'chat_id', value: string) => {
+                              try {
+                                await db.updateFeishuPush({ botId: bot.id, [field]: value });
+                                loadFeishuPush();
+                              } catch (e: any) {
+                                message.error('更新推送目标失败: ' + (e.message || '未知错误'));
+                              }
+                            };
+                            const copyToClipboard = (text: string, label: string) => {
+                              navigator.clipboard.writeText(text).then(() => {
+                                message.success(`${label} 已复制`);
+                              }).catch(() => {
+                                message.error('复制失败');
+                              });
+                            };
+
+                            return (
+                              <div
+                                key={bot.id}
+                                style={{
+                                  padding: '12px',
+                                  background: 'var(--color-bg)',
+                                  borderRadius: 8,
+                                  marginBottom: 8,
+                                  border: '1px solid var(--color-border-light)',
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                                  <div
+                                    style={{
+                                      width: 36,
+                                      height: 36,
+                                      borderRadius: 8,
+                                      background: isFeishu ? '#1976D2' : '#888',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      color: '#fff',
+                                      fontWeight: 700,
+                                      fontSize: 14,
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {isFeishu ? '飞' : '其他'}
+                                  </div>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                      <span style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bot.bot_name}</span>
+                                      <AntTag color={bot.enabled ? 'green' : 'default'} style={{ marginRight: 0 }}>
+                                        {bot.enabled ? '已启用' : '已禁用'}
+                                      </AntTag>
+                                    </div>
+                                    <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', wordBreak: 'break-all', lineHeight: 1.6 }}>
+                                      App ID: {bot.app_id}
+                                    </div>
+                                    {bot.domain && (
+                                      <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                                        平台: {bot.domain === 'lark' ? 'Lark 国际版' : '飞书'}
+                                      </div>
+                                    )}
+                                    <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 2 }}>
+                                      绑定时间: {new Date(bot.created_at).toLocaleString()}
+                                    </div>
+                                  </div>
+                                  <Popconfirm
+                                    title="删除确认"
+                                    description={`确定要删除 "${bot.bot_name}" 吗？`}
+                                    onConfirm={() => handleDeleteBot(bot.id)}
+                                    okText="删除"
+                                    cancelText="取消"
+                                    okButtonProps={{ danger: true }}
+                                  >
+                                    <Button type="text" danger icon={<DeleteOutlined />} size="small" style={{ flexShrink: 0 }} />
+                                  </Popconfirm>
+                                </div>
+                                {isFeishu && (
+                                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--color-border-light)' }}>
+                                    <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6 }}>消息配置</div>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
+                                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                                        <Switch size="small" checked={botConfig.dm_enabled !== false} onChange={v => handleConfigChange('dm_enabled', v)} />
+                                        接收单聊消息
+                                      </span>
+                                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                                        <Switch size="small" checked={botConfig.group_enabled !== false} onChange={v => handleConfigChange('group_enabled', v)} />
+                                        接收群聊消息
+                                      </span>
+                                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                                        <Switch size="small" checked={botConfig.group_require_mention !== false} onChange={v => handleConfigChange('group_require_mention', v)} />
+                                        群聊仅处理@
+                                      </span>
+                                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                                        <Switch size="small" checked={botConfig.echo_reply !== false} onChange={v => handleConfigChange('echo_reply', v)} />
+                                        Echo 回复
+                                      </span>
+                                    </div>
+                                    {hasPushTarget && (
+                                      <div style={{ marginTop: 8 }}>
+                                        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6 }}>实时推送 {botPushStatus.receive_id_type === 'open_id' ? '(私聊)' : '(群聊)'}</div>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                                          <Select
+                                            size="small"
+                                            value={botPushStatus.push_level}
+                                            onChange={handlePushLevelChange}
+                                            style={{ width: 100 }}
+                                            options={[
+                                              { value: 'disabled', label: '关闭' },
+                                              { value: 'result_only', label: '仅结论' },
+                                              { value: 'all', label: '全部' },
+                                            ]}
+                                          />
+                                        </div>
+                                        <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>推送目标信息（可编辑）</div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                            <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>接收ID:</span>
+                                            <Input
+                                              size="small"
+                                              value={botPushStatus.receive_id}
+                                              onChange={(e) => handlePushTargetUpdate('receive_id', e.target.value)}
+                                              style={{ flex: 1, fontSize: 11 }}
+                                            />
+                                            <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.receive_id, 'receive_id')} />
+                                          </div>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                            <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>群ID:</span>
+                                            <Input
+                                              size="small"
+                                              value={botPushStatus.chat_id || ''}
+                                              onChange={(e) => handlePushTargetUpdate('chat_id', e.target.value)}
+                                              style={{ flex: 1, fontSize: 11 }}
+                                            />
+                                            <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.chat_id || '', 'chat_id')} />
+                                          </div>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                            <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>推送类型:</span>
+                                            <Select
+                                              size="small"
+                                              value={botPushStatus.receive_id_type}
+                                              onChange={(v) => handlePushTargetUpdate('receive_id_type', v)}
+                                              style={{ width: 100 }}
+                                              options={[
+                                                { value: 'open_id', label: '私聊' },
+                                                { value: 'chat_id', label: '群聊' },
+                                              ]}
+                                            />
+                                            <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.receive_id_type, 'receive_id_type')} />
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </div>
-                            )}
-                            <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 2 }}>
-                              绑定时间: {new Date(bot.created_at).toLocaleString()}
-                            </div>
-                          </div>
-                          <Popconfirm
-                            title="删除确认"
-                            description={`确定要删除 "${bot.bot_name}" 吗？`}
-                            onConfirm={() => handleDeleteBot(bot.id)}
-                            okText="删除"
-                            cancelText="取消"
-                            okButtonProps={{ danger: true }}
-                          >
-                            <Button type="text" danger icon={<DeleteOutlined />} size="small" style={{ flexShrink: 0 }} />
-                          </Popconfirm>
+                            );
+                          }}
+                        />
+                      )}
+                    </Spin>
+                  </Card>
+
+                  <Modal
+                    title={
+                      <Space>
+                        <QrcodeOutlined />
+                        绑定飞书智能体
+                      </Space>
+                    }
+                    open={bindModalOpen}
+                    onCancel={() => {
+                      setBindModalOpen(false);
+                      setQrCodeUrl('');
+                      setPollError('');
+                      setBindSuccess(false);
+                    }}
+                    footer={null}
+                    width={400}
+                    centered
+                    className="settings-bind-modal"
+                  >
+                    <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                      {pollError && (
+                        <div style={{ marginBottom: 16, color: '#ff4d4f', fontSize: 13 }}>
+                          {pollError}
                         </div>
-                        {isFeishu && (
-                          <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--color-border-light)' }}>
-                            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6 }}>消息配置</div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
-                              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
-                                <Switch size="small" checked={botConfig.dm_enabled !== false} onChange={v => handleConfigChange('dm_enabled', v)} />
-                                接收单聊消息
-                              </span>
-                              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
-                                <Switch size="small" checked={botConfig.group_enabled !== false} onChange={v => handleConfigChange('group_enabled', v)} />
-                                接收群聊消息
-                              </span>
-                              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
-                                <Switch size="small" checked={botConfig.group_require_mention !== false} onChange={v => handleConfigChange('group_require_mention', v)} />
-                                群聊仅处理@
-                              </span>
-                              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
-                                <Switch size="small" checked={botConfig.echo_reply !== false} onChange={v => handleConfigChange('echo_reply', v)} />
-                                Echo 回复
-                              </span>
-                            </div>
-                            {hasPushTarget && (
-                              <div style={{ marginTop: 8 }}>
-                                <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6 }}>实时推送 {botPushStatus.receive_id_type === 'open_id' ? '(私聊)' : '(群聊)'}</div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-                                  <Select
-                                    size="small"
-                                    value={botPushStatus.push_level}
-                                    onChange={handlePushLevelChange}
-                                    style={{ width: 100 }}
-                                    options={[
-                                      { value: 'disabled', label: '关闭' },
-                                      { value: 'result_only', label: '仅结论' },
-                                      { value: 'all', label: '全部' },
-                                    ]}
-                                  />
-                                </div>
-                                <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>推送目标信息（可编辑）</div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                    <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>接收ID:</span>
-                                    <Input
-                                      size="small"
-                                      value={botPushStatus.receive_id}
-                                      onChange={(e) => handlePushTargetUpdate('receive_id', e.target.value)}
-                                      style={{ flex: 1, fontSize: 11 }}
-                                    />
-                                    <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.receive_id, 'receive_id')} />
-                                  </div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                    <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>群ID:</span>
-                                    <Input
-                                      size="small"
-                                      value={botPushStatus.chat_id || ''}
-                                      onChange={(e) => handlePushTargetUpdate('chat_id', e.target.value)}
-                                      style={{ flex: 1, fontSize: 11 }}
-                                    />
-                                    <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.chat_id || '', 'chat_id')} />
-                                  </div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                    <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>推送类型:</span>
-                                    <Select
-                                      size="small"
-                                      value={botPushStatus.receive_id_type}
-                                      onChange={(v) => handlePushTargetUpdate('receive_id_type', v)}
-                                      style={{ width: 100 }}
-                                      options={[
-                                        { value: 'open_id', label: '私聊' },
-                                        { value: 'chat_id', label: '群聊' },
-                                      ]}
-                                    />
-                                    <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.receive_id_type, 'receive_id_type')} />
-                                  </div>
-                                </div>
+                      )}
+
+                      {bindSuccess ? (
+                        <div style={{ color: '#52c41a', fontSize: 48, marginBottom: 16 }}>
+                          ✓
+                        </div>
+                      ) : (
+                        <>
+                          {qrCodeUrl ? (
+                            <div style={{ marginBottom: 16 }}>
+                              <img src={qrCodeUrl} alt="QR Code" style={{ width: '100%', maxWidth: 200, height: 'auto' }} />
+                              <div style={{ marginTop: 12, color: 'var(--color-text-secondary)', fontSize: 13 }}>
+                                请使用飞书 App 扫描二维码绑定
                               </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  }}
-                />
-              )}
-            </Spin>
-          </Card>
+                              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                                二维码有效期 10 分钟，请尽快完成
+                              </div>
+                            </div>
+                          ) : (
+                            <Spin size="large" />
+                          )}
+                        </>
+                      )}
 
-          <Modal
-            title={
-              <Space>
-                <QrcodeOutlined />
-                绑定飞书智能体
-              </Space>
-            }
-            open={bindModalOpen}
-            onCancel={() => {
-              setBindModalOpen(false);
-              setQrCodeUrl('');
-              setPollError('');
-              setBindSuccess(false);
-            }}
-            footer={null}
-            width={400}
-            centered
-            className="settings-bind-modal"
-          >
-            <div style={{ textAlign: 'center', padding: '16px 0' }}>
-              {pollError && (
-                <div style={{ marginBottom: 16, color: '#ff4d4f', fontSize: 13 }}>
-                  {pollError}
-                </div>
-              )}
-
-              {bindSuccess ? (
-                <div style={{ color: '#52c41a', fontSize: 48, marginBottom: 16 }}>
-                  ✓
-                </div>
-              ) : (
-                <>
-                  {qrCodeUrl ? (
-                    <div style={{ marginBottom: 16 }}>
-                      <img src={qrCodeUrl} alt="QR Code" style={{ width: '100%', maxWidth: 200, height: 'auto' }} />
-                      <div style={{ marginTop: 12, color: 'var(--color-text-secondary)', fontSize: 13 }}>
-                        请使用飞书 App 扫描二维码绑定
-                      </div>
-                      <div style={{ marginTop: 6, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                        二维码有效期 10 分钟，请尽快完成
-                      </div>
+                      {binding && !qrCodeUrl && (
+                        <div style={{ marginTop: 16, color: 'var(--color-text-secondary)', fontSize: 13 }}>
+                          正在生成二维码...
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <Spin size="large" />
-                  )}
-                </>
-              )}
-
-              {binding && !qrCodeUrl && (
-                <div style={{ marginTop: 16, color: 'var(--color-text-secondary)', fontSize: 13 }}>
-                  正在生成二维码...
+                  </Modal>
                 </div>
-              )}
-            </div>
-          </Modal>
-        </div>
+              ),
+            },
+            {
+              key: 'record',
+              label: '记录',
+              children: (
+                <div className="settings-history-tab">
+                  <div
+                    style={{
+                      marginBottom: 16,
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 8,
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Space>
+                      <HistoryOutlined />
+                      <span style={{ fontWeight: 600 }}>飞书历史消息</span>
+                    </Space>
+                    <Space wrap>
+                      <Select
+                        placeholder="筛选群聊"
+                        allowClear
+                        style={{ width: 200 }}
+                        value={historySelectedChatId}
+                        onChange={setHistorySelectedChatId}
+                        onClear={() => setHistorySelectedChatId(undefined)}
+                      >
+                        {historyChats.map((chat) => (
+                          <Select.Option key={chat.chat_id} value={chat.chat_id}>
+                            {chat.chat_name || chat.chat_id}
+                          </Select.Option>
+                        ))}
+                      </Select>
+                      <Button icon={<ReloadOutlined />} onClick={loadHistoryMessages} size="middle">
+                        刷新
+                      </Button>
+                      <Button type="primary" icon={<PlusOutlined />} onClick={() => setHistoryAddModalOpen(true)} size="middle">
+                        添加
+                      </Button>
+                    </Space>
+                  </div>
+
+                  <Table
+                    dataSource={historyMessages}
+                    rowKey="id"
+                    loading={historyLoading}
+                    scroll={{ x: 'max-content' }}
+                    pagination={{
+                      current: historyPage,
+                      pageSize: historyPageSize,
+                      total: historyTotal,
+                      showSizeChanger: true,
+                      showQuickJumper: true,
+                      showTotal: (t) => `共 ${t} 条`,
+                      onChange: (p, ps) => {
+                        setHistoryPage(p);
+                        setHistoryPageSize(ps);
+                      },
+                    }}
+                    size="middle"
+                    columns={[
+                      {
+                        title: '时间',
+                        dataIndex: 'created_at',
+                        key: 'created_at',
+                        width: 150,
+                        render: (text: string) => {
+                          if (!text) return '-';
+                          const d = new Date(text);
+                          return isNaN(d.getTime()) ? text : d.toLocaleString('zh-CN');
+                        },
+                      },
+                      {
+                        title: '发送者',
+                        key: 'sender',
+                        width: 120,
+                        render: (_, record) => {
+                          const isBot = record.sender_type === 'app';
+                          return (
+                            <Space>
+                              <AntTag color={isBot ? 'blue' : 'green'}>
+                                {isBot ? '智能体' : '用户'}
+                              </AntTag>
+                              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                {record.sender_nickname || record.sender_open_id?.slice(0, 8) || '-'}
+                              </Typography.Text>
+                            </Space>
+                          );
+                        },
+                      },
+                      {
+                        title: '内容',
+                        dataIndex: 'content',
+                        key: 'content',
+                        ellipsis: true,
+                        render: (content: string, record) => {
+                          if (record.msg_type === 'text') {
+                            try {
+                              const parsed = JSON.parse(content);
+                              return parsed.text || content;
+                            } catch {
+                              return content;
+                            }
+                          }
+                          return <AntTag>{record.msg_type}</AntTag>;
+                        },
+                      },
+                    ]}
+                  />
+
+                  <Modal
+                    title="添加监听群聊"
+                    open={historyAddModalOpen}
+                    onOk={handleAddHistoryChat}
+                    onCancel={() => {
+                      setHistoryAddModalOpen(false);
+                      historyForm.resetFields();
+                    }}
+                    width={520}
+                  >
+                    <Form form={historyForm} layout="vertical">
+                      <Form.Item
+                        name="bot_id"
+                        label="机器人"
+                        rules={[{ required: true, message: '请选择机器人' }]}
+                      >
+                        <Select placeholder="请选择机器人">
+                          {agentBots.filter(b => b.bot_type === 'feishu').map((bot) => (
+                            <Select.Option key={bot.id} value={bot.id}>
+                              {bot.bot_name}
+                            </Select.Option>
+                          ))}
+                        </Select>
+                      </Form.Item>
+                      <Form.Item
+                        name="chat_id"
+                        label="群聊 ID"
+                        rules={[{ required: true, message: '请输入群聊 ID' }]}
+                      >
+                        <Input placeholder="请输入飞书群聊 ID" />
+                      </Form.Item>
+                      <Form.Item name="chat_name" label="群聊名称（可选）">
+                        <Input placeholder="请输入群聊名称，方便识别" />
+                      </Form.Item>
+                    </Form>
+                  </Modal>
+                </div>
+              ),
+            },
+          ]}
+        />
       ),
     },
     {
