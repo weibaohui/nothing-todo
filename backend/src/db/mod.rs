@@ -309,12 +309,24 @@ impl Database {
         .await?;
 
         // 添加 sender_nickname 字段的迁移（向后兼容）
-        self.exec("ALTER TABLE feishu_messages ADD COLUMN sender_nickname TEXT")
-            .await.ok();
+        if let Err(err) = self
+            .exec("ALTER TABLE feishu_messages ADD COLUMN sender_nickname TEXT")
+            .await
+        {
+            if !err.to_string().contains("duplicate column name") {
+                return Err(err);
+            }
+        }
 
         // 添加 sender_type 字段的迁移（向后兼容）
-        self.exec("ALTER TABLE feishu_messages ADD COLUMN sender_type TEXT")
-            .await.ok();
+        if let Err(err) = self
+            .exec("ALTER TABLE feishu_messages ADD COLUMN sender_type TEXT")
+            .await
+        {
+            if !err.to_string().contains("duplicate column name") {
+                return Err(err);
+            }
+        }
 
         // 添加 is_history 字段的迁移（向后兼容）
         self.exec("ALTER TABLE feishu_messages ADD COLUMN is_history INTEGER DEFAULT 0")
