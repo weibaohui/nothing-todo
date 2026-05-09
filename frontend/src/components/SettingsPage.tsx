@@ -1297,6 +1297,38 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                     </Form>
                   </Card>
 
+                  <Card
+                    title="默认响应"
+                    size="small"
+                    style={{ marginBottom: 24 }}
+                    extra={
+                      <Button type="primary" size="small" onClick={handleSaveConfig} loading={configSaving}>
+                        保存
+                      </Button>
+                    }
+                  >
+                    <Paragraph type="secondary" style={{ marginBottom: 16, fontSize: 13 }}>
+                      当收到的消息没有匹配到任何斜杠命令时，执行默认响应的 Todo。支持使用 {'{{'}content{'}}'}、{'{{'}message{'}}'}、{'{{'}raw_message{'}}'}、{'{{'}slash_command{'}}'} 参数。
+                    </Paragraph>
+                    <Form form={configForm} layout="vertical" style={{ maxWidth: 400 }}>
+                      <Form.Item
+                        name="default_response_todo_id"
+                        label="默认响应 Todo"
+                      >
+                        <Select
+                          showSearch
+                          allowClear
+                          placeholder="选择默认响应的 Todo"
+                          optionFilterProp="label"
+                          options={todos.map((todo) => ({
+                            value: todo.id,
+                            label: `#${todo.id} ${todo.title}`,
+                          }))}
+                        />
+                      </Form.Item>
+                    </Form>
+                  </Card>
+
                   <Modal
                     title={
                       <Space>

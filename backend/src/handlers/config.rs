@@ -33,6 +33,9 @@ pub async fn update_config(
     if let Some(slash_command_rules) = req.slash_command_rules {
         cfg.slash_command_rules = slash_command_rules;
     }
+    if let Some(default_response_todo_id) = req.default_response_todo_id {
+        cfg.default_response_todo_id = Some(default_response_todo_id);
+    }
 
     cfg.normalize_paths();
 

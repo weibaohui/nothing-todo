@@ -431,6 +431,7 @@ pub struct UpdateConfigRequest {
     pub log_level: Option<String>,
     pub executors: Option<crate::config::ExecutorPaths>,
     pub slash_command_rules: Option<Vec<crate::config::SlashCommandRule>>,
+    pub default_response_todo_id: Option<i64>,
 }
 
 // Executor types
