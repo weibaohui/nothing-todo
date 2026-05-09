@@ -520,7 +520,7 @@ pub async fn run_todo_execution(
 }
 
 /// Run a todo execution with parameter substitution.
-/// Replaces placeholders `&{key}` in the message with corresponding values from params before execution.
+/// Replaces placeholders `{{key}}` in the message with corresponding values from params before execution.
 pub async fn run_todo_execution_with_params(
     db: Arc<Database>,
     executor_registry: Arc<ExecutorRegistry>,
