@@ -314,7 +314,7 @@ function CompactHistoryItem({ record, onOpenResume, onExport }: {
         </Tag>
         {record.usage?.duration_ms && (
           <span style={{ fontSize: 10, color: 'var(--color-success)', fontWeight: 600 }}>
-            {(record.usage.duration_ms / 1000).toFixed(2)}s
+            {formatDuration(record.usage.duration_ms / 1000)}
           </span>
         )}
         {isRunning && elapsedSec > 0 && (
@@ -885,7 +885,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                               </span>
                               {record.status !== 'running' && record.usage?.duration_ms && (
                                 <span style={{ fontSize: 9, color: 'var(--color-success)', fontWeight: 600 }}>
-                                  {(record.usage.duration_ms / 1000).toFixed(1)}s
+                                  {formatDuration(record.usage.duration_ms / 1000)}
                                 </span>
                               )}
                               {record.status === 'running' && (
@@ -1000,7 +1000,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                         </span>
                         {record.status !== 'running' && record.usage?.duration_ms && (
                           <span style={{ fontSize: 12, color: 'var(--color-success)', fontWeight: 600 }}>
-                            {(record.usage.duration_ms / 1000).toFixed(2)}s
+                            {formatDuration(record.usage.duration_ms / 1000)}
                           </span>
                         )}
                         {record.status === 'running' && (
@@ -1290,7 +1290,7 @@ function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, o
           </Tag>
           {record.status !== 'running' && record.usage?.duration_ms && (
             <span style={{ fontSize: 11, color: 'var(--color-success)', fontWeight: 600 }}>
-              {(record.usage.duration_ms / 1000).toFixed(2)}s
+              {formatDuration(record.usage.duration_ms / 1000)}
             </span>
           )}
           {record.status === 'running' && (
@@ -1405,7 +1405,7 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
             </Tag>
             {mainRecord.status !== 'running' && mainRecord.usage?.duration_ms && (
               <span style={{ fontSize: 11, color: 'var(--color-success)', fontWeight: 600 }}>
-                {(mainRecord.usage.duration_ms / 1000).toFixed(2)}s
+                {formatDuration(mainRecord.usage.duration_ms / 1000)}
               </span>
             )}
             {mainRecord.status === 'running' && (
@@ -1515,7 +1515,7 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
                 </span>
                 {record.status !== 'running' && record.usage?.duration_ms && (
                   <span style={{ fontSize: 9, color: 'var(--color-success)', fontWeight: 600 }}>
-                    {(record.usage.duration_ms / 1000).toFixed(1)}s
+                    {formatDuration(record.usage.duration_ms / 1000)}
                   </span>
                 )}
                 {record.status === 'running' && (
