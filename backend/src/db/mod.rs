@@ -324,6 +324,10 @@ impl Database {
         self.exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS fetch_time TEXT")
             .await.ok();
 
+        // 添加 processed_todo_id 字段的迁移（向后兼容）
+        self.exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS processed_todo_id INTEGER")
+            .await.ok();
+
         // Feishu History Chats table
         self.exec(
             "CREATE TABLE IF NOT EXISTS feishu_history_chats (

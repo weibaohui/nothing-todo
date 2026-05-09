@@ -230,4 +230,24 @@ impl Database {
             .await?;
         Ok(result.and_then(|m| m.created_at))
     }
+
+    /// Mark a message as processed with the triggered todo_id
+    pub async fn mark_feishu_message_processed(
+        &self,
+        message_id: &str,
+        todo_id: i64,
+    ) -> Result<(), sea_orm::DbErr> {
+        let result = feishu_messages::Entity::find()
+            .filter(feishu_messages::Column::MessageId.eq(message_id))
+            .one(&self.conn)
+            .await?;
+
+        if let Some(model) = result {
+            let mut am: feishu_messages::ActiveModel = model.into();
+            am.processed = ActiveValue::Set(Some(true));
+            am.processed_todo_id = ActiveValue::Set(Some(todo_id));
+            am.update(&self.conn).await?;
+        }
+        Ok(())
+    }
 }

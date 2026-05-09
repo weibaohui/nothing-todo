@@ -345,7 +345,7 @@ impl FeishuHistoryFetcher {
 
                         // Process the message through slash command / default response pipeline
                         if let Some(ref msg_content) = content {
-                            Self::process_message(
+                            if let Some(todo_id) = Self::process_message(
                                 db,
                                 executor_registry,
                                 tx,
@@ -358,7 +358,12 @@ impl FeishuHistoryFetcher {
                                 sender_open_id,
                                 chat_id,
                                 msg_content,
-                            ).await;
+                            ).await {
+                                // Mark message as processed with the triggered todo_id
+                                if let Err(e) = db.mark_feishu_message_processed(&item.message_id, todo_id).await {
+                                    warn!("[feishu-history-fetcher] failed to mark message {} as processed: {}", item.message_id, e);
+                                }
+                            }
                         }
                     }
                 }
@@ -368,7 +373,7 @@ impl FeishuHistoryFetcher {
         Ok(total_fetched)
     }
 
-    /// 处理消息：斜杠命令 -> 默认响应
+    /// 处理消息：斜杠命令 -> 默认响应，返回触发的 todo_id（如果有）
     #[allow(clippy::too_many_arguments)]
     async fn process_message(
         db: &Arc<Database>,
@@ -383,7 +388,7 @@ impl FeishuHistoryFetcher {
         sender: &str,
         channel: &str,
         content: &str,
-    ) {
+    ) -> Option<i64> {
         let trimmed = content.trim();
 
         // 尝试解析斜杠命令
@@ -416,8 +421,8 @@ impl FeishuHistoryFetcher {
                         command_ctx.body,
                         rule.todo_id,
                     ).await;
+                    return Some(rule.todo_id);
                 }
-                return;
             }
         }
 
@@ -443,8 +448,10 @@ impl FeishuHistoryFetcher {
                     trimmed,
                     todo_id,
                 ).await;
+                return Some(todo_id);
             }
         }
+        None
     }
 
     /// 解析斜杠命令
