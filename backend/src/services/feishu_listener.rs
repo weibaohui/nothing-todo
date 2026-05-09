@@ -28,10 +28,10 @@ pub struct FeishuListener {
     tx: broadcast::Sender<ExecEvent>,
     task_manager: Arc<TaskManager>,
     config: Arc<RwLock<AppConfig>>,
-    token_manager: Arc<TokenManager>,
+    pub token_manager: Arc<TokenManager>,
     channels: Arc<DashMap<i64, Arc<FeishuChannelService>>>,
     /// bot_id → (app_id, app_secret, domain)
-    bot_credentials: Arc<DashMap<i64, (String, String, String)>>,
+    pub bot_credentials: Arc<DashMap<i64, (String, String, String)>>,
 }
 
 impl FeishuListener {
