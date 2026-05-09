@@ -43,14 +43,21 @@ export function formatRelativeTime(timeStr: string | null | undefined): string {
 }
 
 /**
- * 格式化时长（秒）为简写形式，最多4位，如 1h2m
+ * 格式化时长（秒）为简写形式，最多4位
+ * 90秒以内显示 XXs，超过90秒换算为 d/h/m
  */
 export function formatDuration(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
+  // 90秒以内直接显示秒
+  if (seconds < 90) return `${Math.floor(seconds)}s`;
+
+  // 换算成更大的单位
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  if (h > 0) return `${h}h${m}m`;
-  if (m > 0) return `${m}m`;
-  return `${seconds}s`;
+
+  if (d > 0) return `${d}d${h > 0 ? h + 'h' : ''}${m > 0 ? m + 'm' : ''}`.slice(0, 4);
+  if (h > 0) return `${h}h${m > 0 ? m + 'm' : ''}`.slice(0, 4);
+  return `${m}m`;
 }
 
 /**
