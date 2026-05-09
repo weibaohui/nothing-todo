@@ -1211,7 +1211,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                     }
                   >
                     <Paragraph type="secondary" style={{ marginBottom: 16, fontSize: 13 }}>
-                      {'配置全局斜杠命令，将飞书消息中的命令路由到指定 Todo。命中后会把命令后的正文作为参数传入 Todo Prompt，支持使用 `{{content}}`、`{{message}}`、`{{raw_message}}`、`{{slash_command}}`。'}
+                      配置全局斜杠命令，将飞书消息中的命令路由到指定 Todo。命中后会把命令后的正文作为参数传入 Todo Prompt，支持使用 {'{{'}content{'}}'}、{'{{'}message{'}}'}、{'{{'}raw_message{'}}'}、{'{{'}slash_command{'}}'}。
                     </Paragraph>
                     <Form form={configForm} layout="vertical">
                       <Form.List name="slash_command_rules">
