@@ -43,18 +43,14 @@ export function formatRelativeTime(timeStr: string | null | undefined): string {
 }
 
 /**
- * 格式化时长（秒）为简写形式，如 1h2m3s
+ * 格式化时长（秒）为简写形式，最多4位，如 1h2m
  */
 export function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.floor(seconds)}s`;
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  let result = '';
-  if (h > 0) result += `${h}h`;
-  if (m > 0) result += `${m}m`;
-  if (s > 0) result += `${s}s`;
-  return result || '0s';
+  if (h > 0) return `${h}h${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${seconds}s`;
 }
 
 /**

@@ -19,18 +19,13 @@ import { ExecutorBadge } from './ExecutorBadge';
 import XMarkdown from '@ant-design/x-markdown';
 import type { ExecutionSummary, Todo, TodoItem, ExecutionRecord, ExecutionStats, LogEntry } from '../types';
 
-/** 格式化耗时为人类可读格式: 1h2m3s */
+/** 格式化耗时为人类可读格式，最多4位: 1h2m */
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  if (h > 0) {
-    return m > 0 ? `${h}h${m}m` : `${h}h`;
-  }
-  if (m > 0) {
-    return s > 0 ? `${m}m${s}s` : `${m}m`;
-  }
-  return `${s}s`;
+  if (h > 0) return `${h}h${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${seconds}s`;
 }
 
 /** 计算从 started_at 到现在的 elapsed time (秒) */
