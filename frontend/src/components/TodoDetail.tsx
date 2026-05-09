@@ -19,6 +19,27 @@ import { ExecutorBadge } from './ExecutorBadge';
 import XMarkdown from '@ant-design/x-markdown';
 import type { ExecutionSummary, Todo, TodoItem, ExecutionRecord, ExecutionStats, LogEntry } from '../types';
 
+/** 格式化耗时为人类可读格式: 1h2m3s */
+function formatDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) {
+    return m > 0 ? `${h}h${m}m` : `${h}h`;
+  }
+  if (m > 0) {
+    return s > 0 ? `${m}m${s}s` : `${m}m`;
+  }
+  return `${s}s`;
+}
+
+/** 计算从 started_at 到现在的 elapsed time (秒) */
+function getElapsedSeconds(startedAt: string): number {
+  const start = new Date(startedAt).getTime();
+  const now = Date.now();
+  return Math.floor((now - start) / 1000);
+}
+
 /** 按 session_id 分组执行记录，同一 session 的记录按时间排序形成链 */
 interface SessionGroup {
   sessionId: string;
@@ -246,6 +267,17 @@ function CompactHistoryItem({ record, onOpenResume, onExport }: {
   onOpenResume: (r: ExecutionRecord) => void;
   onExport: (r: ExecutionRecord) => void;
 }) {
+  const isRunning = record.status === 'running';
+  const [elapsedSec, setElapsedSec] = useState(isRunning ? getElapsedSeconds(record.started_at) : 0);
+
+  useEffect(() => {
+    if (!isRunning) return;
+    const tick = () => setElapsedSec(getElapsedSeconds(record.started_at));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [isRunning, record.started_at]);
+
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
@@ -288,6 +320,11 @@ function CompactHistoryItem({ record, onOpenResume, onExport }: {
         {record.usage?.duration_ms && (
           <span style={{ fontSize: 10, color: 'var(--color-success)', fontWeight: 600 }}>
             {(record.usage.duration_ms / 1000).toFixed(2)}s
+          </span>
+        )}
+        {isRunning && elapsedSec > 0 && (
+          <span style={{ fontSize: 10, color: 'var(--color-info)', fontWeight: 600 }}>
+            {formatDuration(elapsedSec)}
           </span>
         )}
         {record.execution_stats && (
@@ -352,6 +389,17 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
   const [historyPage, setHistoryPage] = useState(1);
   const [historyLimit, setHistoryLimit] = useState(5);
   const [historyTotal, setHistoryTotal] = useState(0);
+
+  // Timer for live duration display of running records
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTick(t => t + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+  // Access tick to prevent unused warning (triggers re-render awareness)
+  useEffect(() => { void tick; }, [tick]);
 
   const records = selectedTodoId ? executionRecords[selectedTodoId] || [] : [];
   const selectedHistoryRecord = selectedHistoryRecordId
@@ -840,9 +888,14 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                               <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)' }}>
                                 {formatLocalDateTime(record.started_at)}
                               </span>
-                              {record.usage?.duration_ms && (
+                              {record.status !== 'running' && record.usage?.duration_ms && (
                                 <span style={{ fontSize: 9, color: 'var(--color-success)', fontWeight: 600 }}>
                                   {(record.usage.duration_ms / 1000).toFixed(1)}s
+                                </span>
+                              )}
+                              {record.status === 'running' && (
+                                <span style={{ fontSize: 9, color: 'var(--color-info)', fontWeight: 600 }}>
+                                  {formatDuration(getElapsedSeconds(record.started_at))}
                                 </span>
                               )}
                               {record.execution_stats && (
@@ -950,9 +1003,14 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                         }}>
                           {record.status === 'success' ? '成功' : record.status === 'failed' ? '失败' : '进行中'}
                         </span>
-                        {record.usage?.duration_ms && (
+                        {record.status !== 'running' && record.usage?.duration_ms && (
                           <span style={{ fontSize: 12, color: 'var(--color-success)', fontWeight: 600 }}>
                             {(record.usage.duration_ms / 1000).toFixed(2)}s
+                          </span>
+                        )}
+                        {record.status === 'running' && (
+                          <span style={{ fontSize: 12, color: 'var(--color-info)', fontWeight: 600 }}>
+                            {formatDuration(getElapsedSeconds(record.started_at))}
                           </span>
                         )}
                       </div>
@@ -1235,9 +1293,14 @@ function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, o
           <Tag color={record.trigger_type === 'cron' ? '#8b5cf6' : '#6b7280'} style={{ fontSize: 10 }}>
             {record.trigger_type === 'cron' ? 'Cron' : '手动'}
           </Tag>
-          {record.usage?.duration_ms && (
+          {record.status !== 'running' && record.usage?.duration_ms && (
             <span style={{ fontSize: 11, color: 'var(--color-success)', fontWeight: 600 }}>
               {(record.usage.duration_ms / 1000).toFixed(2)}s
+            </span>
+          )}
+          {record.status === 'running' && (
+            <span style={{ fontSize: 11, color: 'var(--color-info)', fontWeight: 600 }}>
+              {formatDuration(getElapsedSeconds(record.started_at))}
             </span>
           )}
         </div>
@@ -1345,9 +1408,14 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
             <Tag color={mainRecord.trigger_type === 'cron' ? '#8b5cf6' : '#6b7280'} style={{ fontSize: 10 }}>
               {mainRecord.trigger_type === 'cron' ? 'Cron' : '手动'}
             </Tag>
-            {mainRecord.usage?.duration_ms && (
+            {mainRecord.status !== 'running' && mainRecord.usage?.duration_ms && (
               <span style={{ fontSize: 11, color: 'var(--color-success)', fontWeight: 600 }}>
                 {(mainRecord.usage.duration_ms / 1000).toFixed(2)}s
+              </span>
+            )}
+            {mainRecord.status === 'running' && (
+              <span style={{ fontSize: 11, color: 'var(--color-info)', fontWeight: 600 }}>
+                {formatDuration(getElapsedSeconds(mainRecord.started_at))}
               </span>
             )}
           </div>
@@ -1450,9 +1518,14 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
                 <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)' }}>
                   {formatLocalDateTime(record.started_at).split(' ')[1] || formatLocalDateTime(record.started_at)}
                 </span>
-                {record.usage?.duration_ms && (
+                {record.status !== 'running' && record.usage?.duration_ms && (
                   <span style={{ fontSize: 9, color: 'var(--color-success)', fontWeight: 600 }}>
                     {(record.usage.duration_ms / 1000).toFixed(1)}s
+                  </span>
+                )}
+                {record.status === 'running' && (
+                  <span style={{ fontSize: 9, color: 'var(--color-info)', fontWeight: 600 }}>
+                    {formatDuration(getElapsedSeconds(record.started_at))}
                   </span>
                 )}
                 <span style={{
