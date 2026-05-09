@@ -251,6 +251,7 @@ export interface Config {
   log_level: string;
   executors: ExecutorPaths;
   slash_command_rules?: SlashCommandRule[];
+  default_response_todo_id?: number | null;
 }
 
 export const RESUMABLE_EXECUTORS = new Set(['claudecode', 'kimi', 'opencode', 'joinai']);

@@ -233,6 +233,38 @@ impl FeishuListener {
                 }
                 return;
             }
+        } else {
+            // 非斜杠命令消息，也检查是否需要默认响应
+            let default_todo_id = {
+                let cfg = config.read().await;
+                cfg.default_response_todo_id
+            };
+
+            if let Some(todo_id) = default_todo_id {
+                if !content.is_empty() {
+                    Self::execute_default_response(
+                        db,
+                        executor_registry,
+                        tx,
+                        task_manager,
+                        config,
+                        credentials,
+                        token_manager,
+                        bot_id,
+                        chat_type,
+                        &msg.sender,
+                        &msg.channel,
+                        "",
+                        content,
+                        todo_id,
+                    )
+                    .await;
+                    if let Some(rid) = &reaction_id {
+                        Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
+                    }
+                    return;
+                }
+            }
         }
 
         if chat_type == "p2p" && bot_config.echo_reply {
@@ -303,6 +335,36 @@ impl FeishuListener {
         };
 
         let Some(rule) = matched_rule else {
+            // 没有匹配到规则，检查是否有默认响应
+            let default_todo_id = {
+                let cfg = config.read().await;
+                cfg.default_response_todo_id
+            };
+
+            if let Some(todo_id) = default_todo_id {
+                if body.is_empty() {
+                    // 没有内容，不需要回复
+                    return true;
+                }
+                // 执行默认响应的 Todo
+                Self::execute_default_response(
+                    db,
+                    executor_registry,
+                    tx,
+                    task_manager,
+                    config,
+                    credentials,
+                    token_manager,
+                    bot_id,
+                    chat_type,
+                    sender,
+                    channel,
+                    command,
+                    body,
+                    todo_id,
+                ).await;
+                return true;
+            }
             return false;
         };
 
@@ -379,6 +441,88 @@ impl FeishuListener {
         }
 
         true
+    }
+
+    /// 执行默认响应：当没有匹配到斜杠命令时，执行指定的 Todo。
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_default_response(
+        db: &Arc<Database>,
+        executor_registry: &Arc<ExecutorRegistry>,
+        tx: &broadcast::Sender<ExecEvent>,
+        task_manager: &Arc<TaskManager>,
+        _config: &Arc<RwLock<AppConfig>>,
+        credentials: &DashMap<i64, (String, String, String)>,
+        token_manager: &Arc<TokenManager>,
+        bot_id: i64,
+        chat_type: &str,
+        sender: &str,
+        channel: &str,
+        command: &str,
+        body: &str,
+        todo_id: i64,
+    ) {
+        let (receive_id, receive_id_type) = match chat_type {
+            "p2p" => (sender.to_string(), "open_id"),
+            _ => (channel.to_string(), "chat_id"),
+        };
+
+        let todo = match db.get_todo(todo_id).await {
+            Some(todo) => todo,
+            None => {
+                let reply = format!("默认响应绑定的 Todo #{} 不存在，请到设置中重新配置。", todo_id);
+                Self::send_text(credentials, token_manager, bot_id, &receive_id, receive_id_type, &reply).await;
+                tracing::warn!("[feishu:{}] 默认响应绑定的 Todo 不存在: todo_id={}", bot_id, todo_id);
+                return;
+            }
+        };
+
+        let mut params = HashMap::new();
+        params.insert("content".to_string(), body.to_string());
+        params.insert("message".to_string(), body.to_string());
+        params.insert("raw_message".to_string(), format!("{} {}", command, body).trim().to_string());
+        params.insert("slash_command".to_string(), command.to_string());
+
+        match start_todo_execution(
+            db.clone(),
+            executor_registry.clone(),
+            tx.clone(),
+            task_manager.clone(),
+            todo.id,
+            todo.prompt.clone(),
+            todo.executor.clone(),
+            "slash_command",
+            Some(params),
+            None,
+            None,
+        )
+        .await
+        {
+            Ok(result) => {
+                let reply = format!(
+                    "收到消息，已启动 Todo #{}《{}》。\n任务参数: {}",
+                    todo.id,
+                    todo.title,
+                    body
+                );
+                Self::send_text(credentials, token_manager, bot_id, &receive_id, receive_id_type, &reply).await;
+                tracing::info!(
+                    "[feishu:{}] 默认响应触发 Todo 执行: todo_id={}, task_id={}",
+                    bot_id,
+                    todo.id,
+                    result.task_id
+                );
+            }
+            Err(err) => {
+                let reply = format!("执行失败: {}", Self::error_message(&err));
+                Self::send_text(credentials, token_manager, bot_id, &receive_id, receive_id_type, &reply).await;
+                tracing::error!(
+                    "[feishu:{}] 默认响应执行失败: todo_id={}, error={}",
+                    bot_id,
+                    todo.id,
+                    Self::error_message(&err)
+                );
+            }
+        }
     }
 
     /// 将应用错误转换为可回复的文本。

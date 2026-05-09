@@ -35,6 +35,8 @@ pub struct Config {
     pub auto_backup_cron: String,
     /// 全局斜杠命令规则
     pub slash_command_rules: Vec<SlashCommandRule>,
+    /// 默认响应：当没有匹配到斜杠命令时执行的 Todo ID
+    pub default_response_todo_id: Option<i64>,
 }
 
 /// Paths for each supported executor binary.
@@ -95,6 +97,7 @@ impl Default for Config {
             auto_backup_enabled: false,
             auto_backup_cron: "0 0 3 * * *".to_string(),
             slash_command_rules: Vec::new(),
+            default_response_todo_id: None,
         }
     }
 }
