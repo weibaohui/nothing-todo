@@ -1,8 +1,11 @@
 import { useRef, useEffect, useState } from 'react';
-import { ExpandOutlined, CompressOutlined } from '@ant-design/icons';
+import { ExpandOutlined, CompressOutlined, InfoCircleOutlined, StopOutlined } from '@ant-design/icons';
+import { Popconfirm, App } from 'antd';
 import { useApp } from '../hooks/useApp';
 import { useTheme } from '../hooks/useTheme';
 import { getExecutorOption } from '../types';
+import { stopExecution } from '../utils/database';
+import { formatLocalDateTime } from '../utils/datetime';
 
 // Light theme log colors
 const lightLogTypeColors: Record<string, string> = {
@@ -76,9 +79,18 @@ function formatShortTime(iso: string): string {
 export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelProps) {
   const { state, dispatch } = useApp();
   const { themeMode } = useTheme();
-  const { runningTasks, activeTaskId } = state;
+  const { runningTasks, activeTaskId, executionRecords } = state;
+  const { message } = App.useApp();
   const logsEndRef = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  const [infoTaskId, setInfoTaskId] = useState<string | null>(null);
+
+  // Tick for elapsed time display - triggers re-render every second
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const logTypeColors = themeMode === 'dark' ? darkLogTypeColors : lightLogTypeColors;
 
@@ -105,6 +117,46 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
     });
     return () => timers.forEach(clearTimeout);
   }, [runningTasks, dispatch]);
+
+  // Get elapsed seconds for a task
+  const getElapsedSeconds = (startedAt: string) => {
+    const start = new Date(startedAt).getTime();
+    const now = Date.now();
+    return Math.floor((now - start) / 1000);
+  };
+
+  // Format duration as 1h2m
+  const formatDuration = (seconds: number) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (h > 0) return `${h}h${m}m`;
+    if (m > 0) return `${m}m`;
+    return `${seconds}s`;
+  };
+
+  // Find execution record by task_id for stopping
+  const findRecordByTaskId = (taskId: string) => {
+    for (const records of Object.values(executionRecords)) {
+      const found = records.find(r => r.task_id === taskId);
+      if (found) return found;
+    }
+    return null;
+  };
+
+  // Handle stop execution
+  const handleStop = async (taskId: string) => {
+    const record = findRecordByTaskId(taskId);
+    if (!record) {
+      message.error('找不到对应的执行记录');
+      return;
+    }
+    try {
+      await stopExecution(record.id);
+      message.success('已停止执行');
+    } catch (err) {
+      message.error(`停止失败: ${err}`);
+    }
+  };
 
   if (taskIds.length === 0) return null;
 
@@ -139,6 +191,58 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
                   {task.todoTitle}
                 </span>
                 {task.status === 'running' && <span className="tab-spinner" />}
+                {task.status === 'running' && (
+                  <>
+                    <Popconfirm
+                      title="确定停止该任务？"
+                      onConfirm={() => handleStop(taskId)}
+                      onCancel={(e) => e?.stopPropagation()}
+                      okText="停止"
+                      cancelText="取消"
+                    >
+                      <StopOutlined
+                        style={{ fontSize: 12, marginLeft: 4, color: 'var(--color-error)', cursor: 'pointer' }}
+                        onClick={(e) => e.stopPropagation()}
+                        title="停止"
+                      />
+                    </Popconfirm>
+                    <InfoCircleOutlined
+                      style={{ fontSize: 12, marginLeft: 4, color: 'var(--color-text-secondary)', cursor: 'pointer' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setInfoTaskId(infoTaskId === taskId ? null : taskId);
+                      }}
+                    />
+                  </>
+                )}
+                {infoTaskId === taskId && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      zIndex: 100,
+                      background: 'var(--color-bg-elevated)',
+                      border: '1px solid var(--color-border-light)',
+                      borderRadius: 8,
+                      padding: 12,
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                      minWidth: 200,
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div style={{ fontSize: 12, marginBottom: 8 }}><strong>{task.todoTitle}</strong></div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
+                      <span style={{ fontWeight: 600 }}>执行器:</span> {task.executor}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
+                      <span style={{ fontWeight: 600 }}>开始时间:</span> {formatLocalDateTime(task.startedAt)}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--color-info)', fontWeight: 600 }}>
+                      <span style={{ fontWeight: 600 }}>已运行:</span> {formatDuration(getElapsedSeconds(task.startedAt))}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
