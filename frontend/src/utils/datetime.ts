@@ -43,21 +43,25 @@ export function formatRelativeTime(timeStr: string | null | undefined): string {
 }
 
 /**
- * 格式化时长（秒）为简写形式，最多4位
- * < 60s 显示 XXs，≥ 60s 换算为 m/h/d
+ * 格式化时长（秒）为简写形式，最多2段，如 1h20m, 3m10s, 2d30m
  */
-export function formatDuration(seconds: number): string {
-  // 60秒以内直接显示秒
-  if (seconds < 60) return `${Math.floor(seconds)}s`;
-
-  // 换算成更大的单位
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-
-  if (d > 0) return `${d}d${h > 0 ? h + 'h' : ''}${m > 0 ? m + 'm' : ''}`.slice(0, 4);
-  if (h > 0) return `${h}h${m > 0 ? m + 'm' : ''}`.slice(0, 4);
-  return `${m}m`;
+export function formatDuration(sec: number): string {
+  const units = [
+    { label: 'd', value: 86400 },
+    { label: 'h', value: 3600 },
+    { label: 'm', value: 60 },
+    { label: 's', value: 1 }
+  ];
+  const parts: string[] = [];
+  let remaining = Math.max(0, Math.floor(sec));
+  for (const unit of units) {
+    if (remaining >= unit.value || parts.length > 0) {
+      const num = Math.floor(remaining / unit.value);
+      parts.push(num + unit.label);
+      remaining %= unit.value;
+    }
+  }
+  return parts.slice(0, 2).join('');
 }
 
 /**
