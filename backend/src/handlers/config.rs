@@ -15,11 +15,24 @@ pub async fn update_config(
 ) -> Result<ApiResponse<Config>, AppError> {
     let mut cfg = state.config.write().await;
 
-    cfg.port = req.port;
-    cfg.host = req.host;
-    cfg.db_path = req.db_path;
-    cfg.log_level = req.log_level;
-    cfg.executors = req.executors;
+    if let Some(port) = req.port {
+        cfg.port = port;
+    }
+    if let Some(host) = req.host {
+        cfg.host = host;
+    }
+    if let Some(db_path) = req.db_path {
+        cfg.db_path = db_path;
+    }
+    if let Some(log_level) = req.log_level {
+        cfg.log_level = log_level;
+    }
+    if let Some(executors) = req.executors {
+        cfg.executors = executors;
+    }
+    if let Some(slash_command_rules) = req.slash_command_rules {
+        cfg.slash_command_rules = slash_command_rules;
+    }
 
     cfg.normalize_paths();
 

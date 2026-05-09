@@ -295,6 +295,7 @@ impl Database {
                 chat_type TEXT NOT NULL,
                 sender_open_id TEXT NOT NULL,
                 sender_nickname TEXT,
+                sender_type TEXT,
                 content TEXT,
                 msg_type TEXT NOT NULL DEFAULT 'text',
                 is_mention INTEGER DEFAULT 0,
@@ -309,6 +310,10 @@ impl Database {
 
         // 添加 sender_nickname 字段的迁移（向后兼容）
         self.exec("ALTER TABLE feishu_messages ADD COLUMN sender_nickname TEXT")
+            .await.ok();
+
+        // 添加 sender_type 字段的迁移（向后兼容）
+        self.exec("ALTER TABLE feishu_messages ADD COLUMN sender_type TEXT")
             .await.ok();
 
         // 添加 is_history 字段的迁移（向后兼容）

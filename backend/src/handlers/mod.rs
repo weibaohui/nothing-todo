@@ -143,7 +143,7 @@ where
 
 mod todo;
 mod tag;
-mod execution;
+pub(crate) mod execution;
 mod scheduler;
 pub mod backup;
 mod config;
@@ -290,7 +290,13 @@ pub fn create_app(
     task_manager: Arc<TaskManager>,
     config: Arc<tokio::sync::RwLock<Config>>,
 ) -> Router {
-    let feishu_listener = Arc::new(FeishuListener::new(db.clone()));
+    let feishu_listener = Arc::new(FeishuListener::new(
+        db.clone(),
+        executor_registry.clone(),
+        tx.clone(),
+        task_manager.clone(),
+        config.clone(),
+    ));
 
     // Auto-start Feishu listeners for enabled bots
     let fl_clone = feishu_listener.clone();

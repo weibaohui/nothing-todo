@@ -2,13 +2,71 @@ use axum::{
     extract::{Path, Query, State},
 };
 use serde::Deserialize;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::broadcast;
 
 use crate::adapters::parse_executor_type;
-use crate::executor_service::run_todo_execution;
-use crate::handlers::{ApiJson, AppError, AppState};
+use crate::adapters::ExecutorRegistry;
+use crate::db::Database;
+use crate::executor_service::{ExecutionResult, run_todo_execution, run_todo_execution_with_params};
+use crate::handlers::{ApiJson, AppError, AppState, ExecEvent};
 use crate::models::{
     ApiResponse, DashboardStats, ExecuteRequest, ExecutionRecordsPage, ExecutionStatus, ExecutionSummary, TodoIdQuery,
 };
+use crate::task_manager::TaskManager;
+
+/// 统一启动一条 Todo 执行，供手动执行、消息路由等入口复用。
+pub async fn start_todo_execution(
+    db: Arc<Database>,
+    executor_registry: Arc<ExecutorRegistry>,
+    tx: broadcast::Sender<ExecEvent>,
+    task_manager: Arc<TaskManager>,
+    todo_id: i64,
+    message_template: String,
+    req_executor: Option<String>,
+    trigger_type: &str,
+    params: Option<HashMap<String, String>>,
+    resume_session_id: Option<String>,
+    resume_message: Option<String>,
+) -> Result<ExecutionResult, AppError> {
+    let result = if let Some(params) = params {
+        run_todo_execution_with_params(
+            db.clone(),
+            executor_registry.clone(),
+            tx.clone(),
+            todo_id,
+            message_template,
+            req_executor,
+            trigger_type,
+            task_manager.clone(),
+            params,
+            resume_session_id,
+            resume_message,
+        )
+        .await
+    } else {
+        run_todo_execution(
+            db.clone(),
+            executor_registry.clone(),
+            tx.clone(),
+            todo_id,
+            message_template,
+            req_executor,
+            trigger_type,
+            task_manager.clone(),
+            resume_session_id,
+            resume_message,
+        )
+        .await
+    };
+
+    if result.record_id.is_none() {
+        return Err(AppError::Internal("Failed to start execution".to_string()));
+    }
+
+    Ok(result)
+}
 
 pub async fn get_execution_records(
     State(state): State<AppState>,
@@ -68,23 +126,22 @@ pub async fn execute_handler(
         .map(|m| m.to_string())
         .unwrap_or_else(|| todo.prompt.clone());
 
-    let result = run_todo_execution(
+    let result = start_todo_execution(
         state.db.clone(),
         state.executor_registry.clone(),
         state.tx.clone(),
+        state.task_manager.clone(),
         req.todo_id,
         message,
         req.executor,
         "manual",
-        state.task_manager.clone(),
+        None,
         None,
         None,
     )
     .await;
-
-    // If record_id is None, execution failed to start
-    let record_id = result.record_id
-        .ok_or_else(|| AppError::Internal("Failed to start execution".to_string()))?;
+    let result = result?;
+    let record_id = result.record_id.expect("record_id checked above");
 
     Ok(ApiResponse::ok(serde_json::json!({ "task_id": result.task_id, "record_id": record_id })))
 }
@@ -179,22 +236,21 @@ pub async fn resume_execution_handler(
         .or(record.task_id)
         .ok_or_else(|| AppError::BadRequest("No session_id found for this execution record".to_string()))?;
 
-    let result = run_todo_execution(
+    let result = start_todo_execution(
         state.db.clone(),
         state.executor_registry.clone(),
         state.tx.clone(),
+        state.task_manager.clone(),
         todo_id,
         message,
         record.executor.clone(),
         "manual",
-        state.task_manager.clone(),
+        None,
         Some(resume_session_id),
         resume_message,
     )
-    .await;
-
-    let record_id = result.record_id
-        .ok_or_else(|| AppError::Internal("Failed to start execution".to_string()))?;
+    .await?;
+    let record_id = result.record_id.expect("record_id checked above");
 
     Ok(ApiResponse::ok(serde_json::json!({ "task_id": result.task_id, "record_id": record_id })))
 }

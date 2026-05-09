@@ -33,6 +33,8 @@ pub struct Config {
     pub auto_backup_enabled: bool,
     /// 自动备份 cron 表达式（6 字段，含秒）
     pub auto_backup_cron: String,
+    /// 全局斜杠命令规则
+    pub slash_command_rules: Vec<SlashCommandRule>,
 }
 
 /// Paths for each supported executor binary.
@@ -47,6 +49,14 @@ pub struct ExecutorPaths {
     pub kimi: String,
     pub atomcode: String,
     pub codex: String,
+}
+
+/// 全局斜杠命令规则。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SlashCommandRule {
+    pub slash_command: String,
+    pub todo_id: i64,
+    pub enabled: bool,
 }
 
 impl Default for ExecutorPaths {
@@ -64,6 +74,16 @@ impl Default for ExecutorPaths {
     }
 }
 
+impl Default for SlashCommandRule {
+    fn default() -> Self {
+        Self {
+            slash_command: "/todo".to_string(),
+            todo_id: 0,
+            enabled: true,
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -74,6 +94,7 @@ impl Default for Config {
             executors: ExecutorPaths::default(),
             auto_backup_enabled: false,
             auto_backup_cron: "0 0 3 * * *".to_string(),
+            slash_command_rules: Vec::new(),
         }
     }
 }
@@ -193,6 +214,7 @@ mod tests {
         let restored: Config = serde_yaml::from_str(&yaml).unwrap();
         assert_eq!(restored.port, 1234);
         assert!(restored.db_path.contains(".ntd/data.db"));
+        assert!(restored.slash_command_rules.is_empty());
     }
 
     #[test]
@@ -233,5 +255,20 @@ mod tests {
     fn test_normalize_single_path_already_absolute() {
         let result = Config::normalize_single_path("/usr/bin/claude");
         assert_eq!(result, "/usr/bin/claude", "absolute path should not be modified");
+    }
+
+    #[test]
+    fn test_slash_command_rules_round_trip() {
+        let cfg = Config {
+            slash_command_rules: vec![SlashCommandRule {
+                slash_command: "/joke".to_string(),
+                todo_id: 8,
+                enabled: true,
+            }],
+            ..Default::default()
+        };
+        let yaml = serde_yaml::to_string(&cfg).unwrap();
+        let restored: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.slash_command_rules, cfg.slash_command_rules);
     }
 }

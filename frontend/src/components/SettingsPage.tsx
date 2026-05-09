@@ -41,6 +41,7 @@ import {
   PlusOutlined,
   HistoryOutlined,
   QuestionCircleOutlined,
+  MinusCircleOutlined,
 } from '@ant-design/icons';
 import { Cron } from 'react-js-cron';
 import QRCode from 'qrcode';
@@ -49,7 +50,7 @@ import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
 import type { FeishuPushStatus } from '../utils/database';
 import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
-import type { Config, ExecutorPaths, FeishuHistoryMessage, FeishuHistoryChat } from '../types';
+import type { Config, ExecutorPaths, FeishuHistoryMessage, FeishuHistoryChat, SlashCommandRule } from '../types';
 import yaml from 'js-yaml';
 import { CronPresetSelect } from './CronPresetSelect';
 import { SkillsPanel } from './SkillsPanel';
@@ -99,7 +100,7 @@ interface SettingsPageProps {
 
 export function SettingsPage({ onBack }: SettingsPageProps) {
   const { state, dispatch } = useApp();
-  const { tags } = state;
+  const { tags, todos } = state;
 
   const [configForm] = Form.useForm();
   const [configLoading, setConfigLoading] = useState(false);
@@ -196,7 +197,10 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     setConfigLoading(true);
     db.getConfig()
       .then((cfg) => {
-        configForm.setFieldsValue(cfg);
+        configForm.setFieldsValue({
+          ...cfg,
+          slash_command_rules: cfg.slash_command_rules || [],
+        });
       })
       .catch((err) => {
         message.error('加载配置失败: ' + (err?.message || String(err)));
@@ -369,8 +373,47 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const handleSaveConfig = async () => {
     try {
       const values = await configForm.validateFields();
+      const currentConfig = await db.getConfig();
+      const hasSlashRulesField = Object.prototype.hasOwnProperty.call(values, 'slash_command_rules');
+      const slashRules = (((values as Config).slash_command_rules || []) as SlashCommandRule[])
+        .map((rule) => ({
+          slash_command: (rule.slash_command || '').trim(),
+          todo_id: rule.todo_id,
+          enabled: rule.enabled !== false,
+        }))
+        .filter((rule) => rule.slash_command || rule.todo_id);
+
+      const normalizedRules = slashRules.map((rule) => ({
+        ...rule,
+        slash_command: rule.slash_command.startsWith('/') ? rule.slash_command : `/${rule.slash_command}`,
+      }));
+
+      const duplicateCommands = normalizedRules.reduce<string[]>((acc, rule, index) => {
+        if (!rule.slash_command) return acc;
+        const firstIndex = normalizedRules.findIndex((item) => item.slash_command === rule.slash_command);
+        if (firstIndex !== index && !acc.includes(rule.slash_command)) {
+          acc.push(rule.slash_command);
+        }
+        return acc;
+      }, []);
+
+      if (duplicateCommands.length > 0) {
+        message.error(`存在重复命令: ${duplicateCommands.join('、')}`);
+        return;
+      }
+
+      const mergedConfig: Config = {
+        ...currentConfig,
+        ...(values as Partial<Config>),
+        executors: (values as Partial<Config>).executors || currentConfig.executors,
+        slash_command_rules: hasSlashRulesField
+          ? normalizedRules
+          : (currentConfig.slash_command_rules ?? []),
+      };
+
       setConfigSaving(true);
-      await db.updateConfig(values as Config);
+      await db.updateConfig(mergedConfig);
+      configForm.setFieldsValue(mergedConfig);
       message.success('配置已保存');
     } catch (err: any) {
       if (err?.errorFields) return; // validation error
@@ -1155,6 +1198,103 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                         />
                       )}
                     </Spin>
+                  </Card>
+
+                  <Card
+                    title="斜杠命令规则"
+                    size="small"
+                    style={{ marginBottom: 24 }}
+                    extra={
+                      <Button type="primary" size="small" onClick={handleSaveConfig} loading={configSaving}>
+                        保存规则
+                      </Button>
+                    }
+                  >
+                    <Paragraph type="secondary" style={{ marginBottom: 16, fontSize: 13 }}>
+                      配置全局斜杠命令，将飞书消息中的命令路由到指定 Todo。命中后会把命令后的正文作为参数传入 Todo Prompt，支持使用 `&{'{'}content{'}'}`、`&{'{'}message{'}'}`、`&{'{'}raw_message{'}'}`、`&{'{'}slash_command{'}'}`。
+                    </Paragraph>
+                    <Form form={configForm} layout="vertical">
+                      <Form.List name="slash_command_rules">
+                        {(fields, { add, remove }) => (
+                          <>
+                            {fields.length === 0 && (
+                              <Empty
+                                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                description="暂无规则，点击下方按钮新增"
+                                style={{ margin: '12px 0 20px' }}
+                              />
+                            )}
+                            {fields.map((field, index) => (
+                              <Card
+                                key={field.key}
+                                size="small"
+                                style={{ marginBottom: 12, background: 'var(--color-bg)' }}
+                                title={`规则 ${index + 1}`}
+                                extra={
+                                  <Button
+                                    type="text"
+                                    danger
+                                    size="small"
+                                    icon={<MinusCircleOutlined />}
+                                    onClick={() => remove(field.name)}
+                                  />
+                                }
+                              >
+                                <Form.Item
+                                  name={[field.name, 'slash_command']}
+                                  label="斜杠命令"
+                                  rules={[
+                                    { required: true, message: '请输入斜杠命令' },
+                                    {
+                                      validator: (_, value) => {
+                                        const command = String(value || '').trim();
+                                        if (!command) return Promise.resolve();
+                                        if (!/^\/\S+$/.test(command)) {
+                                          return Promise.reject(new Error('命令必须以 / 开头，且不能包含空格'));
+                                        }
+                                        return Promise.resolve();
+                                      },
+                                    },
+                                  ]}
+                                >
+                                  <Input placeholder="/todo" />
+                                </Form.Item>
+                                <Form.Item
+                                  name={[field.name, 'todo_id']}
+                                  label="目标 Todo"
+                                  rules={[{ required: true, message: '请选择目标 Todo' }]}
+                                >
+                                  <Select
+                                    showSearch
+                                    placeholder="搜索并选择 Todo"
+                                    optionFilterProp="label"
+                                    options={todos.map((todo) => ({
+                                      value: todo.id,
+                                      label: `#${todo.id} ${todo.title}`,
+                                    }))}
+                                  />
+                                </Form.Item>
+                                <Form.Item
+                                  name={[field.name, 'enabled']}
+                                  label="启用"
+                                  valuePropName="checked"
+                                  initialValue={true}
+                                >
+                                  <Switch size="small" />
+                                </Form.Item>
+                              </Card>
+                            ))}
+                            <Button
+                              block
+                              icon={<PlusOutlined />}
+                              onClick={() => add({ slash_command: '', todo_id: undefined, enabled: true })}
+                            >
+                              新增规则
+                            </Button>
+                          </>
+                        )}
+                      </Form.List>
+                    </Form>
                   </Card>
 
                   <Modal

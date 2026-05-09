@@ -238,12 +238,19 @@ export interface ExecutorPaths {
   codex: string;
 }
 
+export interface SlashCommandRule {
+  slash_command: string;
+  todo_id: number;
+  enabled: boolean;
+}
+
 export interface Config {
   port: number;
   host: string;
   db_path: string;
   log_level: string;
   executors: ExecutorPaths;
+  slash_command_rules?: SlashCommandRule[];
 }
 
 export const RESUMABLE_EXECUTORS = new Set(['claudecode', 'kimi', 'opencode', 'joinai']);
