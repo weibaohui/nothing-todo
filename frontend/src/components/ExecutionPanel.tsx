@@ -221,7 +221,7 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
                       position: 'absolute',
                       top: '100%',
                       left: 0,
-                      zIndex: 100,
+                      zIndex: 1000,
                       background: 'var(--color-bg-elevated)',
                       border: '1px solid var(--color-border-light)',
                       borderRadius: 8,

@@ -1296,13 +1296,15 @@ code {
 
 .execution-panel-tabs {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   border-bottom: 1px solid var(--color-border-light);
   background: var(--color-bg);
   flex-shrink: 0;
-  height: 40px;
+  min-height: 40px;
   padding: 0 8px;
   gap: 4px;
+  position: relative;
+  z-index: 10;
 }
 
 .execution-panel-tabs-scroll {
