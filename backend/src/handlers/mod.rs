@@ -319,9 +319,17 @@ pub fn create_app(
     let (push_service, push_mutator) = FeishuPushService::new(db.clone(), feishu_listener.clone());
     push_service.start(tx.subscribe());
 
-    // Start Feishu history fetcher (async initialization)
+    // Start Feishu history fetcher with all required dependencies (before AppState to use moved values)
     use crate::services::feishu_history_fetcher::FeishuHistoryFetcher;
-    let fetcher = FeishuHistoryFetcher::new(db.clone());
+    let fetcher = FeishuHistoryFetcher::new(
+        db.clone(),
+        executor_registry.clone(),
+        tx.clone(),
+        task_manager.clone(),
+        config.clone(),
+        feishu_listener.token_manager.clone(),
+        feishu_listener.bot_credentials.clone(),
+    );
     let db_for_fetcher = db.clone();
     tokio::spawn(async move {
         tracing::info!("[feishu-history-fetcher] starting initialization");
