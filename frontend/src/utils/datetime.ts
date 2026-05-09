@@ -44,11 +44,11 @@ export function formatRelativeTime(timeStr: string | null | undefined): string {
 
 /**
  * 格式化时长（秒）为简写形式，最多4位
- * 90秒以内显示 XXs，超过90秒换算为 d/h/m
+ * < 60s 显示 XXs，≥ 60s 换算为 m/h/d
  */
 export function formatDuration(seconds: number): string {
-  // 90秒以内直接显示秒
-  if (seconds < 90) return `${Math.floor(seconds)}s`;
+  // 60秒以内直接显示秒
+  if (seconds < 60) return `${Math.floor(seconds)}s`;
 
   // 换算成更大的单位
   const d = Math.floor(seconds / 86400);
