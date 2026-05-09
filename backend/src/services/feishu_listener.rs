@@ -293,11 +293,12 @@ impl FeishuListener {
         command: &str,
         body: &str,
     ) -> bool {
+        let cmd_lc = command.to_ascii_lowercase();
         let matched_rule = {
             let cfg = config.read().await;
             cfg.slash_command_rules
                 .iter()
-                .find(|rule| rule.enabled && rule.slash_command == command)
+                .find(|rule| rule.enabled && rule.slash_command.eq_ignore_ascii_case(&cmd_lc))
                 .cloned()
         };
 
@@ -343,7 +344,7 @@ impl FeishuListener {
             "slash_command",
             Some(params),
             None,
-            Some(body.to_string()),
+            None,
         )
         .await
         {
