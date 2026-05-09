@@ -223,10 +223,21 @@ impl EventDispatcherHandler {
 
         if let Some(handler) = self.processor_map.get(&handler_name) {
             handler.handle(&payload)
+        } else if Self::is_ignorable_event(&handler_name) {
+            tracing::debug!("Ignoring Feishu event without processor: {handler_name}");
+            Ok(())
         } else {
             tracing::warn!("No event processor found for event: {handler_name}");
             Err(anyhow::anyhow!("event processor {} not found", handler_name))
         }
+    }
+
+    /// 判断是否为已知但无需处理的事件。
+    fn is_ignorable_event(handler_name: &str) -> bool {
+        matches!(
+            handler_name,
+            "p2.im.message.message_read_v1"
+        )
     }
 }
 

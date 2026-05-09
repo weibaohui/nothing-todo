@@ -425,11 +425,12 @@ pub struct UpdateSchedulerRequest {
 
 #[derive(Deserialize)]
 pub struct UpdateConfigRequest {
-    pub port: u16,
-    pub host: String,
-    pub db_path: String,
-    pub log_level: String,
-    pub executors: crate::config::ExecutorPaths,
+    pub port: Option<u16>,
+    pub host: Option<String>,
+    pub db_path: Option<String>,
+    pub log_level: Option<String>,
+    pub executors: Option<crate::config::ExecutorPaths>,
+    pub slash_command_rules: Option<Vec<crate::config::SlashCommandRule>>,
 }
 
 // Executor types
