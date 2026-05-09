@@ -188,11 +188,10 @@ pub async fn get_distinct_senders(
     State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<Vec<SenderItem>>>, AppError> {
     let senders = state.db.get_distinct_senders().await?;
-    // For each sender, we need to get additional info. For simplicity, we'll just return what's available.
-    let items = senders.into_iter().map(|(sender_open_id, count)| SenderItem {
+    let items = senders.into_iter().map(|(sender_open_id, sender_type, sender_nickname, count)| SenderItem {
         sender_open_id,
-        sender_type: None,
-        sender_nickname: None,
+        sender_type,
+        sender_nickname,
         count,
     }).collect();
     Ok(Json(ApiResponse::ok(items)))

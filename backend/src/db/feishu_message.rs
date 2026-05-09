@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
 use crate::db::Database;
 use crate::db::entity::feishu_messages;
@@ -187,17 +188,31 @@ impl Database {
         Ok(result.is_some())
     }
 
-    pub async fn get_distinct_senders(&self) -> Result<Vec<(String, i64)>, sea_orm::DbErr> {
-        // Returns distinct sender_open_ids with their message count
-        let models: Vec<(String, i64)> = feishu_messages::Entity::find()
-            .select_only()
-            .column(feishu_messages::Column::SenderOpenId)
-            .column_as(feishu_messages::Column::SenderOpenId.count(), "count")
-            .group_by(feishu_messages::Column::SenderOpenId)
-            .into_tuple()
+    pub async fn get_distinct_senders(&self) -> Result<Vec<(String, Option<String>, Option<String>, i64)>, sea_orm::DbErr> {
+        // Returns distinct sender_open_ids with their message count, sender_type, and sender_nickname
+        let models = feishu_messages::Entity::find()
+            .order_by_desc(feishu_messages::Column::CreatedAt)
             .all(&self.conn)
             .await?;
-        Ok(models)
+
+        let mut sender_map: HashMap<String, (Option<String>, Option<String>, i64)> = HashMap::new();
+        for model in models {
+            let entry = sender_map.entry(model.sender_open_id.clone()).or_insert((
+                model.sender_type.clone(),
+                model.sender_nickname.clone(),
+                0,
+            ));
+            entry.2 += 1;
+        }
+
+        let result: Vec<(String, Option<String>, Option<String>, i64)> = sender_map
+            .into_iter()
+            .map(|(sender_open_id, (sender_type, sender_nickname, count))| {
+                (sender_open_id, sender_type, sender_nickname, count)
+            })
+            .collect();
+
+        Ok(result)
     }
 
     /// Get the latest message create_time for a specific chat (for incremental fetching)
