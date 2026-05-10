@@ -22,7 +22,10 @@ impl Database {
 
         if let Some(h) = existing {
             let mut am: feishu_homes::ActiveModel = h.into();
-            am.chat_id = ActiveValue::Set(chat_id.map(String::from));
+            // Only update fields that are provided; avoid clearing other field when None is passed.
+            if chat_id.is_some() {
+                am.chat_id = ActiveValue::Set(chat_id.map(String::from));
+            }
             am.receive_id = ActiveValue::Set(receive_id.to_string());
             am.receive_id_type = ActiveValue::Set(receive_id_type.to_string());
             am.updated_at = ActiveValue::Set(Some(now));
