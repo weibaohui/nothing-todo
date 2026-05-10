@@ -1308,7 +1308,7 @@ export function SettingsPage({ onBack, runningTasks = {} }: SettingsPageProps) {
                                           单聊响应
                                           <InputNumber
                                             size="small"
-                                            min={0}
+                                            min={1}
                                             max={300}
                                             value={botPushStatus.p2p_debounce_secs}
                                             onChange={(v) => { if (v !== null) db.updateFeishuPush({ botId: botPushStatus.bot_id, p2pDebounceSecs: v }); }}
@@ -1325,7 +1325,7 @@ export function SettingsPage({ onBack, runningTasks = {} }: SettingsPageProps) {
                                           群聊响应
                                           <InputNumber
                                             size="small"
-                                            min={0}
+                                            min={1}
                                             max={300}
                                             value={botPushStatus.group_debounce_secs}
                                             onChange={(v) => { if (v !== null) db.updateFeishuPush({ botId: botPushStatus.bot_id, groupDebounceSecs: v }); }}
