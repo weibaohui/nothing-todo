@@ -28,10 +28,10 @@ pub struct FeishuListener {
     tx: broadcast::Sender<ExecEvent>,
     task_manager: Arc<TaskManager>,
     config: Arc<RwLock<AppConfig>>,
-    token_manager: Arc<TokenManager>,
+    pub token_manager: Arc<TokenManager>,
     channels: Arc<DashMap<i64, Arc<FeishuChannelService>>>,
     /// bot_id → (app_id, app_secret, domain)
-    bot_credentials: Arc<DashMap<i64, (String, String, String)>>,
+    pub bot_credentials: Arc<DashMap<i64, (String, String, String)>>,
 }
 
 impl FeishuListener {
@@ -210,8 +210,19 @@ impl FeishuListener {
             return;
         }
 
+        // Check if message response is enabled for this chat type
+        let response_enabled = db.get_feishu_response_enabled(bot_id, chat_type).await.unwrap_or(false);
+
+        if !response_enabled {
+            tracing::info!("[feishu:{}] message response is disabled for {} chat type", bot_id, chat_type);
+            if let Some(rid) = &reaction_id {
+                Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
+            }
+            return;
+        }
+
         if let Some(command_ctx) = Self::parse_slash_command(content) {
-            let handled = Self::handle_custom_slash_command(
+            let triggered = Self::handle_custom_slash_command(
                 db,
                 executor_registry,
                 tx,
@@ -227,11 +238,55 @@ impl FeishuListener {
                 command_ctx.body,
             )
             .await;
-            if handled {
+            if triggered.is_some() {
                 if let Some(rid) = &reaction_id {
                     Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
                 }
+                // 标记消息为已处理
+                if let Some((todo_id, execution_record_id)) = triggered {
+                    if let Err(e) = db.mark_feishu_message_processed(&msg.id, todo_id, execution_record_id).await {
+                        tracing::warn!("[feishu:{}] failed to mark message {} as processed: {}", bot_id, msg.id, e);
+                    }
+                }
                 return;
+            }
+        } else {
+            // 非斜杠命令消息，也检查是否需要默认响应
+            let default_todo_id = {
+                let cfg = config.read().await;
+                cfg.default_response_todo_id
+            };
+
+            if let Some(todo_id) = default_todo_id {
+                if !content.is_empty() {
+                    let triggered = Self::execute_default_response(
+                        db,
+                        executor_registry,
+                        tx,
+                        task_manager,
+                        config,
+                        credentials,
+                        token_manager,
+                        bot_id,
+                        chat_type,
+                        &msg.sender,
+                        &msg.channel,
+                        "",
+                        content,
+                        todo_id,
+                    )
+                    .await;
+                    if let Some(rid) = &reaction_id {
+                        Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
+                    }
+                    // 标记消息为已处理，使用实际触发的 todo_id 和 execution_record_id
+                    if let Some((actual_todo_id, execution_record_id)) = triggered {
+                        if let Err(e) = db.mark_feishu_message_processed(&msg.id, actual_todo_id, execution_record_id).await {
+                            tracing::warn!("[feishu:{}] failed to mark message {} as processed: {}", bot_id, msg.id, e);
+                        }
+                    }
+                    return;
+                }
             }
         }
 
@@ -276,7 +331,7 @@ impl FeishuListener {
         Some(SlashCommandMatch { command, body })
     }
 
-    /// 处理用户自定义斜杠命令，并按配置路由到指定 Todo。
+    /// 处理用户自定义斜杠命令，并按配置路由到指定 Todo。返回 (todo_id, execution_record_id)。
     #[allow(clippy::too_many_arguments)]
     async fn handle_custom_slash_command(
         db: &Arc<Database>,
@@ -292,7 +347,7 @@ impl FeishuListener {
         channel: &str,
         command: &str,
         body: &str,
-    ) -> bool {
+    ) -> Option<(i64, Option<i64>)> {
         let cmd_lc = command.to_ascii_lowercase();
         let matched_rule = {
             let cfg = config.read().await;
@@ -302,9 +357,38 @@ impl FeishuListener {
                 .cloned()
         };
 
-        let Some(rule) = matched_rule else {
-            return false;
-        };
+        // 如果没有匹配到斜杠命令规则，检查是否需要默认响应
+        if matched_rule.is_none() {
+            let default_todo_id = {
+                let cfg = config.read().await;
+                cfg.default_response_todo_id
+            };
+
+            if let Some(todo_id) = default_todo_id {
+                if !body.is_empty() {
+                    // 执行默认响应的 Todo
+                    return Self::execute_default_response(
+                        db,
+                        executor_registry,
+                        tx,
+                        task_manager,
+                        config,
+                        credentials,
+                        token_manager,
+                        bot_id,
+                        chat_type,
+                        sender,
+                        channel,
+                        command,
+                        body,
+                        todo_id,
+                    ).await;
+                }
+            }
+            return None;
+        }
+
+        let rule = matched_rule.unwrap();
 
         let (receive_id, receive_id_type) = match chat_type {
             "p2p" => (sender.to_string(), "open_id"),
@@ -314,7 +398,7 @@ impl FeishuListener {
         if body.is_empty() {
             let reply = format!("命令 {} 需要输入内容，例如：{} 帮我整理今天的任务", command, command);
             Self::send_text(credentials, token_manager, bot_id, &receive_id, receive_id_type, &reply).await;
-            return true;
+            return None;
         }
 
         let todo = match db.get_todo(rule.todo_id).await {
@@ -323,7 +407,7 @@ impl FeishuListener {
                 let reply = format!("命令 {} 绑定的 Todo #{} 不存在，请到设置中重新配置。", command, rule.todo_id);
                 Self::send_text(credentials, token_manager, bot_id, &receive_id, receive_id_type, &reply).await;
                 tracing::warn!("[feishu:{}] 斜杠命令绑定的 Todo 不存在: command={}, todo_id={}", bot_id, command, rule.todo_id);
-                return true;
+                return None;
             }
         };
 
@@ -358,12 +442,14 @@ impl FeishuListener {
                 );
                 Self::send_text(credentials, token_manager, bot_id, &receive_id, receive_id_type, &reply).await;
                 tracing::info!(
-                    "[feishu:{}] 斜杠命令触发 Todo 执行: command={}, todo_id={}, task_id={}",
+                    "[feishu:{}] 斜杠命令触发 Todo 执行: command={}, todo_id={}, task_id={}, record_id={:?}",
                     bot_id,
                     command,
                     todo.id,
-                    result.task_id
+                    result.task_id,
+                    result.record_id
                 );
+                return Some((todo.id, result.record_id));
             }
             Err(err) => {
                 let reply = format!("命令 {} 执行失败: {}", command, Self::error_message(&err));
@@ -375,10 +461,94 @@ impl FeishuListener {
                     todo.id,
                     Self::error_message(&err)
                 );
+                return None;
             }
         }
+    }
 
-        true
+    /// 执行默认响应：当没有匹配到斜杠命令时，执行指定的 Todo。返回 (todo_id, execution_record_id)。
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_default_response(
+        db: &Arc<Database>,
+        executor_registry: &Arc<ExecutorRegistry>,
+        tx: &broadcast::Sender<ExecEvent>,
+        task_manager: &Arc<TaskManager>,
+        _config: &Arc<RwLock<AppConfig>>,
+        credentials: &DashMap<i64, (String, String, String)>,
+        token_manager: &Arc<TokenManager>,
+        bot_id: i64,
+        chat_type: &str,
+        sender: &str,
+        channel: &str,
+        command: &str,
+        body: &str,
+        todo_id: i64,
+    ) -> Option<(i64, Option<i64>)> {
+        let (receive_id, receive_id_type) = match chat_type {
+            "p2p" => (sender.to_string(), "open_id"),
+            _ => (channel.to_string(), "chat_id"),
+        };
+
+        let todo = match db.get_todo(todo_id).await {
+            Some(todo) => todo,
+            None => {
+                let reply = format!("默认响应绑定的 Todo #{} 不存在，请到设置中重新配置。", todo_id);
+                Self::send_text(credentials, token_manager, bot_id, &receive_id, receive_id_type, &reply).await;
+                tracing::warn!("[feishu:{}] 默认响应绑定的 Todo 不存在: todo_id={}", bot_id, todo_id);
+                return None;
+            }
+        };
+
+        let mut params = HashMap::new();
+        params.insert("content".to_string(), body.to_string());
+        params.insert("message".to_string(), body.to_string());
+        params.insert("raw_message".to_string(), format!("{} {}", command, body).trim().to_string());
+        params.insert("slash_command".to_string(), command.to_string());
+
+        match start_todo_execution(
+            db.clone(),
+            executor_registry.clone(),
+            tx.clone(),
+            task_manager.clone(),
+            todo.id,
+            todo.prompt.clone(),
+            todo.executor.clone(),
+            "slash_command",
+            Some(params),
+            None,
+            None,
+        )
+        .await
+        {
+            Ok(result) => {
+                let reply = format!(
+                    "收到消息，已启动 Todo #{}《{}》。\n任务参数: {}",
+                    todo.id,
+                    todo.title,
+                    body
+                );
+                Self::send_text(credentials, token_manager, bot_id, &receive_id, receive_id_type, &reply).await;
+                tracing::info!(
+                    "[feishu:{}] 默认响应触发 Todo 执行: todo_id={}, task_id={}, record_id={:?}",
+                    bot_id,
+                    todo.id,
+                    result.task_id,
+                    result.record_id
+                );
+                Some((todo.id, result.record_id))
+            }
+            Err(err) => {
+                let reply = format!("执行失败: {}", Self::error_message(&err));
+                Self::send_text(credentials, token_manager, bot_id, &receive_id, receive_id_type, &reply).await;
+                tracing::error!(
+                    "[feishu:{}] 默认响应执行失败: todo_id={}, error={}",
+                    bot_id,
+                    todo.id,
+                    Self::error_message(&err)
+                );
+                None
+            }
+        }
     }
 
     /// 将应用错误转换为可回复的文本。
@@ -401,6 +571,7 @@ impl FeishuListener {
         message_id: &str,
         reaction_id: Option<&str>,
     ) {
+        let target_type = if chat_type == "p2p" { "p2p" } else { "group" };
         let (receive_id, receive_id_type, chat_id) = match chat_type {
             "p2p" => (sender.to_string(), "open_id", None),
             _ => (channel.to_string(), "chat_id", Some(channel.to_string())),
@@ -423,10 +594,18 @@ impl FeishuListener {
 
         // Also store as push target (default to result_only)
         if let Err(e) = db
-            .set_feishu_push_target(bot_id, chat_id.as_deref(), &receive_id, receive_id_type, "result_only")
+            .set_feishu_push_target(bot_id, target_type, chat_id.as_deref(), &receive_id, receive_id_type, "result_only")
             .await
         {
             tracing::error!("[feishu:{}] set push target failed: {e}", bot_id);
+        }
+
+        // Enable message response for this chat type (using independent response config table)
+        if let Err(e) = db
+            .set_feishu_response_enabled(bot_id, target_type, true)
+            .await
+        {
+            tracing::error!("[feishu:{}] enable response failed: {e}", bot_id);
         }
 
         // Send confirmation
@@ -452,12 +631,13 @@ impl FeishuListener {
         message_id: &str,
         reaction_id: Option<&str>,
     ) {
+        let target_type = if chat_type == "p2p" { "p2p" } else { "group" };
         let (receive_id, receive_id_type) = match chat_type {
             "p2p" => (sender.to_string(), "open_id"),
             _ => (channel.to_string(), "chat_id"),
         };
 
-        let target = db.get_feishu_push_target(bot_id).await.ok().flatten();
+        let target = db.get_feishu_push_target(bot_id, target_type).await.ok().flatten();
         let current_level = target.as_ref().map(|t| t.push_level.as_str()).unwrap_or("disabled");
         let new_level = match current_level {
             "disabled" => "result_only",
@@ -466,7 +646,7 @@ impl FeishuListener {
             _ => "disabled",
         };
 
-        if let Err(e) = db.update_feishu_push_level(bot_id, new_level).await {
+        if let Err(e) = db.update_feishu_push_level(bot_id, target_type, new_level).await {
             tracing::error!("[feishu:{}] /feishupush update failed: {e}", bot_id);
             let msg = "⚠️ 操作失败，请稍后重试";
             Self::send_text(credentials, token_manager, bot_id, &receive_id, &receive_id_type, msg).await;

@@ -115,7 +115,7 @@ impl FeishuPushService {
 
     async fn refresh_targets(db: &Database, targets: &mut Vec<(i64, String, String, String)>) {
         targets.clear();
-        match db.get_enabled_feishu_push_targets().await {
+        match db.get_all_enabled_feishu_push_targets().await {
             Ok(targets_list) => {
                 for t in targets_list {
                     targets.push((t.bot_id, t.receive_id, t.receive_id_type, t.push_level));

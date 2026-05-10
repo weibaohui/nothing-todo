@@ -17,6 +17,8 @@ pub struct Model {
     pub msg_type: String,
     pub is_mention: Option<bool>,
     pub processed: Option<bool>,
+    pub processed_todo_id: Option<i64>,
+    pub execution_record_id: Option<i64>,
     pub is_history: Option<bool>,
     pub fetch_time: Option<String>,
     pub created_at: Option<String>,
