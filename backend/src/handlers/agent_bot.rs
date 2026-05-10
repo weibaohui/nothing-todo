@@ -383,7 +383,8 @@ pub async fn get_feishu_push(
     let mut statuses = Vec::new();
 
     for bot in bots.into_iter().filter(|b| b.bot_type == "feishu") {
-        let target = state.db.get_feishu_push_target(bot.id).await.ok().flatten();
+        // Use "group" as default target_type for backwards compatibility
+        let target = state.db.get_feishu_push_target(bot.id, "group").await.ok().flatten();
         statuses.push(FeishuPushStatus {
             bot_id: bot.id,
             push_level: target.as_ref().map(|t| t.push_level.clone()).unwrap_or_else(|| "disabled".to_string()),
@@ -400,9 +401,15 @@ pub async fn update_feishu_push(
     State(state): State<AppState>,
     Json(req): Json<UpdateFeishuPushRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    // Infer target_type from receive_id_type, default to "group"
+    let target_type = match req.receive_id_type.as_deref() {
+        Some("open_id") => "p2p",
+        _ => "group",
+    };
+
     let target = state
         .db
-        .get_feishu_push_target(req.bot_id)
+        .get_feishu_push_target(req.bot_id, target_type)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?
         .ok_or(AppError::NotFound)?;
@@ -411,7 +418,7 @@ pub async fn update_feishu_push(
     if let Some(level) = &req.push_level {
         state
             .db
-            .update_feishu_push_level(req.bot_id, level)
+            .update_feishu_push_level(req.bot_id, target_type, level)
             .await
             .map_err(|e| AppError::Internal(e.to_string()))?;
     }
@@ -422,6 +429,7 @@ pub async fn update_feishu_push(
             .db
             .set_feishu_push_target(
                 req.bot_id,
+                target_type,
                 req.chat_id.as_deref(),
                 req.receive_id.as_deref().unwrap_or(&target.receive_id),
                 req.receive_id_type.as_deref().unwrap_or(&target.receive_id_type),
@@ -437,7 +445,7 @@ pub async fn update_feishu_push(
     // Fetch updated target
     let updated = state
         .db
-        .get_feishu_push_target(req.bot_id)
+        .get_feishu_push_target(req.bot_id, target_type)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 

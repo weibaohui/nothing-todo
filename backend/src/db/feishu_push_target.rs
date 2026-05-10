@@ -1,13 +1,15 @@
-use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
+use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 use crate::db::Database;
 use crate::db::entity::feishu_push_targets;
 
 impl Database {
     /// Set or update the push target for a bot.
+    /// target_type: "p2p" or "group"
     /// push_level: "disabled", "result_only", or "all". Defaults to "result_only" for new targets.
     pub async fn set_feishu_push_target(
         &self,
         bot_id: i64,
+        target_type: &str,
         chat_id: Option<&str>,
         receive_id: &str,
         receive_id_type: &str,
@@ -15,11 +17,12 @@ impl Database {
     ) -> Result<(), sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
 
+        // Find existing target for this bot and target_type
         let existing = feishu_push_targets::Entity::find()
-            .all(&self.conn)
-            .await?
-            .into_iter()
-            .find(|t| t.bot_id == bot_id);
+            .filter(feishu_push_targets::Column::BotId.eq(bot_id))
+            .filter(feishu_push_targets::Column::TargetType.eq(target_type))
+            .one(&self.conn)
+            .await?;
 
         if let Some(t) = existing {
             let mut am: feishu_push_targets::ActiveModel = t.into();
@@ -32,6 +35,7 @@ impl Database {
         } else {
             let am = feishu_push_targets::ActiveModel {
                 bot_id: ActiveValue::Set(bot_id),
+                target_type: ActiveValue::Set(target_type.to_string()),
                 chat_id: ActiveValue::Set(chat_id.map(String::from)),
                 receive_id: ActiveValue::Set(receive_id.to_string()),
                 receive_id_type: ActiveValue::Set(receive_id_type.to_string()),
@@ -46,19 +50,37 @@ impl Database {
         Ok(())
     }
 
-    /// Get the push target for a bot.
+    /// Get the push target for a bot and target type.
     pub async fn get_feishu_push_target(
         &self,
         bot_id: i64,
+        target_type: &str,
     ) -> Result<Option<feishu_push_targets::Model>, sea_orm::DbErr> {
-        let targets = feishu_push_targets::Entity::find()
-            .all(&self.conn)
+        let target = feishu_push_targets::Entity::find()
+            .filter(feishu_push_targets::Column::BotId.eq(bot_id))
+            .filter(feishu_push_targets::Column::TargetType.eq(target_type))
+            .one(&self.conn)
             .await?;
-        Ok(targets.into_iter().find(|t| t.bot_id == bot_id))
+        Ok(target)
     }
 
-    /// Get all bots with push enabled (push_level != "disabled").
+    /// Get all bots with push enabled (push_level != "disabled") for a specific target type.
     pub async fn get_enabled_feishu_push_targets(
+        &self,
+        target_type: &str,
+    ) -> Result<Vec<feishu_push_targets::Model>, sea_orm::DbErr> {
+        let targets = feishu_push_targets::Entity::find()
+            .filter(feishu_push_targets::Column::TargetType.eq(target_type))
+            .all(&self.conn)
+            .await?;
+        Ok(targets
+            .into_iter()
+            .filter(|t| t.push_level != "disabled")
+            .collect())
+    }
+
+    /// Get all bots with push enabled (push_level != "disabled"), regardless of target type.
+    pub async fn get_all_enabled_feishu_push_targets(
         &self,
     ) -> Result<Vec<feishu_push_targets::Model>, sea_orm::DbErr> {
         let targets = feishu_push_targets::Entity::find()
@@ -70,34 +92,36 @@ impl Database {
             .collect())
     }
 
-    /// Get all push targets configured for group chat (receive_id_type = "chat_id").
+    /// Get all push targets configured for group chat (target_type = "group").
     /// Returns (bot_id, chat_id) pairs.
     pub async fn get_group_chat_push_targets(
         &self,
     ) -> Result<Vec<(i64, String)>, sea_orm::DbErr> {
         let targets = feishu_push_targets::Entity::find()
+            .filter(feishu_push_targets::Column::TargetType.eq("group"))
             .all(&self.conn)
             .await?;
         Ok(targets
             .into_iter()
-            .filter(|t| t.receive_id_type == "chat_id" && !t.receive_id.is_empty())
+            .filter(|t| !t.receive_id.is_empty())
             .map(|t| (t.bot_id, t.receive_id))
             .collect())
     }
 
-    /// Update push level for a bot.
+    /// Update push level for a bot and target type.
     pub async fn update_feishu_push_level(
         &self,
         bot_id: i64,
+        target_type: &str,
         push_level: &str,
     ) -> Result<(), sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
 
         let existing = feishu_push_targets::Entity::find()
-            .all(&self.conn)
-            .await?
-            .into_iter()
-            .find(|t| t.bot_id == bot_id);
+            .filter(feishu_push_targets::Column::BotId.eq(bot_id))
+            .filter(feishu_push_targets::Column::TargetType.eq(target_type))
+            .one(&self.conn)
+            .await?;
 
         match existing {
             Some(t) => {

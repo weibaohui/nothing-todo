@@ -364,11 +364,12 @@ impl Database {
         self.exec(
             "CREATE TABLE IF NOT EXISTS feishu_push_targets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                bot_id INTEGER NOT NULL UNIQUE,
+                bot_id INTEGER NOT NULL,
+                target_type TEXT NOT NULL DEFAULT 'group',
                 chat_id TEXT,
                 receive_id TEXT NOT NULL,
                 receive_id_type TEXT NOT NULL,
-                push_enabled INTEGER DEFAULT 1,
+                push_level TEXT DEFAULT 'all',
                 created_at TEXT,
                 updated_at TEXT,
                 FOREIGN KEY (bot_id) REFERENCES agent_bots(id)
@@ -376,11 +377,17 @@ impl Database {
         )
         .await?;
 
-        // 添加 push_level 字段的迁移（向后兼容）
-        self.exec(
-            "ALTER TABLE feishu_push_targets ADD COLUMN push_level TEXT DEFAULT 'all'"
-        )
-        .await.ok(); // 忽略错误，因为字段可能已存在
+        // 添加 target_type 字段的迁移（向后兼容）
+        // 注意：旧记录会将 target_type 设为 NULL，需要更新为 'group'
+        let add_target_type = self.exec(
+            "ALTER TABLE feishu_push_targets ADD COLUMN target_type TEXT DEFAULT 'group'"
+        ).await;
+        if add_target_type.is_ok() {
+            // 更新旧的 NULL 记录为 'group'
+            self.exec(
+                "UPDATE feishu_push_targets SET target_type = 'group' WHERE target_type IS NULL"
+            ).await.ok();
+        }
 
         Ok(())
     }
