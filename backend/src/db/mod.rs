@@ -401,6 +401,19 @@ impl Database {
             "ALTER TABLE feishu_push_targets ADD COLUMN group_response_enabled INTEGER DEFAULT 1"
         ).await.ok();
 
+        // 创建 feishu_response_config 表（响应开关独立配置）
+        self.exec(r#"
+            CREATE TABLE IF NOT EXISTS feishu_response_config (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id INTEGER NOT NULL,
+                target_type TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT,
+                updated_at TEXT,
+                UNIQUE(bot_id, target_type)
+            )
+        "#).await.ok();
+
         Ok(())
     }
 }
@@ -414,6 +427,7 @@ mod feishu_home;
 mod feishu_message;
 mod feishu_push_target;
 mod feishu_history_chat;
+mod feishu_response_config;
 
 #[cfg(test)]
 mod tests {

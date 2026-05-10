@@ -387,11 +387,16 @@ pub async fn get_feishu_push(
     let mut statuses = Vec::new();
 
     for bot in bots.into_iter().filter(|b| b.bot_type == "feishu") {
-        // Get response enabled status for this bot
-        let (p2p_enabled, group_enabled) = state.db.get_feishu_response_enabled(bot.id).await.unwrap_or((false, false));
+        // Get response enabled status from independent response config table
+        let p2p_enabled = state.db.get_feishu_response_enabled(bot.id, "p2p").await.unwrap_or(false);
+        let group_enabled = state.db.get_feishu_response_enabled(bot.id, "group").await.unwrap_or(false);
 
-        // Use "group" as default target_type for backwards compatibility
-        let target = state.db.get_feishu_push_target(bot.id, "group").await.ok().flatten();
+        // Try p2p target first, then fall back to group
+        let target = match state.db.get_feishu_push_target(bot.id, "p2p").await.ok().flatten() {
+            Some(t) => Some(t),
+            None => state.db.get_feishu_push_target(bot.id, "group").await.ok().flatten(),
+        };
+
         statuses.push(FeishuPushStatus {
             bot_id: bot.id,
             push_level: target.as_ref().map(|t| t.push_level.clone()).unwrap_or_else(|| "disabled".to_string()),
@@ -448,18 +453,18 @@ pub async fn update_feishu_push(
             .map_err(|e| AppError::Internal(e.to_string()))?;
     }
 
-    // Update response enabled fields if provided
+    // Update response enabled fields if provided (using independent response config table)
     if let Some(p2p_enabled) = req.p2p_response_enabled {
         state
             .db
-            .update_feishu_response_enabled(req.bot_id, "p2p", p2p_enabled)
+            .set_feishu_response_enabled(req.bot_id, "p2p", p2p_enabled)
             .await
             .map_err(|e| AppError::Internal(e.to_string()))?;
     }
     if let Some(group_enabled) = req.group_response_enabled {
         state
             .db
-            .update_feishu_response_enabled(req.bot_id, "group", group_enabled)
+            .set_feishu_response_enabled(req.bot_id, "group", group_enabled)
             .await
             .map_err(|e| AppError::Internal(e.to_string()))?;
     }
@@ -474,8 +479,9 @@ pub async fn update_feishu_push(
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    // Get response enabled status
-    let (p2p_enabled, group_enabled) = state.db.get_feishu_response_enabled(req.bot_id).await.unwrap_or((false, false));
+    // Get response enabled status from independent response config table
+    let p2p_enabled = state.db.get_feishu_response_enabled(req.bot_id, "p2p").await.unwrap_or(false);
+    let group_enabled = state.db.get_feishu_response_enabled(req.bot_id, "group").await.unwrap_or(false);
 
     Ok(ApiResponse::ok(FeishuPushStatus {
         bot_id: req.bot_id,
