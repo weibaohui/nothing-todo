@@ -210,6 +210,18 @@ impl FeishuListener {
             return;
         }
 
+        // Check if message response is enabled for this chat type
+        let (p2p_enabled, group_enabled) = db.get_feishu_response_enabled(bot_id).await.unwrap_or((false, false));
+        let response_enabled = if chat_type == "p2p" { p2p_enabled } else { group_enabled };
+
+        if !response_enabled {
+            tracing::info!("[feishu:{}] message response is disabled for {} chat type", bot_id, chat_type);
+            if let Some(rid) = &reaction_id {
+                Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
+            }
+            return;
+        }
+
         if let Some(command_ctx) = Self::parse_slash_command(content) {
             let triggered = Self::handle_custom_slash_command(
                 db,
@@ -587,6 +599,14 @@ impl FeishuListener {
             .await
         {
             tracing::error!("[feishu:{}] set push target failed: {e}", bot_id);
+        }
+
+        // Enable message response for this chat type
+        if let Err(e) = db
+            .update_feishu_response_enabled(bot_id, target_type, true)
+            .await
+        {
+            tracing::error!("[feishu:{}] enable response failed: {e}", bot_id);
         }
 
         // Send confirmation

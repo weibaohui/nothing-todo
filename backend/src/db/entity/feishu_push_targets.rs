@@ -14,6 +14,10 @@ pub struct Model {
     pub receive_id_type: String,
     /// Push level: "disabled", "result_only", or "all"
     pub push_level: String,
+    /// Whether to enable message response for p2p chats
+    pub p2p_response_enabled: bool,
+    /// Whether to enable message response for group chats
+    pub group_response_enabled: bool,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }

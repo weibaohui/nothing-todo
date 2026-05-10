@@ -370,6 +370,8 @@ impl Database {
                 receive_id TEXT NOT NULL,
                 receive_id_type TEXT NOT NULL,
                 push_level TEXT DEFAULT 'all',
+                p2p_response_enabled INTEGER DEFAULT 1,
+                group_response_enabled INTEGER DEFAULT 1,
                 created_at TEXT,
                 updated_at TEXT,
                 FOREIGN KEY (bot_id) REFERENCES agent_bots(id)
@@ -388,6 +390,16 @@ impl Database {
                 "UPDATE feishu_push_targets SET target_type = 'group' WHERE target_type IS NULL"
             ).await.ok();
         }
+
+        // 添加 p2p_response_enabled 字段的迁移
+        self.exec(
+            "ALTER TABLE feishu_push_targets ADD COLUMN p2p_response_enabled INTEGER DEFAULT 1"
+        ).await.ok();
+
+        // 添加 group_response_enabled 字段的迁移
+        self.exec(
+            "ALTER TABLE feishu_push_targets ADD COLUMN group_response_enabled INTEGER DEFAULT 1"
+        ).await.ok();
 
         Ok(())
     }
