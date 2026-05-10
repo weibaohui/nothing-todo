@@ -1569,11 +1569,25 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                       {
                         title: '触发Todo',
                         key: 'processed_todo_id',
-                        width: 100,
+                        width: 80,
                         render: (_, record) => (
                           record.processed_todo_id ? (
                             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                               #{record.processed_todo_id}
+                            </Typography.Text>
+                          ) : (
+                            <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>-</span>
+                          )
+                        ),
+                      },
+                      {
+                        title: '执行记录',
+                        key: 'execution_record_id',
+                        width: 80,
+                        render: (_, record) => (
+                          record.execution_record_id ? (
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              #{record.execution_record_id}
                             </Typography.Text>
                           ) : (
                             <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>-</span>

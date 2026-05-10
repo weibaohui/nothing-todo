@@ -18,6 +18,7 @@ pub struct FeishuMessageRecord {
     pub is_mention: bool,
     pub processed: bool,
     pub processed_todo_id: Option<i64>,
+    pub execution_record_id: Option<i64>,
     pub is_history: bool,
     pub fetch_time: Option<String>,
     pub created_at: Option<String>,
@@ -119,6 +120,7 @@ impl Database {
                 is_mention: m.is_mention.unwrap_or(false),
                 processed: m.processed.unwrap_or(false),
                 processed_todo_id: m.processed_todo_id,
+                execution_record_id: m.execution_record_id,
                 is_history: m.is_history.unwrap_or(false),
                 fetch_time: m.fetch_time,
                 created_at: m.created_at,
@@ -174,6 +176,7 @@ impl Database {
                 is_mention: m.is_mention.unwrap_or(false),
                 processed: m.processed.unwrap_or(false),
                 processed_todo_id: m.processed_todo_id,
+                execution_record_id: m.execution_record_id,
                 is_history: m.is_history.unwrap_or(false),
                 fetch_time: m.fetch_time,
                 created_at: m.created_at,
@@ -234,11 +237,12 @@ impl Database {
         Ok(result.and_then(|m| m.created_at))
     }
 
-    /// Mark a message as processed with the triggered todo_id
+    /// Mark a message as processed with the triggered todo_id and execution_record_id
     pub async fn mark_feishu_message_processed(
         &self,
         message_id: &str,
         todo_id: i64,
+        execution_record_id: Option<i64>,
     ) -> Result<(), sea_orm::DbErr> {
         let result = feishu_messages::Entity::find()
             .filter(feishu_messages::Column::MessageId.eq(message_id))
@@ -249,6 +253,7 @@ impl Database {
             let mut am: feishu_messages::ActiveModel = model.into();
             am.processed = ActiveValue::Set(Some(true));
             am.processed_todo_id = ActiveValue::Set(Some(todo_id));
+            am.execution_record_id = ActiveValue::Set(execution_record_id);
             am.update(&self.conn).await?;
         }
         Ok(())
