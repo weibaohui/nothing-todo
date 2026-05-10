@@ -1554,6 +1554,32 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                           return <AntTag>{record.msg_type}</AntTag>;
                         },
                       },
+                      {
+                        title: '处理状态',
+                        key: 'processed',
+                        width: 90,
+                        render: (_, record) => (
+                          record.processed ? (
+                            <AntTag color="green">已处理</AntTag>
+                          ) : (
+                            <AntTag color="default">未处理</AntTag>
+                          )
+                        ),
+                      },
+                      {
+                        title: '触发Todo',
+                        key: 'processed_todo_id',
+                        width: 100,
+                        render: (_, record) => (
+                          record.processed_todo_id ? (
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              #{record.processed_todo_id}
+                            </Typography.Text>
+                          ) : (
+                            <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>-</span>
+                          )
+                        ),
+                      },
                     ]}
                   />
 
