@@ -5,6 +5,7 @@ import {
   Input,
   InputNumber,
   Select,
+  AutoComplete,
   Button,
   message,
   List,
@@ -49,7 +50,7 @@ import QRCode from 'qrcode';
 import 'react-js-cron/dist/styles.css';
 import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
-import type { FeishuPushStatus } from '../utils/database';
+import type { FeishuPushStatus, WhitelistEntry } from '../utils/database';
 import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
 import type { Config, ExecutorPaths, FeishuHistoryMessage, FeishuHistoryChat, SlashCommandRule } from '../types';
 import yaml from 'js-yaml';
@@ -137,6 +138,10 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [agentBots, setAgentBots] = useState<db.AgentBot[]>([]);
   const [botsLoading, setBotsLoading] = useState(false);
   const [feishuPushStatus, setFeishuPushStatus] = useState<FeishuPushStatus[]>([]);
+  const [groupWhitelist, setGroupWhitelist] = useState<WhitelistEntry[]>([]);
+  const [whitelistOpenId, setWhitelistOpenId] = useState('');
+  const [whitelistName, setWhitelistName] = useState('');
+  const [whitelistBotId, setWhitelistBotId] = useState<number | null>(null);
   const [binding, setBinding] = useState(false);
   const [bindModalOpen, setBindModalOpen] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
@@ -154,6 +159,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [historySelectedChatId, setHistorySelectedChatId] = useState<string | undefined>(undefined);
   const [historyIsHistory, setHistoryIsHistory] = useState<boolean | undefined>(undefined);
   const [historySelectedSenderId, setHistorySelectedSenderId] = useState<string | undefined>(undefined);
+  const [historyViewMsg, setHistoryViewMsg] = useState<string | null>(null);
   const [historyAddModalOpen, setHistoryAddModalOpen] = useState(false);
   const [historyForm] = Form.useForm();
 
@@ -244,6 +250,35 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     db.getFeishuPush()
       .then((status) => setFeishuPushStatus(status))
       .catch(() => {});
+  };
+
+  const loadGroupWhitelist = (botId: number) => {
+    setWhitelistBotId(botId);
+    db.getGroupWhitelist(botId)
+      .then(setGroupWhitelist)
+      .catch(() => setGroupWhitelist([]));
+  };
+
+  const handleAddWhitelist = async () => {
+    if (!whitelistBotId || !whitelistOpenId.trim()) return;
+    try {
+      await db.addGroupWhitelist(whitelistBotId, whitelistOpenId.trim(), whitelistName.trim() || undefined);
+      loadGroupWhitelist(whitelistBotId);
+      setWhitelistOpenId('');
+      setWhitelistName('');
+    } catch (e: any) {
+      message.error('添加白名单失败: ' + (e.message || '未知错误'));
+    }
+  };
+
+  const handleDeleteWhitelist = async (id: number) => {
+    if (!whitelistBotId) return;
+    try {
+      await db.deleteGroupWhitelist(id);
+      loadGroupWhitelist(whitelistBotId);
+    } catch (e: any) {
+      message.error('删除白名单失败: ' + (e.message || '未知错误'));
+    }
   };
 
   const loadHistoryMessages = async () => {
@@ -1221,6 +1256,64 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                         </div>
                                       </div>
                                     )}
+                                    {hasPushTarget && (
+                                      <div style={{ marginTop: 10 }}>
+                                        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
+                                          群聊响应白名单
+                                          <Tooltip title="白名单为空时不限制，仅白名单内的用户消息会触发响应">
+                                            <InfoCircleOutlined style={{ marginLeft: 4, fontSize: 10 }} />
+                                          </Tooltip>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                                          <AutoComplete
+                                            size="small"
+                                            placeholder="搜索或粘贴 Open ID"
+                                            value={whitelistBotId === botPushStatus.bot_id ? whitelistOpenId : undefined}
+                                            onChange={(v) => { setWhitelistBotId(botPushStatus.bot_id); setWhitelistOpenId(v); }}
+                                            onFocus={() => { if (whitelistBotId !== botPushStatus.bot_id) { loadGroupWhitelist(botPushStatus.bot_id); loadHistorySenders(); } }}
+                                            filterOption={(input, option) => {
+                                              if (!option?.value) return false;
+                                              const val = (option.value as string).toLowerCase();
+                                              const label = (option.label as string)?.toLowerCase() || '';
+                                              const q = input.toLowerCase();
+                                              return val.includes(q) || label.includes(q);
+                                            }}
+                                            style={{ flex: 1, fontSize: 11 }}
+                                            options={historySenders
+                                              .filter(s => s.sender_open_id)
+                                              .map((s) => {
+                                                const typeTag = s.sender_type === 'app' ? '[Bot] ' : '';
+                                                const label = s.sender_nickname || s.sender_open_id;
+                                                return {
+                                                  value: s.sender_open_id,
+                                                  label: `${typeTag}${label} (${s.count}条)`,
+                                                };
+                                              })
+                                            }
+                                          />
+                                          <Input
+                                            size="small"
+                                            placeholder="备注名"
+                                            value={whitelistBotId === botPushStatus.bot_id ? whitelistName : ''}
+                                            onChange={(e) => { setWhitelistBotId(botPushStatus.bot_id); setWhitelistName(e.target.value); }}
+                                            style={{ width: 80, fontSize: 11 }}
+                                          />
+                                          <Button size="small" onClick={handleAddWhitelist}>添加</Button>
+                                        </div>
+                                        {(whitelistBotId === botPushStatus.bot_id ? groupWhitelist : []).map((w) => (
+                                          <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, marginBottom: 2 }}>
+                                            <span style={{ color: 'var(--color-text)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                              {w.sender_name || w.sender_open_id}
+                                            </span>
+                                            <span style={{ color: 'var(--color-text-tertiary)', fontSize: 10 }}>{w.sender_open_id.slice(0, 12)}...</span>
+                                            <Button size="small" danger type="link" style={{ fontSize: 10, padding: 0 }} onClick={() => handleDeleteWhitelist(w.id)}>删除</Button>
+                                          </div>
+                                        ))}
+                                        {(whitelistBotId === botPushStatus.bot_id ? groupWhitelist : []).length === 0 && (
+                                          <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>暂无白名单，所有用户均可触发响应</div>
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -1230,6 +1323,18 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                       )}
                     </Spin>
                   </Card>
+
+                  <Modal
+                    open={!!historyViewMsg}
+                    onCancel={() => setHistoryViewMsg(null)}
+                    footer={null}
+                    width={560}
+                    title="消息详情"
+                  >
+                    <div style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 400, overflowY: 'auto' }}>
+                      {historyViewMsg}
+                    </div>
+                  </Modal>
 
                   <Card
                     title="斜杠命令规则"
@@ -1584,17 +1689,29 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                       {
                         title: '发送者',
                         key: 'sender',
-                        width: 120,
+                        width: 160,
                         render: (_, record) => {
                           const isBot = record.sender_type === 'app';
                           return (
-                            <Space>
+                            <Space size={2}>
                               <AntTag color={isBot ? 'blue' : 'green'}>
                                 {isBot ? '智能体' : '用户'}
                               </AntTag>
                               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                                 {record.sender_nickname || record.sender_open_id?.slice(0, 8) || '-'}
                               </Typography.Text>
+                              {record.sender_open_id && (
+                                <Button
+                                  size="small"
+                                  type="link"
+                                  icon={<CopyOutlined />}
+                                  style={{ fontSize: 10, padding: 0 }}
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(record.sender_open_id);
+                                    message.success('已复制 Open ID');
+                                  }}
+                                />
+                              )}
                             </Space>
                           );
                         },
@@ -1603,17 +1720,29 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                         title: '内容',
                         dataIndex: 'content',
                         key: 'content',
-                        ellipsis: true,
+                        width: 200,
                         render: (content: string, record) => {
+                          let text: string;
                           if (record.msg_type === 'text') {
                             try {
                               const parsed = JSON.parse(content);
-                              return parsed.text || content;
+                              text = parsed.text || content;
                             } catch {
-                              return content;
+                              text = content;
                             }
+                          } else {
+                            return <AntTag>{record.msg_type}</AntTag>;
                           }
-                          return <AntTag>{record.msg_type}</AntTag>;
+                          const MAX = 40;
+                          const truncated = text.length > MAX ? text.slice(0, MAX) + '...' : text;
+                          return (
+                            <span
+                              style={{ cursor: 'pointer', fontSize: 12 }}
+                              onClick={() => setHistoryViewMsg(text)}
+                            >
+                              {truncated}
+                            </span>
+                          );
                         },
                       },
                       {

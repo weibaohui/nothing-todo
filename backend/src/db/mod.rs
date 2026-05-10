@@ -394,6 +394,20 @@ impl Database {
         )
         .await?;
 
+        // feishu_group_whitelist 表（群聊响应白名单）
+        self.exec("DROP TABLE IF EXISTS feishu_group_whitelist").await?;
+        self.exec(
+            "CREATE TABLE feishu_group_whitelist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id INTEGER NOT NULL,
+                sender_open_id TEXT NOT NULL,
+                sender_name TEXT,
+                created_at TEXT,
+                UNIQUE(bot_id, sender_open_id)
+            )",
+        )
+        .await?;
+
         Ok(())
     }
 }
@@ -408,6 +422,7 @@ mod feishu_message;
 mod feishu_push_target;
 mod feishu_history_chat;
 mod feishu_response_config;
+mod feishu_group_whitelist;
 
 #[cfg(test)]
 mod tests {

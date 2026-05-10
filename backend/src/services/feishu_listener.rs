@@ -179,6 +179,7 @@ impl FeishuListener {
             &msg.channel,
             chat_type,
             &msg.sender,
+            msg.sender_type.as_deref(),
             Some(&msg.content),
             "text",
             is_mention,
@@ -219,6 +220,24 @@ impl FeishuListener {
                 Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
             }
             return;
+        }
+
+        // Check group whitelist for group chats
+        if chat_type == "group" {
+            let in_whitelist = match db.is_sender_in_whitelist(bot_id, &msg.sender).await {
+                Ok(allowed) => allowed,
+                Err(e) => {
+                    tracing::warn!("[feishu:{}] whitelist check failed for sender {}, defaulting to allow: {}", bot_id, msg.sender, e);
+                    true
+                }
+            };
+            if !in_whitelist {
+                tracing::info!("[feishu:{}] sender {} not in group whitelist, skipping", bot_id, msg.sender);
+                if let Some(rid) = &reaction_id {
+                    Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
+                }
+                return;
+            }
         }
 
         if let Some(command_ctx) = Self::parse_slash_command(content) {

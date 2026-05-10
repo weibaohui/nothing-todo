@@ -5,6 +5,7 @@ use axum::{
 };
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -444,4 +445,70 @@ pub async fn update_feishu_push(
         p2p_response_enabled: p2p_enabled,
         group_response_enabled: group_enabled,
     }))
+}
+
+// Group Whitelist APIs
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WhitelistEntry {
+    pub id: i64,
+    pub bot_id: i64,
+    pub sender_open_id: String,
+    pub sender_name: Option<String>,
+    pub created_at: Option<String>,
+}
+
+pub async fn get_group_whitelist(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Result<impl IntoResponse, AppError> {
+    let bot_id: i64 = params.get("bot_id")
+        .ok_or(AppError::BadRequest("bot_id required".into()))?
+        .parse()
+        .map_err(|_| AppError::BadRequest("invalid bot_id".into()))?;
+
+    let list = state.db.get_group_whitelist(bot_id).await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    let entries: Vec<WhitelistEntry> = list.into_iter().map(|w| WhitelistEntry {
+        id: w.id,
+        bot_id: w.bot_id,
+        sender_open_id: w.sender_open_id,
+        sender_name: w.sender_name,
+        created_at: w.created_at,
+    }).collect();
+
+    Ok(ApiResponse::ok(entries))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AddWhitelistRequest {
+    pub bot_id: i64,
+    pub sender_open_id: String,
+    pub sender_name: Option<String>,
+}
+
+pub async fn add_group_whitelist(
+    State(state): State<AppState>,
+    Json(req): Json<AddWhitelistRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let entry = state.db.add_group_whitelist(req.bot_id, &req.sender_open_id, req.sender_name.as_deref()).await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    Ok(ApiResponse::ok(WhitelistEntry {
+        id: entry.id,
+        bot_id: entry.bot_id,
+        sender_open_id: entry.sender_open_id,
+        sender_name: entry.sender_name,
+        created_at: entry.created_at,
+    }))
+}
+
+pub async fn delete_group_whitelist(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, AppError> {
+    state.db.remove_group_whitelist(id).await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    Ok(ApiResponse::ok(serde_json::json!({"success": true})))
 }
