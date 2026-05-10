@@ -7,6 +7,8 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
     pub bot_id: i64,
+    /// "p2p" or "group"
+    pub target_type: String,
     pub chat_id: Option<String>,
     pub receive_id: String,
     pub receive_id_type: String,
