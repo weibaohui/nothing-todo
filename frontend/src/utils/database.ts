@@ -447,3 +447,29 @@ export async function updateFeishuHistoryChat(id: number, params: UpdateFeishuHi
 export async function deleteFeishuHistoryChat(id: number): Promise<void> {
   await api.delete(`/xyz/feishu/history-chats/${id}`);
 }
+
+// Group Whitelist APIs
+
+export interface WhitelistEntry {
+  id: number;
+  bot_id: number;
+  sender_open_id: string;
+  sender_name: string | null;
+  created_at: string | null;
+}
+
+export async function getGroupWhitelist(botId: number): Promise<WhitelistEntry[]> {
+  return unwrap(await api.get<ApiResp<WhitelistEntry[]>>('/xyz/agent-bots/feishu/group-whitelist', { params: { bot_id: botId } }));
+}
+
+export async function addGroupWhitelist(botId: number, senderOpenId: string, senderName?: string): Promise<WhitelistEntry> {
+  return unwrap(await api.post<ApiResp<WhitelistEntry>>('/xyz/agent-bots/feishu/group-whitelist', {
+    bot_id: botId,
+    sender_open_id: senderOpenId,
+    sender_name: senderName || null,
+  }));
+}
+
+export async function deleteGroupWhitelist(id: number): Promise<void> {
+  await api.delete(`/xyz/agent-bots/feishu/group-whitelist/${id}`);
+}

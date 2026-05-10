@@ -382,6 +382,16 @@ impl FeishuHistoryFetcher {
 
                         // Process the message through slash command / default response pipeline
                         if let Some(ref msg_content) = content {
+                            // Check group whitelist
+                            let in_whitelist = db.is_sender_in_whitelist(bot_id, sender_open_id).await.unwrap_or(true);
+                            if !in_whitelist {
+                                tracing::debug!(
+                                    "[feishu-history-fetcher] sender {} not in group whitelist, skipping",
+                                    sender_open_id
+                                );
+                                continue;
+                            }
+
                             if let Some((todo_id, execution_record_id)) = Self::process_message(
                                 db,
                                 executor_registry,
