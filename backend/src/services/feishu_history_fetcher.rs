@@ -409,6 +409,7 @@ impl FeishuHistoryFetcher {
                             // Push to debounce buffer instead of executing directly
                             if let Some(todo_id) = Self::resolve_todo_id(config, msg_content).await {
                                 let (trigger_type, params) = Self::build_trigger_params(msg_content);
+                                let todo_prompt = db.get_todo(todo_id).await.map(|t| t.prompt.clone()).unwrap_or_default();
                                 debounce.push(PendingMessage {
                                     bot_id,
                                     chat_id: chat_id.to_string(),
@@ -416,6 +417,7 @@ impl FeishuHistoryFetcher {
                                     sender: sender_open_id.to_string(),
                                     content: msg_content.clone(),
                                     todo_id,
+                                    todo_prompt,
                                     executor: None,
                                     trigger_type,
                                     params,

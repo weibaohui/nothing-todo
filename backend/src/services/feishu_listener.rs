@@ -273,6 +273,7 @@ impl FeishuListener {
                             sender: msg.sender.clone(),
                             content: command_ctx.body.to_string(),
                             todo_id: todo.id,
+                            todo_prompt: todo.prompt.clone(),
                             executor: todo.executor.clone(),
                             trigger_type: "slash_command".to_string(),
                             params: Some(params),
@@ -287,6 +288,7 @@ impl FeishuListener {
                 };
                 if let Some(todo_id) = default_todo_id {
                     if !content.is_empty() {
+                        let todo_prompt = db.get_todo(todo_id).await.map(|t| t.prompt.clone()).unwrap_or_default();
                         debounce.push(PendingMessage {
                             bot_id,
                             chat_id: msg.channel.clone(),
@@ -294,6 +296,7 @@ impl FeishuListener {
                             sender: msg.sender.clone(),
                             content: content.to_string(),
                             todo_id,
+                            todo_prompt,
                             executor: None,
                             trigger_type: "default_response".to_string(),
                             params: None,
@@ -310,6 +313,7 @@ impl FeishuListener {
 
             if let Some(todo_id) = default_todo_id {
                 if !content.is_empty() {
+                    let todo_prompt = db.get_todo(todo_id).await.map(|t| t.prompt.clone()).unwrap_or_default();
                     debounce.push(PendingMessage {
                         bot_id,
                         chat_id: msg.channel.clone(),
@@ -317,6 +321,7 @@ impl FeishuListener {
                         sender: msg.sender.clone(),
                         content: content.to_string(),
                         todo_id,
+                        todo_prompt,
                         executor: None,
                         trigger_type: "default_response".to_string(),
                         params: None,
