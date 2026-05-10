@@ -311,6 +311,24 @@ impl FeishuHistoryFetcher {
                     // sender_open_id is actually the sender's ID (open_id for users, app_id for bots)
                     let sender_open_id = sender_id.as_str();
 
+                    // Skip if sender is OUR registered bot (using OR logic)
+                    // This prevents circular triggering: bot sends message -> history fetcher picks it up -> bot processes it again
+                    let is_our_bot = Self::is_our_bot_message(
+                        &sender_id,
+                        sender_type.as_deref(),
+                        bot_credentials,
+                        token_manager,
+                        bot_id,
+                    ).await;
+
+                    if is_our_bot {
+                        tracing::debug!(
+                            "[feishu-history-fetcher] skip our own bot message from sender_id={}, chat {}",
+                            sender_id, chat_id
+                        );
+                        continue;
+                    }
+
                     let sender_nickname: Option<&str> = None;
 
                     let content = item.body.as_ref()
@@ -343,13 +361,6 @@ impl FeishuHistoryFetcher {
                     } else {
                         total_fetched += 1;
 
-                        // Resolve bot's own open_id to filter out self-sent messages
-                        let bot_open_id = Self::resolve_bot_open_id(
-                            bot_credentials,
-                            token_manager,
-                            bot_id,
-                        ).await;
-
                         // Process the message through slash command / default response pipeline
                         if let Some(ref msg_content) = content {
                             if let Some((todo_id, execution_record_id)) = Self::process_message(
@@ -361,7 +372,7 @@ impl FeishuHistoryFetcher {
                                 token_manager,
                                 bot_credentials,
                                 bot_id,
-                                bot_open_id.as_deref(),
+                                None, // No need to check bot_open_id anymore since we filter by sender_type
                                 "group",
                                 sender_open_id,
                                 chat_id,
@@ -382,7 +393,6 @@ impl FeishuHistoryFetcher {
     }
 
     /// 处理消息：斜杠命令 -> 默认响应，返回 (todo_id, execution_record_id)
-    /// 如果消息发送者是机器人自身，则跳过处理（避免循环触发）
     #[allow(clippy::too_many_arguments)]
     async fn process_message(
         db: &Arc<Database>,
@@ -393,25 +403,13 @@ impl FeishuHistoryFetcher {
         token_manager: &Arc<TokenManager>,
         bot_credentials: &Arc<DashMap<i64, (String, String, String)>>,
         bot_id: i64,
-        bot_open_id: Option<&str>,
+        _bot_open_id: Option<&str>,
         chat_type: &str,
         sender: &str,
         channel: &str,
         content: &str,
     ) -> Option<(i64, Option<i64>)> {
         let trimmed = content.trim();
-
-        // 过滤：如果是机器人自己发送的消息，不处理（防止循环触发）
-        // 机器人发送执行结果到群 -> 拉取到历史消息 -> 再次触发执行 -> 循环
-        if let Some(bot_id_str) = bot_open_id {
-            if sender == bot_id_str {
-                tracing::debug!(
-                    "[feishu-history] skip self-sent message from bot {}, sender={}",
-                    bot_id, sender
-                );
-                return None;
-            }
-        }
 
         // 尝试解析斜杠命令
         if let Some(command_ctx) = Self::parse_slash_command(trimmed) {
@@ -736,6 +734,50 @@ impl FeishuHistoryFetcher {
             .and_then(|b| b.get("open_id"))
             .and_then(|v| v.as_str())
             .map(String::from)
+    }
+
+    /// Check if a message was sent by our own bot using OR logic.
+    /// Matches against: app_id OR open_id of the registered bot.
+    /// Returns true if sender matches ANY of our bot's identifiers.
+    async fn is_our_bot_message(
+        sender_id: &str,
+        sender_type: Option<&str>,
+        bot_credentials: &Arc<DashMap<i64, (String, String, String)>>,
+        token_manager: &Arc<TokenManager>,
+        bot_id: i64,
+    ) -> bool {
+        if sender_id.is_empty() {
+            return false;
+        }
+
+        // Check 1: If sender_type is "app", sender_id is the app_id - check if it matches our app_id
+        if sender_type == Some("app") {
+            if let Some(ref_val) = bot_credentials.get(&bot_id) {
+                if sender_id == ref_val.0 {
+                    tracing::debug!(
+                        "[feishu-history-fetcher] matched our bot by app_id: {}",
+                        sender_id
+                    );
+                    return true;
+                }
+            }
+        }
+
+        // Check 2: Resolve bot's open_id and compare
+        if sender_type != Some("user") {
+            let bot_open_id = Self::resolve_bot_open_id(bot_credentials, token_manager, bot_id).await;
+            if let Some(open_id) = bot_open_id {
+                if sender_id == open_id {
+                    tracing::debug!(
+                        "[feishu-history-fetcher] matched our bot by open_id: {}",
+                        sender_id
+                    );
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     fn build_sdk_config(

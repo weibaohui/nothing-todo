@@ -211,8 +211,7 @@ impl FeishuListener {
         }
 
         // Check if message response is enabled for this chat type
-        let (p2p_enabled, group_enabled) = db.get_feishu_response_enabled(bot_id).await.unwrap_or((false, false));
-        let response_enabled = if chat_type == "p2p" { p2p_enabled } else { group_enabled };
+        let response_enabled = db.get_feishu_response_enabled(bot_id, chat_type).await.unwrap_or(false);
 
         if !response_enabled {
             tracing::info!("[feishu:{}] message response is disabled for {} chat type", bot_id, chat_type);
@@ -601,9 +600,9 @@ impl FeishuListener {
             tracing::error!("[feishu:{}] set push target failed: {e}", bot_id);
         }
 
-        // Enable message response for this chat type
+        // Enable message response for this chat type (using independent response config table)
         if let Err(e) = db
-            .update_feishu_response_enabled(bot_id, target_type, true)
+            .set_feishu_response_enabled(bot_id, target_type, true)
             .await
         {
             tracing::error!("[feishu:{}] enable response failed: {e}", bot_id);
