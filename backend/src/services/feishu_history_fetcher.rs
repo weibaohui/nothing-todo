@@ -352,7 +352,7 @@ impl FeishuHistoryFetcher {
 
                         // Process the message through slash command / default response pipeline
                         if let Some(ref msg_content) = content {
-                            if let Some(todo_id) = Self::process_message(
+                            if let Some((todo_id, execution_record_id)) = Self::process_message(
                                 db,
                                 executor_registry,
                                 tx,
@@ -367,8 +367,8 @@ impl FeishuHistoryFetcher {
                                 chat_id,
                                 msg_content,
                             ).await {
-                                // Mark message as processed with the triggered todo_id
-                                if let Err(e) = db.mark_feishu_message_processed(&item.message_id, todo_id).await {
+                                // Mark message as processed with the triggered todo_id and execution_record_id
+                                if let Err(e) = db.mark_feishu_message_processed(&item.message_id, todo_id, execution_record_id).await {
                                     warn!("[feishu-history-fetcher] failed to mark message {} as processed: {}", item.message_id, e);
                                 }
                             }
@@ -381,7 +381,7 @@ impl FeishuHistoryFetcher {
         Ok(total_fetched)
     }
 
-    /// 处理消息：斜杠命令 -> 默认响应，返回触发的 todo_id（如果有）
+    /// 处理消息：斜杠命令 -> 默认响应，返回 (todo_id, execution_record_id)
     /// 如果消息发送者是机器人自身，则跳过处理（避免循环触发）
     #[allow(clippy::too_many_arguments)]
     async fn process_message(
@@ -398,7 +398,7 @@ impl FeishuHistoryFetcher {
         sender: &str,
         channel: &str,
         content: &str,
-    ) -> Option<i64> {
+    ) -> Option<(i64, Option<i64>)> {
         let trimmed = content.trim();
 
         // 过滤：如果是机器人自己发送的消息，不处理（防止循环触发）
@@ -427,7 +427,7 @@ impl FeishuHistoryFetcher {
             if let Some(rule) = matched_rule {
                 // 匹配到规则，执行对应的 Todo
                 if !command_ctx.body.is_empty() {
-                    Self::execute_slash_command(
+                    return Self::execute_slash_command(
                         db,
                         executor_registry,
                         tx,
@@ -443,7 +443,6 @@ impl FeishuHistoryFetcher {
                         command_ctx.body,
                         rule.todo_id,
                     ).await;
-                    return Some(rule.todo_id);
                 }
             }
         }
@@ -456,7 +455,7 @@ impl FeishuHistoryFetcher {
 
         if let Some(todo_id) = default_todo_id {
             if !trimmed.is_empty() {
-                Self::execute_default_response(
+                return Self::execute_default_response(
                     db,
                     executor_registry,
                     tx,
@@ -470,7 +469,6 @@ impl FeishuHistoryFetcher {
                     trimmed,
                     todo_id,
                 ).await;
-                return Some(todo_id);
             }
         }
         None
@@ -488,7 +486,7 @@ impl FeishuHistoryFetcher {
         Some(SlashCommandMatch { command, body })
     }
 
-    /// 执行斜杠命令
+    /// 执行斜杠命令，返回 (todo_id, execution_record_id)
     #[allow(clippy::too_many_arguments)]
     async fn execute_slash_command(
         db: &Arc<Database>,
@@ -505,7 +503,7 @@ impl FeishuHistoryFetcher {
         command: &str,
         body: &str,
         todo_id: i64,
-    ) {
+    ) -> Option<(i64, Option<i64>)> {
         let (receive_id, receive_id_type) = match chat_type {
             "p2p" => (sender.to_string(), "open_id"),
             _ => (channel.to_string(), "chat_id"),
@@ -515,7 +513,7 @@ impl FeishuHistoryFetcher {
             Some(todo) => todo,
             None => {
                 tracing::warn!("[feishu-history] 斜杠命令绑定的 Todo 不存在: todo_id={}", todo_id);
-                return;
+                return None;
             }
         };
 
@@ -542,10 +540,11 @@ impl FeishuHistoryFetcher {
         {
             Ok(result) => {
                 tracing::info!(
-                    "[feishu-history] 斜杠命令触发 Todo 执行: command={}, todo_id={}, task_id={}",
+                    "[feishu-history] 斜杠命令触发 Todo 执行: command={}, todo_id={}, task_id={}, record_id={:?}",
                     command,
                     todo.id,
-                    result.task_id
+                    result.task_id,
+                    result.record_id
                 );
                 // 发送确认消息
                 let reply = format!(
@@ -556,6 +555,7 @@ impl FeishuHistoryFetcher {
                     body
                 );
                 Self::send_text(bot_credentials, token_manager, bot_id, &receive_id, receive_id_type, &reply).await;
+                Some((todo.id, result.record_id))
             }
             Err(err) => {
                 tracing::error!(
@@ -564,11 +564,12 @@ impl FeishuHistoryFetcher {
                     todo.id,
                     err
                 );
+                None
             }
         }
     }
 
-    /// 执行默认响应
+    /// 执行默认响应，返回 (todo_id, execution_record_id)
     #[allow(clippy::too_many_arguments)]
     async fn execute_default_response(
         db: &Arc<Database>,
@@ -583,7 +584,7 @@ impl FeishuHistoryFetcher {
         channel: &str,
         body: &str,
         todo_id: i64,
-    ) {
+    ) -> Option<(i64, Option<i64>)> {
         let (receive_id, receive_id_type) = match chat_type {
             "p2p" => (sender.to_string(), "open_id"),
             _ => (channel.to_string(), "chat_id"),
@@ -593,7 +594,7 @@ impl FeishuHistoryFetcher {
             Some(todo) => todo,
             None => {
                 tracing::warn!("[feishu-history] 默认响应绑定的 Todo 不存在: todo_id={}", todo_id);
-                return;
+                return None;
             }
         };
 
@@ -619,9 +620,10 @@ impl FeishuHistoryFetcher {
         {
             Ok(result) => {
                 tracing::info!(
-                    "[feishu-history] 默认响应触发 Todo 执行: todo_id={}, task_id={}",
+                    "[feishu-history] 默认响应触发 Todo 执行: todo_id={}, task_id={}, record_id={:?}",
                     todo.id,
-                    result.task_id
+                    result.task_id,
+                    result.record_id
                 );
                 let reply = format!(
                     "收到消息，已启动 Todo #{}《{}》。\n任务参数: {}",
@@ -630,6 +632,7 @@ impl FeishuHistoryFetcher {
                     body
                 );
                 Self::send_text(bot_credentials, token_manager, bot_id, &receive_id, receive_id_type, &reply).await;
+                Some((todo.id, result.record_id))
             }
             Err(err) => {
                 tracing::error!(
@@ -637,6 +640,7 @@ impl FeishuHistoryFetcher {
                     todo.id,
                     err
                 );
+                None
             }
         }
     }

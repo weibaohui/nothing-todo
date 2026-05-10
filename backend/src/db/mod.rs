@@ -335,6 +335,14 @@ impl Database {
                 .ok();
         }
 
+        // 添加 execution_record_id 字段的迁移
+        let add_exec_result = self.exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS execution_record_id INTEGER").await;
+        if add_exec_result.is_err() {
+            self.exec("ALTER TABLE feishu_messages ADD COLUMN execution_record_id INTEGER")
+                .await
+                .ok();
+        }
+
         // Feishu History Chats table
         self.exec(
             "CREATE TABLE IF NOT EXISTS feishu_history_chats (
