@@ -325,8 +325,15 @@ impl Database {
             .await.ok();
 
         // 添加 processed_todo_id 字段的迁移（向后兼容）
-        self.exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS processed_todo_id INTEGER")
-            .await.ok();
+        // 注意：SQLite 3.39.0+ 支持 IF NOT EXISTS，但旧版本不支持此语法
+        // 先尝试带 IF NOT EXISTS 的版本，失败后再尝试不带 IF NOT EXISTS 的版本
+        let add_result = self.exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS processed_todo_id INTEGER").await;
+        if add_result.is_err() {
+            // 尝试不带 IF NOT EXISTS 的版本（如果列已存在会报错，被 .ok() 忽略）
+            self.exec("ALTER TABLE feishu_messages ADD COLUMN processed_todo_id INTEGER")
+                .await
+                .ok();
+        }
 
         // Feishu History Chats table
         self.exec(
