@@ -332,6 +332,8 @@ export interface FeishuHistoryMessage {
   content: string | null;
   msg_type: string;
   is_history: boolean;
+  processed: boolean;
+  processed_todo_id: number | null;
   created_at: string | null;
 }
 
