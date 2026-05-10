@@ -44,6 +44,8 @@ import {
   HistoryOutlined,
   QuestionCircleOutlined,
   MinusCircleOutlined,
+  PlayCircleOutlined,
+  StopOutlined,
 } from '@ant-design/icons';
 import { Cron } from 'react-js-cron';
 import QRCode from 'qrcode';
@@ -52,7 +54,7 @@ import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
 import type { FeishuPushStatus, WhitelistEntry } from '../utils/database';
 import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
-import type { Config, ExecutorPaths, FeishuHistoryMessage, FeishuHistoryChat, SlashCommandRule } from '../types';
+import type { Config, ExecutorPaths, FeishuHistoryMessage, FeishuHistoryChat, SlashCommandRule, RunningTask } from '../types';
 import yaml from 'js-yaml';
 import { CronPresetSelect } from './CronPresetSelect';
 import { SkillsPanel } from './SkillsPanel';
@@ -98,9 +100,10 @@ const EXECUTOR_LABELS: Record<string, string> = {
 
 interface SettingsPageProps {
   onBack?: () => void;
+  runningTasks?: Record<string, RunningTask>;
 }
 
-export function SettingsPage({ onBack }: SettingsPageProps) {
+export function SettingsPage({ onBack, runningTasks = {} }: SettingsPageProps) {
   const { state, dispatch } = useApp();
   const { tags, todos } = state;
 
@@ -114,6 +117,9 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
   const [importing, setImporting] = useState(false);
 
+  // Runtime management state
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [stoppingTasks, setStoppingTasks] = useState(false);
   // Selective export state
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportTodoKeys, setExportTodoKeys] = useState<number[]>([]);
@@ -673,6 +679,34 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     }
   };
 
+  // Batch stop running tasks
+  const handleBatchStop = async () => {
+    if (selectedTaskIds.length === 0) return;
+    setStoppingTasks(true);
+    let successCount = 0;
+    let failCount = 0;
+    for (const taskId of selectedTaskIds) {
+      const task = runningTasks[taskId];
+      if (!task) continue;
+      try {
+        const records = await db.getExecutionRecords(task.todoId, 1, 20);
+        const record = records.records.find(r => r.task_id === taskId && r.status === 'running');
+        if (record) {
+          await db.stopExecution(record.id);
+          successCount++;
+        }
+      } catch {
+        failCount++;
+      }
+    }
+    setSelectedTaskIds([]);
+    setStoppingTasks(false);
+    if (successCount > 0) message.success(`已停止 ${successCount} 个任务`);
+    if (failCount > 0) message.error(`${failCount} 个任务停止失败`);
+  };
+
+  const taskList = Object.values(runningTasks).filter(t => t.status === 'running');
+
   const tabItems = [
     {
       key: 'system',
@@ -1006,6 +1040,90 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         </span>
       ),
       children: <SkillsPanel />,
+    },
+    {
+      key: 'runtime',
+      label: (
+        <span>
+          <PlayCircleOutlined style={{ marginRight: 6 }} />
+          运行管理
+        </span>
+      ),
+      children: (
+        <div style={{ padding: '8px 0' }}>
+          <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Button
+              danger
+              size="small"
+              icon={<StopOutlined />}
+              disabled={selectedTaskIds.length === 0}
+              loading={stoppingTasks}
+              onClick={handleBatchStop}
+            >
+              批量停止 ({selectedTaskIds.length})
+            </Button>
+            <span style={{ color: 'var(--color-text-secondary)', fontSize: 12 }}>
+              共 {taskList.length} 个运行中任务
+            </span>
+          </div>
+          <Table
+            size="small"
+            rowKey="taskId"
+            dataSource={taskList}
+            rowSelection={{
+              selectedRowKeys: selectedTaskIds,
+              onChange: (keys) => setSelectedTaskIds(keys as string[]),
+            }}
+            pagination={false}
+            columns={[
+              {
+                title: 'Todo',
+                dataIndex: 'todoTitle',
+                key: 'todoTitle',
+                ellipsis: true,
+              },
+              {
+                title: '执行器',
+                dataIndex: 'executor',
+                key: 'executor',
+                width: 120,
+                render: (v: string) => EXECUTOR_LABELS[v] || v,
+              },
+              {
+                title: '开始时间',
+                dataIndex: 'startedAt',
+                key: 'startedAt',
+                width: 160,
+                render: (v: string) => v ? new Date(v).toLocaleString() : '-',
+              },
+              {
+                title: '状态',
+                dataIndex: 'status',
+                key: 'status',
+                width: 80,
+                render: (v: string) => <AntTag color={v === 'running' ? 'blue' : 'default'}>{v}</AntTag>,
+              },
+              {
+                title: '操作',
+                key: 'action',
+                width: 80,
+                render: (_: unknown, record: RunningTask) => (
+                  <Popconfirm title="确认停止此任务？" onConfirm={async () => {
+                    try {
+                      const records = await db.getExecutionRecords(record.todoId, 1, 20);
+                      const r = records.records.find((rec) => rec.task_id === record.taskId && rec.status === 'running');
+                      if (r) { await db.stopExecution(r.id); message.success('已停止'); }
+                    } catch (err) { message.error(`停止失败: ${err}`); }
+                  }}>
+                    <Button size="small" danger icon={<StopOutlined />} />
+                  </Popconfirm>
+                ),
+              },
+            ]}
+            locale={{ emptyText: <Empty description="暂无运行中任务" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+          />
+        </div>
+      ),
     },
     {
       key: 'messages',
