@@ -343,6 +343,13 @@ impl FeishuHistoryFetcher {
                     } else {
                         total_fetched += 1;
 
+                        // Resolve bot's own open_id to filter out self-sent messages
+                        let bot_open_id = Self::resolve_bot_open_id(
+                            bot_credentials,
+                            token_manager,
+                            bot_id,
+                        ).await;
+
                         // Process the message through slash command / default response pipeline
                         if let Some(ref msg_content) = content {
                             if let Some(todo_id) = Self::process_message(
@@ -354,6 +361,7 @@ impl FeishuHistoryFetcher {
                                 token_manager,
                                 bot_credentials,
                                 bot_id,
+                                bot_open_id.as_deref(),
                                 "group",
                                 sender_open_id,
                                 chat_id,
@@ -374,6 +382,7 @@ impl FeishuHistoryFetcher {
     }
 
     /// 处理消息：斜杠命令 -> 默认响应，返回触发的 todo_id（如果有）
+    /// 如果消息发送者是机器人自身，则跳过处理（避免循环触发）
     #[allow(clippy::too_many_arguments)]
     async fn process_message(
         db: &Arc<Database>,
@@ -384,12 +393,25 @@ impl FeishuHistoryFetcher {
         token_manager: &Arc<TokenManager>,
         bot_credentials: &Arc<DashMap<i64, (String, String, String)>>,
         bot_id: i64,
+        bot_open_id: Option<&str>,
         chat_type: &str,
         sender: &str,
         channel: &str,
         content: &str,
     ) -> Option<i64> {
         let trimmed = content.trim();
+
+        // 过滤：如果是机器人自己发送的消息，不处理（防止循环触发）
+        // 机器人发送执行结果到群 -> 拉取到历史消息 -> 再次触发执行 -> 循环
+        if let Some(bot_id_str) = bot_open_id {
+            if sender == bot_id_str {
+                tracing::debug!(
+                    "[feishu-history] skip self-sent message from bot {}, sender={}",
+                    bot_id, sender
+                );
+                return None;
+            }
+        }
 
         // 尝试解析斜杠命令
         if let Some(command_ctx) = Self::parse_slash_command(trimmed) {
@@ -685,6 +707,31 @@ impl FeishuHistoryFetcher {
                 None
             }
         }
+    }
+
+    /// Resolve the bot's own open_id from the Feishu API.
+    /// Used to filter out self-sent messages and prevent circular triggering.
+    async fn resolve_bot_open_id(
+        bot_credentials: &Arc<DashMap<i64, (String, String, String)>>,
+        token_manager: &Arc<TokenManager>,
+        bot_id: i64,
+    ) -> Option<String> {
+        let token = Self::get_tenant_token(bot_credentials, token_manager, bot_id).await?;
+        let base_url = Self::base_url(bot_credentials, bot_id)?;
+
+        let client = reqwest::Client::new();
+        let res = client
+            .get(format!("{base_url}/open-apis/bot/v3/info"))
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+            .await
+            .ok()?;
+
+        let body: serde_json::Value = res.json().await.ok()?;
+        body.get("bot")
+            .and_then(|b| b.get("open_id"))
+            .and_then(|v| v.as_str())
+            .map(String::from)
     }
 
     fn build_sdk_config(
