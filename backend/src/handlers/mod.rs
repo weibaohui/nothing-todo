@@ -290,12 +290,22 @@ pub fn create_app(
     task_manager: Arc<TaskManager>,
     config: Arc<tokio::sync::RwLock<Config>>,
 ) -> Router {
+    // Create message debounce service (shared between listener and history fetcher)
+    use crate::services::message_debounce::MessageDebounce;
+    let debounce = Arc::new(MessageDebounce::new(
+        db.clone(),
+        executor_registry.clone(),
+        tx.clone(),
+        task_manager.clone(),
+    ));
+
     let feishu_listener = Arc::new(FeishuListener::new(
         db.clone(),
         executor_registry.clone(),
         tx.clone(),
         task_manager.clone(),
         config.clone(),
+        debounce.clone(),
     ));
 
     // Auto-start Feishu listeners for enabled bots
@@ -329,6 +339,7 @@ pub fn create_app(
         config.clone(),
         feishu_listener.token_manager.clone(),
         feishu_listener.bot_credentials.clone(),
+        debounce.clone(),
     );
     let db_for_fetcher = db.clone();
     tokio::spawn(async move {

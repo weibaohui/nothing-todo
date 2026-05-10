@@ -1,0 +1,130 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use dashmap::DashMap;
+use tokio::sync::broadcast;
+use tokio::task::JoinHandle;
+
+use crate::adapters::ExecutorRegistry;
+use crate::db::Database;
+use crate::handlers::execution::start_todo_execution;
+use crate::handlers::ExecEvent;
+use crate::task_manager::TaskManager;
+
+#[derive(Debug, Clone)]
+pub struct PendingMessage {
+    pub bot_id: i64,
+    pub chat_id: String,
+    pub chat_type: String,
+    pub sender: String,
+    pub content: String,
+    pub todo_id: i64,
+    pub todo_prompt: String,
+    pub executor: Option<String>,
+    pub trigger_type: String,
+    pub params: Option<HashMap<String, String>>,
+}
+
+struct DebounceEntry {
+    messages: Vec<PendingMessage>,
+    timer: JoinHandle<()>,
+}
+
+pub struct MessageDebounce {
+    entries: Arc<DashMap<(i64, String), DebounceEntry>>,
+    db: Arc<Database>,
+    executor_registry: Arc<ExecutorRegistry>,
+    tx: broadcast::Sender<ExecEvent>,
+    task_manager: Arc<TaskManager>,
+}
+
+impl MessageDebounce {
+    pub fn new(
+        db: Arc<Database>,
+        executor_registry: Arc<ExecutorRegistry>,
+        tx: broadcast::Sender<ExecEvent>,
+        task_manager: Arc<TaskManager>,
+    ) -> Self {
+        Self {
+            entries: Arc::new(DashMap::new()),
+            db,
+            executor_registry,
+            tx,
+            task_manager,
+        }
+    }
+
+    /// Push a message into the debounce buffer. Resets the timer for this key.
+    pub fn push(&self, msg: PendingMessage) {
+        let key = (msg.bot_id, msg.chat_id.clone());
+
+        // Remove old entry and collect existing messages
+        let mut all_msgs = self.entries.remove(&key)
+            .map(|(_, old)| { old.timer.abort(); old.messages })
+            .unwrap_or_default();
+        all_msgs.push(msg);
+
+        // Create new timer
+        let new_timer = {
+            let entries = self.entries.clone();
+            let db = self.db.clone();
+            let executor_registry = self.executor_registry.clone();
+            let tx = self.tx.clone();
+            let task_manager = self.task_manager.clone();
+            let bot_id = key.0;
+            let chat_id = key.1.clone();
+            let target_type = all_msgs.first().map(|m| m.chat_type.clone()).unwrap_or_default();
+
+            tokio::spawn(async move {
+                let secs = db.get_debounce_secs(bot_id, &target_type).await.unwrap_or(20).max(1);
+                tokio::time::sleep(std::time::Duration::from_secs(secs as u64)).await;
+
+                // Timer fired: drain all pending messages for this key
+                let pending = entries.remove(&(bot_id, chat_id));
+                if let Some((_, entry)) = pending {
+                    if entry.messages.is_empty() {
+                        return;
+                    }
+
+                    let merged_content: String = entry.messages
+                        .iter()
+                        .map(|m| m.content.as_str())
+                        .collect::<Vec<&str>>()
+                        .join("\n---\n");
+
+                    let last = entry.messages.last().unwrap();
+                    let mut merged_params = last.params.clone().unwrap_or_default();
+                    merged_params.insert("content".to_string(), merged_content.clone());
+                    merged_params.insert("message".to_string(), merged_content);
+
+                    let result = start_todo_execution(
+                        db,
+                        executor_registry,
+                        tx,
+                        task_manager,
+                        last.todo_id,
+                        last.todo_prompt.clone(),
+                        last.executor.clone(),
+                        &last.trigger_type,
+                        Some(merged_params),
+                        None,
+                        None,
+                    ).await;
+
+                    if let Err(e) = result {
+                        tracing::warn!("[debounce] failed to execute todo {}: {:?}", last.todo_id, e);
+                    }
+                }
+            })
+        };
+
+        self.entries.insert(key, DebounceEntry {
+            messages: all_msgs,
+            timer: new_timer,
+        });
+    }
+
+    pub fn pending_count(&self) -> usize {
+        self.entries.iter().map(|e| e.messages.len()).sum()
+    }
+}
