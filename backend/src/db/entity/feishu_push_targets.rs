@@ -7,10 +7,11 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
     pub bot_id: i64,
-    /// "p2p" or "group"
-    pub target_type: String,
-    pub chat_id: Option<String>,
-    pub receive_id: String,
+    /// 单聊ID (open_id of the user for p2p messaging)
+    pub p2p_receive_id: String,
+    /// 群ID (chat_id of the group for group messaging)
+    pub group_chat_id: String,
+    /// 发送类型: "open_id" (use p2p_receive_id) or "chat_id" (use group_chat_id)
     pub receive_id_type: String,
     /// Push level: "disabled", "result_only", or "all"
     pub push_level: String,

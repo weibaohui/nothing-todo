@@ -360,16 +360,16 @@ impl Database {
         )
         .await?;
 
-        // Feishu Push Targets table
+        // Feishu Push Targets — one row per bot, p2p and group IDs as separate fields
+        self.exec("DROP TABLE IF EXISTS feishu_push_targets").await?;
         self.exec(
-            "CREATE TABLE IF NOT EXISTS feishu_push_targets (
+            "CREATE TABLE feishu_push_targets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 bot_id INTEGER NOT NULL,
-                target_type TEXT NOT NULL DEFAULT 'group',
-                chat_id TEXT,
-                receive_id TEXT NOT NULL,
-                receive_id_type TEXT NOT NULL,
-                push_level TEXT DEFAULT 'all',
+                p2p_receive_id TEXT NOT NULL DEFAULT '',
+                group_chat_id TEXT NOT NULL DEFAULT '',
+                receive_id_type TEXT NOT NULL DEFAULT 'open_id',
+                push_level TEXT DEFAULT 'result_only',
                 p2p_response_enabled INTEGER DEFAULT 1,
                 group_response_enabled INTEGER DEFAULT 1,
                 created_at TEXT,
@@ -379,31 +379,10 @@ impl Database {
         )
         .await?;
 
-        // 添加 target_type 字段的迁移（向后兼容）
-        // 注意：旧记录会将 target_type 设为 NULL，需要更新为 'group'
-        let add_target_type = self.exec(
-            "ALTER TABLE feishu_push_targets ADD COLUMN target_type TEXT DEFAULT 'group'"
-        ).await;
-        if add_target_type.is_ok() {
-            // 更新旧的 NULL 记录为 'group'
-            self.exec(
-                "UPDATE feishu_push_targets SET target_type = 'group' WHERE target_type IS NULL"
-            ).await.ok();
-        }
-
-        // 添加 p2p_response_enabled 字段的迁移
+        // feishu_response_config 表（响应开关独立配置）
+        self.exec("DROP TABLE IF EXISTS feishu_response_config").await?;
         self.exec(
-            "ALTER TABLE feishu_push_targets ADD COLUMN p2p_response_enabled INTEGER DEFAULT 1"
-        ).await.ok();
-
-        // 添加 group_response_enabled 字段的迁移
-        self.exec(
-            "ALTER TABLE feishu_push_targets ADD COLUMN group_response_enabled INTEGER DEFAULT 1"
-        ).await.ok();
-
-        // 创建 feishu_response_config 表（响应开关独立配置）
-        self.exec(r#"
-            CREATE TABLE IF NOT EXISTS feishu_response_config (
+            "CREATE TABLE feishu_response_config (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 bot_id INTEGER NOT NULL,
                 target_type TEXT NOT NULL,
@@ -411,8 +390,9 @@ impl Database {
                 created_at TEXT,
                 updated_at TEXT,
                 UNIQUE(bot_id, target_type)
-            )
-        "#).await.ok();
+            )",
+        )
+        .await?;
 
         Ok(())
     }

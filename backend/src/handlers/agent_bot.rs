@@ -362,8 +362,8 @@ pub async fn update_agent_bot_config(
 pub struct FeishuPushStatus {
     pub bot_id: i64,
     pub push_level: String,
-    pub chat_id: Option<String>,
-    pub receive_id: String,
+    pub p2p_receive_id: String,
+    pub group_chat_id: String,
     pub receive_id_type: String,
     pub p2p_response_enabled: bool,
     pub group_response_enabled: bool,
@@ -373,9 +373,9 @@ pub struct FeishuPushStatus {
 pub struct UpdateFeishuPushRequest {
     pub bot_id: i64,
     pub push_level: Option<String>,
-    pub receive_id: Option<String>,
+    pub p2p_receive_id: Option<String>,
+    pub group_chat_id: Option<String>,
     pub receive_id_type: Option<String>,
-    pub chat_id: Option<String>,
     pub p2p_response_enabled: Option<bool>,
     pub group_response_enabled: Option<bool>,
 }
@@ -387,28 +387,16 @@ pub async fn get_feishu_push(
     let mut statuses = Vec::new();
 
     for bot in bots.into_iter().filter(|b| b.bot_type == "feishu") {
-        // Get response enabled status from independent response config table
         let p2p_enabled = state.db.get_feishu_response_enabled(bot.id, "p2p").await.unwrap_or(false);
         let group_enabled = state.db.get_feishu_response_enabled(bot.id, "group").await.unwrap_or(false);
-
-        // Fetch both p2p and group targets, then merge into a combined view.
-        // receive_id (单聊ID) comes from p2p target; chat_id (群ID) comes from group target.
-        let p2p_target = state.db.get_feishu_push_target(bot.id, "p2p").await.ok().flatten();
-        let group_target = state.db.get_feishu_push_target(bot.id, "group").await.ok().flatten();
-
-        let primary = p2p_target.as_ref().or(group_target.as_ref());
+        let target = state.db.get_feishu_push_target(bot.id).await.ok().flatten();
 
         statuses.push(FeishuPushStatus {
             bot_id: bot.id,
-            push_level: primary.as_ref().map(|t| t.push_level.clone()).unwrap_or_else(|| "disabled".to_string()),
-            chat_id: group_target.as_ref().and_then(|t| t.chat_id.clone())
-                .or_else(|| p2p_target.as_ref().and_then(|t| t.chat_id.clone())),
-            receive_id: p2p_target.as_ref().map(|t| t.receive_id.clone())
-                .or_else(|| group_target.as_ref().map(|t| t.receive_id.clone()))
-                .unwrap_or_default(),
-            receive_id_type: p2p_target.as_ref().map(|t| t.receive_id_type.clone())
-                .or_else(|| group_target.as_ref().map(|t| t.receive_id_type.clone()))
-                .unwrap_or_default(),
+            push_level: target.as_ref().map(|t| t.push_level.clone()).unwrap_or_else(|| "disabled".to_string()),
+            p2p_receive_id: target.as_ref().map(|t| t.p2p_receive_id.clone()).unwrap_or_default(),
+            group_chat_id: target.as_ref().map(|t| t.group_chat_id.clone()).unwrap_or_default(),
+            receive_id_type: target.as_ref().map(|t| t.receive_id_type.clone()).unwrap_or_else(|| "open_id".to_string()),
             p2p_response_enabled: p2p_enabled,
             group_response_enabled: group_enabled,
         });
@@ -421,92 +409,38 @@ pub async fn update_feishu_push(
     State(state): State<AppState>,
     Json(req): Json<UpdateFeishuPushRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    // Infer target_type from receive_id_type, default to "group"
-    let target_type = match req.receive_id_type.as_deref() {
-        Some("open_id") => "p2p",
-        _ => "group",
-    };
-
-    // Try to fetch existing target; if missing and receive fields provided, create new target
-    let existing_target = state
-        .db
-        .get_feishu_push_target(req.bot_id, target_type)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-
-    // Update push_level if provided
     if let Some(level) = &req.push_level {
-        state
-            .db
-            .update_feishu_push_level(req.bot_id, target_type, level)
-            .await
-            .map_err(|e| AppError::Internal(e.to_string()))?;
+        state.db.update_feishu_push_level(req.bot_id, level).await.map_err(|e| AppError::Internal(e.to_string()))?;
+    }
+    if let Some(p2p_id) = &req.p2p_receive_id {
+        state.db.set_p2p_receive_id(req.bot_id, p2p_id).await.map_err(|e| AppError::Internal(e.to_string()))?;
+    }
+    if let Some(group_id) = &req.group_chat_id {
+        state.db.set_group_chat_id(req.bot_id, group_id).await.map_err(|e| AppError::Internal(e.to_string()))?;
+    }
+    if let Some(rid_type) = &req.receive_id_type {
+        state.db.update_receive_id_type(req.bot_id, rid_type).await.map_err(|e| AppError::Internal(e.to_string()))?;
     }
 
-    // If receive fields or chat_id provided, set or create the push target accordingly
-    if req.receive_id.is_some() || req.receive_id_type.is_some() || req.chat_id.is_some() {
-        let (current_receive_id, current_receive_id_type, current_chat_id, current_push_level) = if let Some(t) = &existing_target {
-            (t.receive_id.clone(), t.receive_id_type.clone(), t.chat_id.clone(), t.push_level.clone())
-        } else {
-            ("".to_string(), "open_id".to_string(), None, "result_only".to_string())
-        };
-
-        let new_receive_id = req.receive_id.as_deref().unwrap_or(&current_receive_id);
-        let new_receive_id_type = req.receive_id_type.as_deref().unwrap_or(&current_receive_id_type);
-        let new_chat_id = req.chat_id.as_deref().or(current_chat_id.as_deref());
-        let new_push_level = req.push_level.as_deref().unwrap_or(&current_push_level);
-
-        // Create or update
-        state
-            .db
-            .set_feishu_push_target(
-                req.bot_id,
-                target_type,
-                new_chat_id,
-                new_receive_id,
-                new_receive_id_type,
-                new_push_level,
-            )
-            .await
-            .map_err(|e| AppError::Internal(e.to_string()))?;
-    }
-
-    // Update response enabled fields if provided (using independent response config table)
     if let Some(p2p_enabled) = req.p2p_response_enabled {
-        state
-            .db
-            .set_feishu_response_enabled(req.bot_id, "p2p", p2p_enabled)
-            .await
-            .map_err(|e| AppError::Internal(e.to_string()))?;
+        state.db.set_feishu_response_enabled(req.bot_id, "p2p", p2p_enabled).await.map_err(|e| AppError::Internal(e.to_string()))?;
     }
     if let Some(group_enabled) = req.group_response_enabled {
-        state
-            .db
-            .set_feishu_response_enabled(req.bot_id, "group", group_enabled)
-            .await
-            .map_err(|e| AppError::Internal(e.to_string()))?;
+        state.db.set_feishu_response_enabled(req.bot_id, "group", group_enabled).await.map_err(|e| AppError::Internal(e.to_string()))?;
     }
 
-    // Refresh push service cache
     let _ = state.feishu_push_mutator.send(crate::services::feishu_push::PushConfigUpdate::Refresh);
 
-    // Fetch updated target
-    let updated = state
-        .db
-        .get_feishu_push_target(req.bot_id, target_type)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-
-    // Get response enabled status from independent response config table
+    let updated = state.db.get_feishu_push_target(req.bot_id).await.map_err(|e| AppError::Internal(e.to_string()))?;
     let p2p_enabled = state.db.get_feishu_response_enabled(req.bot_id, "p2p").await.unwrap_or(false);
     let group_enabled = state.db.get_feishu_response_enabled(req.bot_id, "group").await.unwrap_or(false);
 
     Ok(ApiResponse::ok(FeishuPushStatus {
         bot_id: req.bot_id,
         push_level: updated.as_ref().map(|t| t.push_level.clone()).unwrap_or_default(),
-        chat_id: updated.as_ref().and_then(|t| t.chat_id.clone()),
-        receive_id: updated.as_ref().map(|t| t.receive_id.clone()).unwrap_or_default(),
-        receive_id_type: updated.as_ref().map(|t| t.receive_id_type.clone()).unwrap_or_default(),
+        p2p_receive_id: updated.as_ref().map(|t| t.p2p_receive_id.clone()).unwrap_or_default(),
+        group_chat_id: updated.as_ref().map(|t| t.group_chat_id.clone()).unwrap_or_default(),
+        receive_id_type: updated.as_ref().map(|t| t.receive_id_type.clone()).unwrap_or_else(|| "open_id".to_string()),
         p2p_response_enabled: p2p_enabled,
         group_response_enabled: group_enabled,
     }))

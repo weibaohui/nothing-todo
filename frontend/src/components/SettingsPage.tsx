@@ -1031,7 +1031,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                             };
 
                             const botPushStatus = feishuPushStatus.find(p => p.bot_id === bot.id);
-                            const hasPushTarget = !!botPushStatus && (botPushStatus.receive_id || botPushStatus.chat_id);
+                            const hasPushTarget = !!botPushStatus;
                             const handlePushLevelChange = async (level: db.FeishuPushLevel) => {
                               try {
                                 await db.updateFeishuPush({ botId: bot.id, pushLevel: level });
@@ -1040,9 +1040,11 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                 message.error('设置推送失败: ' + (e.message || '未知错误'));
                               }
                             };
-                            const handlePushTargetUpdate = async (field: 'receive_id' | 'receive_id_type' | 'chat_id', value: string) => {
+                            const handlePushTargetUpdate = async (field: 'p2p_receive_id' | 'receive_id_type' | 'group_chat_id', value: string) => {
                               try {
-                                await db.updateFeishuPush({ botId: bot.id, [field]: value });
+                                const updateField = field === 'p2p_receive_id' ? 'p2pReceiveId'
+                                  : field === 'group_chat_id' ? 'groupChatId' : 'receiveIdType';
+                                await db.updateFeishuPush({ botId: bot.id, [updateField]: value });
                                 loadFeishuPush();
                               } catch (e: any) {
                                 message.error('更新推送目标失败: ' + (e.message || '未知错误'));
@@ -1170,21 +1172,21 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                             <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>单聊ID:</span>
                                             <Input
                                               size="small"
-                                              value={botPushStatus.receive_id}
-                                              onChange={(e) => handlePushTargetUpdate('receive_id', e.target.value)}
+                                              value={botPushStatus.p2p_receive_id}
+                                              onChange={(e) => handlePushTargetUpdate('p2p_receive_id', e.target.value)}
                                               style={{ flex: 1, fontSize: 11 }}
                                             />
-                                            <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.receive_id, 'receive_id')} />
+                                            <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.p2p_receive_id, 'p2p_receive_id')} />
                                           </div>
                                           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                             <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>群ID:</span>
                                             <Input
                                               size="small"
-                                              value={botPushStatus.chat_id || ''}
-                                              onChange={(e) => handlePushTargetUpdate('chat_id', e.target.value)}
+                                              value={botPushStatus.group_chat_id || ''}
+                                              onChange={(e) => handlePushTargetUpdate('group_chat_id', e.target.value)}
                                               style={{ flex: 1, fontSize: 11 }}
                                             />
-                                            <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.chat_id || '', 'chat_id')} />
+                                            <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.group_chat_id || '', 'group_chat_id')} />
                                           </div>
                                           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                             <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>发送类型:</span>
@@ -1357,6 +1359,37 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                             value: todo.id,
                             label: `#${todo.id} ${todo.title}`,
                           }))}
+                        />
+                      </Form.Item>
+                    </Form>
+                  </Card>
+
+                  <Card
+                    title="历史消息处理"
+                    size="small"
+                    style={{ marginBottom: 24 }}
+                    extra={
+                      <Button type="primary" size="small" onClick={handleSaveConfig} loading={configSaving}>
+                        保存
+                      </Button>
+                    }
+                  >
+                    <Paragraph type="secondary" style={{ marginBottom: 16, fontSize: 13 }}>
+                      拉取历史消息时，超过设定时间的消息将保存但跳过处理，避免离线后重新处理大量旧消息。
+                    </Paragraph>
+                    <Form form={configForm} layout="vertical" style={{ maxWidth: 400 }}>
+                      <Form.Item
+                        name="history_message_max_age_secs"
+                        label="最大处理年龄（秒）"
+                        tooltip="仅处理此时间内的历史消息，默认 600 秒（10 分钟）"
+                      >
+                        <InputNumber
+                          min={0}
+                          max={86400}
+                          step={60}
+                          placeholder="600"
+                          addonAfter="秒"
+                          style={{ width: '100%' }}
                         />
                       </Form.Item>
                     </Form>
