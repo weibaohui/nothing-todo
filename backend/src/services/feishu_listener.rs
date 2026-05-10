@@ -224,7 +224,13 @@ impl FeishuListener {
 
         // Check group whitelist for group chats
         if chat_type == "group" {
-            let in_whitelist = db.is_sender_in_whitelist(bot_id, &msg.sender).await.unwrap_or(true);
+            let in_whitelist = match db.is_sender_in_whitelist(bot_id, &msg.sender).await {
+                Ok(allowed) => allowed,
+                Err(e) => {
+                    tracing::warn!("[feishu:{}] whitelist check failed for sender {}, defaulting to allow: {}", bot_id, msg.sender, e);
+                    true
+                }
+            };
             if !in_whitelist {
                 tracing::info!("[feishu:{}] sender {} not in group whitelist, skipping", bot_id, msg.sender);
                 if let Some(rid) = &reaction_id {
