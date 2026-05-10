@@ -254,9 +254,9 @@ impl FeishuHistoryFetcher {
         // Get the latest message time from DB for incremental fetching
         let start_time = match db.get_latest_history_message_time(bot_id, chat_id).await {
             Ok(Some(time)) => {
-                // Parse the time and convert to Unix timestamp in milliseconds
+                // Parse the time and convert to Unix timestamp in seconds (Feishu API expects seconds)
                 if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&time) {
-                    Some(dt.timestamp_millis().to_string())
+                    Some(dt.timestamp().to_string())
                 } else {
                     None
                 }
