@@ -210,11 +210,11 @@ impl Database {
                 model.sender_nickname.clone(),
                 0,
             ));
-            // Prefer non-null nickname and sender_type
-            if model.sender_nickname.is_some() {
+            // Fill non-null nickname and sender_type only when missing
+            if entry.1.is_none() && model.sender_nickname.is_some() {
                 entry.1 = model.sender_nickname.clone();
             }
-            if model.sender_type.is_some() {
+            if entry.0.is_none() && model.sender_type.is_some() {
                 entry.0 = model.sender_type.clone();
             }
             entry.2 += 1;

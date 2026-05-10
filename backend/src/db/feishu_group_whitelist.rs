@@ -34,13 +34,23 @@ impl Database {
             .await
     }
 
-    /// Add a sender to the whitelist.
+    /// Add a sender to the whitelist. Returns existing entry if duplicate.
     pub async fn add_group_whitelist(
         &self,
         bot_id: i64,
         sender_open_id: &str,
         sender_name: Option<&str>,
     ) -> Result<feishu_group_whitelist::Model, sea_orm::DbErr> {
+        // Check if already exists
+        if let Some(existing) = feishu_group_whitelist::Entity::find()
+            .filter(feishu_group_whitelist::Column::BotId.eq(bot_id))
+            .filter(feishu_group_whitelist::Column::SenderOpenId.eq(sender_open_id))
+            .one(&self.conn)
+            .await?
+        {
+            return Ok(existing);
+        }
+
         let now = crate::models::utc_timestamp();
         let am = feishu_group_whitelist::ActiveModel {
             bot_id: ActiveValue::Set(bot_id),
