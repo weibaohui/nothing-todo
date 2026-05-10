@@ -5,6 +5,7 @@ import {
   Input,
   InputNumber,
   Select,
+  AutoComplete,
   Button,
   message,
   List,
@@ -158,6 +159,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [historySelectedChatId, setHistorySelectedChatId] = useState<string | undefined>(undefined);
   const [historyIsHistory, setHistoryIsHistory] = useState<boolean | undefined>(undefined);
   const [historySelectedSenderId, setHistorySelectedSenderId] = useState<string | undefined>(undefined);
+  const [historyViewMsg, setHistoryViewMsg] = useState<string | null>(null);
   const [historyAddModalOpen, setHistoryAddModalOpen] = useState(false);
   const [historyForm] = Form.useForm();
 
@@ -1263,33 +1265,32 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                           </Tooltip>
                                         </div>
                                         <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-                                          <Select
+                                          <AutoComplete
                                             size="small"
-                                            showSearch
-                                            placeholder="搜索选择用户 Open ID"
+                                            placeholder="搜索或粘贴 Open ID"
                                             value={whitelistBotId === botPushStatus.bot_id ? whitelistOpenId : undefined}
                                             onChange={(v) => { setWhitelistBotId(botPushStatus.bot_id); setWhitelistOpenId(v); }}
                                             onFocus={() => { if (whitelistBotId !== botPushStatus.bot_id) { loadGroupWhitelist(botPushStatus.bot_id); loadHistorySenders(); } }}
-                                            onSearch={() => { if (historySenders.length === 0) loadHistorySenders(); }}
                                             filterOption={(input, option) => {
-                                              const sender = historySenders.find(s => s.sender_open_id === option?.value);
-                                              if (!sender) return (option?.value as string)?.toLowerCase().includes(input.toLowerCase());
-                                              const name = sender.sender_nickname?.toLowerCase() || '';
-                                              const id = sender.sender_open_id.toLowerCase();
+                                              if (!option?.value) return false;
+                                              const val = (option.value as string).toLowerCase();
+                                              const label = (option.label as string)?.toLowerCase() || '';
                                               const q = input.toLowerCase();
-                                              return name.includes(q) || id.includes(q);
+                                              return val.includes(q) || label.includes(q);
                                             }}
                                             style={{ flex: 1, fontSize: 11 }}
-                                          >
-                                            {historySenders
-                                              .filter(s => s.sender_type !== 'app')
-                                              .map((s) => (
-                                                <Select.Option key={s.sender_open_id} value={s.sender_open_id}>
-                                                  {s.sender_nickname || s.sender_open_id.slice(0, 16)} ({s.count}条)
-                                                </Select.Option>
-                                              ))
+                                            options={historySenders
+                                              .filter(s => s.sender_open_id)
+                                              .map((s) => {
+                                                const typeTag = s.sender_type === 'app' ? '[Bot] ' : '';
+                                                const label = s.sender_nickname || s.sender_open_id;
+                                                return {
+                                                  value: s.sender_open_id,
+                                                  label: `${typeTag}${label} (${s.count}条)`,
+                                                };
+                                              })
                                             }
-                                          </Select>
+                                          />
                                           <Input
                                             size="small"
                                             placeholder="备注名"
@@ -1322,6 +1323,18 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                       )}
                     </Spin>
                   </Card>
+
+                  <Modal
+                    open={!!historyViewMsg}
+                    onCancel={() => setHistoryViewMsg(null)}
+                    footer={null}
+                    width={560}
+                    title="消息详情"
+                  >
+                    <div style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 400, overflowY: 'auto' }}>
+                      {historyViewMsg}
+                    </div>
+                  </Modal>
 
                   <Card
                     title="斜杠命令规则"
@@ -1707,17 +1720,29 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                         title: '内容',
                         dataIndex: 'content',
                         key: 'content',
-                        ellipsis: true,
+                        width: 200,
                         render: (content: string, record) => {
+                          let text: string;
                           if (record.msg_type === 'text') {
                             try {
                               const parsed = JSON.parse(content);
-                              return parsed.text || content;
+                              text = parsed.text || content;
                             } catch {
-                              return content;
+                              text = content;
                             }
+                          } else {
+                            return <AntTag>{record.msg_type}</AntTag>;
                           }
-                          return <AntTag>{record.msg_type}</AntTag>;
+                          const MAX = 40;
+                          const truncated = text.length > MAX ? text.slice(0, MAX) + '...' : text;
+                          return (
+                            <span
+                              style={{ cursor: 'pointer', fontSize: 12 }}
+                              onClick={() => setHistoryViewMsg(text)}
+                            >
+                              {truncated}
+                            </span>
+                          );
                         },
                       },
                       {

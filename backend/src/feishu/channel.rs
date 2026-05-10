@@ -137,6 +137,7 @@ impl FeishuChannelService {
                             let channel_msg = ChannelMessage {
                                 id: message_id,
                                 sender: sender_open_id,
+                                sender_type: msg.sender.sender_type.clone(),
                                 content,
                                 channel: msg.message.chat_id.clone(),
                                 timestamp,

@@ -179,6 +179,7 @@ impl FeishuListener {
             &msg.channel,
             chat_type,
             &msg.sender,
+            msg.sender_type.as_deref(),
             Some(&msg.content),
             "text",
             is_mention,

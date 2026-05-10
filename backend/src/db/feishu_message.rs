@@ -32,6 +32,7 @@ impl Database {
         chat_id: &str,
         chat_type: &str,
         sender_open_id: &str,
+        sender_type: Option<&str>,
         content: Option<&str>,
         msg_type: &str,
         is_mention: bool,
@@ -44,6 +45,7 @@ impl Database {
             chat_type: ActiveValue::Set(chat_type.to_string()),
             sender_open_id: ActiveValue::Set(sender_open_id.to_string()),
             sender_nickname: ActiveValue::Set(None),
+            sender_type: ActiveValue::Set(sender_type.map(String::from)),
             content: ActiveValue::Set(content.map(String::from)),
             msg_type: ActiveValue::Set(msg_type.to_string()),
             is_mention: ActiveValue::Set(Some(is_mention)),
@@ -208,6 +210,13 @@ impl Database {
                 model.sender_nickname.clone(),
                 0,
             ));
+            // Prefer non-null nickname and sender_type
+            if model.sender_nickname.is_some() {
+                entry.1 = model.sender_nickname.clone();
+            }
+            if model.sender_type.is_some() {
+                entry.0 = model.sender_type.clone();
+            }
             entry.2 += 1;
         }
 
