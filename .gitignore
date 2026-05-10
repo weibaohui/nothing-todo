@@ -51,3 +51,4 @@ datalog
 .cc-connect
 frontend/test-results/.last-run.json
 .deepseek/trusted
+.sisyphus/

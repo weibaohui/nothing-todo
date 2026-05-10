@@ -13,7 +13,6 @@ export default defineConfig({
           'vendor-react': ['react', 'react-dom'],
           'vendor-antd': ['antd'],
           'vendor-antd-icons': ['@ant-design/icons'],
-          'vendor-cherry-markdown': ['cherry-markdown'],
           'vendor-md-editor': ['@uiw/react-md-editor', '@ant-design/x-markdown'],
           'vendor-motion': ['framer-motion'],
           'vendor-icons': ['react-icons'],

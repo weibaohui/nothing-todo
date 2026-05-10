@@ -26,7 +26,9 @@ impl Database {
 
         if let Some(t) = existing {
             let mut am: feishu_push_targets::ActiveModel = t.into();
-            am.chat_id = ActiveValue::Set(chat_id.map(String::from));
+            if chat_id.is_some() {
+                am.chat_id = ActiveValue::Set(chat_id.map(String::from));
+            }
             am.receive_id = ActiveValue::Set(receive_id.to_string());
             am.receive_id_type = ActiveValue::Set(receive_id_type.to_string());
             am.push_level = ActiveValue::Set(push_level.to_string());
@@ -76,7 +78,9 @@ impl Database {
                             let mut am2: feishu_push_targets::ActiveModel = existing2.into();
                             // Ensure target_type is set to requested value (safe even if schema has target_type column).
                             am2.target_type = ActiveValue::Set(target_type.to_string());
-                            am2.chat_id = ActiveValue::Set(chat_id.map(String::from));
+                            if chat_id.is_some() {
+                                am2.chat_id = ActiveValue::Set(chat_id.map(String::from));
+                            }
                             am2.receive_id = ActiveValue::Set(receive_id.to_string());
                             am2.receive_id_type = ActiveValue::Set(receive_id_type.to_string());
                             am2.push_level = ActiveValue::Set(push_level.to_string());
