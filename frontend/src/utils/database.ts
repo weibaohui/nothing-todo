@@ -367,6 +367,8 @@ export interface FeishuPushStatus {
   chat_id?: string;
   receive_id: string;
   receive_id_type: string;
+  p2p_response_enabled: boolean;
+  group_response_enabled: boolean;
 }
 
 export async function getFeishuPush(): Promise<FeishuPushStatus[]> {
@@ -379,6 +381,8 @@ export interface UpdateFeishuPushParams {
   receiveId?: string;
   receiveIdType?: string;
   chatId?: string;
+  p2pResponseEnabled?: boolean;
+  groupResponseEnabled?: boolean;
 }
 
 export async function updateFeishuPush(params: UpdateFeishuPushParams): Promise<FeishuPushStatus> {
@@ -388,6 +392,8 @@ export async function updateFeishuPush(params: UpdateFeishuPushParams): Promise<
     receive_id: params.receiveId,
     receive_id_type: params.receiveIdType,
     chat_id: params.chatId,
+    p2p_response_enabled: params.p2pResponseEnabled,
+    group_response_enabled: params.groupResponseEnabled,
   }));
 }
 
