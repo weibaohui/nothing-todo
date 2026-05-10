@@ -59,6 +59,7 @@ impl Database {
                     bot_id: ActiveValue::Set(inserted.id),
                     target_type: ActiveValue::Set(target_type.to_string()),
                     enabled: ActiveValue::Set(true),
+                    debounce_secs: ActiveValue::Set(Some(20)),
                     created_at: ActiveValue::Set(Some(now.clone())),
                     updated_at: ActiveValue::Set(Some(now.clone())),
                     ..Default::default()

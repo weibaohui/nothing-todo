@@ -1305,7 +1305,16 @@ export function SettingsPage({ onBack, runningTasks = {} }: SettingsPageProps) {
                                             checked={botPushStatus.p2p_response_enabled}
                                             onChange={(v) => handleResponseEnabledChange(botPushStatus.bot_id, 'p2p', v)}
                                           />
-                                          单聊消息响应
+                                          单聊响应
+                                          <InputNumber
+                                            size="small"
+                                            min={1}
+                                            max={300}
+                                            value={botPushStatus.p2p_debounce_secs}
+                                            onChange={(v) => { if (v !== null) db.updateFeishuPush({ botId: botPushStatus.bot_id, p2pDebounceSecs: v }); }}
+                                            style={{ width: 50, fontSize: 11 }}
+                                          />
+                                          <span style={{ fontSize: 10 }}>秒合并</span>
                                         </span>
                                         <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
                                           <Switch
@@ -1313,7 +1322,16 @@ export function SettingsPage({ onBack, runningTasks = {} }: SettingsPageProps) {
                                             checked={botPushStatus.group_response_enabled}
                                             onChange={(v) => handleResponseEnabledChange(botPushStatus.bot_id, 'group', v)}
                                           />
-                                          群聊消息响应
+                                          群聊响应
+                                          <InputNumber
+                                            size="small"
+                                            min={1}
+                                            max={300}
+                                            value={botPushStatus.group_debounce_secs}
+                                            onChange={(v) => { if (v !== null) db.updateFeishuPush({ botId: botPushStatus.bot_id, groupDebounceSecs: v }); }}
+                                            style={{ width: 50, fontSize: 11 }}
+                                          />
+                                          <span style={{ fontSize: 10 }}>秒合并</span>
                                         </span>
                                       </>)}
                                     </div>
