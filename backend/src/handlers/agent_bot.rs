@@ -368,6 +368,8 @@ pub struct FeishuPushStatus {
     pub receive_id_type: String,
     pub p2p_response_enabled: bool,
     pub group_response_enabled: bool,
+    pub p2p_debounce_secs: i64,
+    pub group_debounce_secs: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -379,6 +381,8 @@ pub struct UpdateFeishuPushRequest {
     pub receive_id_type: Option<String>,
     pub p2p_response_enabled: Option<bool>,
     pub group_response_enabled: Option<bool>,
+    pub p2p_debounce_secs: Option<i64>,
+    pub group_debounce_secs: Option<i64>,
 }
 
 pub async fn get_feishu_push(
@@ -392,6 +396,9 @@ pub async fn get_feishu_push(
         let group_enabled = state.db.get_feishu_response_enabled(bot.id, "group").await.unwrap_or(false);
         let target = state.db.get_feishu_push_target(bot.id).await.ok().flatten();
 
+        let p2p_debounce = state.db.get_debounce_secs(bot.id, "p2p").await.unwrap_or(20);
+        let group_debounce = state.db.get_debounce_secs(bot.id, "group").await.unwrap_or(20);
+
         statuses.push(FeishuPushStatus {
             bot_id: bot.id,
             push_level: target.as_ref().map(|t| t.push_level.clone()).unwrap_or_else(|| "disabled".to_string()),
@@ -400,6 +407,8 @@ pub async fn get_feishu_push(
             receive_id_type: target.as_ref().map(|t| t.receive_id_type.clone()).unwrap_or_else(|| "open_id".to_string()),
             p2p_response_enabled: p2p_enabled,
             group_response_enabled: group_enabled,
+            p2p_debounce_secs: p2p_debounce,
+            group_debounce_secs: group_debounce,
         });
     }
 
@@ -429,12 +438,20 @@ pub async fn update_feishu_push(
     if let Some(group_enabled) = req.group_response_enabled {
         state.db.set_feishu_response_enabled(req.bot_id, "group", group_enabled).await.map_err(|e| AppError::Internal(e.to_string()))?;
     }
+    if let Some(p2p_debounce) = req.p2p_debounce_secs {
+        state.db.set_debounce_secs(req.bot_id, "p2p", p2p_debounce).await.map_err(|e| AppError::Internal(e.to_string()))?;
+    }
+    if let Some(group_debounce) = req.group_debounce_secs {
+        state.db.set_debounce_secs(req.bot_id, "group", group_debounce).await.map_err(|e| AppError::Internal(e.to_string()))?;
+    }
 
     let _ = state.feishu_push_mutator.send(crate::services::feishu_push::PushConfigUpdate::Refresh);
 
     let updated = state.db.get_feishu_push_target(req.bot_id).await.map_err(|e| AppError::Internal(e.to_string()))?;
     let p2p_enabled = state.db.get_feishu_response_enabled(req.bot_id, "p2p").await.unwrap_or(false);
     let group_enabled = state.db.get_feishu_response_enabled(req.bot_id, "group").await.unwrap_or(false);
+    let p2p_debounce = state.db.get_debounce_secs(req.bot_id, "p2p").await.unwrap_or(20);
+    let group_debounce = state.db.get_debounce_secs(req.bot_id, "group").await.unwrap_or(20);
 
     Ok(ApiResponse::ok(FeishuPushStatus {
         bot_id: req.bot_id,
@@ -444,6 +461,8 @@ pub async fn update_feishu_push(
         receive_id_type: updated.as_ref().map(|t| t.receive_id_type.clone()).unwrap_or_else(|| "open_id".to_string()),
         p2p_response_enabled: p2p_enabled,
         group_response_enabled: group_enabled,
+        p2p_debounce_secs: p2p_debounce,
+        group_debounce_secs: group_debounce,
     }))
 }
 

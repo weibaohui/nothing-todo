@@ -683,22 +683,18 @@ export function SettingsPage({ onBack, runningTasks = {} }: SettingsPageProps) {
   const handleBatchStop = async () => {
     if (selectedTaskIds.length === 0) return;
     setStoppingTasks(true);
-    let successCount = 0;
-    let failCount = 0;
-    for (const taskId of selectedTaskIds) {
-      const task = runningTasks[taskId];
-      if (!task) continue;
-      try {
-        const records = await db.getExecutionRecords(task.todoId, 1, 20);
+    const results = await Promise.allSettled(
+      selectedTaskIds.map(async (taskId) => {
+        const task = runningTasks[taskId];
+        if (!task) throw new Error('Task not found');
+        const records = await db.getExecutionRecords(task.todoId, 1, 1);
         const record = records.records.find(r => r.task_id === taskId && r.status === 'running');
-        if (record) {
-          await db.stopExecution(record.id);
-          successCount++;
-        }
-      } catch {
-        failCount++;
-      }
-    }
+        if (!record) throw new Error('No running record');
+        await db.stopExecution(record.id);
+      })
+    );
+    const successCount = results.filter(r => r.status === 'fulfilled').length;
+    const failCount = results.filter(r => r.status === 'rejected').length;
     setSelectedTaskIds([]);
     setStoppingTasks(false);
     if (successCount > 0) message.success(`已停止 ${successCount} 个任务`);
@@ -1110,10 +1106,10 @@ export function SettingsPage({ onBack, runningTasks = {} }: SettingsPageProps) {
                 render: (_: unknown, record: RunningTask) => (
                   <Popconfirm title="确认停止此任务？" onConfirm={async () => {
                     try {
-                      const records = await db.getExecutionRecords(record.todoId, 1, 20);
+                      const records = await db.getExecutionRecords(record.todoId, 1, 1);
                       const r = records.records.find((rec) => rec.task_id === record.taskId && rec.status === 'running');
                       if (r) { await db.stopExecution(r.id); message.success('已停止'); }
-                    } catch (err) { message.error(`停止失败: ${err}`); }
+                    } catch (err) { message.error(`停止失败: ${err instanceof Error ? err.message : String(err)}`); }
                   }}>
                     <Button size="small" danger icon={<StopOutlined />} />
                   </Popconfirm>
@@ -1309,7 +1305,16 @@ export function SettingsPage({ onBack, runningTasks = {} }: SettingsPageProps) {
                                             checked={botPushStatus.p2p_response_enabled}
                                             onChange={(v) => handleResponseEnabledChange(botPushStatus.bot_id, 'p2p', v)}
                                           />
-                                          单聊消息响应
+                                          单聊响应
+                                          <InputNumber
+                                            size="small"
+                                            min={0}
+                                            max={300}
+                                            value={botPushStatus.p2p_debounce_secs}
+                                            onChange={(v) => { if (v !== null) db.updateFeishuPush({ botId: botPushStatus.bot_id, p2pDebounceSecs: v }); }}
+                                            style={{ width: 50, fontSize: 11 }}
+                                          />
+                                          <span style={{ fontSize: 10 }}>秒合并</span>
                                         </span>
                                         <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
                                           <Switch
@@ -1317,7 +1322,16 @@ export function SettingsPage({ onBack, runningTasks = {} }: SettingsPageProps) {
                                             checked={botPushStatus.group_response_enabled}
                                             onChange={(v) => handleResponseEnabledChange(botPushStatus.bot_id, 'group', v)}
                                           />
-                                          群聊消息响应
+                                          群聊响应
+                                          <InputNumber
+                                            size="small"
+                                            min={0}
+                                            max={300}
+                                            value={botPushStatus.group_debounce_secs}
+                                            onChange={(v) => { if (v !== null) db.updateFeishuPush({ botId: botPushStatus.bot_id, groupDebounceSecs: v }); }}
+                                            style={{ width: 50, fontSize: 11 }}
+                                          />
+                                          <span style={{ fontSize: 10 }}>秒合并</span>
                                         </span>
                                       </>)}
                                     </div>

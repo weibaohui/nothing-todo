@@ -18,6 +18,7 @@ use crate::db::Database;
 use crate::handlers::ExecEvent;
 use crate::handlers::execution::start_todo_execution;
 use crate::models::{AgentBot, BotConfig};
+use crate::services::message_debounce::{MessageDebounce, PendingMessage};
 use crate::task_manager::TaskManager;
 
 /// Manages WebSocket connections to Feishu for all bound bots.
@@ -32,6 +33,7 @@ pub struct FeishuListener {
     channels: Arc<DashMap<i64, Arc<FeishuChannelService>>>,
     /// bot_id → (app_id, app_secret, domain)
     pub bot_credentials: Arc<DashMap<i64, (String, String, String)>>,
+    debounce: Arc<MessageDebounce>,
 }
 
 impl FeishuListener {
@@ -42,6 +44,7 @@ impl FeishuListener {
         tx: broadcast::Sender<ExecEvent>,
         task_manager: Arc<TaskManager>,
         config: Arc<RwLock<AppConfig>>,
+        debounce: Arc<MessageDebounce>,
     ) -> Self {
         Self {
             db,
@@ -49,6 +52,7 @@ impl FeishuListener {
             tx,
             task_manager,
             config,
+            debounce,
             token_manager: Arc::new(TokenManager::new()),
             channels: Arc::new(DashMap::new()),
             bot_credentials: Arc::new(DashMap::new()),
@@ -122,6 +126,7 @@ impl FeishuListener {
         let task_manager = self.task_manager.clone();
         let config = self.config.clone();
         let token_manager = self.token_manager.clone();
+        let debounce = self.debounce.clone();
         tokio::spawn(async move {
             tracing::info!("[feishu:{}] message receiver loop started", bot_id);
             while let Some(msg) = rx.recv().await {
@@ -133,6 +138,7 @@ impl FeishuListener {
                     &config,
                     &token_manager,
                     &credentials,
+                    &debounce,
                     bot_id,
                     &bot_open_id,
                     &bot_config_clone,
@@ -155,6 +161,7 @@ impl FeishuListener {
         config: &Arc<RwLock<AppConfig>>,
         token_manager: &Arc<TokenManager>,
         credentials: &DashMap<i64, (String, String, String)>,
+        debounce: &Arc<MessageDebounce>,
         bot_id: i64,
         bot_open_id: &str,
         bot_config: &BotConfig,
@@ -241,36 +248,61 @@ impl FeishuListener {
         }
 
         if let Some(command_ctx) = Self::parse_slash_command(content) {
-            let triggered = Self::handle_custom_slash_command(
-                db,
-                executor_registry,
-                tx,
-                task_manager,
-                config,
-                credentials,
-                token_manager,
-                bot_id,
-                chat_type,
-                &msg.sender,
-                &msg.channel,
-                command_ctx.command,
-                command_ctx.body,
-            )
-            .await;
-            if triggered.is_some() {
-                if let Some(rid) = &reaction_id {
-                    Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
-                }
-                // 标记消息为已处理
-                if let Some((todo_id, execution_record_id)) = triggered {
-                    if let Err(e) = db.mark_feishu_message_processed(&msg.id, todo_id, execution_record_id).await {
-                        tracing::warn!("[feishu:{}] failed to mark message {} as processed: {}", bot_id, msg.id, e);
+            // Try slash command match
+            let matched_rule = {
+                let cfg = config.read().await;
+                cfg.slash_command_rules.iter()
+                    .find(|r| r.slash_command == command_ctx.command && r.enabled)
+                    .cloned()
+            };
+
+            if let Some(rule) = matched_rule {
+                if !command_ctx.body.is_empty() {
+                    let todo = db.get_todo(rule.todo_id).await;
+                    if let Some(todo) = todo {
+                        let mut params = HashMap::new();
+                        params.insert("content".to_string(), command_ctx.body.to_string());
+                        params.insert("message".to_string(), command_ctx.body.to_string());
+                        params.insert("raw_message".to_string(), format!("{} {}", command_ctx.command, command_ctx.body).trim().to_string());
+                        params.insert("slash_command".to_string(), command_ctx.command.to_string());
+
+                        debounce.push(PendingMessage {
+                            bot_id,
+                            chat_id: msg.channel.clone(),
+                            chat_type: chat_type.to_string(),
+                            sender: msg.sender.clone(),
+                            content: command_ctx.body.to_string(),
+                            todo_id: todo.id,
+                            executor: todo.executor.clone(),
+                            trigger_type: "slash_command".to_string(),
+                            params: Some(params),
+                        });
                     }
                 }
-                return;
+            } else {
+                // No matching slash rule, fall through to default response
+                let default_todo_id = {
+                    let cfg = config.read().await;
+                    cfg.default_response_todo_id
+                };
+                if let Some(todo_id) = default_todo_id {
+                    if !content.is_empty() {
+                        debounce.push(PendingMessage {
+                            bot_id,
+                            chat_id: msg.channel.clone(),
+                            chat_type: chat_type.to_string(),
+                            sender: msg.sender.clone(),
+                            content: content.to_string(),
+                            todo_id,
+                            executor: None,
+                            trigger_type: "default_response".to_string(),
+                            params: None,
+                        });
+                    }
+                }
             }
         } else {
-            // 非斜杠命令消息，也检查是否需要默认响应
+            // Non-slash message, check default response
             let default_todo_id = {
                 let cfg = config.read().await;
                 cfg.default_response_todo_id
@@ -278,33 +310,17 @@ impl FeishuListener {
 
             if let Some(todo_id) = default_todo_id {
                 if !content.is_empty() {
-                    let triggered = Self::execute_default_response(
-                        db,
-                        executor_registry,
-                        tx,
-                        task_manager,
-                        config,
-                        credentials,
-                        token_manager,
+                    debounce.push(PendingMessage {
                         bot_id,
-                        chat_type,
-                        &msg.sender,
-                        &msg.channel,
-                        "",
-                        content,
+                        chat_id: msg.channel.clone(),
+                        chat_type: chat_type.to_string(),
+                        sender: msg.sender.clone(),
+                        content: content.to_string(),
                         todo_id,
-                    )
-                    .await;
-                    if let Some(rid) = &reaction_id {
-                        Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
-                    }
-                    // 标记消息为已处理，使用实际触发的 todo_id 和 execution_record_id
-                    if let Some((actual_todo_id, execution_record_id)) = triggered {
-                        if let Err(e) = db.mark_feishu_message_processed(&msg.id, actual_todo_id, execution_record_id).await {
-                            tracing::warn!("[feishu:{}] failed to mark message {} as processed: {}", bot_id, msg.id, e);
-                        }
-                    }
-                    return;
+                        executor: None,
+                        trigger_type: "default_response".to_string(),
+                        params: None,
+                    });
                 }
             }
         }
@@ -351,7 +367,7 @@ impl FeishuListener {
     }
 
     /// 处理用户自定义斜杠命令，并按配置路由到指定 Todo。返回 (todo_id, execution_record_id)。
-    #[allow(clippy::too_many_arguments)]
+    #[allow(dead_code, clippy::too_many_arguments)]
     async fn handle_custom_slash_command(
         db: &Arc<Database>,
         executor_registry: &Arc<ExecutorRegistry>,
@@ -486,7 +502,7 @@ impl FeishuListener {
     }
 
     /// 执行默认响应：当没有匹配到斜杠命令时，执行指定的 Todo。返回 (todo_id, execution_record_id)。
-    #[allow(clippy::too_many_arguments)]
+    #[allow(dead_code, clippy::too_many_arguments)]
     async fn execute_default_response(
         db: &Arc<Database>,
         executor_registry: &Arc<ExecutorRegistry>,
@@ -571,6 +587,7 @@ impl FeishuListener {
     }
 
     /// 将应用错误转换为可回复的文本。
+    #[allow(dead_code)]
     fn error_message(err: &crate::handlers::AppError) -> String {
         match err {
             crate::handlers::AppError::NotFound => "未找到相关资源".to_string(),
