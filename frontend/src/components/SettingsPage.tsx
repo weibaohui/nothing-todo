@@ -21,7 +21,7 @@ import {
   Tag as AntTag,
   Switch,
   Tooltip,
-  Divider,
+
 } from 'antd';
 import {
   SettingOutlined,
@@ -1149,16 +1149,34 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                         <Switch size="small" checked={botConfig.echo_reply !== false} onChange={v => handleConfigChange('echo_reply', v)} />
                                         Echo 回复
                                       </span>
+                                      {hasPushTarget && (<>
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                                          <Switch
+                                            size="small"
+                                            checked={botPushStatus.p2p_response_enabled}
+                                            onChange={(v) => handleResponseEnabledChange(botPushStatus.bot_id, 'p2p', v)}
+                                          />
+                                          单聊消息响应
+                                        </span>
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                                          <Switch
+                                            size="small"
+                                            checked={botPushStatus.group_response_enabled}
+                                            onChange={(v) => handleResponseEnabledChange(botPushStatus.bot_id, 'group', v)}
+                                          />
+                                          群聊消息响应
+                                        </span>
+                                      </>)}
                                     </div>
                                     {hasPushTarget && (
-                                      <div style={{ marginTop: 8 }}>
-                                        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6 }}>实时推送 {botPushStatus.receive_id_type === 'open_id' ? '(私聊)' : '(群聊)'}</div>
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                                      <div style={{ marginTop: 10 }}>
+                                        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6 }}>
+                                          推送目标
                                           <Select
                                             size="small"
                                             value={botPushStatus.push_level}
                                             onChange={handlePushLevelChange}
-                                            style={{ width: 100 }}
+                                            style={{ width: 90, marginLeft: 8 }}
                                             options={[
                                               { value: 'disabled', label: '关闭' },
                                               { value: 'result_only', label: '仅结论' },
@@ -1166,7 +1184,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                             ]}
                                           />
                                         </div>
-                                        <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>发送目标信息（可编辑）</div>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                             <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>单聊ID:</span>
@@ -1200,28 +1217,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                                 { value: 'chat_id', label: '群聊' },
                                               ]}
                                             />
-                                            <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.receive_id_type, 'receive_id_type')} />
                                           </div>
-                                        </div>
-
-                                        <Divider style={{ margin: '12px 0', borderColor: 'var(--color-border)' }} />
-
-                                        <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 6 }}>消息响应开关（独立配置）</div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                                          <Switch
-                                            size="small"
-                                            checked={botPushStatus.p2p_response_enabled}
-                                            onChange={(v) => handleResponseEnabledChange(botPushStatus.bot_id, 'p2p', v)}
-                                          />
-                                          <span style={{ fontSize: 11 }}>开启单聊消息响应</span>
-                                        </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                          <Switch
-                                            size="small"
-                                            checked={botPushStatus.group_response_enabled}
-                                            onChange={(v) => handleResponseEnabledChange(botPushStatus.bot_id, 'group', v)}
-                                          />
-                                          <span style={{ fontSize: 11 }}>开启群聊消息响应</span>
                                         </div>
                                       </div>
                                     )}
