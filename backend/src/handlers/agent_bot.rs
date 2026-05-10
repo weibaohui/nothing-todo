@@ -391,18 +391,24 @@ pub async fn get_feishu_push(
         let p2p_enabled = state.db.get_feishu_response_enabled(bot.id, "p2p").await.unwrap_or(false);
         let group_enabled = state.db.get_feishu_response_enabled(bot.id, "group").await.unwrap_or(false);
 
-        // Try p2p target first, then fall back to group
-        let target = match state.db.get_feishu_push_target(bot.id, "p2p").await.ok().flatten() {
-            Some(t) => Some(t),
-            None => state.db.get_feishu_push_target(bot.id, "group").await.ok().flatten(),
-        };
+        // Fetch both p2p and group targets, then merge into a combined view.
+        // receive_id (单聊ID) comes from p2p target; chat_id (群ID) comes from group target.
+        let p2p_target = state.db.get_feishu_push_target(bot.id, "p2p").await.ok().flatten();
+        let group_target = state.db.get_feishu_push_target(bot.id, "group").await.ok().flatten();
+
+        let primary = p2p_target.as_ref().or(group_target.as_ref());
 
         statuses.push(FeishuPushStatus {
             bot_id: bot.id,
-            push_level: target.as_ref().map(|t| t.push_level.clone()).unwrap_or_else(|| "disabled".to_string()),
-            chat_id: target.as_ref().and_then(|t| t.chat_id.clone()),
-            receive_id: target.as_ref().map(|t| t.receive_id.clone()).unwrap_or_default(),
-            receive_id_type: target.as_ref().map(|t| t.receive_id_type.clone()).unwrap_or_default(),
+            push_level: primary.as_ref().map(|t| t.push_level.clone()).unwrap_or_else(|| "disabled".to_string()),
+            chat_id: group_target.as_ref().and_then(|t| t.chat_id.clone())
+                .or_else(|| p2p_target.as_ref().and_then(|t| t.chat_id.clone())),
+            receive_id: p2p_target.as_ref().map(|t| t.receive_id.clone())
+                .or_else(|| group_target.as_ref().map(|t| t.receive_id.clone()))
+                .unwrap_or_default(),
+            receive_id_type: p2p_target.as_ref().map(|t| t.receive_id_type.clone())
+                .or_else(|| group_target.as_ref().map(|t| t.receive_id_type.clone()))
+                .unwrap_or_default(),
             p2p_response_enabled: p2p_enabled,
             group_response_enabled: group_enabled,
         });
