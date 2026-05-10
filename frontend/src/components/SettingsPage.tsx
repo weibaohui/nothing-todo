@@ -49,7 +49,7 @@ import QRCode from 'qrcode';
 import 'react-js-cron/dist/styles.css';
 import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
-import type { FeishuPushStatus } from '../utils/database';
+import type { FeishuPushStatus, WhitelistEntry } from '../utils/database';
 import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
 import type { Config, ExecutorPaths, FeishuHistoryMessage, FeishuHistoryChat, SlashCommandRule } from '../types';
 import yaml from 'js-yaml';
@@ -137,6 +137,10 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [agentBots, setAgentBots] = useState<db.AgentBot[]>([]);
   const [botsLoading, setBotsLoading] = useState(false);
   const [feishuPushStatus, setFeishuPushStatus] = useState<FeishuPushStatus[]>([]);
+  const [groupWhitelist, setGroupWhitelist] = useState<WhitelistEntry[]>([]);
+  const [whitelistOpenId, setWhitelistOpenId] = useState('');
+  const [whitelistName, setWhitelistName] = useState('');
+  const [whitelistBotId, setWhitelistBotId] = useState<number | null>(null);
   const [binding, setBinding] = useState(false);
   const [bindModalOpen, setBindModalOpen] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
@@ -244,6 +248,35 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     db.getFeishuPush()
       .then((status) => setFeishuPushStatus(status))
       .catch(() => {});
+  };
+
+  const loadGroupWhitelist = (botId: number) => {
+    setWhitelistBotId(botId);
+    db.getGroupWhitelist(botId)
+      .then(setGroupWhitelist)
+      .catch(() => setGroupWhitelist([]));
+  };
+
+  const handleAddWhitelist = async () => {
+    if (!whitelistBotId || !whitelistOpenId.trim()) return;
+    try {
+      await db.addGroupWhitelist(whitelistBotId, whitelistOpenId.trim(), whitelistName.trim() || undefined);
+      loadGroupWhitelist(whitelistBotId);
+      setWhitelistOpenId('');
+      setWhitelistName('');
+    } catch (e: any) {
+      message.error('添加白名单失败: ' + (e.message || '未知错误'));
+    }
+  };
+
+  const handleDeleteWhitelist = async (id: number) => {
+    if (!whitelistBotId) return;
+    try {
+      await db.deleteGroupWhitelist(id);
+      loadGroupWhitelist(whitelistBotId);
+    } catch (e: any) {
+      message.error('删除白名单失败: ' + (e.message || '未知错误'));
+    }
   };
 
   const loadHistoryMessages = async () => {
@@ -1219,6 +1252,46 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                             />
                                           </div>
                                         </div>
+                                      </div>
+                                    )}
+                                    {hasPushTarget && (
+                                      <div style={{ marginTop: 10 }}>
+                                        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
+                                          群聊响应白名单
+                                          <Tooltip title="白名单为空时不限制，仅白名单内的用户消息会触发响应">
+                                            <InfoCircleOutlined style={{ marginLeft: 4, fontSize: 10 }} />
+                                          </Tooltip>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                                          <Input
+                                            size="small"
+                                            placeholder="Open ID"
+                                            value={whitelistBotId === botPushStatus.bot_id ? whitelistOpenId : ''}
+                                            onChange={(e) => { setWhitelistBotId(botPushStatus.bot_id); setWhitelistOpenId(e.target.value); }}
+                                            onFocus={() => { if (whitelistBotId !== botPushStatus.bot_id) loadGroupWhitelist(botPushStatus.bot_id); }}
+                                            style={{ flex: 1, fontSize: 11 }}
+                                          />
+                                          <Input
+                                            size="small"
+                                            placeholder="备注名"
+                                            value={whitelistBotId === botPushStatus.bot_id ? whitelistName : ''}
+                                            onChange={(e) => { setWhitelistBotId(botPushStatus.bot_id); setWhitelistName(e.target.value); }}
+                                            style={{ width: 80, fontSize: 11 }}
+                                          />
+                                          <Button size="small" onClick={handleAddWhitelist}>添加</Button>
+                                        </div>
+                                        {(whitelistBotId === botPushStatus.bot_id ? groupWhitelist : []).map((w) => (
+                                          <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, marginBottom: 2 }}>
+                                            <span style={{ color: 'var(--color-text)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                              {w.sender_name || w.sender_open_id}
+                                            </span>
+                                            <span style={{ color: 'var(--color-text-tertiary)', fontSize: 10 }}>{w.sender_open_id.slice(0, 12)}...</span>
+                                            <Button size="small" danger type="link" style={{ fontSize: 10, padding: 0 }} onClick={() => handleDeleteWhitelist(w.id)}>删除</Button>
+                                          </div>
+                                        ))}
+                                        {(whitelistBotId === botPushStatus.bot_id ? groupWhitelist : []).length === 0 && (
+                                          <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>暂无白名单，所有用户均可触发响应</div>
+                                        )}
                                       </div>
                                     )}
                                   </div>

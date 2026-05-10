@@ -221,6 +221,18 @@ impl FeishuListener {
             return;
         }
 
+        // Check group whitelist for group chats
+        if chat_type == "group" {
+            let in_whitelist = db.is_sender_in_whitelist(bot_id, &msg.sender).await.unwrap_or(true);
+            if !in_whitelist {
+                tracing::info!("[feishu:{}] sender {} not in group whitelist, skipping", bot_id, msg.sender);
+                if let Some(rid) = &reaction_id {
+                    Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
+                }
+                return;
+            }
+        }
+
         if let Some(command_ctx) = Self::parse_slash_command(content) {
             let triggered = Self::handle_custom_slash_command(
                 db,
