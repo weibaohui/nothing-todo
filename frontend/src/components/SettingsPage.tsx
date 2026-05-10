@@ -1263,14 +1263,33 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                           </Tooltip>
                                         </div>
                                         <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-                                          <Input
+                                          <Select
                                             size="small"
-                                            placeholder="Open ID"
-                                            value={whitelistBotId === botPushStatus.bot_id ? whitelistOpenId : ''}
-                                            onChange={(e) => { setWhitelistBotId(botPushStatus.bot_id); setWhitelistOpenId(e.target.value); }}
-                                            onFocus={() => { if (whitelistBotId !== botPushStatus.bot_id) loadGroupWhitelist(botPushStatus.bot_id); }}
+                                            showSearch
+                                            placeholder="搜索选择用户 Open ID"
+                                            value={whitelistBotId === botPushStatus.bot_id ? whitelistOpenId : undefined}
+                                            onChange={(v) => { setWhitelistBotId(botPushStatus.bot_id); setWhitelistOpenId(v); }}
+                                            onFocus={() => { if (whitelistBotId !== botPushStatus.bot_id) { loadGroupWhitelist(botPushStatus.bot_id); loadHistorySenders(); } }}
+                                            onSearch={() => { if (historySenders.length === 0) loadHistorySenders(); }}
+                                            filterOption={(input, option) => {
+                                              const sender = historySenders.find(s => s.sender_open_id === option?.value);
+                                              if (!sender) return (option?.value as string)?.toLowerCase().includes(input.toLowerCase());
+                                              const name = sender.sender_nickname?.toLowerCase() || '';
+                                              const id = sender.sender_open_id.toLowerCase();
+                                              const q = input.toLowerCase();
+                                              return name.includes(q) || id.includes(q);
+                                            }}
                                             style={{ flex: 1, fontSize: 11 }}
-                                          />
+                                          >
+                                            {historySenders
+                                              .filter(s => s.sender_type !== 'app')
+                                              .map((s) => (
+                                                <Select.Option key={s.sender_open_id} value={s.sender_open_id}>
+                                                  {s.sender_nickname || s.sender_open_id.slice(0, 16)} ({s.count}条)
+                                                </Select.Option>
+                                              ))
+                                            }
+                                          </Select>
                                           <Input
                                             size="small"
                                             placeholder="备注名"
@@ -1657,17 +1676,29 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                       {
                         title: '发送者',
                         key: 'sender',
-                        width: 120,
+                        width: 160,
                         render: (_, record) => {
                           const isBot = record.sender_type === 'app';
                           return (
-                            <Space>
+                            <Space size={2}>
                               <AntTag color={isBot ? 'blue' : 'green'}>
                                 {isBot ? '智能体' : '用户'}
                               </AntTag>
                               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                                 {record.sender_nickname || record.sender_open_id?.slice(0, 8) || '-'}
                               </Typography.Text>
+                              {record.sender_open_id && (
+                                <Button
+                                  size="small"
+                                  type="link"
+                                  icon={<CopyOutlined />}
+                                  style={{ fontSize: 10, padding: 0 }}
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(record.sender_open_id);
+                                    message.success('已复制 Open ID');
+                                  }}
+                                />
+                              )}
                             </Space>
                           );
                         },
