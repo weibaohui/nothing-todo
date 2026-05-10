@@ -34,6 +34,9 @@ pub struct HistoryMessageItem {
     pub content: Option<String>,
     pub msg_type: String,
     pub is_history: bool,
+    pub processed: bool,
+    pub processed_todo_id: Option<i64>,
+    pub execution_record_id: Option<i64>,
     pub created_at: Option<String>,
 }
 
@@ -84,6 +87,9 @@ pub async fn get_history_messages(
             content: m.content,
             msg_type: m.msg_type,
             is_history: m.is_history,
+            processed: m.processed,
+            processed_todo_id: m.processed_todo_id,
+            execution_record_id: m.execution_record_id,
             created_at: m.created_at,
         })
         .collect();

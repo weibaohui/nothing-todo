@@ -324,6 +324,25 @@ impl Database {
         self.exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS fetch_time TEXT")
             .await.ok();
 
+        // 添加 processed_todo_id 字段的迁移（向后兼容）
+        // 注意：SQLite 3.39.0+ 支持 IF NOT EXISTS，但旧版本不支持此语法
+        // 先尝试带 IF NOT EXISTS 的版本，失败后再尝试不带 IF NOT EXISTS 的版本
+        let add_result = self.exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS processed_todo_id INTEGER").await;
+        if add_result.is_err() {
+            // 尝试不带 IF NOT EXISTS 的版本（如果列已存在会报错，被 .ok() 忽略）
+            self.exec("ALTER TABLE feishu_messages ADD COLUMN processed_todo_id INTEGER")
+                .await
+                .ok();
+        }
+
+        // 添加 execution_record_id 字段的迁移
+        let add_exec_result = self.exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS execution_record_id INTEGER").await;
+        if add_exec_result.is_err() {
+            self.exec("ALTER TABLE feishu_messages ADD COLUMN execution_record_id INTEGER")
+                .await
+                .ok();
+        }
+
         // Feishu History Chats table
         self.exec(
             "CREATE TABLE IF NOT EXISTS feishu_history_chats (
@@ -345,11 +364,14 @@ impl Database {
         self.exec(
             "CREATE TABLE IF NOT EXISTS feishu_push_targets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                bot_id INTEGER NOT NULL UNIQUE,
+                bot_id INTEGER NOT NULL,
+                target_type TEXT NOT NULL DEFAULT 'group',
                 chat_id TEXT,
                 receive_id TEXT NOT NULL,
                 receive_id_type TEXT NOT NULL,
-                push_enabled INTEGER DEFAULT 1,
+                push_level TEXT DEFAULT 'all',
+                p2p_response_enabled INTEGER DEFAULT 1,
+                group_response_enabled INTEGER DEFAULT 1,
                 created_at TEXT,
                 updated_at TEXT,
                 FOREIGN KEY (bot_id) REFERENCES agent_bots(id)
@@ -357,11 +379,40 @@ impl Database {
         )
         .await?;
 
-        // 添加 push_level 字段的迁移（向后兼容）
+        // 添加 target_type 字段的迁移（向后兼容）
+        // 注意：旧记录会将 target_type 设为 NULL，需要更新为 'group'
+        let add_target_type = self.exec(
+            "ALTER TABLE feishu_push_targets ADD COLUMN target_type TEXT DEFAULT 'group'"
+        ).await;
+        if add_target_type.is_ok() {
+            // 更新旧的 NULL 记录为 'group'
+            self.exec(
+                "UPDATE feishu_push_targets SET target_type = 'group' WHERE target_type IS NULL"
+            ).await.ok();
+        }
+
+        // 添加 p2p_response_enabled 字段的迁移
         self.exec(
-            "ALTER TABLE feishu_push_targets ADD COLUMN push_level TEXT DEFAULT 'all'"
-        )
-        .await.ok(); // 忽略错误，因为字段可能已存在
+            "ALTER TABLE feishu_push_targets ADD COLUMN p2p_response_enabled INTEGER DEFAULT 1"
+        ).await.ok();
+
+        // 添加 group_response_enabled 字段的迁移
+        self.exec(
+            "ALTER TABLE feishu_push_targets ADD COLUMN group_response_enabled INTEGER DEFAULT 1"
+        ).await.ok();
+
+        // 创建 feishu_response_config 表（响应开关独立配置）
+        self.exec(r#"
+            CREATE TABLE IF NOT EXISTS feishu_response_config (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id INTEGER NOT NULL,
+                target_type TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT,
+                updated_at TEXT,
+                UNIQUE(bot_id, target_type)
+            )
+        "#).await.ok();
 
         Ok(())
     }
@@ -376,6 +427,7 @@ mod feishu_home;
 mod feishu_message;
 mod feishu_push_target;
 mod feishu_history_chat;
+mod feishu_response_config;
 
 #[cfg(test)]
 mod tests {

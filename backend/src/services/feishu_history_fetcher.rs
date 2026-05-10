@@ -2,19 +2,32 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dashmap::DashMap;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde::Deserialize;
+use tokio::sync::{RwLock, broadcast};
 use tokio::time::interval;
 use tracing::{debug, info, warn};
 
+use crate::adapters::ExecutorRegistry;
+use crate::config::Config as AppConfig;
 use crate::db::Database;
-use crate::feishu::sdk::config::{Config, CONTENT_TYPE_JSON};
+use crate::feishu::sdk::config::{Config as FeishuSdkConfig, CONTENT_TYPE_JSON};
+use crate::feishu::sdk::token_manager::TokenManager;
+use crate::handlers::ExecEvent;
+use crate::handlers::execution::start_todo_execution;
+use crate::task_manager::TaskManager;
 
 const IM_V1_LIST_MESSAGES: &str = "/open-apis/im/v1/messages";
 
 pub struct FeishuHistoryFetcher {
     db: Arc<Database>,
-    client: reqwest::Client,
+    executor_registry: Arc<ExecutorRegistry>,
+    tx: broadcast::Sender<ExecEvent>,
+    task_manager: Arc<TaskManager>,
+    config: Arc<RwLock<AppConfig>>,
+    token_manager: Arc<TokenManager>,
+    bot_credentials: Arc<DashMap<i64, (String, String, String)>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,10 +79,24 @@ struct ChatToFetch {
 }
 
 impl FeishuHistoryFetcher {
-    pub fn new(db: Arc<Database>) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        db: Arc<Database>,
+        executor_registry: Arc<ExecutorRegistry>,
+        tx: broadcast::Sender<ExecEvent>,
+        task_manager: Arc<TaskManager>,
+        config: Arc<RwLock<AppConfig>>,
+        token_manager: Arc<TokenManager>,
+        bot_credentials: Arc<DashMap<i64, (String, String, String)>>,
+    ) -> Self {
         Self {
             db,
-            client: reqwest::Client::new(),
+            executor_registry,
+            tx,
+            task_manager,
+            config,
+            token_manager,
+            bot_credentials,
         }
     }
 
@@ -80,7 +107,12 @@ impl FeishuHistoryFetcher {
         }
 
         let db = self.db.clone();
-        let client = self.client.clone();
+        let executor_registry = self.executor_registry.clone();
+        let tx = self.tx.clone();
+        let task_manager = self.task_manager.clone();
+        let config = self.config.clone();
+        let token_manager = self.token_manager.clone();
+        let bot_credentials = self.bot_credentials.clone();
 
         tokio::spawn(async move {
             info!("[feishu-history-fetcher] started");
@@ -130,7 +162,19 @@ impl FeishuHistoryFetcher {
                         continue;
                     }
 
-                    if let Err(e) = Self::fetch_for_bot(&db, &client, *bot_id, app_id, app_secret, &bot_chats).await {
+                    if let Err(e) = Self::fetch_for_bot(
+                        &db,
+                        &executor_registry,
+                        &tx,
+                        &task_manager,
+                        &config,
+                        &token_manager,
+                        &bot_credentials,
+                        *bot_id,
+                        app_id,
+                        app_secret,
+                        &bot_chats,
+                    ).await {
                         warn!("[feishu-history-fetcher] error fetching for bot {}: {}", bot_id, e);
                     }
                 }
@@ -138,9 +182,15 @@ impl FeishuHistoryFetcher {
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn fetch_for_bot(
         db: &Arc<Database>,
-        client: &reqwest::Client,
+        executor_registry: &Arc<ExecutorRegistry>,
+        tx: &broadcast::Sender<ExecEvent>,
+        task_manager: &Arc<TaskManager>,
+        config: &Arc<RwLock<AppConfig>>,
+        token_manager: &Arc<TokenManager>,
+        bot_credentials: &Arc<DashMap<i64, (String, String, String)>>,
         bot_id: i64,
         app_id: &str,
         app_secret: &str,
@@ -151,18 +201,29 @@ impl FeishuHistoryFetcher {
             return Ok(());
         }
 
-        let config = Config::builder()
+        let feishu_config = FeishuSdkConfig::builder()
             .app_id(app_id)
             .app_secret(app_secret)
             .build();
 
-        let token = config.token_manager.lock().await
-            .get_tenant_access_token(&config)
+        let token = token_manager
+            .get_tenant_access_token(&feishu_config)
             .await
             .map_err(|e| format!("failed to get token: {}", e))?;
 
         for chat in chats {
-            match Self::fetch_chat_history(db, client, bot_id, &chat.chat_id, &token).await {
+            match Self::fetch_chat_history(
+                db,
+                executor_registry,
+                tx,
+                task_manager,
+                config,
+                token_manager,
+                bot_credentials,
+                bot_id,
+                &chat.chat_id,
+                &token,
+            ).await {
                 Ok(count) => {
                     if count > 0 {
                         info!("[feishu-history-fetcher] fetched {} new messages from chat {}", count, chat.chat_id);
@@ -177,9 +238,15 @@ impl FeishuHistoryFetcher {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn fetch_chat_history(
         db: &Arc<Database>,
-        client: &reqwest::Client,
+        executor_registry: &Arc<ExecutorRegistry>,
+        tx: &broadcast::Sender<ExecEvent>,
+        task_manager: &Arc<TaskManager>,
+        _config: &Arc<RwLock<AppConfig>>,
+        token_manager: &Arc<TokenManager>,
+        bot_credentials: &Arc<DashMap<i64, (String, String, String)>>,
         bot_id: i64,
         chat_id: &str,
         token: &str,
@@ -187,9 +254,9 @@ impl FeishuHistoryFetcher {
         // Get the latest message time from DB for incremental fetching
         let start_time = match db.get_latest_history_message_time(bot_id, chat_id).await {
             Ok(Some(time)) => {
-                // Parse the time and convert to Unix timestamp in milliseconds
+                // Parse the time and convert to Unix timestamp in seconds (Feishu API expects seconds)
                 if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&time) {
-                    Some(dt.timestamp_millis().to_string())
+                    Some(dt.timestamp().to_string())
                 } else {
                     None
                 }
@@ -217,7 +284,7 @@ impl FeishuHistoryFetcher {
                 query_params.insert("page_token".to_string(), pt.clone());
             }
 
-            let resp = Self::list_messages(client, token, &query_params).await?;
+            let resp = Self::list_messages(&reqwest::Client::new(), token, &query_params).await?;
 
             if resp.code != 0 {
                 return Err(format!("API error: {} ({})", resp.msg, resp.code));
@@ -243,6 +310,24 @@ impl FeishuHistoryFetcher {
 
                     // sender_open_id is actually the sender's ID (open_id for users, app_id for bots)
                     let sender_open_id = sender_id.as_str();
+
+                    // Skip if sender is OUR registered bot (using OR logic)
+                    // This prevents circular triggering: bot sends message -> history fetcher picks it up -> bot processes it again
+                    let is_our_bot = Self::is_our_bot_message(
+                        &sender_id,
+                        sender_type.as_deref(),
+                        bot_credentials,
+                        token_manager,
+                        bot_id,
+                    ).await;
+
+                    if is_our_bot {
+                        tracing::debug!(
+                            "[feishu-history-fetcher] skip our own bot message from sender_id={}, chat {}",
+                            sender_id, chat_id
+                        );
+                        continue;
+                    }
 
                     let sender_nickname: Option<&str> = None;
 
@@ -275,12 +360,447 @@ impl FeishuHistoryFetcher {
                         warn!("[feishu-history-fetcher] failed to save message {}: {}", item.message_id, e);
                     } else {
                         total_fetched += 1;
+
+                        // Process the message through slash command / default response pipeline
+                        if let Some(ref msg_content) = content {
+                            if let Some((todo_id, execution_record_id)) = Self::process_message(
+                                db,
+                                executor_registry,
+                                tx,
+                                task_manager,
+                                _config,
+                                token_manager,
+                                bot_credentials,
+                                bot_id,
+                                None, // No need to check bot_open_id anymore since we filter by sender_type
+                                "group",
+                                sender_open_id,
+                                chat_id,
+                                msg_content,
+                            ).await {
+                                // Mark message as processed with the triggered todo_id and execution_record_id
+                                if let Err(e) = db.mark_feishu_message_processed(&item.message_id, todo_id, execution_record_id).await {
+                                    warn!("[feishu-history-fetcher] failed to mark message {} as processed: {}", item.message_id, e);
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
 
         Ok(total_fetched)
+    }
+
+    /// 处理消息：斜杠命令 -> 默认响应，返回 (todo_id, execution_record_id)
+    #[allow(clippy::too_many_arguments)]
+    async fn process_message(
+        db: &Arc<Database>,
+        executor_registry: &Arc<ExecutorRegistry>,
+        tx: &broadcast::Sender<ExecEvent>,
+        task_manager: &Arc<TaskManager>,
+        config: &Arc<RwLock<AppConfig>>,
+        token_manager: &Arc<TokenManager>,
+        bot_credentials: &Arc<DashMap<i64, (String, String, String)>>,
+        bot_id: i64,
+        _bot_open_id: Option<&str>,
+        chat_type: &str,
+        sender: &str,
+        channel: &str,
+        content: &str,
+    ) -> Option<(i64, Option<i64>)> {
+        let trimmed = content.trim();
+
+        // 尝试解析斜杠命令
+        if let Some(command_ctx) = Self::parse_slash_command(trimmed) {
+            // 有斜杠命令，检查是否匹配规则
+            let matched_rule = {
+                let cfg = config.read().await;
+                cfg.slash_command_rules
+                    .iter()
+                    .find(|rule| rule.enabled && rule.slash_command.eq_ignore_ascii_case(&command_ctx.command))
+                    .cloned()
+            };
+
+            if let Some(rule) = matched_rule {
+                // 匹配到规则，执行对应的 Todo
+                if !command_ctx.body.is_empty() {
+                    return Self::execute_slash_command(
+                        db,
+                        executor_registry,
+                        tx,
+                        task_manager,
+                        config,
+                        bot_credentials,
+                        token_manager,
+                        bot_id,
+                        chat_type,
+                        sender,
+                        channel,
+                        command_ctx.command,
+                        command_ctx.body,
+                        rule.todo_id,
+                    ).await;
+                }
+            }
+        }
+
+        // 没有匹配到斜杠命令，检查默认响应
+        let default_todo_id = {
+            let cfg = config.read().await;
+            cfg.default_response_todo_id
+        };
+
+        if let Some(todo_id) = default_todo_id {
+            if !trimmed.is_empty() {
+                return Self::execute_default_response(
+                    db,
+                    executor_registry,
+                    tx,
+                    task_manager,
+                    bot_credentials,
+                    token_manager,
+                    bot_id,
+                    chat_type,
+                    sender,
+                    channel,
+                    trimmed,
+                    todo_id,
+                ).await;
+            }
+        }
+        None
+    }
+
+    /// 解析斜杠命令
+    fn parse_slash_command(content: &str) -> Option<SlashCommandMatch<'_>> {
+        let trimmed = content.trim();
+        if !trimmed.starts_with('/') {
+            return None;
+        }
+        let mut parts = trimmed.splitn(2, char::is_whitespace);
+        let command = parts.next()?.trim();
+        let body = parts.next().unwrap_or("").trim();
+        Some(SlashCommandMatch { command, body })
+    }
+
+    /// 执行斜杠命令，返回 (todo_id, execution_record_id)
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_slash_command(
+        db: &Arc<Database>,
+        executor_registry: &Arc<ExecutorRegistry>,
+        tx: &broadcast::Sender<ExecEvent>,
+        task_manager: &Arc<TaskManager>,
+        _config: &Arc<RwLock<AppConfig>>,
+        bot_credentials: &Arc<DashMap<i64, (String, String, String)>>,
+        token_manager: &Arc<TokenManager>,
+        bot_id: i64,
+        chat_type: &str,
+        sender: &str,
+        channel: &str,
+        command: &str,
+        body: &str,
+        todo_id: i64,
+    ) -> Option<(i64, Option<i64>)> {
+        let (receive_id, receive_id_type) = match chat_type {
+            "p2p" => (sender.to_string(), "open_id"),
+            _ => (channel.to_string(), "chat_id"),
+        };
+
+        let todo = match db.get_todo(todo_id).await {
+            Some(todo) => todo,
+            None => {
+                tracing::warn!("[feishu-history] 斜杠命令绑定的 Todo 不存在: todo_id={}", todo_id);
+                return None;
+            }
+        };
+
+        let mut params = HashMap::new();
+        params.insert("content".to_string(), body.to_string());
+        params.insert("message".to_string(), body.to_string());
+        params.insert("raw_message".to_string(), format!("{} {}", command, body).trim().to_string());
+        params.insert("slash_command".to_string(), command.to_string());
+
+        match start_todo_execution(
+            db.clone(),
+            executor_registry.clone(),
+            tx.clone(),
+            task_manager.clone(),
+            todo.id,
+            todo.prompt.clone(),
+            todo.executor.clone(),
+            "slash_command",
+            Some(params),
+            None,
+            None,
+        )
+        .await
+        {
+            Ok(result) => {
+                tracing::info!(
+                    "[feishu-history] 斜杠命令触发 Todo 执行: command={}, todo_id={}, task_id={}, record_id={:?}",
+                    command,
+                    todo.id,
+                    result.task_id,
+                    result.record_id
+                );
+                // 发送确认消息
+                let reply = format!(
+                    "已执行命令 {}，正在启动 Todo #{}《{}》。\n任务参数: {}",
+                    command,
+                    todo.id,
+                    todo.title,
+                    body
+                );
+                Self::send_text(bot_credentials, token_manager, bot_id, &receive_id, receive_id_type, &reply).await;
+                Some((todo.id, result.record_id))
+            }
+            Err(err) => {
+                tracing::error!(
+                    "[feishu-history] 斜杠命令执行失败: command={}, todo_id={}, error={:?}",
+                    command,
+                    todo.id,
+                    err
+                );
+                None
+            }
+        }
+    }
+
+    /// 执行默认响应，返回 (todo_id, execution_record_id)
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_default_response(
+        db: &Arc<Database>,
+        executor_registry: &Arc<ExecutorRegistry>,
+        tx: &broadcast::Sender<ExecEvent>,
+        task_manager: &Arc<TaskManager>,
+        bot_credentials: &Arc<DashMap<i64, (String, String, String)>>,
+        token_manager: &Arc<TokenManager>,
+        bot_id: i64,
+        chat_type: &str,
+        sender: &str,
+        channel: &str,
+        body: &str,
+        todo_id: i64,
+    ) -> Option<(i64, Option<i64>)> {
+        let (receive_id, receive_id_type) = match chat_type {
+            "p2p" => (sender.to_string(), "open_id"),
+            _ => (channel.to_string(), "chat_id"),
+        };
+
+        let todo = match db.get_todo(todo_id).await {
+            Some(todo) => todo,
+            None => {
+                tracing::warn!("[feishu-history] 默认响应绑定的 Todo 不存在: todo_id={}", todo_id);
+                return None;
+            }
+        };
+
+        let mut params = HashMap::new();
+        params.insert("content".to_string(), body.to_string());
+        params.insert("message".to_string(), body.to_string());
+        params.insert("raw_message".to_string(), body.to_string());
+
+        match start_todo_execution(
+            db.clone(),
+            executor_registry.clone(),
+            tx.clone(),
+            task_manager.clone(),
+            todo.id,
+            todo.prompt.clone(),
+            todo.executor.clone(),
+            "slash_command",
+            Some(params),
+            None,
+            None,
+        )
+        .await
+        {
+            Ok(result) => {
+                tracing::info!(
+                    "[feishu-history] 默认响应触发 Todo 执行: todo_id={}, task_id={}, record_id={:?}",
+                    todo.id,
+                    result.task_id,
+                    result.record_id
+                );
+                let reply = format!(
+                    "收到消息，已启动 Todo #{}《{}》。\n任务参数: {}",
+                    todo.id,
+                    todo.title,
+                    body
+                );
+                Self::send_text(bot_credentials, token_manager, bot_id, &receive_id, receive_id_type, &reply).await;
+                Some((todo.id, result.record_id))
+            }
+            Err(err) => {
+                tracing::error!(
+                    "[feishu-history] 默认响应执行失败: todo_id={}, error={:?}",
+                    todo.id,
+                    err
+                );
+                None
+            }
+        }
+    }
+
+    /// 发送文本消息
+    async fn send_text(
+        bot_credentials: &Arc<DashMap<i64, (String, String, String)>>,
+        token_manager: &Arc<TokenManager>,
+        bot_id: i64,
+        receive_id: &str,
+        receive_id_type: &str,
+        text: &str,
+    ) {
+        let base_url = Self::base_url(bot_credentials, bot_id);
+        let Some(base_url) = base_url else { return };
+        let token = match Self::get_tenant_token(bot_credentials, token_manager, bot_id).await {
+            Some(t) => t,
+            None => return,
+        };
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/open-apis/im/v1/messages?receive_id_type={}", base_url, receive_id_type);
+        let body = serde_json::json!({
+            "receive_id": receive_id,
+            "msg_type": "text",
+            "content": serde_json::to_string(&serde_json::json!({ "text": text })).unwrap_or_default()
+        });
+
+        match client
+            .post(&url)
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+        {
+            Ok(res) => {
+                let status = res.status();
+                if !status.is_success() {
+                    tracing::error!("[feishu-history] send_text failed: status={}", status);
+                }
+            }
+            Err(e) => {
+                tracing::error!("[feishu-history] send_text request failed: {}", e);
+            }
+        }
+    }
+
+    fn base_url(bot_credentials: &Arc<DashMap<i64, (String, String, String)>>, bot_id: i64) -> Option<String> {
+        let domain = bot_credentials.get(&bot_id)?.2.clone();
+        Some(if domain == "lark" {
+            "https://open.larksuite.com".to_string()
+        } else {
+            "https://open.feishu.cn".to_string()
+        })
+    }
+
+    async fn get_tenant_token(
+        bot_credentials: &Arc<DashMap<i64, (String, String, String)>>,
+        token_manager: &Arc<TokenManager>,
+        bot_id: i64,
+    ) -> Option<String> {
+        let sdk_config = Self::build_sdk_config(bot_credentials, bot_id)?;
+        match token_manager.get_tenant_access_token(&sdk_config).await {
+            Ok(token) => Some(token),
+            Err(err) => {
+                tracing::warn!("[feishu-history] 获取 tenant_access_token 失败: {}", err);
+                None
+            }
+        }
+    }
+
+    /// Resolve the bot's own open_id from the Feishu API.
+    /// Used to filter out self-sent messages and prevent circular triggering.
+    async fn resolve_bot_open_id(
+        bot_credentials: &Arc<DashMap<i64, (String, String, String)>>,
+        token_manager: &Arc<TokenManager>,
+        bot_id: i64,
+    ) -> Option<String> {
+        let token = Self::get_tenant_token(bot_credentials, token_manager, bot_id).await?;
+        let base_url = Self::base_url(bot_credentials, bot_id)?;
+
+        let client = reqwest::Client::new();
+        let res = client
+            .get(format!("{base_url}/open-apis/bot/v3/info"))
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+            .await
+            .ok()?;
+
+        let body: serde_json::Value = res.json().await.ok()?;
+        body.get("bot")
+            .and_then(|b| b.get("open_id"))
+            .and_then(|v| v.as_str())
+            .map(String::from)
+    }
+
+    /// Check if a message was sent by our own bot using OR logic.
+    /// Matches against: app_id OR open_id of the registered bot.
+    /// Returns true if sender matches ANY of our bot's identifiers.
+    async fn is_our_bot_message(
+        sender_id: &str,
+        sender_type: Option<&str>,
+        bot_credentials: &Arc<DashMap<i64, (String, String, String)>>,
+        token_manager: &Arc<TokenManager>,
+        bot_id: i64,
+    ) -> bool {
+        if sender_id.is_empty() {
+            return false;
+        }
+
+        // Check 1: If sender_type is "app", sender_id is the app_id - check if it matches our app_id
+        if sender_type == Some("app") {
+            if let Some(ref_val) = bot_credentials.get(&bot_id) {
+                if sender_id == ref_val.0 {
+                    tracing::debug!(
+                        "[feishu-history-fetcher] matched our bot by app_id: {}",
+                        sender_id
+                    );
+                    return true;
+                }
+            }
+        }
+
+        // Check 2: Resolve bot's open_id and compare
+        if sender_type != Some("user") {
+            let bot_open_id = Self::resolve_bot_open_id(bot_credentials, token_manager, bot_id).await;
+            if let Some(open_id) = bot_open_id {
+                if sender_id == open_id {
+                    tracing::debug!(
+                        "[feishu-history-fetcher] matched our bot by open_id: {}",
+                        sender_id
+                    );
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    fn build_sdk_config(
+        bot_credentials: &Arc<DashMap<i64, (String, String, String)>>,
+        bot_id: i64,
+    ) -> Option<FeishuSdkConfig> {
+        let ref_val = bot_credentials.get(&bot_id)?;
+        let (app_id, app_secret, domain) = (ref_val.0.clone(), ref_val.1.clone(), ref_val.2.clone());
+        let base_url = if domain == "lark" {
+            "https://open.larksuite.com"
+        } else {
+            "https://open.feishu.cn"
+        };
+
+        Some(
+            FeishuSdkConfig::builder()
+                .app_id(app_id)
+                .app_secret(app_secret)
+                .base_url(base_url)
+                .enable_token_cache(true)
+                .http_client(reqwest::Client::new())
+                .build(),
+        )
     }
 
     async fn list_messages(
@@ -317,4 +837,9 @@ impl FeishuHistoryFetcher {
 
         Ok(result)
     }
+}
+
+struct SlashCommandMatch<'a> {
+    command: &'a str,
+    body: &'a str,
 }

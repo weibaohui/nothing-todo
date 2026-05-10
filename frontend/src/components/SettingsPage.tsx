@@ -21,6 +21,7 @@ import {
   Tag as AntTag,
   Switch,
   Tooltip,
+  Divider,
 } from 'antd';
 import {
   SettingOutlined,
@@ -1047,6 +1048,18 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                 message.error('更新推送目标失败: ' + (e.message || '未知错误'));
                               }
                             };
+                            const handleResponseEnabledChange = async (botId: number, targetType: 'p2p' | 'group', enabled: boolean) => {
+                              try {
+                                if (targetType === 'p2p') {
+                                  await db.updateFeishuPush({ botId, p2pResponseEnabled: enabled });
+                                } else {
+                                  await db.updateFeishuPush({ botId, groupResponseEnabled: enabled });
+                                }
+                                loadFeishuPush();
+                              } catch (e: any) {
+                                message.error('更新响应开关失败: ' + (e.message || '未知错误'));
+                              }
+                            };
                             const copyToClipboard = (text: string, label: string) => {
                               navigator.clipboard.writeText(text).then(() => {
                                 message.success(`${label} 已复制`);
@@ -1151,7 +1164,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                             ]}
                                           />
                                         </div>
-                                        <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>推送目标信息（可编辑）</div>
+                                        <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>发送目标信息（可编辑）</div>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                             <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>接收ID:</span>
@@ -1174,7 +1187,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                             <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.chat_id || '', 'chat_id')} />
                                           </div>
                                           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                            <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>推送类型:</span>
+                                            <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>发送类型:</span>
                                             <Select
                                               size="small"
                                               value={botPushStatus.receive_id_type}
@@ -1187,6 +1200,26 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                             />
                                             <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.receive_id_type, 'receive_id_type')} />
                                           </div>
+                                        </div>
+
+                                        <Divider style={{ margin: '12px 0', borderColor: 'var(--color-border)' }} />
+
+                                        <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 6 }}>消息响应开关（独立配置）</div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                          <Switch
+                                            size="small"
+                                            checked={botPushStatus.p2p_response_enabled}
+                                            onChange={(v) => handleResponseEnabledChange(botPushStatus.bot_id, 'p2p', v)}
+                                          />
+                                          <span style={{ fontSize: 11 }}>开启单聊消息响应</span>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                          <Switch
+                                            size="small"
+                                            checked={botPushStatus.group_response_enabled}
+                                            onChange={(v) => handleResponseEnabledChange(botPushStatus.bot_id, 'group', v)}
+                                          />
+                                          <span style={{ fontSize: 11 }}>开启群聊消息响应</span>
                                         </div>
                                       </div>
                                     )}
@@ -1294,6 +1327,38 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                           </>
                         )}
                       </Form.List>
+                    </Form>
+                  </Card>
+
+                  <Card
+                    title="默认响应"
+                    size="small"
+                    style={{ marginBottom: 24 }}
+                    extra={
+                      <Button type="primary" size="small" onClick={handleSaveConfig} loading={configSaving}>
+                        保存
+                      </Button>
+                    }
+                  >
+                    <Paragraph type="secondary" style={{ marginBottom: 16, fontSize: 13 }}>
+                      当收到的消息没有匹配到任何斜杠命令时，执行默认响应的 Todo。支持使用 {'{{'}content{'}}'}、{'{{'}message{'}}'}、{'{{'}raw_message{'}}'}、{'{{'}slash_command{'}}'} 参数。
+                    </Paragraph>
+                    <Form form={configForm} layout="vertical" style={{ maxWidth: 400 }}>
+                      <Form.Item
+                        name="default_response_todo_id"
+                        label="默认响应 Todo"
+                      >
+                        <Select
+                          showSearch
+                          allowClear
+                          placeholder="选择默认响应的 Todo"
+                          optionFilterProp="label"
+                          options={todos.map((todo) => ({
+                            value: todo.id,
+                            label: `#${todo.id} ${todo.title}`,
+                          }))}
+                        />
+                      </Form.Item>
                     </Form>
                   </Card>
 
@@ -1521,6 +1586,46 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                           }
                           return <AntTag>{record.msg_type}</AntTag>;
                         },
+                      },
+                      {
+                        title: '处理状态',
+                        key: 'processed',
+                        width: 90,
+                        render: (_, record) => (
+                          record.processed ? (
+                            <AntTag color="green">已处理</AntTag>
+                          ) : (
+                            <AntTag color="default">未处理</AntTag>
+                          )
+                        ),
+                      },
+                      {
+                        title: '触发Todo',
+                        key: 'processed_todo_id',
+                        width: 80,
+                        render: (_, record) => (
+                          record.processed_todo_id ? (
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              #{record.processed_todo_id}
+                            </Typography.Text>
+                          ) : (
+                            <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>-</span>
+                          )
+                        ),
+                      },
+                      {
+                        title: '执行记录',
+                        key: 'execution_record_id',
+                        width: 80,
+                        render: (_, record) => (
+                          record.execution_record_id ? (
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              #{record.execution_record_id}
+                            </Typography.Text>
+                          ) : (
+                            <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>-</span>
+                          )
+                        ),
                       },
                     ]}
                   />

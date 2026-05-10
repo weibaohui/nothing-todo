@@ -1,6 +1,7 @@
 use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait, QueryOrder};
 use crate::db::Database;
 use crate::db::entity::agent_bots;
+use crate::db::entity::feishu_response_config;
 use crate::models::AgentBot;
 
 fn map_bot(m: agent_bots::Model) -> AgentBot {
@@ -46,10 +47,26 @@ impl Database {
             domain: ActiveValue::Set(domain),
             enabled: ActiveValue::Set(Some(true)),
             config: ActiveValue::Set(Some("{}".to_string())),
-            created_at: ActiveValue::Set(Some(now)),
+            created_at: ActiveValue::Set(Some(now.clone())),
             ..Default::default()
         };
         let inserted = am.insert(&self.conn).await?;
+
+        // For Feishu bots, also create response config records for p2p and group
+        if bot_type == "feishu" {
+            for target_type in &["p2p", "group"] {
+                let config_am = feishu_response_config::ActiveModel {
+                    bot_id: ActiveValue::Set(inserted.id),
+                    target_type: ActiveValue::Set(target_type.to_string()),
+                    enabled: ActiveValue::Set(true),
+                    created_at: ActiveValue::Set(Some(now.clone())),
+                    updated_at: ActiveValue::Set(Some(now.clone())),
+                    ..Default::default()
+                };
+                let _ = config_am.insert(&self.conn).await;
+            }
+        }
+
         Ok(inserted.id)
     }
 
