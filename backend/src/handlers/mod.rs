@@ -339,6 +339,7 @@ pub fn create_app(
         config.clone(),
         feishu_listener.token_manager.clone(),
         feishu_listener.bot_credentials.clone(),
+        debounce.clone(),
     );
     let db_for_fetcher = db.clone();
     tokio::spawn(async move {
