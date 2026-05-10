@@ -51,14 +51,31 @@ impl Database {
                 Err(e) => {
                     let msg = e.to_string();
                     if msg.contains("UNIQUE constraint failed") {
-                        // Possible race: another task inserted the row. Try to find and update it.
-                        if let Ok(Some(existing2)) = feishu_push_targets::Entity::find()
+                        // Possible race or old DB schema: try to find and update an existing row.
+                        // Prefer matching (bot_id, target_type); fall back to matching bot_id only.
+                        let found = match feishu_push_targets::Entity::find()
                             .filter(feishu_push_targets::Column::BotId.eq(bot_id))
                             .filter(feishu_push_targets::Column::TargetType.eq(target_type))
                             .one(&self.conn)
                             .await
                         {
+                            Ok(Some(m)) => Some(m),
+                            Ok(None) => match feishu_push_targets::Entity::find()
+                                .filter(feishu_push_targets::Column::BotId.eq(bot_id))
+                                .one(&self.conn)
+                                .await
+                            {
+                                Ok(Some(m2)) => Some(m2),
+                                Ok(None) => None,
+                                Err(_) => return Err(e),
+                            },
+                            Err(_) => return Err(e),
+                        };
+
+                        if let Some(existing2) = found {
                             let mut am2: feishu_push_targets::ActiveModel = existing2.into();
+                            // Ensure target_type is set to requested value (safe even if schema has target_type column).
+                            am2.target_type = ActiveValue::Set(target_type.to_string());
                             am2.chat_id = ActiveValue::Set(chat_id.map(String::from));
                             am2.receive_id = ActiveValue::Set(receive_id.to_string());
                             am2.receive_id_type = ActiveValue::Set(receive_id_type.to_string());
