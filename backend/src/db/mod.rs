@@ -387,12 +387,26 @@ impl Database {
                 bot_id INTEGER NOT NULL,
                 target_type TEXT NOT NULL,
                 enabled INTEGER NOT NULL DEFAULT 1,
+                debounce_secs INTEGER DEFAULT 20,
                 created_at TEXT,
                 updated_at TEXT,
                 UNIQUE(bot_id, target_type)
             )",
         )
         .await?;
+
+        // Migrate: add debounce_secs column if missing
+        let has_debounce: i64 = self.conn
+            .query_one(Statement::from_string(
+                sea_orm::DatabaseBackend::Sqlite,
+                "SELECT COUNT(*) FROM pragma_table_info('feishu_response_config') WHERE name='debounce_secs'",
+            ))
+            .await?
+            .map(|r| r.try_get::<i64>("", "COUNT(*)").unwrap_or(0))
+            .unwrap_or(0);
+        if has_debounce == 0 {
+            self.exec("ALTER TABLE feishu_response_config ADD COLUMN debounce_secs INTEGER DEFAULT 20").await?;
+        }
 
         // feishu_group_whitelist 表（群聊响应白名单）
         self.exec("DROP TABLE IF EXISTS feishu_group_whitelist").await?;

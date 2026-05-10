@@ -11,6 +11,8 @@ pub struct Model {
     pub target_type: String,
     /// Whether to enable message response
     pub enabled: bool,
+    /// Debounce window in seconds (default 20)
+    pub debounce_secs: Option<i64>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
