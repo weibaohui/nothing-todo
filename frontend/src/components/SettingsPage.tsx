@@ -1047,6 +1047,18 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                 message.error('更新推送目标失败: ' + (e.message || '未知错误'));
                               }
                             };
+                            const handleResponseEnabledChange = async (botId: number, targetType: 'p2p' | 'group', enabled: boolean) => {
+                              try {
+                                if (targetType === 'p2p') {
+                                  await db.updateFeishuPush({ botId, p2pResponseEnabled: enabled });
+                                } else {
+                                  await db.updateFeishuPush({ botId, groupResponseEnabled: enabled });
+                                }
+                                loadFeishuPush();
+                              } catch (e: any) {
+                                message.error('更新响应开关失败: ' + (e.message || '未知错误'));
+                              }
+                            };
                             const copyToClipboard = (text: string, label: string) => {
                               navigator.clipboard.writeText(text).then(() => {
                                 message.success(`${label} 已复制`);
@@ -1186,6 +1198,22 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                               ]}
                                             />
                                             <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.receive_id_type, 'receive_id_type')} />
+                                          </div>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                                            <Switch
+                                              size="small"
+                                              checked={botPushStatus.p2p_response_enabled}
+                                              onChange={(v) => handleResponseEnabledChange(botPushStatus.bot_id, 'p2p', v)}
+                                            />
+                                            <span style={{ fontSize: 11 }}>开启单聊消息响应</span>
+                                          </div>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                                            <Switch
+                                              size="small"
+                                              checked={botPushStatus.group_response_enabled}
+                                              onChange={(v) => handleResponseEnabledChange(botPushStatus.bot_id, 'group', v)}
+                                            />
+                                            <span style={{ fontSize: 11 }}>开启群聊消息响应</span>
                                           </div>
                                         </div>
                                       </div>
