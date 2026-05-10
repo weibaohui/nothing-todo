@@ -6,11 +6,18 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     assetsInlineLimit: 4096,
+    chunkSizeWarningLimit: 1500,
     rollupOptions: {
       output: {
         manualChunks: {
           'vendor-react': ['react', 'react-dom'],
-          'vendor-antd': ['antd', '@ant-design/icons'],
+          'vendor-antd': ['antd'],
+          'vendor-antd-icons': ['@ant-design/icons'],
+          'vendor-cherry-markdown': ['cherry-markdown'],
+          'vendor-md-editor': ['@uiw/react-md-editor', '@ant-design/x-markdown'],
+          'vendor-motion': ['framer-motion'],
+          'vendor-icons': ['react-icons'],
+          'vendor-misc': ['qrcode', 'react-countup', 'react-js-cron'],
         },
       },
     },
