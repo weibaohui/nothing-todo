@@ -421,12 +421,12 @@ pub async fn update_feishu_push(
         _ => "group",
     };
 
-    let target = state
+    // Try to fetch existing target; if missing and receive fields provided, create new target
+    let existing_target = state
         .db
         .get_feishu_push_target(req.bot_id, target_type)
         .await
-        .map_err(|e| AppError::Internal(e.to_string()))?
-        .ok_or(AppError::NotFound)?;
+        .map_err(|e| AppError::Internal(e.to_string()))?;
 
     // Update push_level if provided
     if let Some(level) = &req.push_level {
@@ -437,17 +437,29 @@ pub async fn update_feishu_push(
             .map_err(|e| AppError::Internal(e.to_string()))?;
     }
 
-    // Update receive fields if provided
+    // If receive fields or chat_id provided, set or create the push target accordingly
     if req.receive_id.is_some() || req.receive_id_type.is_some() || req.chat_id.is_some() {
+        let (current_receive_id, current_receive_id_type, current_chat_id, current_push_level) = if let Some(t) = &existing_target {
+            (t.receive_id.clone(), t.receive_id_type.clone(), t.chat_id.clone(), t.push_level.clone())
+        } else {
+            ("".to_string(), "open_id".to_string(), None, "result_only".to_string())
+        };
+
+        let new_receive_id = req.receive_id.as_deref().unwrap_or(&current_receive_id);
+        let new_receive_id_type = req.receive_id_type.as_deref().unwrap_or(&current_receive_id_type);
+        let new_chat_id = req.chat_id.as_deref().or(current_chat_id.as_deref());
+        let new_push_level = req.push_level.as_deref().unwrap_or(&current_push_level);
+
+        // Create or update
         state
             .db
             .set_feishu_push_target(
                 req.bot_id,
                 target_type,
-                req.chat_id.as_deref(),
-                req.receive_id.as_deref().unwrap_or(&target.receive_id),
-                req.receive_id_type.as_deref().unwrap_or(&target.receive_id_type),
-                target.push_level.as_str(),
+                new_chat_id,
+                new_receive_id,
+                new_receive_id_type,
+                new_push_level,
             )
             .await
             .map_err(|e| AppError::Internal(e.to_string()))?;

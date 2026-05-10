@@ -1167,7 +1167,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                         <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>发送目标信息（可编辑）</div>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                            <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>接收ID:</span>
+                                            <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>单聊ID:</span>
                                             <Input
                                               size="small"
                                               value={botPushStatus.receive_id}
