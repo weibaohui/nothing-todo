@@ -621,6 +621,32 @@ impl Database {
         }
     }
 
+    /// 查询所有 status='running' 的执行记录（包括僵尸记录）
+    pub async fn get_running_execution_records(&self) -> Vec<ExecutionRecord> {
+        execution_records::Entity::find()
+            .filter(execution_records::Column::Status.eq("running"))
+            .order_by_desc(execution_records::Column::StartedAt)
+            .all(&self.conn)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(Into::into)
+            .collect()
+    }
+
+    /// 强制将一条执行记录标记为失败（用于僵尸记录清理）
+    pub async fn force_fail_execution_record(&self, id: i64) -> Result<(), sea_orm::DbErr> {
+        let now = crate::models::utc_timestamp();
+        let am = execution_records::ActiveModel {
+            id: ActiveValue::Unchanged(id),
+            status: ActiveValue::Set(Some("failed".to_string())),
+            finished_at: ActiveValue::Set(Some(now)),
+            result: ActiveValue::Set(Some("手动终止".to_string())),
+            ..Default::default()
+        };
+        self.exec_update(am).await
+    }
+
     /// 清理孤儿执行记录：状态为running但todo没有对应task_id的记录
     /// 程序崩溃后，执行记录可能保持running状态，需要修复
     pub async fn cleanup_orphan_execution_records(&self) {
