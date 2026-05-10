@@ -187,6 +187,39 @@ pub async fn stop_execution_handler(
     }
 }
 
+pub async fn get_running_execution_records_handler(
+    State(state): State<AppState>,
+) -> Result<ApiResponse<Vec<crate::models::ExecutionRecord>>, AppError> {
+    let records = state.db.get_running_execution_records().await;
+    Ok(ApiResponse::ok(records))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ForceFailRequest {
+    pub record_id: i64,
+}
+
+pub async fn force_fail_execution_handler(
+    State(state): State<AppState>,
+    ApiJson(req): ApiJson<ForceFailRequest>,
+) -> Result<ApiResponse<()>, AppError> {
+    let record = state.db.get_execution_record(req.record_id).await
+        .ok_or(AppError::BadRequest("Execution record not found".to_string()))?;
+
+    if record.status != ExecutionStatus::Running {
+        return Err(AppError::BadRequest("Execution record is not running".to_string()));
+    }
+
+    // Try to cancel in-memory task if it exists
+    if let Some(task_id) = &record.task_id {
+        state.task_manager.cancel(task_id).await;
+    }
+
+    state.db.force_fail_execution_record(req.record_id).await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    Ok(ApiResponse::ok(()))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ResumeExecutionRequest {
     pub message: Option<String>,

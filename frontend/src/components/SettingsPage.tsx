@@ -54,7 +54,7 @@ import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
 import type { FeishuPushStatus, WhitelistEntry } from '../utils/database';
 import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
-import type { Config, ExecutorPaths, FeishuHistoryMessage, FeishuHistoryChat, SlashCommandRule, RunningTask } from '../types';
+import type { Config, ExecutorPaths, FeishuHistoryMessage, FeishuHistoryChat, SlashCommandRule, ExecutionRecord } from '../types';
 import yaml from 'js-yaml';
 import { CronPresetSelect } from './CronPresetSelect';
 import { SkillsPanel } from './SkillsPanel';
@@ -100,10 +100,9 @@ const EXECUTOR_LABELS: Record<string, string> = {
 
 interface SettingsPageProps {
   onBack?: () => void;
-  runningTasks?: Record<string, RunningTask>;
 }
 
-export function SettingsPage({ onBack, runningTasks = {} }: SettingsPageProps) {
+export function SettingsPage({ onBack }: SettingsPageProps) {
   const { state, dispatch } = useApp();
   const { tags, todos } = state;
 
@@ -118,8 +117,9 @@ export function SettingsPage({ onBack, runningTasks = {} }: SettingsPageProps) {
   const [importing, setImporting] = useState(false);
 
   // Runtime management state
-  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
-  const [stoppingTasks, setStoppingTasks] = useState(false);
+  const [selectedRecordIds, setSelectedRecordIds] = useState<number[]>([]);
+  const [stoppingRecords, setStoppingRecords] = useState(false);
+  const [runningRecords, setRunningRecords] = useState<ExecutionRecord[]>([]);
   // Selective export state
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportTodoKeys, setExportTodoKeys] = useState<number[]>([]);
@@ -679,29 +679,37 @@ export function SettingsPage({ onBack, runningTasks = {} }: SettingsPageProps) {
     }
   };
 
-  // Batch stop running tasks
+  // Load running execution records from DB
+  const loadRunningRecords = async () => {
+    try {
+      const records = await db.getRunningExecutionRecords();
+      setRunningRecords(records);
+    } catch {}
+  };
+
+  useEffect(() => {
+    loadRunningRecords();
+    const timer = setInterval(loadRunningRecords, 10000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Batch stop running records
   const handleBatchStop = async () => {
-    if (selectedTaskIds.length === 0) return;
-    setStoppingTasks(true);
+    if (selectedRecordIds.length === 0) return;
+    setStoppingRecords(true);
     const results = await Promise.allSettled(
-      selectedTaskIds.map(async (taskId) => {
-        const task = runningTasks[taskId];
-        if (!task) throw new Error('Task not found');
-        const records = await db.getExecutionRecords(task.todoId, 1, 1);
-        const record = records.records.find(r => r.task_id === taskId && r.status === 'running');
-        if (!record) throw new Error('No running record');
-        await db.stopExecution(record.id);
+      selectedRecordIds.map(async (recordId) => {
+        await db.forceFailExecution(recordId);
       })
     );
     const successCount = results.filter(r => r.status === 'fulfilled').length;
     const failCount = results.filter(r => r.status === 'rejected').length;
-    setSelectedTaskIds([]);
-    setStoppingTasks(false);
+    setSelectedRecordIds([]);
+    setStoppingRecords(false);
     if (successCount > 0) message.success(`已停止 ${successCount} 个任务`);
     if (failCount > 0) message.error(`${failCount} 个任务停止失败`);
+    loadRunningRecords();
   };
-
-  const taskList = Object.values(runningTasks).filter(t => t.status === 'running');
 
   const tabItems = [
     {
@@ -1052,63 +1060,69 @@ export function SettingsPage({ onBack, runningTasks = {} }: SettingsPageProps) {
               danger
               size="small"
               icon={<StopOutlined />}
-              disabled={selectedTaskIds.length === 0}
-              loading={stoppingTasks}
+              disabled={selectedRecordIds.length === 0}
+              loading={stoppingRecords}
               onClick={handleBatchStop}
             >
-              批量停止 ({selectedTaskIds.length})
+              批量停止 ({selectedRecordIds.length})
+            </Button>
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={loadRunningRecords}
+            >
+              刷新
             </Button>
             <span style={{ color: 'var(--color-text-secondary)', fontSize: 12 }}>
-              共 {taskList.length} 个运行中任务
+              共 {runningRecords.length} 个运行中任务
             </span>
           </div>
           <Table
             size="small"
-            rowKey="taskId"
-            dataSource={taskList}
+            rowKey="id"
+            dataSource={runningRecords}
             rowSelection={{
-              selectedRowKeys: selectedTaskIds,
-              onChange: (keys) => setSelectedTaskIds(keys as string[]),
+              selectedRowKeys: selectedRecordIds,
+              onChange: (keys) => setSelectedRecordIds(keys as number[]),
             }}
             pagination={false}
             columns={[
               {
-                title: 'Todo',
-                dataIndex: 'todoTitle',
-                key: 'todoTitle',
-                ellipsis: true,
+                title: 'Todo ID',
+                dataIndex: 'todo_id',
+                key: 'todo_id',
+                width: 80,
               },
               {
                 title: '执行器',
                 dataIndex: 'executor',
                 key: 'executor',
-                width: 120,
-                render: (v: string) => EXECUTOR_LABELS[v] || v,
+                width: 110,
+                render: (v: string | null) => EXECUTOR_LABELS[v || 'claudecode'] || v || 'claudecode',
+              },
+              {
+                title: '触发方式',
+                dataIndex: 'trigger_type',
+                key: 'trigger_type',
+                width: 100,
               },
               {
                 title: '开始时间',
-                dataIndex: 'startedAt',
-                key: 'startedAt',
-                width: 160,
+                dataIndex: 'started_at',
+                key: 'started_at',
+                width: 170,
                 render: (v: string) => v ? new Date(v).toLocaleString() : '-',
-              },
-              {
-                title: '状态',
-                dataIndex: 'status',
-                key: 'status',
-                width: 80,
-                render: (v: string) => <AntTag color={v === 'running' ? 'blue' : 'default'}>{v}</AntTag>,
               },
               {
                 title: '操作',
                 key: 'action',
                 width: 80,
-                render: (_: unknown, record: RunningTask) => (
+                render: (_: unknown, record: ExecutionRecord) => (
                   <Popconfirm title="确认停止此任务？" onConfirm={async () => {
                     try {
-                      const records = await db.getExecutionRecords(record.todoId, 1, 1);
-                      const r = records.records.find((rec) => rec.task_id === record.taskId && rec.status === 'running');
-                      if (r) { await db.stopExecution(r.id); message.success('已停止'); }
+                      await db.forceFailExecution(record.id);
+                      message.success('已停止');
+                      loadRunningRecords();
                     } catch (err) { message.error(`停止失败: ${err instanceof Error ? err.message : String(err)}`); }
                   }}>
                     <Button size="small" danger icon={<StopOutlined />} />
