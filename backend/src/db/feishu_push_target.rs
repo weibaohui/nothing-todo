@@ -30,7 +30,7 @@ impl Database {
             am.receive_id = ActiveValue::Set(receive_id.to_string());
             am.receive_id_type = ActiveValue::Set(receive_id_type.to_string());
             am.push_level = ActiveValue::Set(push_level.to_string());
-            am.updated_at = ActiveValue::Set(Some(now));
+            am.updated_at = ActiveValue::Set(Some(now.clone()));
             am.update(&self.conn).await?;
         } else {
             let am = feishu_push_targets::ActiveModel {
@@ -41,10 +41,38 @@ impl Database {
                 receive_id_type: ActiveValue::Set(receive_id_type.to_string()),
                 push_level: ActiveValue::Set(push_level.to_string()),
                 created_at: ActiveValue::Set(Some(now.clone())),
-                updated_at: ActiveValue::Set(Some(now)),
+                updated_at: ActiveValue::Set(Some(now.clone())),
                 ..Default::default()
             };
-            am.insert(&self.conn).await?;
+
+            // Try insert; if a UNIQUE constraint error happens (race), attempt to update the existing row.
+            match am.insert(&self.conn).await {
+                Ok(_) => {}
+                Err(e) => {
+                    let msg = e.to_string();
+                    if msg.contains("UNIQUE constraint failed") {
+                        // Possible race: another task inserted the row. Try to find and update it.
+                        if let Ok(Some(existing2)) = feishu_push_targets::Entity::find()
+                            .filter(feishu_push_targets::Column::BotId.eq(bot_id))
+                            .filter(feishu_push_targets::Column::TargetType.eq(target_type))
+                            .one(&self.conn)
+                            .await
+                        {
+                            let mut am2: feishu_push_targets::ActiveModel = existing2.into();
+                            am2.chat_id = ActiveValue::Set(chat_id.map(String::from));
+                            am2.receive_id = ActiveValue::Set(receive_id.to_string());
+                            am2.receive_id_type = ActiveValue::Set(receive_id_type.to_string());
+                            am2.push_level = ActiveValue::Set(push_level.to_string());
+                            am2.updated_at = ActiveValue::Set(Some(now.clone()));
+                            am2.update(&self.conn).await?;
+                        } else {
+                            return Err(e);
+                        }
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
         }
 
         Ok(())
