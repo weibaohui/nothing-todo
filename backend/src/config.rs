@@ -37,6 +37,8 @@ pub struct Config {
     pub slash_command_rules: Vec<SlashCommandRule>,
     /// 默认响应：当没有匹配到斜杠命令时执行的 Todo ID
     pub default_response_todo_id: Option<i64>,
+    /// 历史消息最大处理年龄（秒），超过此时间的历史消息拉取后标记跳过不处理（默认 600 = 10 分钟）
+    pub history_message_max_age_secs: u64,
 }
 
 /// Paths for each supported executor binary.
@@ -98,6 +100,7 @@ impl Default for Config {
             auto_backup_cron: "0 0 3 * * *".to_string(),
             slash_command_rules: Vec::new(),
             default_response_todo_id: None,
+            history_message_max_age_secs: 600,
         }
     }
 }

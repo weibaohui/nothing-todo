@@ -36,6 +36,9 @@ pub async fn update_config(
     if let Some(default_response_todo_id) = req.default_response_todo_id {
         cfg.default_response_todo_id = Some(default_response_todo_id);
     }
+    if let Some(history_message_max_age_secs) = req.history_message_max_age_secs {
+        cfg.history_message_max_age_secs = history_message_max_age_secs;
+    }
 
     cfg.normalize_paths();
 

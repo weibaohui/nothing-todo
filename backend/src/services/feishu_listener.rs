@@ -577,6 +577,7 @@ impl FeishuListener {
             _ => (channel.to_string(), "chat_id", Some(channel.to_string())),
         };
 
+        // Update feishu_home
         match db
             .set_feishu_home(bot_id, sender, chat_id.as_deref(), &receive_id, receive_id_type)
             .await
@@ -592,15 +593,18 @@ impl FeishuListener {
             }
         }
 
-        // Also store as push target (default to result_only)
-        if let Err(e) = db
-            .set_feishu_push_target(bot_id, target_type, chat_id.as_deref(), &receive_id, receive_id_type, "result_only")
-            .await
-        {
-            tracing::error!("[feishu:{}] set push target failed: {e}", bot_id);
+        // Update only the relevant push target field
+        if chat_type == "p2p" {
+            if let Err(e) = db.set_p2p_receive_id(bot_id, &receive_id).await {
+                tracing::error!("[feishu:{}] set p2p push target failed: {e}", bot_id);
+            }
+        } else {
+            if let Err(e) = db.set_group_chat_id(bot_id, channel).await {
+                tracing::error!("[feishu:{}] set group push target failed: {e}", bot_id);
+            }
         }
 
-        // Enable message response for this chat type (using independent response config table)
+        // Enable message response for this chat type
         if let Err(e) = db
             .set_feishu_response_enabled(bot_id, target_type, true)
             .await
@@ -631,13 +635,12 @@ impl FeishuListener {
         message_id: &str,
         reaction_id: Option<&str>,
     ) {
-        let target_type = if chat_type == "p2p" { "p2p" } else { "group" };
         let (receive_id, receive_id_type) = match chat_type {
             "p2p" => (sender.to_string(), "open_id"),
             _ => (channel.to_string(), "chat_id"),
         };
 
-        let target = db.get_feishu_push_target(bot_id, target_type).await.ok().flatten();
+        let target = db.get_feishu_push_target(bot_id).await.ok().flatten();
         let current_level = target.as_ref().map(|t| t.push_level.as_str()).unwrap_or("disabled");
         let new_level = match current_level {
             "disabled" => "result_only",
@@ -646,7 +649,7 @@ impl FeishuListener {
             _ => "disabled",
         };
 
-        if let Err(e) = db.update_feishu_push_level(bot_id, target_type, new_level).await {
+        if let Err(e) = db.update_feishu_push_level(bot_id, new_level).await {
             tracing::error!("[feishu:{}] /feishupush update failed: {e}", bot_id);
             let msg = "⚠️ 操作失败，请稍后重试";
             Self::send_text(credentials, token_manager, bot_id, &receive_id, &receive_id_type, msg).await;

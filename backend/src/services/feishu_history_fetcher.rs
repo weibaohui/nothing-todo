@@ -137,7 +137,7 @@ impl FeishuHistoryFetcher {
                 }
 
                 // 2. Get chats from feishu_push_targets table (group chat only)
-                if let Ok(push_targets) = db.get_group_chat_push_targets().await {
+                if let Ok(push_targets) = db.get_group_chat_ids().await {
                     for (bot_id, chat_id) in push_targets {
                         // Avoid duplicates
                         if !chats_to_fetch.iter().any(|c| c.bot_id == bot_id && c.chat_id == chat_id) {
@@ -244,7 +244,7 @@ impl FeishuHistoryFetcher {
         executor_registry: &Arc<ExecutorRegistry>,
         tx: &broadcast::Sender<ExecEvent>,
         task_manager: &Arc<TaskManager>,
-        _config: &Arc<RwLock<AppConfig>>,
+        config: &Arc<RwLock<AppConfig>>,
         token_manager: &Arc<TokenManager>,
         bot_credentials: &Arc<DashMap<i64, (String, String, String)>>,
         bot_id: i64,
@@ -361,6 +361,25 @@ impl FeishuHistoryFetcher {
                     } else {
                         total_fetched += 1;
 
+                        // Check message age: skip processing if too old
+                        let max_age_secs = {
+                            let cfg = config.read().await;
+                            cfg.history_message_max_age_secs
+                        };
+                        let msg_time = chrono::DateTime::parse_from_rfc3339(&created_at)
+                            .map(|dt| dt.with_timezone(&chrono::Utc).timestamp())
+                            .unwrap_or(0);
+                        let now_secs = chrono::Utc::now().timestamp();
+                        let age_secs = now_secs.saturating_sub(msg_time);
+
+                        if age_secs > max_age_secs as i64 {
+                            debug!(
+                                "[feishu-history-fetcher] skip old message {} (age={}s > max={}s)",
+                                item.message_id, age_secs, max_age_secs
+                            );
+                            continue;
+                        }
+
                         // Process the message through slash command / default response pipeline
                         if let Some(ref msg_content) = content {
                             if let Some((todo_id, execution_record_id)) = Self::process_message(
@@ -368,7 +387,7 @@ impl FeishuHistoryFetcher {
                                 executor_registry,
                                 tx,
                                 task_manager,
-                                _config,
+                                config,
                                 token_manager,
                                 bot_credentials,
                                 bot_id,

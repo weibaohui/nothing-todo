@@ -364,8 +364,8 @@ export type FeishuPushLevel = 'disabled' | 'result_only' | 'all';
 export interface FeishuPushStatus {
   bot_id: number;
   push_level: FeishuPushLevel;
-  chat_id?: string;
-  receive_id: string;
+  p2p_receive_id: string;
+  group_chat_id: string;
   receive_id_type: string;
   p2p_response_enabled: boolean;
   group_response_enabled: boolean;
@@ -378,9 +378,9 @@ export async function getFeishuPush(): Promise<FeishuPushStatus[]> {
 export interface UpdateFeishuPushParams {
   botId: number;
   pushLevel?: FeishuPushLevel;
-  receiveId?: string;
+  p2pReceiveId?: string;
+  groupChatId?: string;
   receiveIdType?: string;
-  chatId?: string;
   p2pResponseEnabled?: boolean;
   groupResponseEnabled?: boolean;
 }
@@ -389,9 +389,9 @@ export async function updateFeishuPush(params: UpdateFeishuPushParams): Promise<
   return unwrap(await api.put<ApiResp<FeishuPushStatus>>('/xyz/agent-bots/feishu/push', {
     bot_id: params.botId,
     push_level: params.pushLevel,
-    receive_id: params.receiveId,
+    p2p_receive_id: params.p2pReceiveId,
+    group_chat_id: params.groupChatId,
     receive_id_type: params.receiveIdType,
-    chat_id: params.chatId,
     p2p_response_enabled: params.p2pResponseEnabled,
     group_response_enabled: params.groupResponseEnabled,
   }));
