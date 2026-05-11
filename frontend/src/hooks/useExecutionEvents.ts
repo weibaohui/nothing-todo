@@ -182,7 +182,9 @@ export function useExecutionEvents() {
         }
       };
 
-      ws.onerror = () => {};
+      ws.onerror = (ev) => {
+        console.warn('WebSocket connection error:', ev);
+      };
     }
 
     connect();
