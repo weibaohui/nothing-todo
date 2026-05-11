@@ -156,13 +156,13 @@ impl Database {
         // update the same record concurrently -- only the first write succeeds.
         let backend = self.conn.get_database_backend();
         let sql = "UPDATE execution_records SET \
-            status = \$1, \
-            logs = \$2, \
-            result = \$3, \
-            usage = \$4, \
-            model = \$5, \
-            finished_at = \$6 \
-            WHERE id = \$7 AND status = 'running'";
+            status = $1, \
+            logs = $2, \
+            result = $3, \
+            usage = $4, \
+            model = $5, \
+            finished_at = $6 \
+            WHERE id = $7 AND status = 'running'";
 
         let res = self.conn.execute(
             Statement::from_sql_and_values(backend, sql, [
