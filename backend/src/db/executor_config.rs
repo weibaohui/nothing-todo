@@ -1,4 +1,4 @@
-use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
 
 use crate::db::entity::executors;
 use crate::db::Database;
@@ -94,30 +94,30 @@ impl Database {
         &self,
         cfg_executors: &crate::config::ExecutorPaths,
     ) -> Result<(), sea_orm::DbErr> {
-        let count = executors::Entity::find().all(&self.conn).await?;
-        if !count.is_empty() {
+        let count = executors::Entity::find().count(&self.conn).await?;
+        if count > 0 {
             return Ok(());
         }
 
         let now = crate::models::utc_timestamp();
-        let pairs: [(&str, &str); 8] = [
-            ("claude_code", &cfg_executors.claude_code),
-            ("joinai", &cfg_executors.joinai),
-            ("codebuddy", &cfg_executors.codebuddy),
-            ("opencode", &cfg_executors.opencode),
-            ("atomcode", &cfg_executors.atomcode),
-            ("hermes", &cfg_executors.hermes),
-            ("kimi", &cfg_executors.kimi),
-            ("codex", &cfg_executors.codex),
-        ];
 
-        for (name, path) in &pairs {
-            let default = DEFAULT_EXECUTORS.iter().find(|d| d.name == *name).unwrap();
+        for d in DEFAULT_EXECUTORS {
+            let path = match d.name {
+                "claude_code" => &cfg_executors.claude_code,
+                "joinai" => &cfg_executors.joinai,
+                "codebuddy" => &cfg_executors.codebuddy,
+                "opencode" => &cfg_executors.opencode,
+                "atomcode" => &cfg_executors.atomcode,
+                "hermes" => &cfg_executors.hermes,
+                "kimi" => &cfg_executors.kimi,
+                "codex" => &cfg_executors.codex,
+                _ => continue,
+            };
             let am = executors::ActiveModel {
-                name: ActiveValue::Set(name.to_string()),
+                name: ActiveValue::Set(d.name.to_string()),
                 path: ActiveValue::Set(path.to_string()),
                 enabled: ActiveValue::Set(true),
-                display_name: ActiveValue::Set(default.display_name.to_string()),
+                display_name: ActiveValue::Set(d.display_name.to_string()),
                 created_at: ActiveValue::Set(Some(now.clone())),
                 updated_at: ActiveValue::Set(Some(now.clone())),
                 ..Default::default()
@@ -131,8 +131,8 @@ impl Database {
 
     /// Seed default executors if table is empty (fresh install).
     pub async fn seed_default_executors(&self) -> Result<(), sea_orm::DbErr> {
-        let count = executors::Entity::find().all(&self.conn).await?;
-        if !count.is_empty() {
+        let count = executors::Entity::find().count(&self.conn).await?;
+        if count > 0 {
             return Ok(());
         }
 

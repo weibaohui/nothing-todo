@@ -123,7 +123,7 @@ fn detect_binary(path: &str) -> (bool, Option<String>) {
     let p = PathBuf::from(&expanded);
 
     // If it looks like an absolute or relative path (contains separator)
-    if p.is_absolute() || expanded.contains(std::path::MAIN_SEPARATOR) {
+    if p.is_absolute() || expanded.contains('/') || expanded.contains('\\') {
         if p.exists() {
             return (true, Some(p.to_string_lossy().to_string()));
         }

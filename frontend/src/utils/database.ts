@@ -229,15 +229,15 @@ export async function getExecutors(): Promise<import('../types').ExecutorConfig[
 }
 
 export async function updateExecutor(name: string, data: { path?: string; enabled?: boolean; display_name?: string }): Promise<import('../types').ExecutorConfig> {
-  return unwrap(await api.put<ApiResp<import('../types').ExecutorConfig>>(`/xyz/executors/${name}`, data));
+  return unwrap(await api.put<ApiResp<import('../types').ExecutorConfig>>(`/xyz/executors/${encodeURIComponent(name)}`, data));
 }
 
 export async function detectExecutor(name: string): Promise<{ binary_found: boolean; path_resolved: string | null }> {
-  return unwrap(await api.post<ApiResp<{ binary_found: boolean; path_resolved: string | null }>>(`/xyz/executors/${name}/detect`));
+  return unwrap(await api.post<ApiResp<{ binary_found: boolean; path_resolved: string | null }>>(`/xyz/executors/${encodeURIComponent(name)}/detect`));
 }
 
 export async function testExecutor(name: string): Promise<{ test_passed: boolean; output: string | null; error: string | null }> {
-  const result = unwrap(await api.post<ApiResp<{ test_passed: boolean; output: string | null; error: string | null }>>(`/xyz/executors/${name}/test`));
+  const result = unwrap(await api.post<ApiResp<{ test_passed: boolean; output: string | null; error: string | null }>>(`/xyz/executors/${encodeURIComponent(name)}/test`));
   return result;
 }
 

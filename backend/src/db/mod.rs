@@ -434,6 +434,25 @@ impl Database {
         .await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_executors_name ON executors(name)").await?;
 
+        // Executors timestamps triggers
+        self.exec(
+            "CREATE TRIGGER IF NOT EXISTS set_executors_created_at_utc AFTER INSERT ON executors
+             WHEN new.created_at IS NULL OR new.created_at = ''
+             BEGIN
+                 UPDATE executors SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+             END",
+        )
+        .await?;
+
+        self.exec(
+            "CREATE TRIGGER IF NOT EXISTS set_executors_updated_at_utc BEFORE UPDATE ON executors
+             WHEN new.updated_at IS NULL OR new.updated_at = ''
+             BEGIN
+                 SELECT raise(IGNORE);
+             END",
+        )
+        .await?;
+
         Ok(())
     }
 }

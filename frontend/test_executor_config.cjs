@@ -138,7 +138,7 @@ const { chromium } = require('playwright');
         } else if (await failIcon.isVisible({ timeout: 1000 }).catch(() => false)) {
           results.passed.push('检测失败显示 ✗ 图标');
         } else {
-          results.passed.push('检测完成');
+          results.failed.push('未检测到 ✓/✗ 图标反馈');
         }
       } else {
         results.failed.push('未找到检测按钮');
@@ -172,7 +172,7 @@ const { chromium } = require('playwright');
             await page.waitForTimeout(500);
           }
         } else {
-          results.passed.push('测试按钮点击完成');
+          results.failed.push('测试按钮点击后模态框未弹出');
         }
       } else {
         results.failed.push('未找到测试按钮');

@@ -116,6 +116,15 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   // Executors state
   const [executors, setExecutors] = useState<ExecutorConfig[]>([]);
   const [executorsLoading, setExecutorsLoading] = useState(false);
+
+  // Executor name -> display_name map derived from loaded executors
+  const executorDisplayNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const ec of executors) {
+      map[ec.name] = ec.display_name;
+    }
+    return map;
+  }, [executors]);
   const [detectingExecutor, setDetectingExecutor] = useState<string | null>(null);
   const [testingExecutor, setTestingExecutor] = useState<string | null>(null);
   const [detectResults, setDetectResults] = useState<Record<string, { found: boolean; resolved: string | null }>>({});
@@ -1229,8 +1238,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 key: 'executor',
                 width: 110,
                 render: (v: string | null) => {
-                  const labels: Record<string, string> = { opencode: 'Opencode', hermes: 'Hermes', joinai: 'JoinAI', claude_code: 'Claude Code', claudecode: 'Claude Code', codebuddy: 'CodeBuddy', kimi: 'Kimi', atomcode: 'AtomCode', codex: 'Codex' };
-                  return labels[v || 'claudecode'] || v || 'claudecode';
+                  return executorDisplayNames[v || ''] || v || '-';
                 },
               },
               {
