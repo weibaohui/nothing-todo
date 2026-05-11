@@ -61,13 +61,6 @@ start: install
 
 # Restart: clean install and start fresh
 restart: stop install
-	-@if [ -f ~/.ntd/run.pid ]; then \
-		pid=$$(cat ~/.ntd/run.pid); \
-		kill -9 $$pid 2>/dev/null && echo "Killed process $$pid" || echo "Process $$pid not running"; \
-		rm -f ~/.ntd/run.pid; \
-	fi
-	-@pkill -9 -x ntd 2>/dev/null || true
-	@sleep 1
 	@rm -f $$HOME/.local/bin/ntd
 	@cd frontend && npm run build
 	@cd backend && $(CARGO_ENV) cargo build --release
