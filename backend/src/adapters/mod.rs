@@ -40,13 +40,13 @@ pub fn default_final_result_with_think_stripping(logs: &[ParsedLogEntry]) -> Opt
         .collect();
 
     if !texts.is_empty() {
-        return Some(texts.join("\n\n"));
+        Some(texts.join("\n\n"))
+    } else {
+        logs.iter()
+            .rev()
+            .find(|l| l.log_type == "stderr")
+            .map(|l| l.content.clone())
     }
-
-    logs.iter()
-        .rev()
-        .find(|l| l.log_type == "stderr")
-        .map(|l| l.content.clone())
 }
 
 /// Extract usage from the last "result" log entry (used by claude_code, codebuddy).
