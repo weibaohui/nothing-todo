@@ -5,7 +5,7 @@ import { useApp } from '../hooks/useApp';
 import { useTheme } from '../hooks/useTheme';
 import { getExecutorOption } from '../types';
 import { stopExecution } from '../utils/database';
-import { formatLocalDateTime } from '../utils/datetime';
+import { formatLocalDateTime, formatDuration } from '../utils/datetime';
 
 // Light theme log colors
 const lightLogTypeColors: Record<string, string> = {
@@ -123,15 +123,6 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
     const start = new Date(startedAt).getTime();
     const now = Date.now();
     return Math.floor((now - start) / 1000);
-  };
-
-  // Format duration as 1h2m
-  const formatDuration = (seconds: number) => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    if (h > 0) return `${h}h${m}m`;
-    if (m > 0) return `${m}m`;
-    return `${seconds}s`;
   };
 
   // Find execution record by task_id for stopping
