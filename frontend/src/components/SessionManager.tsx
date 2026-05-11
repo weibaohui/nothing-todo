@@ -37,13 +37,15 @@ const { Text, Paragraph } = Typography;
 
 // ─── Source display config ────────────────────────────────
 
-const sourceConfig: Record<string, { label: string; color: string; icon?: string }> = {
-  'claude-code': { label: 'Claude Code', color: '#d97706' },
+const sourceConfig: Record<string, { label: string; color: string }> = {
+  'claude_code': { label: 'Claude Code', color: '#d97706' },
   'codex': { label: 'Codex', color: '#10a37f' },
   'hermes': { label: 'Hermes', color: '#8b5cf6' },
   'kimi': { label: 'Kimi', color: '#3b82f6' },
   'atomcode': { label: 'AtomCode', color: '#ef4444' },
-  'cc-connect': { label: 'CC-Connect', color: '#06b6d4' },
+  'codebuddy': { label: 'CodeBuddy', color: '#f59e0b' },
+  'opencode': { label: 'OpenCode', color: '#22c55e' },
+  'joinai': { label: 'JoinAI', color: '#6366f1' },
 };
 
 function sourceTag(source: string) {

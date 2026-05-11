@@ -871,6 +871,27 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                           (e.target as HTMLInputElement).blur();
                         }}
                       />
+                      <Input
+                        style={{ flex: 1, minWidth: 180 }}
+                        placeholder="Session 目录（如 ~/.claude）"
+                        defaultValue={ec.session_dir}
+                        onBlur={async (e) => {
+                          const newDir = e.target.value.trim();
+                          if (newDir === ec.session_dir) return;
+                          setSavingExecutor(ec.name);
+                          try {
+                            const updated = await db.updateExecutor(ec.name, { session_dir: newDir });
+                            setExecutors((prev) => prev.map((ex) => ex.name === ec.name ? updated : ex));
+                          } catch (err: any) {
+                            message.error('保存失败: ' + (err?.message || String(err)));
+                          } finally {
+                            setSavingExecutor(null);
+                          }
+                        }}
+                        onPressEnter={(e) => {
+                          (e.target as HTMLInputElement).blur();
+                        }}
+                      />
                       <Button
                         size="small"
                         icon={<SearchOutlined />}

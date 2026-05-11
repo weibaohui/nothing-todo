@@ -441,6 +441,7 @@ pub struct ExecutorConfig {
     pub path: String,
     pub enabled: bool,
     pub display_name: String,
+    pub session_dir: String,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
@@ -450,6 +451,7 @@ pub struct UpdateExecutorRequest {
     pub path: Option<String>,
     pub enabled: Option<bool>,
     pub display_name: Option<String>,
+    pub session_dir: Option<String>,
 }
 
 #[derive(Serialize)]

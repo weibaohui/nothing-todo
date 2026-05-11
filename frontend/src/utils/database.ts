@@ -241,7 +241,7 @@ export async function getExecutors(): Promise<import('../types').ExecutorConfig[
   return unwrap(await api.get<ApiResp<import('../types').ExecutorConfig[]>>('/xyz/executors'));
 }
 
-export async function updateExecutor(name: string, data: { path?: string; enabled?: boolean; display_name?: string }): Promise<import('../types').ExecutorConfig> {
+export async function updateExecutor(name: string, data: { path?: string; enabled?: boolean; display_name?: string; session_dir?: string }): Promise<import('../types').ExecutorConfig> {
   return unwrap(await api.put<ApiResp<import('../types').ExecutorConfig>>(`/xyz/executors/${encodeURIComponent(name)}`, data));
 }
 

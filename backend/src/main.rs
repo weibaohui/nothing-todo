@@ -202,6 +202,9 @@ async fn run_server(cli_port: Option<u16>) {
     if let Err(e) = db.seed_default_executors().await {
         tracing::warn!("Failed to seed default executors: {}", e);
     }
+    if let Err(e) = db.backfill_session_dir().await {
+        tracing::warn!("Failed to backfill session_dir: {}", e);
+    }
 
     let executor_registry = Arc::new(adapters::ExecutorRegistry::new());
     let db_executors = db.get_enabled_executors().await.unwrap_or_default();

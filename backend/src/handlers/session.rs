@@ -230,7 +230,7 @@ fn scan_claude_code(sessions: &mut Vec<SessionInfo>) {
 
                     sessions.push(SessionInfo {
                         session_id: session_id.clone(),
-                        source: "claude-code".to_string(),
+                        source: "claude_code".to_string(),
                         project_path: project_path.clone(),
                         status: if active_set.contains(&session_id) { "active".into() } else { "completed".into() },
                         executor: executor.unwrap_or_else(|| "unknown".into()),
@@ -693,14 +693,36 @@ fn scan_ccconnect(sessions: &mut Vec<SessionInfo>) {
 
 // ─── Unified scan ─────────────────────────────────────────
 
-fn scan_all_sources() -> Vec<SessionInfo> {
+/// Map executor name to scanner function and default source name.
+/// Only executors listed here will be scanned.
+fn get_scanner(name: &str) -> Option<fn(&mut Vec<SessionInfo>)> {
+    match name {
+        "claude_code" => Some(scan_claude_code),
+        "codex" => Some(scan_codex),
+        "hermes" => Some(scan_hermes),
+        "kimi" => Some(scan_kimi),
+        "atomcode" => Some(scan_atomcode),
+        "codebuddy" | "opencode" | "joinai" => None, // no session storage found
+        _ => None,
+    }
+}
+
+fn scan_for_executors(enabled_executors: &[crate::models::ExecutorConfig]) -> Vec<SessionInfo> {
     let mut sessions = Vec::new();
-    scan_claude_code(&mut sessions);
-    scan_codex(&mut sessions);
-    scan_hermes(&mut sessions);
-    scan_kimi(&mut sessions);
-    scan_atomcode(&mut sessions);
-    scan_ccconnect(&mut sessions);
+
+    for exec in enabled_executors {
+        // Check if session_dir is configured and exists
+        if !exec.session_dir.is_empty() {
+            let expanded = exec.session_dir.replace('~', &dirs::home_dir().unwrap_or_default().to_string_lossy());
+            if !std::path::Path::new(&expanded).exists() {
+                continue;
+            }
+        }
+
+        if let Some(scanner) = get_scanner(&exec.name) {
+            scanner(&mut sessions);
+        }
+    }
 
     // Sort by last_active_at descending
     sessions.sort_by(|a, b| b.last_active_at.cmp(&a.last_active_at));
@@ -710,14 +732,16 @@ fn scan_all_sources() -> Vec<SessionInfo> {
 // ─── Handlers ─────────────────────────────────────────────
 
 pub async fn list_sessions(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Query(query): Query<ListSessionsQuery>,
 ) -> Result<ApiResponse<SessionListResponse>, AppError> {
     let page = query.page.unwrap_or(1);
     let page_size = query.page_size.unwrap_or(20);
 
+    let executors = state.db.get_enabled_executors().await.map_err(|e| AppError::Internal(e.to_string()))?;
+
     let result = tokio::task::spawn_blocking(move || {
-        let mut sessions = scan_all_sources();
+        let mut sessions = scan_for_executors(&executors);
 
         // Apply filters
         if let Some(ref status) = query.status {
@@ -759,10 +783,12 @@ pub async fn list_sessions(
 }
 
 pub async fn get_session_stats(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
 ) -> Result<ApiResponse<SessionStats>, AppError> {
+    let executors = state.db.get_enabled_executors().await.map_err(|e| AppError::Internal(e.to_string()))?;
+
     let stats = tokio::task::spawn_blocking(move || {
-        let sessions = scan_all_sources();
+        let sessions = scan_for_executors(&executors);
         let now = chrono::Utc::now();
         let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
 
@@ -955,7 +981,7 @@ fn get_claude_detail(session_id: &str) -> Option<SessionDetail> {
     Some(SessionDetail {
         info: SessionInfo {
             session_id: session_id.to_string(),
-            source: "claude-code".to_string(),
+            source: "claude_code".to_string(),
             project_path,
             status: if active_set.contains(session_id) { "active".into() } else { "completed".into() },
             executor: executor.unwrap_or_else(|| "unknown".into()),
