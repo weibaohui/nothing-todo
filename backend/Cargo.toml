@@ -36,6 +36,7 @@ url = "2"
 thiserror = "2"
 log = "0.4"
 dashmap = "6"
+which = "7"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

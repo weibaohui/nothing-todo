@@ -419,6 +419,21 @@ impl Database {
         )
         .await?;
 
+        // Executors table (executor config moved from config.yaml to database)
+        self.exec(
+            "CREATE TABLE IF NOT EXISTS executors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                path TEXT NOT NULL DEFAULT '',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                display_name TEXT NOT NULL DEFAULT '',
+                created_at TEXT,
+                updated_at TEXT
+            )",
+        )
+        .await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_executors_name ON executors(name)").await?;
+
         Ok(())
     }
 }
@@ -428,6 +443,7 @@ mod tag;
 mod execution;
 mod skills;
 mod agent_bot;
+mod executor_config;
 mod feishu_home;
 mod feishu_message;
 mod feishu_push_target;

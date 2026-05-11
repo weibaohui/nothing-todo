@@ -46,6 +46,7 @@ import {
   MinusCircleOutlined,
   PlayCircleOutlined,
   StopOutlined,
+  SearchOutlined,
 } from '@ant-design/icons';
 import { Cron } from 'react-js-cron';
 import QRCode from 'qrcode';
@@ -54,7 +55,7 @@ import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
 import type { FeishuPushStatus, WhitelistEntry } from '../utils/database';
 import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
-import type { Config, ExecutorPaths, FeishuHistoryMessage, FeishuHistoryChat, SlashCommandRule, ExecutionRecord } from '../types';
+import type { Config, ExecutorConfig, FeishuHistoryMessage, FeishuHistoryChat, SlashCommandRule, ExecutionRecord } from '../types';
 import yaml from 'js-yaml';
 import { CronPresetSelect } from './CronPresetSelect';
 import { SkillsPanel } from './SkillsPanel';
@@ -64,39 +65,6 @@ const { Dragger } = Upload;
 const { Option } = Select;
 
 const LOG_LEVELS = ['DEBUG', 'INFO', 'WARN', 'ERROR'];
-
-const DEFAULT_EXECUTORS: ExecutorPaths = {
-  opencode: 'opencode',
-  hermes: 'hermes',
-  joinai: 'joinai',
-  claude_code: 'claude',
-  codebuddy: 'codebuddy',
-  kimi: 'kimi',
-  atomcode: 'atomcode',
-  codex: 'codex',
-};
-
-const EXECUTOR_KEYS: (keyof ExecutorPaths)[] = [
-  'opencode',
-  'hermes',
-  'joinai',
-  'claude_code',
-  'codebuddy',
-  'kimi',
-  'atomcode',
-  'codex',
-];
-
-const EXECUTOR_LABELS: Record<string, string> = {
-  opencode: 'Opencode',
-  hermes: 'Hermes',
-  joinai: 'JoinAI',
-  claude_code: 'Claude Code',
-  codebuddy: 'CodeBuddy',
-  kimi: 'Kimi',
-  atomcode: 'AtomCode',
-  codex: 'Codex',
-};
 
 interface SettingsPageProps {
   onBack?: () => void;
@@ -144,6 +112,16 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
   // Agent Bots state
   const [agentBots, setAgentBots] = useState<db.AgentBot[]>([]);
+
+  // Executors state
+  const [executors, setExecutors] = useState<ExecutorConfig[]>([]);
+  const [executorsLoading, setExecutorsLoading] = useState(false);
+  const [detectingExecutor, setDetectingExecutor] = useState<string | null>(null);
+  const [testingExecutor, setTestingExecutor] = useState<string | null>(null);
+  const [detectResults, setDetectResults] = useState<Record<string, { found: boolean; resolved: string | null }>>({});
+  const [testModalVisible, setTestModalVisible] = useState(false);
+  const [testModalData, setTestModalData] = useState<{ name: string; result: { test_passed: boolean; output: string | null; error: string | null } } | null>(null);
+  const [savingExecutor, setSavingExecutor] = useState<string | null>(null);
   const [botsLoading, setBotsLoading] = useState(false);
   const [feishuPushStatus, setFeishuPushStatus] = useState<FeishuPushStatus[]>([]);
   const [groupWhitelist, setGroupWhitelist] = useState<WhitelistEntry[]>([]);
@@ -222,6 +200,19 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       })
       .finally(() => setConfigLoading(false));
   }, [configForm]);
+
+  // Load executors from database
+  useEffect(() => {
+    setExecutorsLoading(true);
+    db.getExecutors()
+      .then((list) => {
+        setExecutors(list);
+      })
+      .catch((err) => {
+        message.error('加载执行器配置失败: ' + (err?.message || String(err)));
+      })
+      .finally(() => setExecutorsLoading(false));
+  }, []);
 
   // Load database backup status
   useEffect(() => {
@@ -449,7 +440,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       const mergedConfig: Config = {
         ...currentConfig,
         ...(values as Partial<Config>),
-        executors: (values as Partial<Config>).executors || currentConfig.executors,
         slash_command_rules: hasSlashRulesField
           ? normalizedRules
           : (currentConfig.slash_command_rules ?? []),
@@ -790,35 +780,168 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       label: (
         <span>
           <CodeOutlined style={{ marginRight: 6 }} />
-          执行器路径
+          执行器管理
         </span>
       ),
       children: (
-        <Spin spinning={configLoading}>
-          <Form form={configForm} layout="vertical" style={{ maxWidth: 600 }}>
+        <Spin spinning={executorsLoading}>
+          <div style={{ maxWidth: 800 }}>
             <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-              配置各执行器的二进制路径。留空或填写命令名表示通过 PATH 查找。
+              管理执行器的路径、开关状态，并检测二进制是否可用。关闭开关的执行器不会出现在 Todo 的执行器选择列表中。
             </Paragraph>
-            {EXECUTOR_KEYS.map((key) => (
-              <Form.Item
-                key={key}
-                name={['executors', key]}
-                label={EXECUTOR_LABELS[key]}
-              >
-                <Input placeholder={DEFAULT_EXECUTORS[key]} />
-              </Form.Item>
-            ))}
-            <Form.Item>
-              <Button
-                type="primary"
-                onClick={handleSaveConfig}
-                loading={configSaving}
-                disabled={configLoading}
-              >
-                保存配置
-              </Button>
-            </Form.Item>
-          </Form>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {executors.map((ec) => {
+                const detectResult = detectResults[ec.name];
+                const isDetecting = detectingExecutor === ec.name;
+                const isTesting = testingExecutor === ec.name;
+                const isSaving = savingExecutor === ec.name;
+                return (
+                  <Card
+                    key={ec.name}
+                    size="small"
+                    style={{
+                      opacity: ec.enabled ? 1 : 0.6,
+                      borderColor: ec.enabled ? undefined : '#d9d9d9',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                      <Switch
+                        checked={ec.enabled}
+                        loading={isSaving}
+                        onChange={async (checked) => {
+                          setSavingExecutor(ec.name);
+                          try {
+                            const updated = await db.updateExecutor(ec.name, { enabled: checked });
+                            setExecutors((prev) => prev.map((e) => e.name === ec.name ? updated : e));
+                          } catch (err: any) {
+                            message.error('更新失败: ' + (err?.message || String(err)));
+                          } finally {
+                            setSavingExecutor(null);
+                          }
+                        }}
+                      />
+                      <span style={{ fontWeight: 500, minWidth: 90 }}>{ec.display_name}</span>
+                      <Input
+                        style={{ flex: 1, minWidth: 200 }}
+                        placeholder="二进制路径或命令名"
+                        defaultValue={ec.path}
+                        onBlur={async (e) => {
+                          const newPath = e.target.value.trim();
+                          if (newPath === ec.path) return;
+                          setSavingExecutor(ec.name);
+                          try {
+                            const updated = await db.updateExecutor(ec.name, { path: newPath });
+                            setExecutors((prev) => prev.map((ex) => ex.name === ec.name ? updated : ex));
+                            setDetectResults((prev) => {
+                              const next = { ...prev };
+                              delete next[ec.name];
+                              return next;
+                            });
+                          } catch (err: any) {
+                            message.error('保存失败: ' + (err?.message || String(err)));
+                          } finally {
+                            setSavingExecutor(null);
+                          }
+                        }}
+                        onPressEnter={(e) => {
+                          (e.target as HTMLInputElement).blur();
+                        }}
+                      />
+                      <Button
+                        size="small"
+                        icon={<SearchOutlined />}
+                        loading={isDetecting}
+                        onClick={async () => {
+                          setDetectingExecutor(ec.name);
+                          try {
+                            const result = await db.detectExecutor(ec.name);
+                            setDetectResults((prev) => ({ ...prev, [ec.name]: { found: result.binary_found, resolved: result.path_resolved } }));
+                            if (result.binary_found) {
+                              message.success(`${ec.display_name}: 找到 (${result.path_resolved})`);
+                            } else {
+                              message.warning(`${ec.display_name}: 未找到`);
+                            }
+                          } catch (err: any) {
+                            message.error('检测失败: ' + (err?.message || String(err)));
+                          } finally {
+                            setDetectingExecutor(null);
+                          }
+                        }}
+                      >
+                        检测
+                      </Button>
+                      <Button
+                        size="small"
+                        type="primary"
+                        ghost
+                        icon={<PlayCircleOutlined />}
+                        loading={isTesting}
+                        onClick={async () => {
+                          setTestingExecutor(ec.name);
+                          try {
+                            const result = await db.testExecutor(ec.name);
+                            setTestModalData({ name: ec.name, result });
+                            setTestModalVisible(true);
+                          } catch (err: any) {
+                            message.error('测试失败: ' + (err?.message || String(err)));
+                          } finally {
+                            setTestingExecutor(null);
+                          }
+                        }}
+                      >
+                        测试
+                      </Button>
+                      {detectResult && (
+                        <Tooltip title={detectResult.resolved || '未找到'}>
+                          {detectResult.found
+                            ? <span style={{ color: '#52c41a', fontSize: 16 }}>&#10003;</span>
+                            : <span style={{ color: '#ff4d4f', fontSize: 16 }}>&#10007;</span>
+                          }
+                        </Tooltip>
+                      )}
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+          <Modal
+            title={testModalData ? `测试结果 - ${executors.find(e => e.name === testModalData.name)?.display_name || testModalData.name}` : '测试结果'}
+            open={testModalVisible}
+            onCancel={() => setTestModalVisible(false)}
+            footer={<Button onClick={() => setTestModalVisible(false)}>关闭</Button>}
+            width={500}
+          >
+            {testModalData && (
+              <div>
+                <p>
+                  状态：{testModalData.result.test_passed
+                    ? <span style={{ color: '#52c41a', fontWeight: 600 }}>通过</span>
+                    : <span style={{ color: '#ff4d4f', fontWeight: 600 }}>失败</span>
+                  }
+                </p>
+                {testModalData.result.error && (
+                  <p style={{ color: '#ff4d4f' }}>错误：{testModalData.result.error}</p>
+                )}
+                {testModalData.result.output && (
+                  <div>
+                    <Paragraph type="secondary">输出：</Paragraph>
+                    <pre style={{
+                      background: '#f5f5f5',
+                      padding: 12,
+                      borderRadius: 6,
+                      fontSize: 12,
+                      maxHeight: 300,
+                      overflow: 'auto',
+                      whiteSpace: 'pre-wrap',
+                    }}>
+                      {testModalData.result.output}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
+          </Modal>
         </Spin>
       ),
     },
@@ -1105,7 +1228,10 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 dataIndex: 'executor',
                 key: 'executor',
                 width: 110,
-                render: (v: string | null) => EXECUTOR_LABELS[v || 'claudecode'] || v || 'claudecode',
+                render: (v: string | null) => {
+                  const labels: Record<string, string> = { opencode: 'Opencode', hermes: 'Hermes', joinai: 'JoinAI', claude_code: 'Claude Code', claudecode: 'Claude Code', codebuddy: 'CodeBuddy', kimi: 'Kimi', atomcode: 'AtomCode', codex: 'Codex' };
+                  return labels[v || 'claudecode'] || v || 'claudecode';
+                },
               },
               {
                 title: '触发方式',

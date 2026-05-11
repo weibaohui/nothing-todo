@@ -227,15 +227,35 @@ export const EXECUTORS: ExecutorOption[] = [
   { value: 'codex',      label: 'Codex',     color: '#488597', icon: <FaSquare color="#488597" size={14} /> },
 ];
 
-export interface ExecutorPaths {
-  opencode: string;
-  hermes: string;
-  joinai: string;
-  claude_code: string;
-  codebuddy: string;
-  kimi: string;
-  atomcode: string;
-  codex: string;
+export const EXECUTOR_COLORS: Record<string, string> = {
+  claudecode: '#e17055',
+  codebuddy: '#00b894',
+  opencode: '#fdcb6e',
+  joinai: '#6c5ce7',
+  atomcode: '#e84393',
+  hermes: '#0984e3',
+  kimi: '#d63031',
+  codex: '#488597',
+};
+
+export interface ExecutorConfig {
+  id: number;
+  name: string;
+  path: string;
+  enabled: boolean;
+  display_name: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export function executorConfigToOption(ec: ExecutorConfig): ExecutorOption {
+  const color = EXECUTOR_COLORS[ec.name] || '#999';
+  return {
+    value: ec.name,
+    label: ec.display_name || ec.name,
+    color,
+    icon: <FaSquare color={color} size={14} />,
+  };
 }
 
 export interface SlashCommandRule {
@@ -249,7 +269,6 @@ export interface Config {
   host: string;
   db_path: string;
   log_level: string;
-  executors: ExecutorPaths;
   slash_command_rules?: SlashCommandRule[];
   default_response_todo_id?: number | null;
   history_message_max_age_secs?: number;

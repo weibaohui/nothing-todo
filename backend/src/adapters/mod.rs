@@ -158,6 +158,36 @@ impl ExecutorRegistry {
     pub fn list_executors(&self) -> Vec<ExecutorType> {
         self.executors.read().unwrap().keys().copied().collect()
     }
+
+    pub fn unregister(&self, executor_type: ExecutorType) {
+        self.executors.write().unwrap().remove(&executor_type);
+    }
+
+    /// Create an executor instance by name and path.
+    pub fn create_executor(name: &str, path: &str) -> Option<Arc<dyn CodeExecutor>> {
+        match name {
+            "claude_code" => Some(Arc::new(claude_code::ClaudeCodeExecutor::new(path.to_string()))),
+            "joinai" => Some(Arc::new(joinai::JoinaiExecutor::new(path.to_string()))),
+            "codebuddy" => Some(Arc::new(codebuddy::CodebuddyExecutor::new(path.to_string()))),
+            "opencode" => Some(Arc::new(opencode::OpencodeExecutor::new(path.to_string()))),
+            "atomcode" => Some(Arc::new(atomcode::AtomcodeExecutor::new(path.to_string()))),
+            "hermes" => Some(Arc::new(hermes::HermesExecutor::new(path.to_string()))),
+            "kimi" => Some(Arc::new(kimi::KimiExecutor::new(path.to_string()))),
+            "codex" => Some(Arc::new(codex::CodexExecutor::new(path.to_string()))),
+            _ => None,
+        }
+    }
+
+    /// Register an executor by name and path (convenience method).
+    pub fn register_by_name(&self, name: &str, path: &str) -> bool {
+        if let Some(executor) = Self::create_executor(name, path) {
+            let executor_type = executor.executor_type();
+            self.executors.write().unwrap().insert(executor_type, executor);
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl Default for ExecutorRegistry {

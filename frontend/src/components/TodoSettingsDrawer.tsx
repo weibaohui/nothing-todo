@@ -5,8 +5,8 @@ import { Cron } from 'react-js-cron';
 import 'react-js-cron/dist/styles.css';
 import * as db from '../utils/database';
 import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
-import { EXECUTORS } from '../types';
-import type { Todo } from '../types';
+import { EXECUTORS, executorConfigToOption } from '../types';
+import type { Todo, ExecutorConfig, ExecutorOption } from '../types';
 import { TagCheckCardGroup } from './TagCheckCard';
 import { CronPresetSelect } from './CronPresetSelect';
 
@@ -28,6 +28,18 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
   const [selectedTags, setSelectedTags] = useState<number[]>([]);
   const [workspace, setWorkspace] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [executorOptions, setExecutorOptions] = useState<ExecutorOption[]>(EXECUTORS);
+
+  useEffect(() => {
+    db.getExecutors()
+      .then((list: ExecutorConfig[]) => {
+        const enabled = list.filter((ec) => ec.enabled);
+        if (enabled.length > 0) {
+          setExecutorOptions(enabled.map(executorConfigToOption));
+        }
+      })
+      .catch(() => {});
+  }, [open]);
 
   useEffect(() => {
     if (todo) {
@@ -100,7 +112,7 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
       <div style={{ marginBottom: 16 }}>
         <div style={{ marginBottom: 10, fontWeight: 600, fontSize: 14 }}>执行器</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-          {EXECUTORS.map((opt) => {
+          {executorOptions.map((opt) => {
             const selected = executor === opt.value;
             return (
               <div

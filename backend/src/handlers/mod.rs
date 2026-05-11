@@ -149,6 +149,7 @@ pub mod backup;
 mod config;
 pub mod skills;
 pub mod agent_bot;
+pub mod executor_config;
 mod feishu_history;
 
 // WebSocket handler
@@ -405,6 +406,10 @@ pub fn create_app(
         .route("/xyz/backup/database/auto", put(backup::update_auto_backup))
         .route("/xyz/backup/database/file", delete(backup::delete_backup_file))
         .route("/xyz/config", get(config::get_config).put(config::update_config))
+        .route("/xyz/executors", get(executor_config::list_executors))
+        .route("/xyz/executors/{name}", put(executor_config::update_executor))
+        .route("/xyz/executors/{name}/detect", post(executor_config::detect_executor))
+        .route("/xyz/executors/{name}/test", post(executor_config::test_executor))
         .route("/xyz/skills", get(skills::list_skills))
         .route("/xyz/skills/compare", get(skills::compare_skills))
         .route("/xyz/skills/sync", post(skills::sync_skill))

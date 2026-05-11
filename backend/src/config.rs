@@ -27,7 +27,8 @@ pub struct Config {
     pub db_path: String,
     /// Log level (default: INFO)
     pub log_level: String,
-    /// Executor binary paths. Empty string means use default binary name.
+    /// Executor binary paths (kept for backward-compat migration, not serialized to config.yaml)
+    #[serde(skip_serializing)]
     pub executors: ExecutorPaths,
     /// 是否开启自动数据库备份
     pub auto_backup_enabled: bool,

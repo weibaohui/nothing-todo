@@ -222,6 +222,25 @@ export async function updateConfig(config: import('../types').Config): Promise<i
   return unwrap(await api.put<ApiResp<import('../types').Config>>('/xyz/config', config));
 }
 
+// Executor Config APIs
+
+export async function getExecutors(): Promise<import('../types').ExecutorConfig[]> {
+  return unwrap(await api.get<ApiResp<import('../types').ExecutorConfig[]>>('/xyz/executors'));
+}
+
+export async function updateExecutor(name: string, data: { path?: string; enabled?: boolean; display_name?: string }): Promise<import('../types').ExecutorConfig> {
+  return unwrap(await api.put<ApiResp<import('../types').ExecutorConfig>>(`/xyz/executors/${name}`, data));
+}
+
+export async function detectExecutor(name: string): Promise<{ binary_found: boolean; path_resolved: string | null }> {
+  return unwrap(await api.post<ApiResp<{ binary_found: boolean; path_resolved: string | null }>>(`/xyz/executors/${name}/detect`));
+}
+
+export async function testExecutor(name: string): Promise<{ test_passed: boolean; output: string | null; error: string | null }> {
+  const result = unwrap(await api.post<ApiResp<{ test_passed: boolean; output: string | null; error: string | null }>>(`/xyz/executors/${name}/test`));
+  return result;
+}
+
 // Skills APIs
 
 export async function getSkillsList(): Promise<ExecutorSkills[]> {
