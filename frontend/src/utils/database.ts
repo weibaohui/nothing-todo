@@ -33,7 +33,10 @@ api.interceptors.response.use(
 );
 
 function unwrap<T>(res: { data: ApiResp<T> }): T {
-  return res.data.data as T;
+  if (res.data.data === null || res.data.data === undefined) {
+    throw new Error(res.data.message || 'API 返回数据为空');
+  }
+  return res.data.data;
 }
 
 // Todo APIs
