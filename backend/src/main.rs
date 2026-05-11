@@ -191,7 +191,9 @@ async fn run_server(cli_port: Option<u16>) {
         }
     };
 
-    db.cleanup_orphan_execution_records().await;
+    if let Err(e) = db.cleanup_orphan_execution_records().await {
+        tracing::error!("Failed to cleanup orphan execution records: {}", e);
+    }
 
     // Migrate executor paths from config.yaml to database (one-time), then seed defaults if empty
     if let Err(e) = db.migrate_from_config(&cfg.executors).await {

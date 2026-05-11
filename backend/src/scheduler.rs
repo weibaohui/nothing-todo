@@ -93,11 +93,15 @@ impl TodoScheduler {
             let tm = tm_clone.clone();
 
             Box::pin(async move {
-                if let Some(todo) = db.get_todo(todo_id).await {
-                    let message = if todo.prompt.is_empty() { todo.title.clone() } else { todo.prompt.clone() };
-                    let executor = todo.executor.clone();
-                    info!("Scheduled execution triggered for todo {}", todo_id);
-                    run_todo_execution(db, registry, tx, todo_id, message, executor, "cron", tm, None, None).await;
+                match db.get_todo(todo_id).await {
+                    Ok(Some(todo)) => {
+                        let message = if todo.prompt.is_empty() { todo.title.clone() } else { todo.prompt.clone() };
+                        let executor = todo.executor.clone();
+                        info!("Scheduled execution triggered for todo {}", todo_id);
+                        run_todo_execution(db, registry, tx, todo_id, message, executor, "cron", tm, None, None).await;
+                    }
+                    Ok(None) => warn!("Scheduled todo {} not found, skipping", todo_id),
+                    Err(e) => tracing::error!("Failed to fetch scheduled todo {}: {}", todo_id, e),
                 }
             })
         })?;

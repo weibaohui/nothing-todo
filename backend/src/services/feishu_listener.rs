@@ -257,7 +257,14 @@ impl FeishuListener {
 
             if let Some(rule) = matched_rule {
                 if !command_ctx.body.is_empty() {
-                    let todo = db.get_todo(rule.todo_id).await;
+                    let todo = match db.get_todo(rule.todo_id).await {
+                        Ok(Some(t)) => Some(t),
+                        Ok(None) => None,
+                        Err(e) => {
+                            tracing::error!("Failed to fetch todo {} for slash command: {}", rule.todo_id, e);
+                            None
+                        }
+                    };
                     if let Some(todo) = todo {
                         let mut params = HashMap::new();
                         params.insert("content".to_string(), command_ctx.body.to_string());
@@ -288,7 +295,14 @@ impl FeishuListener {
                 };
                 if let Some(todo_id) = default_todo_id {
                     if !content.is_empty() {
-                        let todo_prompt = db.get_todo(todo_id).await.map(|t| t.prompt.clone()).unwrap_or_default();
+                        let todo_prompt = match db.get_todo(todo_id).await {
+                            Ok(Some(t)) => Some(t.prompt.clone()),
+                            Ok(None) => None,
+                            Err(e) => {
+                                tracing::error!("Failed to fetch todo {} for debounce: {}", todo_id, e);
+                                None
+                            }
+                        }.unwrap_or_default();
                         debounce.push(PendingMessage {
                             bot_id,
                             chat_id: msg.channel.clone(),
@@ -314,7 +328,14 @@ impl FeishuListener {
 
             if let Some(todo_id) = default_todo_id {
                 if !content.is_empty() {
-                    let todo_prompt = db.get_todo(todo_id).await.map(|t| t.prompt.clone()).unwrap_or_default();
+                    let todo_prompt = match db.get_todo(todo_id).await {
+                        Ok(Some(t)) => Some(t.prompt.clone()),
+                        Ok(None) => None,
+                        Err(e) => {
+                            tracing::error!("Failed to fetch todo {} for message debounce: {}", todo_id, e);
+                            None
+                        }
+                    }.unwrap_or_default();
                     debounce.push(PendingMessage {
                         bot_id,
                         chat_id: msg.channel.clone(),
