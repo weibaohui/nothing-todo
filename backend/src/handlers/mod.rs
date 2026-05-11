@@ -406,7 +406,7 @@ pub fn create_app(
         .route("/xyz/backup/database/status", get(backup::get_database_backup_status))
         .route("/xyz/backup/database/trigger", post(backup::trigger_local_backup))
         .route("/xyz/backup/database/auto", put(backup::update_auto_backup))
-        .route("/xyz/backup/database/file", delete(backup::delete_backup_file))
+        .route("/xyz/backup/database/file", get(backup::download_backup_file).delete(backup::delete_backup_file))
         .route("/xyz/config", get(config::get_config).put(config::update_config))
         .route("/xyz/executors", get(executor_config::list_executors))
         .route("/xyz/executors/{name}", put(executor_config::update_executor))
