@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense, lazy } from 'react';
 import { ConfigProvider, Layout, Spin, App as AntApp } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { AppProvider, useApp } from './hooks/useApp';
@@ -7,11 +7,14 @@ import { ThemeProvider, useTheme } from './hooks/useTheme';
 import { TodoList } from './components/TodoList';
 import { TodoDetail } from './components/TodoDetail';
 import { Dashboard } from './components/Dashboard';
-import { SettingsPage } from './components/SettingsPage';
 import { ExecutionPanel } from './components/ExecutionPanel';
 import { CreateTodoModal } from './components/CreateTodoModal';
 import zhCN from 'antd/locale/zh_CN';
 import './App.css';
+
+const SettingsPage = lazy(() =>
+  import('./components/SettingsPage').then(m => ({ default: m.SettingsPage }))
+);
 
 const { Content } = Layout;
 
@@ -134,7 +137,9 @@ function AppContent() {
             {state.selectedTodoId ? (
               <TodoDetail onBack={isMobile ? handleBackToList : undefined} />
             ) : activeView === 'settings' ? (
-              <SettingsPage onBack={isMobile ? handleBackToList : undefined} />
+              <Suspense fallback={<div className="flex-center" style={{ height: '100%' }}><Spin /></div>}>
+                <SettingsPage onBack={isMobile ? handleBackToList : undefined} />
+              </Suspense>
             ) : (
               <Dashboard onBack={isMobile ? handleBackToList : undefined} />
             )}

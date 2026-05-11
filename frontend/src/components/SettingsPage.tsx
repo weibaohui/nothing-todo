@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, Suspense, lazy } from 'react';
 import {
   Tabs,
   Form,
@@ -58,7 +58,10 @@ import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
 import type { Config, ExecutorConfig, FeishuHistoryMessage, FeishuHistoryChat, SlashCommandRule, ExecutionRecord } from '../types';
 import yaml from 'js-yaml';
 import { CronPresetSelect } from './CronPresetSelect';
-import { SkillsPanel } from './SkillsPanel';
+
+const SkillsPanel = lazy(() =>
+  import('./SkillsPanel').then(m => ({ default: m.SkillsPanel }))
+);
 
 const { Paragraph } = Typography;
 const { Dragger } = Upload;
@@ -1179,7 +1182,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           Skills 管理
         </span>
       ),
-      children: <SkillsPanel />,
+      children: <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spin /></div>}><SkillsPanel /></Suspense>,
     },
     {
       key: 'runtime',
