@@ -47,6 +47,7 @@ import {
   PlayCircleOutlined,
   StopOutlined,
   SearchOutlined,
+  LaptopOutlined,
 } from '@ant-design/icons';
 import { Cron } from 'react-js-cron';
 import QRCode from 'qrcode';
@@ -59,6 +60,7 @@ import type { Config, ExecutorConfig, FeishuHistoryMessage, FeishuHistoryChat, S
 import yaml from 'js-yaml';
 import { CronPresetSelect } from './CronPresetSelect';
 import { SkillsPanel } from './SkillsPanel';
+import { SessionManager } from './SessionManager';
 
 const { Paragraph } = Typography;
 const { Dragger } = Upload;
@@ -2166,6 +2168,16 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           ]}
         />
       ),
+    },
+    {
+      key: 'sessions',
+      label: (
+        <span>
+          <LaptopOutlined style={{ marginRight: 6 }} />
+          Session 管理
+        </span>
+      ),
+      children: <SessionManager />,
     },
     {
       key: 'about',

@@ -151,6 +151,7 @@ pub mod skills;
 pub mod agent_bot;
 pub mod executor_config;
 mod feishu_history;
+mod session;
 
 // WebSocket handler
 pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
@@ -434,6 +435,9 @@ pub fn create_app(
         .route("/xyz/agent-bots/{id}/config", put(agent_bot::update_agent_bot_config))
         .route("/assets/{*path}", get(static_handler))
         .route("/xyz/version", get(version_handler))
+        .route("/xyz/sessions", get(session::list_sessions))
+        .route("/xyz/sessions/stats", get(session::get_session_stats))
+        .route("/xyz/sessions/{id}", get(session::get_session_detail).delete(session::delete_session))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
         .layer(CompressionLayer::new())
         .layer(
