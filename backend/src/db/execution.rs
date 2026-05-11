@@ -325,7 +325,8 @@ impl Database {
             COALESCE(SUM(COALESCE(json_extract(usage, '$.total_cost_usd'), 0.0)), 0.0) as total_cost, \
             COALESCE(SUM(CASE WHEN json_extract(usage, '$.duration_ms') IS NOT NULL THEN json_extract(usage, '$.duration_ms') ELSE 0 END), 0) as total_duration, \
             COALESCE(SUM(CASE WHEN json_extract(usage, '$.duration_ms') IS NOT NULL THEN 1 ELSE 0 END), 0) as duration_count \
-            FROM execution_records";
+            FROM execution_records \
+            WHERE started_at >= date('now', '-90 days')";
 
         let (total_executions, success_executions, failed_executions,
              total_input_tokens, total_output_tokens, total_cache_read_tokens,
