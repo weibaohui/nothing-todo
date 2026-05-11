@@ -196,23 +196,29 @@ export async function triggerLocalBackup(): Promise<string> {
 export async function getDatabaseBackupStatus(): Promise<{
   auto_backup_enabled: boolean;
   auto_backup_cron: string;
+  auto_backup_max_files: number;
   last_backup: string | null;
   files: { name: string; size: number; created_at: string }[];
 }> {
   return unwrap(await api.get<ApiResp<{
     auto_backup_enabled: boolean;
     auto_backup_cron: string;
+    auto_backup_max_files: number;
     last_backup: string | null;
     files: { name: string; size: number; created_at: string }[];
   }>>('/xyz/backup/database/status'));
 }
 
-export async function updateAutoBackup(enabled: boolean, cron: string): Promise<string> {
-  return unwrap(await api.put<ApiResp<string>>('/xyz/backup/database/auto', { enabled, cron }));
+export async function updateAutoBackup(enabled: boolean, cron: string, maxFiles?: number): Promise<string> {
+  return unwrap(await api.put<ApiResp<string>>('/xyz/backup/database/auto', { enabled, cron, max_files: maxFiles }));
 }
 
 export async function deleteBackupFile(filename: string): Promise<string> {
   return unwrap(await api.delete<ApiResp<string>>('/xyz/backup/database/file', { data: { filename } }));
+}
+
+export function downloadBackupFileUrl(filename: string): string {
+  return `/xyz/backup/database/file?filename=${encodeURIComponent(filename)}`;
 }
 
 // Config APIs

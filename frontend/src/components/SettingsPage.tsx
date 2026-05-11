@@ -99,11 +99,13 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [backupStatus, setBackupStatus] = useState<{
     auto_backup_enabled: boolean;
     auto_backup_cron: string;
+    auto_backup_max_files: number;
     last_backup: string | null;
     files: { name: string; size: number; created_at: string }[];
   } | null>(null);
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
   const [autoBackupCron, setAutoBackupCron] = useState('0 0 3 * * *');
+  const [autoBackupMaxFiles, setAutoBackupMaxFiles] = useState(30);
   const [backupLoading, setBackupLoading] = useState(false);
 
   // Version info state
@@ -230,6 +232,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         setBackupStatus(status);
         setAutoBackupEnabled(status.auto_backup_enabled);
         setAutoBackupCron(status.auto_backup_cron);
+        setAutoBackupMaxFiles(status.auto_backup_max_files);
       })
       .catch(() => {});
   }, []);
@@ -660,7 +663,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const handleSaveAutoBackup = async () => {
     setBackupLoading(true);
     try {
-      await db.updateAutoBackup(autoBackupEnabled, autoBackupCron);
+      await db.updateAutoBackup(autoBackupEnabled, autoBackupCron, autoBackupMaxFiles);
       message.success('自动备份配置已保存');
     } catch (err: any) {
       message.error(err?.message || '保存失败');
@@ -678,6 +681,16 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     } catch (err: any) {
       message.error(err?.message || '删除失败');
     }
+  };
+
+  const handleDownloadBackupFile = (filename: string) => {
+    const url = db.downloadBackupFileUrl(filename);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   // Load running execution records from DB
@@ -1135,6 +1148,20 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                     allowClear={false}
                   />
                 )}
+                {autoBackupEnabled && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                    <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>保留数量</span>
+                    <InputNumber
+                      min={1}
+                      max={1000}
+                      value={autoBackupMaxFiles}
+                      onChange={(v) => v && setAutoBackupMaxFiles(v)}
+                      style={{ width: 80 }}
+                      size="small"
+                    />
+                    <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>个备份文件</span>
+                  </div>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
                   <Button size="small" type="primary" onClick={handleSaveAutoBackup} loading={backupLoading}>
                     保存
@@ -1158,9 +1185,12 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                             {(file.size / 1024).toFixed(1)} KB · {file.created_at}
                           </div>
                         </div>
-                        <Popconfirm title="确定删除此备份？" onConfirm={() => handleDeleteBackup(file.name)}>
-                          <Button type="text" danger icon={<DeleteOutlined />} size="small" />
-                        </Popconfirm>
+                        <Space size={4}>
+                          <Button type="text" icon={<DownloadOutlined />} size="small" onClick={() => handleDownloadBackupFile(file.name)} />
+                          <Popconfirm title="确定删除此备份？" onConfirm={() => handleDeleteBackup(file.name)}>
+                            <Button type="text" danger icon={<DeleteOutlined />} size="small" />
+                          </Popconfirm>
+                        </Space>
                       </List.Item>
                     )}
                   />
