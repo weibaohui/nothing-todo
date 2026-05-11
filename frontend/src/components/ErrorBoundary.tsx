@@ -27,10 +27,14 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       if (this.props.fallback) return this.props.fallback;
+      const isDev = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+      const displayMessage = isDev
+        ? this.state.error?.message
+        : '页面发生错误，请稍后重试。';
       return (
         <div style={{ padding: '24px', textAlign: 'center' }} role="alert">
           <h3>出错了</h3>
-          <p style={{ color: '#666', fontSize: 14 }}>{this.state.error?.message}</p>
+          <p style={{ color: '#666', fontSize: 14 }}>{displayMessage}</p>
           <button
             onClick={() => window.location.reload()}
             style={{ marginTop: 12, padding: '6px 16px', cursor: 'pointer' }}
