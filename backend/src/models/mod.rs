@@ -429,10 +429,40 @@ pub struct UpdateConfigRequest {
     pub host: Option<String>,
     pub db_path: Option<String>,
     pub log_level: Option<String>,
-    pub executors: Option<crate::config::ExecutorPaths>,
     pub slash_command_rules: Option<Vec<crate::config::SlashCommandRule>>,
     pub default_response_todo_id: Option<i64>,
     pub history_message_max_age_secs: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutorConfig {
+    pub id: i64,
+    pub name: String,
+    pub path: String,
+    pub enabled: bool,
+    pub display_name: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateExecutorRequest {
+    pub path: Option<String>,
+    pub enabled: Option<bool>,
+    pub display_name: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ExecutorDetectResult {
+    pub binary_found: bool,
+    pub path_resolved: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ExecutorTestResult {
+    pub test_passed: bool,
+    pub output: Option<String>,
+    pub error: Option<String>,
 }
 
 // Executor types

@@ -193,15 +193,23 @@ async fn run_server(cli_port: Option<u16>) {
 
     db.cleanup_orphan_execution_records().await;
 
+    // Migrate executor paths from config.yaml to database (one-time), then seed defaults if empty
+    if let Err(e) = db.migrate_from_config(&cfg.executors).await {
+        tracing::warn!("Executor config migration check failed: {}", e);
+    }
+    if let Err(e) = db.seed_default_executors().await {
+        tracing::warn!("Failed to seed default executors: {}", e);
+    }
+
     let executor_registry = Arc::new(adapters::ExecutorRegistry::new());
-    executor_registry.register(adapters::joinai::JoinaiExecutor::new(cfg.executors.joinai.clone()));
-    executor_registry.register(adapters::claude_code::ClaudeCodeExecutor::new(cfg.executors.claude_code.clone()));
-    executor_registry.register(adapters::codebuddy::CodebuddyExecutor::new(cfg.executors.codebuddy.clone()));
-    executor_registry.register(adapters::opencode::OpencodeExecutor::new(cfg.executors.opencode.clone()));
-    executor_registry.register(adapters::atomcode::AtomcodeExecutor::new(cfg.executors.atomcode.clone()));
-    executor_registry.register(adapters::hermes::HermesExecutor::new(cfg.executors.hermes.clone()));
-    executor_registry.register(adapters::kimi::KimiExecutor::new(cfg.executors.kimi.clone()));
-    executor_registry.register(adapters::codex::CodexExecutor::new(cfg.executors.codex.clone()));
+    let db_executors = db.get_enabled_executors().await.unwrap_or_default();
+    for ec in &db_executors {
+        if executor_registry.register_by_name(&ec.name, &ec.path) {
+            info!("Registered executor: {} ({})", ec.display_name, ec.name);
+        } else {
+            tracing::warn!("Unknown executor '{}' in database, skipping", ec.name);
+        }
+    }
 
     let executors = executor_registry.list_executors();
     info!("Available executors: {:?}", executors);

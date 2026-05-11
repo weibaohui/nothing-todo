@@ -1,5 +1,6 @@
 pub mod agent_bots;
 pub mod execution_records;
+pub mod executors;
 pub mod feishu_homes;
 pub mod feishu_history_chats;
 pub mod feishu_messages;
@@ -13,6 +14,7 @@ pub mod todos;
 pub mod prelude {
     pub use super::agent_bots::Entity as AgentBots;
     pub use super::execution_records::Entity as ExecutionRecords;
+    pub use super::executors::Entity as Executors;
     pub use super::feishu_homes::Entity as FeishuHomes;
     pub use super::feishu_history_chats::Entity as FeishuHistoryChats;
     pub use super::feishu_messages::Entity as FeishuMessages;
