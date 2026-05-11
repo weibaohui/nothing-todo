@@ -200,7 +200,7 @@ pub async fn feishu_poll(
             return Ok(ApiResponse::ok(FeishuPollResponse {
                 success: true,
                 app_id: Some(app_id.to_string()),
-                app_secret: Some(app_secret.to_string()),
+                app_secret: None,
                 domain,
                 open_id: open_id.map(String::from),
                 bot_name,
