@@ -28,14 +28,14 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       if (this.props.fallback) return this.props.fallback;
       return (
-        <div style={{ padding: 24, textAlign: 'center' }}>
-          <h3>Something went wrong</h3>
+        <div style={{ padding: '24px', textAlign: 'center' }} role="alert">
+          <h3>出错了</h3>
           <p style={{ color: '#666', fontSize: 14 }}>{this.state.error?.message}</p>
           <button
-            onClick={() => this.setState({ hasError: false, error: null })}
+            onClick={() => window.location.reload()}
             style={{ marginTop: 12, padding: '6px 16px', cursor: 'pointer' }}
           >
-            Try again
+            重试
           </button>
         </div>
       );
