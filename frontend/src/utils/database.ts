@@ -210,7 +210,11 @@ export async function getDatabaseBackupStatus(): Promise<{
 }
 
 export async function updateAutoBackup(enabled: boolean, cron: string, maxFiles?: number): Promise<string> {
-  return unwrap(await api.put<ApiResp<string>>('/xyz/backup/database/auto', { enabled, cron, max_files: maxFiles }));
+  const body: Record<string, unknown> = { enabled, cron };
+  if (maxFiles !== undefined) {
+    body.max_files = maxFiles;
+  }
+  return unwrap(await api.put<ApiResp<string>>('/xyz/backup/database/auto', body));
 }
 
 export async function deleteBackupFile(filename: string): Promise<string> {
