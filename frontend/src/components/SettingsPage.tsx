@@ -1943,7 +1943,11 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                             <Typography.Link
                               style={{ fontSize: 12 }}
                               onClick={() => {
-                                db.getExecutionRecord(record.execution_record_id!).then(r => setExecDetailRecord(r)).catch(() => {});
+                                db.getExecutionRecord(record.execution_record_id!)
+                                  .then(r => setExecDetailRecord(r))
+                                  .catch((err) => {
+                                    message.error('加载执行记录失败: ' + (err instanceof Error ? err.message : '未知错误'));
+                                  });
                               }}
                             >
                               #{record.execution_record_id}
