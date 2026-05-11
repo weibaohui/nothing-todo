@@ -31,19 +31,22 @@ pub fn strip_think_tags(content: &str) -> String {
 }
 
 /// Default `get_final_result` for executors that use text+stderr logs with think-tag stripping.
-/// Returns the last "text" log (with think tags stripped), falling back to last "stderr" log.
+/// Collects all "text" log entries (with think tags stripped), falling back to last "stderr" log.
 pub fn default_final_result_with_think_stripping(logs: &[ParsedLogEntry]) -> Option<String> {
-    let text_result = logs.iter()
-        .rev()
-        .find(|l| l.log_type == "text")
-        .map(|l| strip_think_tags(&l.content));
+    let texts: Vec<String> = logs.iter()
+        .filter(|l| l.log_type == "text")
+        .map(|l| strip_think_tags(&l.content))
+        .filter(|t| !t.trim().is_empty())
+        .collect();
 
-    let fallback = logs.iter()
+    if !texts.is_empty() {
+        return Some(texts.join("\n\n"));
+    }
+
+    logs.iter()
         .rev()
         .find(|l| l.log_type == "stderr")
-        .map(|l| l.content.clone());
-
-    text_result.or(fallback)
+        .map(|l| l.content.clone())
 }
 
 /// Extract usage from the last "result" log entry (used by claude_code, codebuddy).
