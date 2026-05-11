@@ -361,9 +361,8 @@ impl Database {
         .await?;
 
         // Feishu Push Targets — one row per bot, p2p and group IDs as separate fields
-        self.exec("DROP TABLE IF EXISTS feishu_push_targets").await?;
         self.exec(
-            "CREATE TABLE feishu_push_targets (
+            "CREATE TABLE IF NOT EXISTS feishu_push_targets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 bot_id INTEGER NOT NULL,
                 p2p_receive_id TEXT NOT NULL DEFAULT '',
@@ -380,9 +379,8 @@ impl Database {
         .await?;
 
         // feishu_response_config 表（响应开关独立配置）
-        self.exec("DROP TABLE IF EXISTS feishu_response_config").await?;
         self.exec(
-            "CREATE TABLE feishu_response_config (
+            "CREATE TABLE IF NOT EXISTS feishu_response_config (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 bot_id INTEGER NOT NULL,
                 target_type TEXT NOT NULL,
@@ -395,7 +393,7 @@ impl Database {
         )
         .await?;
 
-        // Migrate: add debounce_secs column if missing
+        // Migrate: add debounce_secs column if missing (for existing tables created before this column)
         let has_debounce: i64 = self.conn
             .query_one(Statement::from_string(
                 sea_orm::DatabaseBackend::Sqlite,
@@ -409,9 +407,8 @@ impl Database {
         }
 
         // feishu_group_whitelist 表（群聊响应白名单）
-        self.exec("DROP TABLE IF EXISTS feishu_group_whitelist").await?;
         self.exec(
-            "CREATE TABLE feishu_group_whitelist (
+            "CREATE TABLE IF NOT EXISTS feishu_group_whitelist (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 bot_id INTEGER NOT NULL,
                 sender_open_id TEXT NOT NULL,
