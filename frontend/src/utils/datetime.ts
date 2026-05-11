@@ -43,25 +43,14 @@ export function formatRelativeTime(timeStr: string | null | undefined): string {
 }
 
 /**
- * 格式化时长（秒）为简写形式，最多2段，如 1h20m, 3m10s, 2d30m
+ * 格式化时长（秒）为简写形式，如 1h30m, 3m10s, 45s
  */
-export function formatDuration(sec: number): string {
-  const units = [
-    { label: 'd', value: 86400 },
-    { label: 'h', value: 3600 },
-    { label: 'm', value: 60 },
-    { label: 's', value: 1 }
-  ];
-  const parts: string[] = [];
-  let remaining = Math.max(0, Math.floor(sec));
-  for (const unit of units) {
-    if (remaining >= unit.value || parts.length > 0) {
-      const num = Math.floor(remaining / unit.value);
-      parts.push(num + unit.label);
-      remaining %= unit.value;
-    }
-  }
-  return parts.slice(0, 2).join('');
+export function formatDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${seconds}s`;
 }
 
 /**
