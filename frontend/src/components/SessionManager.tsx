@@ -28,11 +28,32 @@ import {
   ThunderboltOutlined,
   TeamOutlined,
   ApiOutlined,
+  FilterOutlined,
 } from '@ant-design/icons';
 import * as db from '../utils/database';
 import type { SessionInfo, SessionDetail, SessionStats } from '../utils/database';
 
 const { Text, Paragraph } = Typography;
+
+// ─── Source display config ────────────────────────────────
+
+const sourceConfig: Record<string, { label: string; color: string; icon?: string }> = {
+  'claude-code': { label: 'Claude Code', color: '#d97706' },
+  'codex': { label: 'Codex', color: '#10a37f' },
+  'hermes': { label: 'Hermes', color: '#8b5cf6' },
+  'kimi': { label: 'Kimi', color: '#3b82f6' },
+  'atomcode': { label: 'AtomCode', color: '#ef4444' },
+  'cc-connect': { label: 'CC-Connect', color: '#06b6d4' },
+};
+
+function sourceTag(source: string) {
+  const cfg = sourceConfig[source] || { label: source, color: '#6b7280' };
+  return (
+    <Tag color={cfg.color} style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px' }}>
+      {cfg.label}
+    </Tag>
+  );
+}
 
 // ─── Helpers ──────────────────────────────────────────────
 
@@ -73,66 +94,74 @@ function shortId(id: string): string {
   return id.length > 12 ? `${id.slice(0, 8)}...${id.slice(-4)}` : id;
 }
 
-const executorColorMap: Record<string, string> = {
-  'sdk-cli': 'blue',
-  'cli': 'geekblue',
-  'vscode': 'green',
-  'jetbrains': 'purple',
-  'web': 'cyan',
-};
-
-function executorTag(executor: string) {
-  const color = executorColorMap[executor] || 'default';
-  return <Tag color={color}>{executor}</Tag>;
-}
-
 // ─── Stats Cards ──────────────────────────────────────────
 
 function StatsCards({ stats }: { stats: SessionStats | null }) {
   if (!stats) return null;
+
+  // Source breakdown row
+  const sourceEntries = Object.entries(stats.by_source).sort((a, b) => b[1] - a[1]);
+
   return (
-    <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-      <Col span={6}>
-        <Card size="small" style={{ textAlign: 'center' }}>
-          <Statistic
-            title={<Text type="secondary" style={{ fontSize: 12 }}>总会话</Text>}
-            value={stats.total_sessions}
-            prefix={<TeamOutlined />}
-            valueStyle={{ fontSize: 20 }}
-          />
-        </Card>
-      </Col>
-      <Col span={6}>
-        <Card size="small" style={{ textAlign: 'center' }}>
-          <Statistic
-            title={<Text type="secondary" style={{ fontSize: 12 }}>活跃会话</Text>}
-            value={stats.active_sessions}
-            prefix={<ClockCircleOutlined />}
-            valueStyle={{ fontSize: 20, color: '#52c41a' }}
-          />
-        </Card>
-      </Col>
-      <Col span={6}>
-        <Card size="small" style={{ textAlign: 'center' }}>
-          <Statistic
-            title={<Text type="secondary" style={{ fontSize: 12 }}>今日新增</Text>}
-            value={stats.today_sessions}
-            prefix={<ThunderboltOutlined />}
-            valueStyle={{ fontSize: 20, color: '#faad14' }}
-          />
-        </Card>
-      </Col>
-      <Col span={6}>
-        <Card size="small" style={{ textAlign: 'center' }}>
-          <Statistic
-            title={<Text type="secondary" style={{ fontSize: 12 }}>总 Token</Text>}
-            value={formatTokens(stats.total_input_tokens + stats.total_output_tokens)}
-            prefix={<ApiOutlined />}
-            valueStyle={{ fontSize: 20, color: '#1677ff' }}
-          />
-        </Card>
-      </Col>
-    </Row>
+    <>
+      <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+        <Col span={6}>
+          <Card size="small" style={{ textAlign: 'center' }}>
+            <Statistic
+              title={<Text type="secondary" style={{ fontSize: 12 }}>总会话</Text>}
+              value={stats.total_sessions}
+              prefix={<TeamOutlined />}
+              valueStyle={{ fontSize: 20 }}
+            />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card size="small" style={{ textAlign: 'center' }}>
+            <Statistic
+              title={<Text type="secondary" style={{ fontSize: 12 }}>活跃会话</Text>}
+              value={stats.active_sessions}
+              prefix={<ClockCircleOutlined />}
+              valueStyle={{ fontSize: 20, color: '#52c41a' }}
+            />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card size="small" style={{ textAlign: 'center' }}>
+            <Statistic
+              title={<Text type="secondary" style={{ fontSize: 12 }}>今日新增</Text>}
+              value={stats.today_sessions}
+              prefix={<ThunderboltOutlined />}
+              valueStyle={{ fontSize: 20, color: '#faad14' }}
+            />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card size="small" style={{ textAlign: 'center' }}>
+            <Statistic
+              title={<Text type="secondary" style={{ fontSize: 12 }}>总 Token</Text>}
+              value={formatTokens(stats.total_input_tokens + stats.total_output_tokens)}
+              prefix={<ApiOutlined />}
+              valueStyle={{ fontSize: 20, color: '#1677ff' }}
+            />
+          </Card>
+        </Col>
+      </Row>
+      {/* Source breakdown */}
+      {sourceEntries.length > 0 && (
+        <div style={{ marginBottom: 12, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <FilterOutlined style={{ color: 'var(--color-text-secondary)' }} />
+          <Text type="secondary" style={{ fontSize: 12 }}>工具分布：</Text>
+          {sourceEntries.map(([source, count]) => {
+            const cfg = sourceConfig[source] || { label: source, color: '#6b7280' };
+            return (
+              <Tag key={source} color={cfg.color} style={{ fontSize: 11, margin: 0 }}>
+                {cfg.label} {count}
+              </Tag>
+            );
+          })}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -164,7 +193,12 @@ function SessionDetailDrawer({
 
   return (
     <Drawer
-      title={detail ? `Session ${shortId(detail.info.session_id)}` : 'Session 详情'}
+      title={detail ? (
+        <Space>
+          {sourceTag(detail.info.source)}
+          <span>Session {shortId(detail.info.session_id)}</span>
+        </Space>
+      ) : 'Session 详情'}
       open={open}
       onClose={onClose}
       width={680}
@@ -176,13 +210,14 @@ function SessionDetailDrawer({
             {/* Meta Info */}
             <Card size="small" title="基本信息" style={{ marginBottom: 16 }}>
               <Row gutter={[16, 8]}>
-                <Col span={12}><Text type="secondary">项目：</Text><Text>{detail.info.project_path}</Text></Col>
+                <Col span={12}><Text type="secondary">工具：</Text>{sourceTag(detail.info.source)}</Col>
                 <Col span={12}><Text type="secondary">状态：</Text>
                   <Tag color={detail.info.status === 'active' ? 'green' : 'default'}>
                     {detail.info.status === 'active' ? '活跃' : '已完成'}
                   </Tag>
                 </Col>
-                <Col span={12}><Text type="secondary">执行器：</Text>{executorTag(detail.info.executor)}</Col>
+                <Col span={12}><Text type="secondary">项目：</Text><Text>{detail.info.project_path}</Text></Col>
+                <Col span={12}><Text type="secondary">执行器：</Text><Text>{detail.info.executor}</Text></Col>
                 <Col span={12}><Text type="secondary">模型：</Text><Text code>{detail.info.model}</Text></Col>
                 <Col span={12}><Text type="secondary">Git 分支：</Text><Text code>{detail.info.git_branch || '-'}</Text></Col>
                 <Col span={12}><Text type="secondary">版本：</Text><Text code>{detail.info.version || '-'}</Text></Col>
@@ -297,7 +332,7 @@ export function SessionManager() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
-  const [executorFilter, setExecutorFilter] = useState<string | undefined>();
+  const [sourceFilter, setSourceFilter] = useState<string | undefined>();
   const [searchText, setSearchText] = useState('');
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -309,7 +344,7 @@ export function SessionManager() {
         page,
         page_size: pageSize,
         status: statusFilter,
-        executor: executorFilter,
+        source: sourceFilter,
         search: searchText || undefined,
       });
       setSessions(res.sessions);
@@ -319,7 +354,7 @@ export function SessionManager() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, statusFilter, executorFilter, searchText]);
+  }, [page, pageSize, statusFilter, sourceFilter, searchText]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -349,16 +384,19 @@ export function SessionManager() {
     }
   };
 
-  // Extract unique executors from stats
-  const executorOptions = stats
-    ? Object.keys(stats.by_executor).map((e) => ({ label: e, value: e }))
+  // Source filter options from stats
+  const sourceOptions = stats
+    ? Object.keys(stats.by_source).map((s) => {
+        const cfg = sourceConfig[s] || { label: s };
+        return { label: `${cfg.label} (${stats.by_source[s]})`, value: s };
+      })
     : [];
 
   const columns = [
     {
       title: '状态',
       dataIndex: 'status',
-      width: 70,
+      width: 60,
       render: (s: string) => (
         <Tooltip title={s === 'active' ? '活跃' : '已完成'}>
           <span
@@ -375,6 +413,12 @@ export function SessionManager() {
       ),
     },
     {
+      title: '工具',
+      dataIndex: 'source',
+      width: 120,
+      render: (source: string) => sourceTag(source),
+    },
+    {
       title: 'Session ID',
       dataIndex: 'session_id',
       width: 130,
@@ -387,7 +431,7 @@ export function SessionManager() {
     {
       title: '项目',
       dataIndex: 'project_path',
-      width: 200,
+      width: 180,
       ellipsis: true,
       render: (p: string) => {
         const short = p.split('/').slice(-2).join('/');
@@ -395,41 +439,39 @@ export function SessionManager() {
       },
     },
     {
-      title: '执行器',
-      dataIndex: 'executor',
-      width: 100,
-      render: (e: string) => executorTag(e),
-    },
-    {
       title: '模型',
       dataIndex: 'model',
-      width: 100,
+      width: 90,
       ellipsis: true,
       render: (m: string) => <Text style={{ fontSize: 12 }}>{m}</Text>,
     },
     {
       title: '分支',
       dataIndex: 'git_branch',
-      width: 90,
+      width: 85,
       ellipsis: true,
       render: (b: string | null) => b ? <Tag style={{ fontSize: 11 }}>{b}</Tag> : <Text type="secondary">-</Text>,
     },
     {
       title: '消息',
       dataIndex: 'message_count',
-      width: 60,
+      width: 55,
       align: 'center' as const,
       render: (n: number) => <Text style={{ fontSize: 12 }}>{n}</Text>,
     },
     {
       title: 'Token',
-      width: 80,
+      width: 75,
       align: 'right' as const,
-      render: (_: unknown, r: SessionInfo) => (
-        <Tooltip title={`输入: ${formatTokens(r.total_input_tokens)} / 输出: ${formatTokens(r.total_output_tokens)}`}>
-          <Text style={{ fontSize: 12 }}>{formatTokens(r.total_input_tokens + r.total_output_tokens)}</Text>
-        </Tooltip>
-      ),
+      render: (_: unknown, r: SessionInfo) => {
+        const total = r.total_input_tokens + r.total_output_tokens;
+        if (total === 0) return <Text type="secondary" style={{ fontSize: 12 }}>-</Text>;
+        return (
+          <Tooltip title={`输入: ${formatTokens(r.total_input_tokens)} / 输出: ${formatTokens(r.total_output_tokens)}`}>
+            <Text style={{ fontSize: 12 }}>{formatTokens(total)}</Text>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '首条 Prompt',
@@ -442,7 +484,7 @@ export function SessionManager() {
     {
       title: '最后活跃',
       dataIndex: 'last_active_at',
-      width: 120,
+      width: 110,
       render: (t: string | null) => (
         <Tooltip title={t || ''}>
           <Text style={{ fontSize: 12 }}>{formatTime(t)}</Text>
@@ -450,15 +492,8 @@ export function SessionManager() {
       ),
     },
     {
-      title: '大小',
-      dataIndex: 'file_size',
-      width: 70,
-      align: 'right' as const,
-      render: (s: number) => <Text type="secondary" style={{ fontSize: 11 }}>{formatBytes(s)}</Text>,
-    },
-    {
       title: '操作',
-      width: 80,
+      width: 70,
       fixed: 'right' as const,
       render: (_: unknown, r: SessionInfo) => (
         <Space size={4}>
@@ -466,16 +501,16 @@ export function SessionManager() {
             type="text"
             size="small"
             icon={<EyeOutlined />}
-            onClick={() => { setSelectedSessionId(r.session_id); setDrawerOpen(true); }}
+            onClick={(e) => { e.stopPropagation(); setSelectedSessionId(r.session_id); setDrawerOpen(true); }}
           />
           <Popconfirm
             title="确定删除该 Session？"
-            description="将删除会话的 JSONL 文件和子代理数据"
-            onConfirm={() => handleDelete(r.session_id)}
+            description="将删除会话文件数据（不可恢复）"
+            onConfirm={(e) => { e?.stopPropagation(); handleDelete(r.session_id); }}
             okText="删除"
             cancelText="取消"
           >
-            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+            <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={(e) => e.stopPropagation()} />
           </Popconfirm>
         </Space>
       ),
@@ -493,27 +528,27 @@ export function SessionManager() {
           prefix={<SearchOutlined />}
           value={searchText}
           onChange={(e) => { setSearchText(e.target.value); setPage(1); }}
-          style={{ width: 240 }}
+          style={{ width: 220 }}
           allowClear
+        />
+        <Select
+          placeholder="工具来源"
+          value={sourceFilter}
+          onChange={(v) => { setSourceFilter(v); setPage(1); }}
+          style={{ width: 170 }}
+          allowClear
+          options={sourceOptions}
         />
         <Select
           placeholder="状态"
           value={statusFilter}
           onChange={(v) => { setStatusFilter(v); setPage(1); }}
-          style={{ width: 120 }}
+          style={{ width: 110 }}
           allowClear
           options={[
             { label: '活跃', value: 'active' },
             { label: '已完成', value: 'completed' },
           ]}
-        />
-        <Select
-          placeholder="执行器"
-          value={executorFilter}
-          onChange={(v) => { setExecutorFilter(v); setPage(1); }}
-          style={{ width: 140 }}
-          allowClear
-          options={executorOptions}
         />
         <Button icon={<ReloadOutlined />} onClick={() => { fetchSessions(); fetchStats(); }}>
           刷新
@@ -527,7 +562,7 @@ export function SessionManager() {
         rowKey="session_id"
         loading={loading}
         size="small"
-        scroll={{ x: 1200 }}
+        scroll={{ x: 1300 }}
         pagination={{
           current: page,
           pageSize,

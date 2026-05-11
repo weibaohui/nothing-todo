@@ -524,6 +524,7 @@ export async function deleteGroupWhitelist(id: number): Promise<void> {
 
 export interface SessionInfo {
   session_id: string;
+  source: string;
   project_path: string;
   status: string;
   executor: string;
@@ -553,6 +554,7 @@ export interface SessionStats {
   today_sessions: number;
   total_input_tokens: number;
   total_output_tokens: number;
+  by_source: Record<string, number>;
   by_executor: Record<string, number>;
   by_project: Record<string, number>;
 }
@@ -583,6 +585,7 @@ export async function listSessions(params: {
   page?: number;
   page_size?: number;
   status?: string;
+  source?: string;
   executor?: string;
   project?: string;
   search?: string;

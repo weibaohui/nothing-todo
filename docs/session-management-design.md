@@ -173,3 +173,4 @@ UI 组件：
 - [x] F5. Session 统计概览
 - [x] F6. Session 子代理信息
 - [x] F7. Session 批量清理
+- [x] F8. 多工具 Session 扫描（Claude Code / Codex / Hermes / Kimi / AtomCode / CC-Connect）
