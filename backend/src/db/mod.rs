@@ -419,6 +419,40 @@ impl Database {
         )
         .await?;
 
+        // Executors table (executor config moved from config.yaml to database)
+        self.exec(
+            "CREATE TABLE IF NOT EXISTS executors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                path TEXT NOT NULL DEFAULT '',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                display_name TEXT NOT NULL DEFAULT '',
+                created_at TEXT,
+                updated_at TEXT
+            )",
+        )
+        .await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_executors_name ON executors(name)").await?;
+
+        // Executors timestamps triggers
+        self.exec(
+            "CREATE TRIGGER IF NOT EXISTS set_executors_created_at_utc AFTER INSERT ON executors
+             WHEN new.created_at IS NULL OR new.created_at = ''
+             BEGIN
+                 UPDATE executors SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+             END",
+        )
+        .await?;
+
+        self.exec(
+            "CREATE TRIGGER IF NOT EXISTS set_executors_updated_at_utc BEFORE UPDATE ON executors
+             WHEN new.updated_at IS NULL OR new.updated_at = ''
+             BEGIN
+                 SELECT raise(IGNORE);
+             END",
+        )
+        .await?;
+
         Ok(())
     }
 }
@@ -428,6 +462,7 @@ mod tag;
 mod execution;
 mod skills;
 mod agent_bot;
+mod executor_config;
 mod feishu_home;
 mod feishu_message;
 mod feishu_push_target;

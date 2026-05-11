@@ -27,9 +27,6 @@ pub async fn update_config(
     if let Some(log_level) = req.log_level {
         cfg.log_level = log_level;
     }
-    if let Some(executors) = req.executors {
-        cfg.executors = executors;
-    }
     if let Some(slash_command_rules) = req.slash_command_rules {
         cfg.slash_command_rules = slash_command_rules;
     }
