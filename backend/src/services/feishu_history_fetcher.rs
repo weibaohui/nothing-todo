@@ -409,7 +409,14 @@ impl FeishuHistoryFetcher {
                             // Push to debounce buffer instead of executing directly
                             if let Some(todo_id) = Self::resolve_todo_id(config, msg_content).await {
                                 let (trigger_type, params) = Self::build_trigger_params(msg_content);
-                                let todo_prompt = db.get_todo(todo_id).await.ok().flatten().map(|t| t.prompt.clone()).unwrap_or_default();
+                                let todo_prompt = match db.get_todo(todo_id).await {
+                                    Ok(Some(t)) => Some(t.prompt.clone()),
+                                    Ok(None) => None,
+                                    Err(e) => {
+                                        tracing::error!("Failed to fetch todo {} for feishu history: {}", todo_id, e);
+                                        None
+                                    }
+                                }.unwrap_or_default();
                                 debounce.push(PendingMessage {
                                     bot_id,
                                     chat_id: chat_id.to_string(),
