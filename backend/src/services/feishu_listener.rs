@@ -277,6 +277,7 @@ impl FeishuListener {
                             executor: todo.executor.clone(),
                             trigger_type: "slash_command".to_string(),
                             params: Some(params),
+                            message_id: Some(msg.id.clone()),
                         });
                     }
                 }
@@ -300,6 +301,7 @@ impl FeishuListener {
                             executor: None,
                             trigger_type: "default_response".to_string(),
                             params: None,
+                            message_id: Some(msg.id.clone()),
                         });
                     }
                 }
@@ -325,6 +327,7 @@ impl FeishuListener {
                         executor: None,
                         trigger_type: "default_response".to_string(),
                         params: None,
+                        message_id: Some(msg.id.clone()),
                     });
                 }
             }
