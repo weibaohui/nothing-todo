@@ -204,6 +204,9 @@ impl Database {
         self.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill_name ON skill_invocations(skill_name)").await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_executor ON skill_invocations(executor)").await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_todo_id ON skill_invocations(todo_id)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_started_at ON execution_records(started_at)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_executor ON execution_records(executor)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_model ON execution_records(model)").await?;
 
         // Trigger: fill created_at with UTC time on INSERT if not set
         self.exec(

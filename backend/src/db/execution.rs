@@ -325,7 +325,8 @@ impl Database {
             COALESCE(SUM(COALESCE(json_extract(usage, '$.total_cost_usd'), 0.0)), 0.0) as total_cost, \
             COALESCE(SUM(CASE WHEN json_extract(usage, '$.duration_ms') IS NOT NULL THEN json_extract(usage, '$.duration_ms') ELSE 0 END), 0) as total_duration, \
             COALESCE(SUM(CASE WHEN json_extract(usage, '$.duration_ms') IS NOT NULL THEN 1 ELSE 0 END), 0) as duration_count \
-            FROM execution_records";
+            FROM execution_records \
+            WHERE started_at >= date('now', '-90 days')";
 
         let (total_executions, success_executions, failed_executions,
              total_input_tokens, total_output_tokens, total_cache_read_tokens,
@@ -358,6 +359,7 @@ impl Database {
             COALESCE(SUM(COALESCE(json_extract(usage, '$.output_tokens'), 0)), 0) as output_tokens, \
             COALESCE(SUM(COALESCE(json_extract(usage, '$.total_cost_usd'), 0.0)), 0.0) as cost \
             FROM execution_records \
+            WHERE started_at >= date('now', '-90 days') \
             GROUP BY COALESCE(executor, 'claudecode')";
 
         let mut executor_distribution: Vec<crate::models::ExecutorCount> = self.conn
@@ -400,6 +402,7 @@ impl Database {
             COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_creation_input_tokens'), 0)), 0) as cache_creation, \
             COALESCE(SUM(COALESCE(json_extract(usage, '$.total_cost_usd'), 0.0)), 0.0) as cost \
             FROM execution_records \
+            WHERE started_at >= date('now', '-90 days') \
             GROUP BY COALESCE(model, 'unknown')";
 
         let mut model_distribution: Vec<crate::models::ModelCount> = self.conn
@@ -445,7 +448,7 @@ impl Database {
             COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_creation_input_tokens'), 0)), 0) as cache_creation, \
             COALESCE(SUM(COALESCE(json_extract(usage, '$.total_cost_usd'), 0.0)), 0.0) as cost \
             FROM execution_records \
-            WHERE started_at IS NOT NULL AND LENGTH(started_at) >= 10 \
+            WHERE started_at IS NOT NULL AND LENGTH(started_at) >= 10 AND started_at >= date('now', '-90 days') \
             GROUP BY SUBSTR(started_at, 1, 10) \
             ORDER BY day DESC \
             LIMIT 30";
