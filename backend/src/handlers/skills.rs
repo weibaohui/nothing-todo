@@ -367,10 +367,14 @@ fn discover_skills_for_executor(et: ExecutorType) -> ExecutorSkills {
 pub async fn list_skills(
     State(_state): State<AppState>,
 ) -> Result<ApiResponse<Vec<ExecutorSkills>>, AppError> {
-    let result: Vec<ExecutorSkills> = ALL_EXECUTORS
-        .iter()
-        .map(|et| discover_skills_for_executor(*et))
-        .collect();
+    let result = tokio::task::spawn_blocking(move || {
+        ALL_EXECUTORS
+            .iter()
+            .map(|et| discover_skills_for_executor(*et))
+            .collect::<Vec<ExecutorSkills>>()
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("spawn_blocking join error: {}", e)))?;
     Ok(ApiResponse::ok(result))
 }
 
@@ -389,23 +393,30 @@ pub async fn get_skill_content(
         return Err(AppError::NotFound);
     }
 
-    let skill_md_path = skill_dir.join("SKILL.md");
-    let content = if skill_md_path.exists() {
-        std::fs::read_to_string(&skill_md_path).unwrap_or_default()
-    } else {
-        String::new()
-    };
+    let skill_name = query.skill_name.clone();
+    let executor = query.executor.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let skill_md_path = skill_dir.join("SKILL.md");
+        let content = if skill_md_path.exists() {
+            std::fs::read_to_string(&skill_md_path).unwrap_or_default()
+        } else {
+            String::new()
+        };
 
-    // Collect all files in the skill directory
-    let mut files = Vec::new();
-    collect_skill_files(&skill_dir, &skill_dir, &mut files);
+        let mut files = Vec::new();
+        collect_skill_files(&skill_dir, &skill_dir, &mut files);
 
-    Ok(ApiResponse::ok(SkillContentResponse {
-        skill_name: query.skill_name,
-        executor: query.executor,
-        content,
-        files,
-    }))
+        SkillContentResponse {
+            skill_name,
+            executor,
+            content,
+            files,
+        }
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("spawn_blocking join error: {}", e)))?;
+
+    Ok(ApiResponse::ok(result))
 }
 
 /// GET /xyz/skills/export - Export skill as .zip
