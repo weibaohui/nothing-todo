@@ -23,6 +23,7 @@ pub struct PendingMessage {
     pub executor: Option<String>,
     pub trigger_type: String,
     pub params: Option<HashMap<String, String>>,
+    pub message_id: Option<String>,
 }
 
 struct DebounceEntry {
@@ -98,7 +99,7 @@ impl MessageDebounce {
                     merged_params.insert("message".to_string(), merged_content);
 
                     let result = start_todo_execution(
-                        db,
+                        db.clone(),
                         executor_registry,
                         tx,
                         task_manager,
@@ -111,8 +112,27 @@ impl MessageDebounce {
                         None,
                     ).await;
 
-                    if let Err(e) = result {
-                        tracing::warn!("[debounce] failed to execute todo {}: {:?}", last.todo_id, e);
+                    match result {
+                        Ok(exec_result) => {
+                            // Update all pending messages with todo_id and execution_record_id
+                            let record_id = exec_result.record_id;
+                            for msg in &entry.messages {
+                                if let Some(ref msg_id) = msg.message_id {
+                                    if let Err(e) = db.mark_feishu_message_processed(msg_id, msg.todo_id, record_id).await {
+                                        tracing::warn!("[debounce] failed to mark message {} as processed: {:?}", msg_id, e);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("[debounce] failed to execute todo {}: {:?}", last.todo_id, e);
+                            // Still mark messages as processed with todo_id but no record_id
+                            for msg in &entry.messages {
+                                if let Some(ref msg_id) = msg.message_id {
+                                    let _ = db.mark_feishu_message_processed(msg_id, msg.todo_id, None).await;
+                                }
+                            }
+                        }
                     }
                 }
             })
