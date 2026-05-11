@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   RobotOutlined,
   UserOutlined,
@@ -330,7 +330,7 @@ function ChatBubble({ message }: { message: ChatMessage }) {
 }
 
 export function ChatView({ logs, isRunning }: ChatViewProps) {
-  const messages = parseLogsToMessages(logs);
+  const messages = useMemo(() => parseLogsToMessages(logs), [logs]);
 
   if (messages.length === 0) {
     return (
