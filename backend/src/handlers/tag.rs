@@ -33,6 +33,6 @@ pub async fn delete_tag(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<ApiResponse<()>, AppError> {
-    state.db.delete_tag(id).await;
+    state.db.delete_tag(id).await?;
     Ok(ApiResponse::ok(()))
 }

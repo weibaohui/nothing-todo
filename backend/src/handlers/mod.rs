@@ -37,7 +37,7 @@ pub struct AppState {
 impl AppState {
     /// 根据 id 获取 todo，不存在时返回 NotFound 错误
     pub async fn require_todo(&self, id: i64) -> Result<crate::models::Todo, AppError> {
-        self.db.get_todo(id).await.ok_or(AppError::NotFound)
+        self.db.get_todo(id).await?.ok_or(AppError::NotFound)
     }
 }
 
@@ -162,7 +162,7 @@ pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade)
         let mut running_tasks = state.task_manager.get_all_task_infos().await;
         for task in &mut running_tasks {
             // 从数据库获取该任务的执行记录日志
-            if let Some(record) = state.db.get_execution_record_by_task_id(&task.task_id).await {
+            if let Ok(Some(record)) = state.db.get_execution_record_by_task_id(&task.task_id).await {
                 task.logs = record.logs;
             }
         }

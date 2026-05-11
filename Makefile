@@ -61,13 +61,6 @@ start: install
 
 # Restart: clean install and start fresh
 restart: stop install
-	-@if [ -f ~/.ntd/run.pid ]; then \
-		pid=$$(cat ~/.ntd/run.pid); \
-		kill -9 $$pid 2>/dev/null && echo "Killed process $$pid" || echo "Process $$pid not running"; \
-		rm -f ~/.ntd/run.pid; \
-	fi
-	-@pkill -9 -x ntd 2>/dev/null || true
-	@sleep 1
 	@rm -f $$HOME/.local/bin/ntd
 	@cd frontend && npm run build
 	@cd backend && $(CARGO_ENV) cargo build --release
@@ -78,8 +71,8 @@ restart: stop install
 
 # Kill processes on ports used by dev servers
 kill-port:
-	@fuser -k 8088/tcp 2>/dev/null || true
-	@fuser -k 5173/tcp 2>/dev/null || true
+	@lsof -ti:8088 2>/dev/null | xargs kill -9 2>/dev/null || true
+	@lsof -ti:5173 2>/dev/null | xargs kill -9 2>/dev/null || true
 
 # Build frontend and embed into Rust binary
 build:

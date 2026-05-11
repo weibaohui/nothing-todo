@@ -93,7 +93,7 @@ impl TodoScheduler {
             let tm = tm_clone.clone();
 
             Box::pin(async move {
-                if let Some(todo) = db.get_todo(todo_id).await {
+                if let Ok(Some(todo)) = db.get_todo(todo_id).await {
                     let message = if todo.prompt.is_empty() { todo.title.clone() } else { todo.prompt.clone() };
                     let executor = todo.executor.clone();
                     info!("Scheduled execution triggered for todo {}", todo_id);
