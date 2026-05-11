@@ -118,6 +118,10 @@ impl Database {
         Ok(inserted.id)
     }
 
+    /// Update execution record status, but only if it is still "running".
+    /// This prevents race conditions where both a stop handler and a spawned task
+    /// try to update the same record concurrently -- only the first write succeeds.
+    /// Returns Ok(true) if the row was updated, Ok(false) if status was not "running".
     pub async fn update_execution_record(
         &self,
         id: i64,
@@ -126,7 +130,7 @@ impl Database {
         result: &str,
         usage: Option<&ExecutionUsage>,
         model: Option<&str>,
-    ) -> Result<(), sea_orm::DbErr> {
+    ) -> Result<bool, sea_orm::DbErr> {
         // Merge new logs with existing logs in DB (since periodic flush may have drained in-memory vec)
         let existing: Option<String> = execution_records::Entity::find_by_id(id)
             .one(&self.conn)
@@ -144,17 +148,34 @@ impl Database {
         };
 
         let now = crate::models::utc_timestamp();
-        let am = execution_records::ActiveModel {
-            id: ActiveValue::Unchanged(id),
-            status: ActiveValue::Set(Some(status.to_string())),
-            logs: ActiveValue::Set(Some(merged_logs)),
-            result: ActiveValue::Set(Some(result.to_string())),
-            usage: ActiveValue::Set(usage.map(|u| serde_json::to_string(u).unwrap_or_else(|e| { tracing::error!("Failed to serialize usage: {}", e); String::new() }))),
-            model: ActiveValue::Set(model.map(|s| s.to_string())),
-            finished_at: ActiveValue::Set(Some(now)),
-            ..Default::default()
-        };
-        self.exec_update(am).await
+        let usage_json = usage.map(|u| serde_json::to_string(u).unwrap_or_else(|e| { tracing::error!("Failed to serialize usage: {}", e); String::new() }));
+        let model_val = model.map(|s| s.to_string());
+
+        // Use raw SQL with WHERE status='running' to prevent race condition:
+        // both the stop handler and spawned task's cancellation branch may try to
+        // update the same record concurrently -- only the first write succeeds.
+        let backend = self.conn.get_database_backend();
+        let sql = "UPDATE execution_records SET \
+            status = \$1, \
+            logs = \$2, \
+            result = \$3, \
+            usage = \$4, \
+            model = \$5, \
+            finished_at = \$6 \
+            WHERE id = \$7 AND status = 'running'";
+
+        let res = self.conn.execute(
+            Statement::from_sql_and_values(backend, sql, [
+                status.into(),
+                merged_logs.into(),
+                result.into(),
+                usage_json.into(),
+                model_val.into(),
+                now.into(),
+                id.into(),
+            ])
+        ).await?;
+        Ok(res.rows_affected() > 0)
     }
 
     /// 更新执行记录的 pid
