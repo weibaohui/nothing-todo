@@ -1,5 +1,5 @@
 use axum::{
-    extract::State,
+    extract::{State, Query},
     body::Bytes,
     response::IntoResponse,
     http::header,
@@ -167,8 +167,8 @@ pub async fn trigger_local_backup() -> Result<ApiResponse<String>, AppError> {
     .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?
     .map_err(|e| AppError::Internal(format!("Failed to copy database: {}", e)))?;
 
-    // 清理旧备份，保留最近 30 个
-    cleanup_old_backups(30);
+    // 清理旧备份
+    cleanup_old_backups(cfg.auto_backup_max_files);
 
     Ok(ApiResponse::ok(format!("备份成功: {}", backup_path.display())))
 }
@@ -184,6 +184,7 @@ pub struct BackupFile {
 pub struct BackupStatus {
     pub auto_backup_enabled: bool,
     pub auto_backup_cron: String,
+    pub auto_backup_max_files: usize,
     pub last_backup: Option<String>,
     pub files: Vec<BackupFile>,
 }
@@ -228,6 +229,7 @@ pub async fn get_database_backup_status() -> Result<ApiResponse<BackupStatus>, A
     Ok(ApiResponse::ok(BackupStatus {
         auto_backup_enabled: cfg.auto_backup_enabled,
         auto_backup_cron: cfg.auto_backup_cron,
+        auto_backup_max_files: cfg.auto_backup_max_files,
         last_backup,
         files,
     }))
@@ -238,6 +240,7 @@ pub async fn get_database_backup_status() -> Result<ApiResponse<BackupStatus>, A
 pub struct UpdateAutoBackupRequest {
     pub enabled: bool,
     pub cron: String,
+    pub max_files: Option<usize>,
 }
 
 pub async fn update_auto_backup(
@@ -255,6 +258,12 @@ pub async fn update_auto_backup(
     let mut cfg = crate::config::Config::load();
     cfg.auto_backup_enabled = req.enabled;
     cfg.auto_backup_cron = req.cron;
+    if let Some(max_files) = req.max_files {
+        if max_files == 0 {
+            return Err(AppError::BadRequest("保留数量不能为 0".to_string()));
+        }
+        cfg.auto_backup_max_files = max_files;
+    }
     cfg.save().map_err(|e| AppError::Internal(e))?;
 
     Ok(ApiResponse::ok("自动备份配置已更新".to_string()))
@@ -284,6 +293,39 @@ pub async fn delete_backup_file(
     Ok(ApiResponse::ok("已删除".to_string()))
 }
 
+/// 下载指定备份文件
+#[derive(Deserialize)]
+pub struct DownloadBackupQuery {
+    pub filename: String,
+}
+
+pub async fn download_backup_file(
+    Query(query): Query<DownloadBackupQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    if query.filename.contains('/') || query.filename.contains('\\') || query.filename.contains("..") {
+        return Err(AppError::BadRequest("Invalid filename".to_string()));
+    }
+    let path = backup_dir().join(&query.filename);
+    if !path.exists() {
+        return Err(AppError::NotFound);
+    }
+
+    let filename = query.filename.clone();
+    let bytes = tokio::task::spawn_blocking(move || std::fs::read(&path))
+        .await
+        .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?
+        .map_err(|e| AppError::Internal(format!("Failed to read backup file: {}", e)))?;
+
+    let disposition = format!("attachment; filename=\"{}\"", filename);
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/octet-stream".to_string()),
+            (header::CONTENT_DISPOSITION, disposition),
+        ],
+        bytes,
+    ))
+}
+
 /// 执行数据库文件备份（供定时任务调用）
 pub fn perform_database_backup() -> Result<String, String> {
     let cfg = crate::config::Config::load();
@@ -303,7 +345,7 @@ pub fn perform_database_backup() -> Result<String, String> {
     std::fs::copy(&db_path, &backup_path)
         .map_err(|e| format!("Failed to copy database: {}", e))?;
 
-    cleanup_old_backups(30);
+    cleanup_old_backups(cfg.auto_backup_max_files);
 
     Ok(format!("Auto backup: {}", backup_path.display()))
 }
