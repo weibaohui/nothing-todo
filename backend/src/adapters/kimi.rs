@@ -193,11 +193,17 @@ impl CodeExecutor for KimiExecutor {
     }
 
     fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
-        // Get the last text response as final result
-        logs.iter()
-            .rev()
-            .find(|l| l.log_type == "text")
-            .map(|l| l.content.clone())
+        let texts: Vec<String> = logs.iter()
+            .filter(|l| l.log_type == "text")
+            .map(|l| l.content.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .collect();
+
+        if texts.is_empty() {
+            None
+        } else {
+            Some(texts.join("\n\n"))
+        }
     }
 
     fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
