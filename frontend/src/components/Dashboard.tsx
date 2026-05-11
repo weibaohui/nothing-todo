@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, Table, Badge, Tag, Empty, Masonry, App, Button } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -316,7 +316,7 @@ export function Dashboard({ onBack }: DashboardProps) {
                 but everything is todo
               </div>
               <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>
-                {EMPTY_STATE_QUOTES[Math.floor(Math.random() * EMPTY_STATE_QUOTES.length)]}
+                {useMemo(() => EMPTY_STATE_QUOTES[Math.floor(Math.random() * EMPTY_STATE_QUOTES.length)], [])}
               </div>
             </div>
           )}
