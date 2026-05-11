@@ -386,13 +386,19 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
   const [historyTotal, setHistoryTotal] = useState(0);
 
   // Timer for live duration display of running records
+  // Check if current todo is executing (has any running task)
+  const isExecuting = Object.values(runningTasks).some(
+    t => t.todoId === selectedTodoId && t.status === 'running'
+  );
+
   const [tick, setTick] = useState(0);
   useEffect(() => {
+    if (!isExecuting) return;
     const interval = setInterval(() => {
       setTick(t => t + 1);
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isExecuting]);
   // Access tick to prevent unused warning (triggers re-render awareness)
   useEffect(() => { void tick; }, [tick]);
 
@@ -400,11 +406,6 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
   const selectedHistoryRecord = selectedHistoryRecordId
     ? records.find(r => r.id === selectedHistoryRecordId) || null
     : null;
-
-  // Check if current todo is executing (has any running task)
-  const isExecuting = Object.values(runningTasks).some(
-    t => t.todoId === selectedTodoId && t.status === 'running'
-  );
 
   // Find the running task that matches a specific execution record by task_id
   const getRunningTaskForRecord = (record: ExecutionRecord) => {
