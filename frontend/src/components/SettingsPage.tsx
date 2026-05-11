@@ -525,7 +525,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const handleImportFile = async (file: File) => {
     const text = await file.text();
     try {
-      const data = yaml.load(text) as BackupDataYaml;
+      const data = yaml.load(text, { schema: yaml.JSON_SCHEMA }) as BackupDataYaml;
       if (!data.todos || data.todos.length === 0) {
         message.error('备份文件中没有 Todo 数据');
         return false;
