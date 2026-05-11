@@ -2,6 +2,7 @@
 
 # 使用 hostc 将本地 8088 端口开放出去，返回 public URL
 
+PORT=${1:-8088}
 mkdir -p ~/.ntd
 
 # 如果存在旧的 tunnel pid，先杀掉
@@ -21,10 +22,10 @@ if [ -f "$PID_FILE" ]; then
 fi
 
 # 顺手清理任何残留的 hostc 8088 进程（防止脚本异常退出留下的孤儿）
-pkill -f "hostc 8088" 2>/dev/null
+pkill -f "hostc ${PORT}" 2>/dev/null
 
 # 启动 hostc 隧道
-hostc 8088 > /tmp/hostc_output.txt 2>&1 &
+hostc ${PORT} > /tmp/hostc_output.txt 2>&1 &
 HOSTC_PID=$!
 
 # 保存 PID
