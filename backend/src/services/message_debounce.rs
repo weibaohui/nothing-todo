@@ -129,7 +129,9 @@ impl MessageDebounce {
                             // Still mark messages as processed with todo_id but no record_id
                             for msg in &entry.messages {
                                 if let Some(ref msg_id) = msg.message_id {
-                                    let _ = db.mark_feishu_message_processed(msg_id, msg.todo_id, None).await;
+                                    if let Err(mark_err) = db.mark_feishu_message_processed(msg_id, msg.todo_id, None).await {
+                                        tracing::warn!("[debounce] failed to mark message {} after execution failure: {:?}", msg_id, mark_err);
+                                    }
                                 }
                             }
                         }
