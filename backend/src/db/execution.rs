@@ -47,12 +47,11 @@ impl Database {
         todo_id: i64,
         limit: i64,
         offset: i64,
-    ) -> (Vec<ExecutionRecord>, i64) {
+    ) -> Result<(Vec<ExecutionRecord>, i64), sea_orm::DbErr> {
         let total: i64 = execution_records::Entity::find()
             .filter(execution_records::Column::TodoId.eq(todo_id))
             .count(&self.conn)
-            .await
-            .unwrap_or(0) as i64;
+            .await? as i64;
 
         let limit_u = if limit < 0 { 0 } else { limit as u64 };
         let offset_u = if offset < 0 { 0 } else { offset as u64 };
@@ -63,32 +62,29 @@ impl Database {
             .limit(limit_u)
             .offset(offset_u)
             .all(&self.conn)
-            .await
-            .unwrap_or_default()
+            .await?
             .into_iter()
             .map(Into::into)
             .collect();
 
-        (records, total)
+        Ok((records, total))
     }
 
-    pub async fn get_execution_record(&self, record_id: i64) -> Option<ExecutionRecord> {
+    pub async fn get_execution_record(&self, record_id: i64) -> Result<Option<ExecutionRecord>, sea_orm::DbErr> {
         let m = execution_records::Entity::find()
             .filter(execution_records::Column::Id.eq(record_id))
             .one(&self.conn)
-            .await
-            .ok()??;
-        Some(m.into())
+            .await?;
+        Ok(m.map(Into::into))
     }
 
     /// 根据 task_id 获取执行记录
-    pub async fn get_execution_record_by_task_id(&self, task_id: &str) -> Option<ExecutionRecord> {
+    pub async fn get_execution_record_by_task_id(&self, task_id: &str) -> Result<Option<ExecutionRecord>, sea_orm::DbErr> {
         let m = execution_records::Entity::find()
             .filter(execution_records::Column::TaskId.eq(task_id))
             .one(&self.conn)
-            .await
-            .ok()??;
-        Some(m.into())
+            .await?;
+        Ok(m.map(Into::into))
     }
 
     pub async fn create_execution_record(
@@ -256,19 +252,18 @@ impl Database {
     }
 
     /// 根据 session_id 获取所有执行记录（按 started_at 排序）
-    pub async fn get_execution_records_by_session(&self, session_id: &str) -> Vec<ExecutionRecord> {
-        execution_records::Entity::find()
+    pub async fn get_execution_records_by_session(&self, session_id: &str) -> Result<Vec<ExecutionRecord>, sea_orm::DbErr> {
+        Ok(execution_records::Entity::find()
             .filter(execution_records::Column::SessionId.eq(session_id))
             .order_by_asc(execution_records::Column::StartedAt)
             .all(&self.conn)
-            .await
-            .unwrap_or_default()
+            .await?
             .into_iter()
             .map(Into::into)
-            .collect()
+            .collect())
     }
 
-    pub async fn get_dashboard_stats(&self) -> crate::models::DashboardStats {
+    pub async fn get_dashboard_stats(&self) -> Result<crate::models::DashboardStats, sea_orm::DbErr> {
         use std::collections::HashMap;
 
         let backend = self.conn.get_database_backend();
@@ -284,7 +279,7 @@ impl Database {
             FROM todos WHERE deleted_at IS NULL";
 
         let (total_todos, pending_todos, running_todos, completed_todos, failed_todos, scheduled_todos) =
-            if let Ok(Some(row)) = self.conn.query_one(Statement::from_string(backend, todo_sql.to_string())).await {
+            if let Some(row) = self.conn.query_one(Statement::from_string(backend, todo_sql.to_string())).await? {
                 (
                     row.try_get_by("total").unwrap_or(0i64),
                     row.try_get_by("pending").unwrap_or(0i64),
@@ -297,7 +292,7 @@ impl Database {
                 (0i64, 0i64, 0i64, 0i64, 0i64, 0i64)
             };
 
-        let tags = self.get_tags().await.unwrap();
+        let tags = self.get_tags().await?;
         let total_tags = tags.len() as i64;
 
         // Executor todo counts via SQL (replaces in-memory iteration over all todos)
@@ -309,8 +304,8 @@ impl Database {
 
         let executor_todo_counts: HashMap<String, i64> = self.conn
             .query_all(Statement::from_string(backend, executor_todo_sql.to_string()))
-            .await
-            .unwrap_or_default()
+            .await?
+            .into_iter()
             .into_iter()
             .filter_map(|row| {
                 let exec: String = row.try_get_by("executor").ok()?;
@@ -324,8 +319,8 @@ impl Database {
 
         let tag_todo_counts: HashMap<i64, i64> = self.conn
             .query_all(Statement::from_string(backend, tag_todo_sql.to_string()))
-            .await
-            .unwrap_or_default()
+            .await?
+            .into_iter()
             .into_iter()
             .filter_map(|row| {
                 let tag_id: i64 = row.try_get_by("tag_id").ok()?;
@@ -352,7 +347,7 @@ impl Database {
         let (total_executions, success_executions, failed_executions,
              total_input_tokens, total_output_tokens, total_cache_read_tokens,
              total_cache_creation_tokens, total_cost, total_duration, duration_count) =
-            if let Ok(Some(row)) = self.conn.query_one(Statement::from_string(backend, overall_sql.to_string())).await {
+            if let Some(row) = self.conn.query_one(Statement::from_string(backend, overall_sql.to_string())).await? {
                 let t: i64 = row.try_get_by("total").unwrap_or(0);
                 let s: i64 = row.try_get_by("success").unwrap_or(0);
                 let f: i64 = row.try_get_by("failed").unwrap_or(0);
@@ -385,8 +380,7 @@ impl Database {
 
         let mut executor_distribution: Vec<crate::models::ExecutorCount> = self.conn
             .query_all(Statement::from_string(backend, executor_sql.to_string()))
-            .await
-            .unwrap_or_default()
+            .await?
             .into_iter()
             .filter_map(|row| {
                 let exec: String = row.try_get_by("executor").ok()?;
@@ -428,8 +422,7 @@ impl Database {
 
         let mut model_distribution: Vec<crate::models::ModelCount> = self.conn
             .query_all(Statement::from_string(backend, model_sql.to_string()))
-            .await
-            .unwrap_or_default()
+            .await?
             .into_iter()
             .filter_map(|row| {
                 let model: String = row.try_get_by("model").ok()?;
@@ -476,8 +469,7 @@ impl Database {
 
         let daily_rows = self.conn
             .query_all(Statement::from_string(backend, daily_sql.to_string()))
-            .await
-            .unwrap_or_default();
+            .await?;
 
         let mut daily_executions: Vec<crate::models::DailyExecution> = Vec::with_capacity(daily_rows.len());
         let mut daily_token_stats: Vec<crate::models::DailyTokenStats> = Vec::with_capacity(daily_rows.len());
@@ -520,8 +512,7 @@ impl Database {
 
         let tag_rows = self.conn
             .query_all(Statement::from_string(backend, tag_sql.to_string()))
-            .await
-            .unwrap_or_default();
+            .await?;
 
         let mut tag_exec_stats: HashMap<i64, (i64, i64, i64, u64, u64, f64)> = HashMap::new();
         for row in tag_rows {
@@ -559,14 +550,13 @@ impl Database {
             .order_by_desc(execution_records::Column::StartedAt)
             .limit(10)
             .all(&self.conn)
-            .await
-            .unwrap_or_default();
+            .await?;
 
         let recent_executions: Vec<crate::models::ExecutionRecord> = recent_records.into_iter()
             .map(Into::into)
             .collect();
 
-        crate::models::DashboardStats {
+        Ok(crate::models::DashboardStats {
             total_todos,
             pending_todos,
             running_todos,
@@ -589,10 +579,10 @@ impl Database {
             daily_executions,
             daily_token_stats,
             recent_executions,
-        }
+        })
     }
 
-    pub async fn get_execution_summary(&self, todo_id: i64) -> ExecutionSummary {
+    pub async fn get_execution_summary(&self, todo_id: i64) -> Result<ExecutionSummary, sea_orm::DbErr> {
         let backend = self.conn.get_database_backend();
         let sql = "SELECT \
                 COUNT(*) as total, \
@@ -606,7 +596,7 @@ impl Database {
                 COALESCE(SUM(COALESCE(json_extract(usage, '$.total_cost_usd'), 0.0)), 0.0) as total_cost \
                 FROM execution_records WHERE todo_id = $1";
 
-        if let Ok(Some(row)) = self.conn.query_one(Statement::from_sql_and_values(backend, sql, [todo_id.into()])).await {
+        if let Some(row) = self.conn.query_one(Statement::from_sql_and_values(backend, sql, [todo_id.into()])).await? {
             let total_executions: i64 = row.try_get_by("total").unwrap_or(0);
             let success_count: i64 = row.try_get_by("success_count").unwrap_or(0);
             let failed_count: i64 = row.try_get_by("failed_count").unwrap_or(0);
@@ -617,7 +607,7 @@ impl Database {
             let cache_creation: i64 = row.try_get_by("cache_creation").unwrap_or(0);
             let total_cost: f64 = row.try_get_by("total_cost").unwrap_or(0.0);
 
-            ExecutionSummary {
+            Ok(ExecutionSummary {
                 todo_id,
                 total_executions,
                 success_count,
@@ -628,9 +618,9 @@ impl Database {
                 total_cache_read_tokens: cache_read as u64,
                 total_cache_creation_tokens: cache_creation as u64,
                 total_cost_usd: if total_cost > 0.0 { Some(total_cost) } else { None },
-            }
+            })
         } else {
-            ExecutionSummary {
+            Ok(ExecutionSummary {
                 todo_id,
                 total_executions: 0,
                 success_count: 0,
@@ -641,7 +631,7 @@ impl Database {
                 total_cache_read_tokens: 0,
                 total_cache_creation_tokens: 0,
                 total_cost_usd: None,
-            }
+            })
         }
     }
 
@@ -670,7 +660,7 @@ impl Database {
 
     /// 清理孤儿执行记录：状态为running但todo没有对应task_id的记录
     /// 程序崩溃后，执行记录可能保持running状态，需要修复
-    pub async fn cleanup_orphan_execution_records(&self) {
+    pub async fn cleanup_orphan_execution_records(&self) -> Result<(), sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let backend = self.conn.get_database_backend();
         let sql = "UPDATE execution_records SET \
@@ -684,17 +674,12 @@ impl Database {
                     todo_id NOT IN (SELECT id FROM todos WHERE deleted_at IS NULL) \
                     OR todo_id IN (SELECT id FROM todos WHERE task_id IS NULL AND deleted_at IS NULL) \
                 )";
-        match self.conn.execute(Statement::from_sql_and_values(backend, sql, [now.into()])).await {
-            Ok(res) => {
-                let rows = res.rows_affected();
-                if rows > 0 {
-                    tracing::info!("Cleaned up {} orphan execution records", rows);
-                }
-            }
-            Err(e) => {
-                tracing::error!("Failed to cleanup orphan execution records: {}", e);
-            }
+        let res = self.conn.execute(Statement::from_sql_and_values(backend, sql, [now.into()])).await?;
+        let rows = res.rows_affected();
+        if rows > 0 {
+            tracing::info!("Cleaned up {} orphan execution records", rows);
         }
+        Ok(())
     }
 
 }

@@ -60,7 +60,7 @@ pub async fn create_todo(
     }
 
     for tag_id in &req.tag_ids {
-        state.db.add_todo_tag(id, *tag_id).await;
+        state.db.add_todo_tag(id, *tag_id).await?;
     }
 
     Ok(ApiResponse::ok(Todo {
@@ -134,7 +134,7 @@ pub async fn update_todo_tags(
     Path(id): Path<i64>,
     ApiJson(req): ApiJson<UpdateTagsRequest>,
 ) -> Result<ApiResponse<()>, AppError> {
-    state.db.set_todo_tags(id, &req.tag_ids).await;
+    state.db.set_todo_tags(id, &req.tag_ids).await?;
     Ok(ApiResponse::ok(()))
 }
 

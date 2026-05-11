@@ -46,7 +46,7 @@ pub async fn run_todo_execution(
     let mut cancel_rx = task_manager.register(task_id.clone()).await;
 
     // Get todo to read stored executor
-    let todo = db.get_todo(todo_id).await;
+    let todo = db.get_todo(todo_id).await.ok().flatten();
     let todo_executor = todo.as_ref().and_then(|t| t.executor.clone());
     let todo_workspace = todo.as_ref().and_then(|t| t.workspace.clone());
 
@@ -435,7 +435,7 @@ pub async fn run_todo_execution(
 
         // 从数据库读取完整的日志集（因为定期 flush 会 drain 内存中的 vec）
         let remaining = std::mem::take(&mut *logs_for_result.lock().await);
-        let all_logs_snapshot = match db_clone.get_execution_record(record_id).await {
+        let all_logs_snapshot = match db_clone.get_execution_record(record_id).await.ok().flatten() {
             Some(record) if !record.logs.is_empty() && record.logs != "[]" => {
                 let mut base: Vec<ParsedLogEntry> = match serde_json::from_str(&record.logs) {
                     Ok(b) => b,
