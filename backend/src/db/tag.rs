@@ -37,18 +37,17 @@ impl Database {
         Ok(inserted.id)
     }
 
-    pub async fn delete_tag(&self, id: i64) {
-        if let Err(e) = tags::Entity::delete_by_id(id).exec(&self.conn).await {
-            tracing::error!("Database delete failed: {}", e);
-        }
+    pub async fn delete_tag(&self, id: i64) -> Result<(), sea_orm::DbErr> {
+        tags::Entity::delete_by_id(id).exec(&self.conn).await?;
+        Ok(())
     }
 
-    pub async fn add_todo_tag(&self, todo_id: i64, tag_id: i64) {
+    pub async fn add_todo_tag(&self, todo_id: i64, tag_id: i64) -> Result<(), sea_orm::DbErr> {
         let am = todo_tags::ActiveModel {
             todo_id: ActiveValue::Set(todo_id),
             tag_id: ActiveValue::Set(tag_id),
         };
-        if let Err(e) = todo_tags::Entity::insert(am)
+        match todo_tags::Entity::insert(am)
             .on_conflict(
                 sea_orm::sea_query::OnConflict::columns([
                     todo_tags::Column::TodoId,
@@ -60,13 +59,14 @@ impl Database {
             .exec(&self.conn)
             .await
         {
-            tracing::warn!("Failed to add tag {} to todo {}: {}", tag_id, todo_id, e);
+            Ok(_) | Err(sea_orm::DbErr::RecordNotInserted) => Ok(()),
+            Err(e) => Err(e),
         }
     }
 
-    pub async fn set_todo_tags(&self, todo_id: i64, tag_ids: &[i64]) {
+    pub async fn set_todo_tags(&self, todo_id: i64, tag_ids: &[i64]) -> Result<(), sea_orm::DbErr> {
         let tag_ids = tag_ids.to_vec();
-        if let Err(e) = self
+        self
             .conn
             .transaction::<_, (), sea_orm::DbErr>(|txn| {
                 Box::pin(async move {
@@ -103,31 +103,31 @@ impl Database {
                 })
             })
             .await
-        {
-            tracing::warn!("Failed to set tags for todo {}: {}", todo_id, e);
-        }
+            .map_err(|e| match e {
+                sea_orm::TransactionError::Connection(err) => err,
+                sea_orm::TransactionError::Transaction(err) => err,
+            })?;
+        Ok(())
     }
 
-    pub async fn get_tag_backups(&self) -> Vec<TagBackup> {
-        tags::Entity::find()
+    pub async fn get_tag_backups(&self) -> Result<Vec<TagBackup>, sea_orm::DbErr> {
+        Ok(tags::Entity::find()
             .all(&self.conn)
-            .await
-            .unwrap_or_default()
+            .await?
             .into_iter()
             .map(|m| TagBackup {
                 name: m.name,
                 color: m.color.unwrap_or_default(),
             })
-            .collect()
+            .collect())
     }
 
-    pub async fn find_tag_by_name(&self, name: &str) -> Option<i64> {
+    pub async fn find_tag_by_name(&self, name: &str) -> Result<Option<i64>, sea_orm::DbErr> {
         use sea_orm::ColumnTrait;
-        tags::Entity::find()
+        Ok(tags::Entity::find()
             .filter(tags::Column::Name.eq(name))
             .one(&self.conn)
-            .await
-            .unwrap_or(None)
-            .map(|m| m.id)
+            .await?
+            .map(|m| m.id))
     }
 }

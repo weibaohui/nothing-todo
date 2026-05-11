@@ -497,7 +497,7 @@ mod tests {
         let id = db.create_todo("Test", "Desc").await.unwrap();
         let after = truncate_seconds(Utc::now());
 
-        let todo = db.get_todo(id).await.unwrap();
+        let todo = db.get_todo(id).await.unwrap().unwrap();
         let created = truncate_seconds(parse_utc(&todo.created_at));
 
         assert!(created >= before, "created_at should not be before test start");
@@ -509,7 +509,7 @@ mod tests {
     async fn test_todo_updated_at_changes_on_update() {
         let db = setup_db().await;
         let id = db.create_todo("Test", "Desc").await.unwrap();
-        let original = db.get_todo(id).await.unwrap().updated_at;
+        let original = db.get_todo(id).await.unwrap().unwrap().updated_at;
 
         tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
         db.update_todo_full(
@@ -524,7 +524,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let updated = db.get_todo(id).await.unwrap().updated_at;
+        let updated = db.get_todo(id).await.unwrap().unwrap().updated_at;
 
         assert_ne!(original, updated, "updated_at should change after update");
         assert!(updated.ends_with('Z'));
@@ -576,7 +576,7 @@ mod tests {
             .unwrap();
         let after = truncate_seconds(Utc::now());
 
-        let (records, _) = db.get_execution_records(todo_id, 100, 0).await;
+        let (records, _) = db.get_execution_records(todo_id, 100, 0).await.unwrap();
         let record = records.into_iter().find(|r| r.id == record_id).unwrap();
         let started = truncate_seconds(parse_utc(&record.started_at));
 
@@ -600,7 +600,7 @@ mod tests {
             .unwrap();
         let after = truncate_seconds(Utc::now());
 
-        let (records, _) = db.get_execution_records(todo_id, 100, 0).await;
+        let (records, _) = db.get_execution_records(todo_id, 100, 0).await.unwrap();
         let record = records.into_iter().find(|r| r.id == record_id).unwrap();
         let finished_at = record.finished_at.unwrap();
         let finished = truncate_seconds(parse_utc(&finished_at));
@@ -616,7 +616,7 @@ mod tests {
     async fn test_create_and_get_todo() {
         let db = setup_db().await;
         let id = db.create_todo("Title", "Prompt").await.unwrap();
-        let todo = db.get_todo(id).await.unwrap();
+        let todo = db.get_todo(id).await.unwrap().unwrap();
         assert_eq!(todo.title, "Title");
         assert_eq!(todo.prompt, "Prompt");
         assert_eq!(todo.status, crate::models::TodoStatus::Pending);
@@ -659,7 +659,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let todo = db.get_todo(id).await.unwrap();
+        let todo = db.get_todo(id).await.unwrap().unwrap();
         assert_eq!(todo.title, "New");
         assert_eq!(todo.prompt, "New prompt");
         assert_eq!(todo.status, crate::models::TodoStatus::InProgress);
@@ -674,7 +674,7 @@ mod tests {
         let db = setup_db().await;
         let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.update_todo_executor(id, "joinai").await.unwrap();
-        let todo = db.get_todo(id).await.unwrap();
+        let todo = db.get_todo(id).await.unwrap().unwrap();
         assert_eq!(todo.executor, Some("joinai".to_string()));
     }
 
@@ -683,10 +683,10 @@ mod tests {
         let db = setup_db().await;
         let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.update_todo_task_id(id, Some("task-123")).await.unwrap();
-        let todo = db.get_todo(id).await.unwrap();
+        let todo = db.get_todo(id).await.unwrap().unwrap();
         assert_eq!(todo.task_id, Some("task-123".to_string()));
         db.update_todo_task_id(id, None).await.unwrap();
-        let todo = db.get_todo(id).await.unwrap();
+        let todo = db.get_todo(id).await.unwrap().unwrap();
         assert!(todo.task_id.is_none());
     }
 
@@ -695,7 +695,7 @@ mod tests {
         let db = setup_db().await;
         let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.update_todo_scheduler(id, true, Some("0 0 * * *")).await.unwrap();
-        let todo = db.get_todo(id).await.unwrap();
+        let todo = db.get_todo(id).await.unwrap().unwrap();
         assert!(todo.scheduler_enabled);
         assert_eq!(todo.scheduler_config, Some("0 0 * * *".to_string()));
     }
@@ -705,7 +705,7 @@ mod tests {
         let db = setup_db().await;
         let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.force_update_todo_status(id, crate::models::TodoStatus::Failed).await.unwrap();
-        let todo = db.get_todo(id).await.unwrap();
+        let todo = db.get_todo(id).await.unwrap().unwrap();
         assert_eq!(todo.status, crate::models::TodoStatus::Failed);
     }
 
@@ -714,7 +714,7 @@ mod tests {
         let db = setup_db().await;
         let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.delete_todo(id).await.unwrap();
-        assert!(db.get_todo(id).await.is_none());
+        assert!(db.get_todo(id).await.unwrap().is_none());
         let todos = db.get_todos().await.unwrap();
         assert!(todos.iter().all(|t| t.id != id));
     }
@@ -724,7 +724,7 @@ mod tests {
         let db = setup_db().await;
         let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.start_todo_execution(id, "task-1").await.unwrap();
-        let todo = db.get_todo(id).await.unwrap();
+        let todo = db.get_todo(id).await.unwrap().unwrap();
         assert_eq!(todo.status, crate::models::TodoStatus::Running);
         assert_eq!(todo.task_id, Some("task-1".to_string()));
     }
@@ -735,7 +735,7 @@ mod tests {
         let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.start_todo_execution(id, "task-1").await.unwrap();
         db.finish_todo_execution(id, true).await.unwrap();
-        let todo = db.get_todo(id).await.unwrap();
+        let todo = db.get_todo(id).await.unwrap().unwrap();
         assert_eq!(todo.status, crate::models::TodoStatus::Completed);
         assert!(todo.task_id.is_none());
     }
@@ -746,7 +746,7 @@ mod tests {
         let id = db.create_todo("Test", "Prompt").await.unwrap();
         db.start_todo_execution(id, "task-1").await.unwrap();
         db.finish_todo_execution(id, false).await.unwrap();
-        let todo = db.get_todo(id).await.unwrap();
+        let todo = db.get_todo(id).await.unwrap().unwrap();
         assert_eq!(todo.status, crate::models::TodoStatus::Failed);
     }
 
@@ -767,8 +767,8 @@ mod tests {
         let db = setup_db().await;
         let tag_id = db.create_tag("urgent", "#ff0000").await.unwrap();
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
-        db.add_todo_tag(todo_id, tag_id).await;
-        let todo = db.get_todo(todo_id).await.unwrap();
+        db.add_todo_tag(todo_id, tag_id).await.unwrap();
+        let todo = db.get_todo(todo_id).await.unwrap().unwrap();
         assert_eq!(todo.tag_ids, vec![tag_id]);
     }
 
@@ -800,7 +800,7 @@ mod tests {
     async fn test_delete_tag() {
         let db = setup_db().await;
         let id = db.create_tag("temp", "#000").await.unwrap();
-        db.delete_tag(id).await;
+        db.delete_tag(id).await.unwrap();
         let tags = db.get_tags().await.unwrap();
         assert!(tags.iter().all(|t| t.id != id));
     }
@@ -810,8 +810,8 @@ mod tests {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
         let tag_id = db.create_tag("urgent", "#ff0000").await.unwrap();
-        db.add_todo_tag(todo_id, tag_id).await;
-        let todo = db.get_todo(todo_id).await.unwrap();
+        db.add_todo_tag(todo_id, tag_id).await.unwrap();
+        let todo = db.get_todo(todo_id).await.unwrap().unwrap();
         assert_eq!(todo.tag_ids, vec![tag_id]);
     }
 
@@ -820,9 +820,9 @@ mod tests {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
         let tag_id = db.create_tag("urgent", "#ff0000").await.unwrap();
-        db.add_todo_tag(todo_id, tag_id).await;
-        db.add_todo_tag(todo_id, tag_id).await; // should not panic
-        let todo = db.get_todo(todo_id).await.unwrap();
+        db.add_todo_tag(todo_id, tag_id).await.unwrap();
+        db.add_todo_tag(todo_id, tag_id).await.unwrap(); // should not panic
+        let todo = db.get_todo(todo_id).await.unwrap().unwrap();
         assert_eq!(todo.tag_ids, vec![tag_id]);
     }
 
@@ -833,9 +833,9 @@ mod tests {
         let tag1 = db.create_tag("a", "#000").await.unwrap();
         let tag2 = db.create_tag("b", "#fff").await.unwrap();
         let tag3 = db.create_tag("c", "#aaa").await.unwrap();
-        db.add_todo_tag(todo_id, tag1).await;
-        db.set_todo_tags(todo_id, &[tag2, tag3]).await;
-        let todo = db.get_todo(todo_id).await.unwrap();
+        db.add_todo_tag(todo_id, tag1).await.unwrap();
+        db.set_todo_tags(todo_id, &[tag2, tag3]).await.unwrap();
+        let todo = db.get_todo(todo_id).await.unwrap().unwrap();
         assert_eq!(todo.tag_ids.len(), 2);
         assert!(todo.tag_ids.contains(&tag2));
         assert!(todo.tag_ids.contains(&tag3));
@@ -847,9 +847,9 @@ mod tests {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
         let tag_id = db.create_tag("urgent", "#ff0000").await.unwrap();
-        db.add_todo_tag(todo_id, tag_id).await;
-        db.set_todo_tags(todo_id, &[]).await;
-        let todo = db.get_todo(todo_id).await.unwrap();
+        db.add_todo_tag(todo_id, tag_id).await.unwrap();
+        db.set_todo_tags(todo_id, &[]).await.unwrap();
+        let todo = db.get_todo(todo_id).await.unwrap().unwrap();
         assert!(todo.tag_ids.is_empty());
     }
 
@@ -858,7 +858,7 @@ mod tests {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
         let tag_id = db.create_tag("urgent", "#ff0000").await.unwrap();
-        db.add_todo_tag(todo_id, tag_id).await;
+        db.add_todo_tag(todo_id, tag_id).await.unwrap();
         db.delete_todo(todo_id).await.unwrap();
         // tag should still exist but association should be gone
         let tags = db.get_tags().await.unwrap();
@@ -872,7 +872,7 @@ mod tests {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
         let record_id = db.create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id", None, None).await.unwrap();
-        let (records, total) = db.get_execution_records(todo_id, 100, 0).await;
+        let (records, total) = db.get_execution_records(todo_id, 100, 0).await.unwrap();
         assert_eq!(total, 1);
         let record = records.iter().find(|r| r.id == record_id).unwrap();
         assert_eq!(record.status, crate::models::ExecutionStatus::Running);
@@ -889,7 +889,7 @@ mod tests {
         for i in 0..5 {
             db.create_execution_record(todo_id, &format!("cmd{}", i), "claudecode", "manual", "test-task-id", None, None).await.unwrap();
         }
-        let (records, total) = db.get_execution_records(todo_id, 2, 0).await;
+        let (records, total) = db.get_execution_records(todo_id, 2, 0).await.unwrap();
         assert_eq!(total, 5);
         assert_eq!(records.len(), 2);
     }
@@ -901,7 +901,7 @@ mod tests {
         for i in 0..3 {
             db.create_execution_record(todo_id, &format!("cmd{}", i), "claudecode", "manual", "test-task-id", None, None).await.unwrap();
         }
-        let (records, total) = db.get_execution_records(todo_id, 10, 2).await;
+        let (records, total) = db.get_execution_records(todo_id, 10, 2).await.unwrap();
         assert_eq!(total, 3);
         assert_eq!(records.len(), 1);
     }
@@ -920,7 +920,7 @@ mod tests {
             duration_ms: Some(1000),
         };
         db.update_execution_record(record_id, "success", "[{\"type\":\"info\"}]", "done", Some(&usage), Some("claude-3")).await.unwrap();
-        let (records, _) = db.get_execution_records(todo_id, 100, 0).await;
+        let (records, _) = db.get_execution_records(todo_id, 100, 0).await.unwrap();
         let record = records.iter().find(|r| r.id == record_id).unwrap();
         assert_eq!(record.status, crate::models::ExecutionStatus::Success);
         assert_eq!(record.logs, "[{\"type\":\"info\"}]");
@@ -936,7 +936,7 @@ mod tests {
     async fn test_get_execution_summary_empty() {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
-        let summary = db.get_execution_summary(todo_id).await;
+        let summary = db.get_execution_summary(todo_id).await.unwrap();
         assert_eq!(summary.todo_id, todo_id);
         assert_eq!(summary.total_executions, 0);
         assert_eq!(summary.success_count, 0);
@@ -955,7 +955,7 @@ mod tests {
         db.update_execution_record(r2, "failed", "[]", "", None, None).await.unwrap();
         let _r3 = db.create_execution_record(todo_id, "cmd3", "claudecode", "manual", "test-task-id", None, None).await.unwrap();
         // r3 stays "running"
-        let summary = db.get_execution_summary(todo_id).await;
+        let summary = db.get_execution_summary(todo_id).await.unwrap();
         assert_eq!(summary.total_executions, 3);
         assert_eq!(summary.success_count, 1);
         assert_eq!(summary.failed_count, 1);
@@ -986,7 +986,7 @@ mod tests {
             duration_ms: Some(2000),
         };
         db.update_execution_record(r2, "success", "[]", "", Some(&usage2), None).await.unwrap();
-        let summary = db.get_execution_summary(todo_id).await;
+        let summary = db.get_execution_summary(todo_id).await.unwrap();
         assert_eq!(summary.total_input_tokens, 300);
         assert_eq!(summary.total_output_tokens, 150);
         assert_eq!(summary.total_cache_read_tokens, 20);

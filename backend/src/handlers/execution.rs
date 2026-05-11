@@ -78,7 +78,7 @@ pub async fn get_execution_records(
     let (records, total) = state
         .db
         .get_execution_records(query.todo_id, limit, offset)
-        .await;
+        .await?;
     Ok(ApiResponse::ok(ExecutionRecordsPage {
         records,
         total,
@@ -94,7 +94,7 @@ pub async fn get_execution_record(
     let record = state
         .db
         .get_execution_record(id)
-        .await
+        .await?
         .ok_or(AppError::NotFound)?;
     Ok(ApiResponse::ok(record))
 }
@@ -106,7 +106,7 @@ pub async fn get_execution_records_by_session(
     let records = state
         .db
         .get_execution_records_by_session(&session_id)
-        .await;
+        .await?;
     Ok(ApiResponse::ok(records))
 }
 
@@ -115,7 +115,7 @@ pub async fn execute_handler(
     ApiJson(req): ApiJson<ExecuteRequest>,
 ) -> Result<ApiResponse<serde_json::Value>, AppError> {
     // Get the todo to use its prompt as fallback when message is not provided
-    let todo = state.db.get_todo(req.todo_id).await
+    let todo = state.db.get_todo(req.todo_id).await?
         .ok_or_else(|| AppError::BadRequest(format!("Todo {} not found", req.todo_id)))?;
 
     // Fall back to todo.prompt if message is None or whitespace-only
@@ -157,7 +157,7 @@ pub async fn stop_execution_handler(
 ) -> Result<ApiResponse<()>, AppError> {
     tracing::info!("Stopping execution record: {}", req.record_id);
 
-    let record = state.db.get_execution_record(req.record_id).await
+    let record = state.db.get_execution_record(req.record_id).await?
         .ok_or(AppError::BadRequest("Execution record not found".to_string()))?;
 
     if record.status != ExecutionStatus::Running {
@@ -203,7 +203,7 @@ pub async fn force_fail_execution_handler(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<ForceFailRequest>,
 ) -> Result<ApiResponse<()>, AppError> {
-    let record = state.db.get_execution_record(req.record_id).await
+    let record = state.db.get_execution_record(req.record_id).await?
         .ok_or(AppError::BadRequest("Execution record not found".to_string()))?;
 
     if record.status != ExecutionStatus::Running {
@@ -230,7 +230,7 @@ pub async fn resume_execution_handler(
     Path(id): Path<i64>,
     ApiJson(req): ApiJson<ResumeExecutionRequest>,
 ) -> Result<ApiResponse<serde_json::Value>, AppError> {
-    let record = state.db.get_execution_record(id).await
+    let record = state.db.get_execution_record(id).await?
         .ok_or(AppError::NotFound)?;
 
     if record.status == ExecutionStatus::Running {
@@ -249,7 +249,7 @@ pub async fn resume_execution_handler(
     }
 
     let todo_id = record.todo_id;
-    let todo = state.db.get_todo(todo_id).await
+    let todo = state.db.get_todo(todo_id).await?
         .ok_or(AppError::NotFound)?;
 
     let message = req.message
@@ -293,7 +293,7 @@ pub async fn get_execution_summary(
     Path(id): Path<i64>,
 ) -> Result<ApiResponse<ExecutionSummary>, AppError> {
     Ok(ApiResponse::ok(
-        state.db.get_execution_summary(id).await,
+        state.db.get_execution_summary(id).await?,
     ))
 }
 
@@ -301,7 +301,7 @@ pub async fn get_dashboard_stats(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<DashboardStats>, AppError> {
     Ok(ApiResponse::ok(
-        state.db.get_dashboard_stats().await,
+        state.db.get_dashboard_stats().await?,
     ))
 }
 

@@ -188,22 +188,23 @@ impl Database {
         self.exec_update(am).await
     }
 
-    pub async fn get_todo(&self, id: i64) -> Option<Todo> {
-        let model = todos::Entity::find_by_id(id)
+    pub async fn get_todo(&self, id: i64) -> Result<Option<Todo>, sea_orm::DbErr> {
+        let model = match todos::Entity::find_by_id(id)
             .filter(todos::Column::DeletedAt.is_null())
             .one(&self.conn)
-            .await
-            .ok()
-            .flatten()?;
+            .await?
+        {
+            Some(m) => m,
+            None => return Ok(None),
+        };
         let tag_ids = todo_tags::Entity::find()
             .filter(todo_tags::Column::TodoId.eq(id))
             .all(&self.conn)
-            .await
-            .unwrap_or_default()
+            .await?
             .into_iter()
             .map(|t| t.tag_id)
             .collect();
-        Some(Self::model_to_todo(model, tag_ids))
+        Ok(Some(Self::model_to_todo(model, tag_ids)))
     }
 
     pub async fn get_scheduler_todos(&self) -> Result<Vec<Todo>, sea_orm::DbErr> {
@@ -283,40 +284,40 @@ impl Database {
     }
 
     /// 根据task_id查找对应的todo
-    pub async fn get_todo_by_task_id(&self, task_id: &str) -> Option<Todo> {
-        let model = todos::Entity::find()
+    pub async fn get_todo_by_task_id(&self, task_id: &str) -> Result<Option<Todo>, sea_orm::DbErr> {
+        let model = match todos::Entity::find()
             .filter(todos::Column::TaskId.eq(task_id))
             .filter(todos::Column::DeletedAt.is_null())
             .one(&self.conn)
-            .await
-            .unwrap_or(None)?;
-
-        let tag_map = self.fetch_tag_ids_for_many(&[model.id]).await.unwrap();
+            .await?
+        {
+            Some(m) => m,
+            None => return Ok(None),
+        };
+        let tag_map = self.fetch_tag_ids_for_many(&[model.id]).await?;
         let tag_ids = tag_map.get(&model.id).cloned().unwrap_or_default();
-        Some(Self::model_to_todo(model, tag_ids))
+        Ok(Some(Self::model_to_todo(model, tag_ids)))
     }
 
     /// 获取所有 todo 的备份数据（非软删除），包含标签名称
-    pub async fn get_todo_backups(&self) -> Vec<TodoBackup> {
+    pub async fn get_todo_backups(&self) -> Result<Vec<TodoBackup>, sea_orm::DbErr> {
         let models = todos::Entity::find()
             .filter(todos::Column::DeletedAt.is_null())
             .all(&self.conn)
-            .await
-            .unwrap_or_default();
+            .await?;
 
         let ids: Vec<i64> = models.iter().map(|m| m.id).collect();
-        let tag_map = self.fetch_tag_ids_for_many(&ids).await.unwrap();
+        let tag_map = self.fetch_tag_ids_for_many(&ids).await?;
 
         // 获取所有标签 id -> name 映射
         let all_tags: std::collections::HashMap<i64, String> = tags::Entity::find()
             .all(&self.conn)
-            .await
-            .unwrap_or_default()
+            .await?
             .into_iter()
             .map(|t| (t.id, t.name))
             .collect();
 
-        models
+        Ok(models
             .into_iter()
             .map(|m| {
                 let tag_ids = tag_map.get(&m.id).cloned().unwrap_or_default();
@@ -335,33 +336,31 @@ impl Database {
                     workspace: m.workspace,
                 }
             })
-            .collect()
+            .collect::<Vec<_>>())
     }
 
     /// 按 ID 列表获取 todo 的备份数据
-    pub async fn get_todo_backups_by_ids(&self, ids: &[i64]) -> Vec<TodoBackup> {
+    pub async fn get_todo_backups_by_ids(&self, ids: &[i64]) -> Result<Vec<TodoBackup>, sea_orm::DbErr> {
         if ids.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         let models = todos::Entity::find()
             .filter(todos::Column::Id.is_in(ids.to_vec()))
             .filter(todos::Column::DeletedAt.is_null())
             .all(&self.conn)
-            .await
-            .unwrap_or_default();
+            .await?;
 
         let model_ids: Vec<i64> = models.iter().map(|m| m.id).collect();
-        let tag_map = self.fetch_tag_ids_for_many(&model_ids).await.unwrap();
+        let tag_map = self.fetch_tag_ids_for_many(&model_ids).await?;
 
         let all_tags: std::collections::HashMap<i64, String> = tags::Entity::find()
             .all(&self.conn)
-            .await
-            .unwrap_or_default()
+            .await?
             .into_iter()
             .map(|t| (t.id, t.name))
             .collect();
 
-        models
+        Ok(models
             .into_iter()
             .map(|m| {
                 let tag_ids = tag_map.get(&m.id).cloned().unwrap_or_default();
@@ -380,25 +379,24 @@ impl Database {
                     workspace: m.workspace,
                 }
             })
-            .collect()
+            .collect())
     }
 
     /// 按 tag name 列表查询 tag 备份数据
-    pub async fn get_tag_backups_by_names(&self, names: &[&str]) -> Vec<crate::models::TagBackup> {
+    pub async fn get_tag_backups_by_names(&self, names: &[&str]) -> Result<Vec<crate::models::TagBackup>, sea_orm::DbErr> {
         if names.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
-        tags::Entity::find()
+        Ok(tags::Entity::find()
             .filter(tags::Column::Name.is_in(names.iter().map(|s| s.to_string()).collect::<Vec<_>>()))
             .all(&self.conn)
-            .await
-            .unwrap_or_default()
+            .await?
             .into_iter()
             .map(|t| crate::models::TagBackup {
                 name: t.name,
                 color: t.color.unwrap_or_default(),
             })
-            .collect()
+            .collect())
     }
 
     /// 从备份数据导入 todo（清空现有数据后导入，失败时自动回滚）
