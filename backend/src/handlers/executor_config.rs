@@ -109,10 +109,21 @@ pub async fn test_executor(
 
 /// Check if a binary exists at the given path or in PATH.
 fn detect_binary(path: &str) -> (bool, Option<String>) {
-    let p = PathBuf::from(path);
+    // Expand ~ to home directory
+    let expanded = if path.starts_with('~') {
+        if let Some(home) = dirs::home_dir() {
+            path.replacen('~', &home.to_string_lossy(), 1)
+        } else {
+            path.to_string()
+        }
+    } else {
+        path.to_string()
+    };
+
+    let p = PathBuf::from(&expanded);
 
     // If it looks like an absolute or relative path (contains separator)
-    if p.is_absolute() || path.contains(std::path::MAIN_SEPARATOR) {
+    if p.is_absolute() || expanded.contains(std::path::MAIN_SEPARATOR) {
         if p.exists() {
             return (true, Some(p.to_string_lossy().to_string()));
         }
@@ -120,7 +131,7 @@ fn detect_binary(path: &str) -> (bool, Option<String>) {
     }
 
     // Bare command name — look up in PATH using `which` equivalent
-    match which::which(path) {
+    match which::which(&expanded) {
         Ok(resolved) => (true, Some(resolved.to_string_lossy().to_string())),
         Err(_) => (false, None),
     }

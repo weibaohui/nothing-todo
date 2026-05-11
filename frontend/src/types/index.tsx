@@ -217,7 +217,7 @@ export interface ExecutorOption {
 }
 
 export const EXECUTORS: ExecutorOption[] = [
-  { value: 'claudecode', label: 'Claude',    color: '#e17055', icon: <FaSquare color="#e17055" size={14} /> },
+  { value: 'claude_code', label: 'Claude',    color: '#e17055', icon: <FaSquare color="#e17055" size={14} /> },
   { value: 'codebuddy',  label: 'CodeBuddy', color: '#00b894', icon: <FaSquare color="#00b894" size={14} /> },
   { value: 'opencode',   label: 'Opencode',  color: '#fdcb6e', icon: <FaSquare color="#fdcb6e" size={14} /> },
   { value: 'joinai',     label: 'JoinAI',    color: '#6c5ce7', icon: <FaSquare color="#6c5ce7" size={14} /> },
@@ -228,7 +228,7 @@ export const EXECUTORS: ExecutorOption[] = [
 ];
 
 export const EXECUTOR_COLORS: Record<string, string> = {
-  claudecode: '#e17055',
+  claude_code: '#e17055',
   codebuddy: '#00b894',
   opencode: '#fdcb6e',
   joinai: '#6c5ce7',
@@ -274,7 +274,7 @@ export interface Config {
   history_message_max_age_secs?: number;
 }
 
-export const RESUMABLE_EXECUTORS = new Set(['claudecode', 'kimi', 'opencode', 'joinai']);
+export const RESUMABLE_EXECUTORS = new Set(['claude_code', 'kimi', 'opencode', 'joinai']);
 
 export function supportsResume(record: ExecutionRecord): boolean {
   return (
