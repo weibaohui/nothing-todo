@@ -190,7 +190,7 @@ pub async fn stop_execution_handler(
 pub async fn get_running_execution_records_handler(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<Vec<crate::models::ExecutionRecord>>, AppError> {
-    let records = state.db.get_running_execution_records().await;
+    let records = state.db.get_running_execution_records().await?;
     Ok(ApiResponse::ok(records))
 }
 

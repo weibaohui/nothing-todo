@@ -622,16 +622,13 @@ impl Database {
     }
 
     /// 查询所有 status='running' 的执行记录（包括僵尸记录）
-    pub async fn get_running_execution_records(&self) -> Vec<ExecutionRecord> {
-        execution_records::Entity::find()
+    pub async fn get_running_execution_records(&self) -> Result<Vec<ExecutionRecord>, sea_orm::DbErr> {
+        let models = execution_records::Entity::find()
             .filter(execution_records::Column::Status.eq("running"))
             .order_by_desc(execution_records::Column::StartedAt)
             .all(&self.conn)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(Into::into)
-            .collect()
+            .await?;
+        Ok(models.into_iter().map(Into::into).collect())
     }
 
     /// 强制将一条执行记录标记为失败（用于僵尸记录清理）

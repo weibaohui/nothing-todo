@@ -684,7 +684,9 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     try {
       const records = await db.getRunningExecutionRecords();
       setRunningRecords(records);
-    } catch {}
+    } catch (err) {
+      console.error('Failed to load running records:', err);
+    }
   };
 
   useEffect(() => {
@@ -1088,10 +1090,13 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
             pagination={false}
             columns={[
               {
-                title: 'Todo ID',
-                dataIndex: 'todo_id',
-                key: 'todo_id',
-                width: 80,
+                title: 'Todo',
+                key: 'todo_title',
+                ellipsis: true,
+                render: (_: unknown, record: ExecutionRecord) => {
+                  const todo = todos.find(t => t.id === record.todo_id);
+                  return todo ? todo.title : `#${record.todo_id}`;
+                },
               },
               {
                 title: '执行器',
@@ -1105,6 +1110,10 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                 dataIndex: 'trigger_type',
                 key: 'trigger_type',
                 width: 100,
+                render: (v: string) => {
+                  const map: Record<string, string> = { manual: '手动', slash_command: '斜杠命令', default_response: '默认响应', scheduler: '定时' };
+                  return map[v] || v;
+                },
               },
               {
                 title: '开始时间',
