@@ -120,6 +120,8 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [selectedRecordIds, setSelectedRecordIds] = useState<number[]>([]);
   const [stoppingRecords, setStoppingRecords] = useState(false);
   const [runningRecords, setRunningRecords] = useState<ExecutionRecord[]>([]);
+  // Execution record detail modal state
+  const [execDetailRecord, setExecDetailRecord] = useState<ExecutionRecord | null>(null);
   // Selective export state
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportTodoKeys, setExportTodoKeys] = useState<number[]>([]);
@@ -1918,9 +1920,15 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                         width: 80,
                         render: (_, record) => (
                           record.processed_todo_id ? (
-                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            <Typography.Link
+                              style={{ fontSize: 12 }}
+                              onClick={() => {
+                                dispatch({ type: 'SELECT_TODO', payload: record.processed_todo_id });
+                                onBack?.();
+                              }}
+                            >
                               #{record.processed_todo_id}
-                            </Typography.Text>
+                            </Typography.Link>
                           ) : (
                             <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>-</span>
                           )
@@ -1932,9 +1940,14 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                         width: 80,
                         render: (_, record) => (
                           record.execution_record_id ? (
-                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            <Typography.Link
+                              style={{ fontSize: 12 }}
+                              onClick={() => {
+                                db.getExecutionRecord(record.execution_record_id!).then(r => setExecDetailRecord(r)).catch(() => {});
+                              }}
+                            >
                               #{record.execution_record_id}
-                            </Typography.Text>
+                            </Typography.Link>
                           ) : (
                             <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>-</span>
                           )
@@ -2187,6 +2200,53 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
             },
           ]}
         />
+      </Modal>
+
+      <Modal
+        title={execDetailRecord ? `执行记录 #${execDetailRecord.id}` : '执行记录'}
+        open={!!execDetailRecord}
+        onCancel={() => setExecDetailRecord(null)}
+        footer={null}
+        width={700}
+      >
+        {execDetailRecord && (
+          <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
+            <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap' }}>
+              <span><strong>状态:</strong> {execDetailRecord.status}</span>
+              <span><strong>执行器:</strong> {execDetailRecord.executor || '-'}</span>
+              <span><strong>触发:</strong> {execDetailRecord.trigger_type}</span>
+              {execDetailRecord.model && <span><strong>模型:</strong> {execDetailRecord.model}</span>}
+            </div>
+            <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--color-text-secondary)' }}>
+              开始: {execDetailRecord.started_at ? new Date(execDetailRecord.started_at).toLocaleString() : '-'}
+              {execDetailRecord.finished_at && ` | 结束: ${new Date(execDetailRecord.finished_at).toLocaleString()}`}
+            </div>
+            {execDetailRecord.result && (
+              <div style={{ marginBottom: 12 }}>
+                <strong>结果:</strong>
+                <pre style={{ background: 'var(--color-fill-quaternary)', padding: 8, borderRadius: 4, fontSize: 12, maxHeight: 200, overflow: 'auto', whiteSpace: 'pre-wrap', marginTop: 4 }}>
+                  {execDetailRecord.result}
+                </pre>
+              </div>
+            )}
+            {execDetailRecord.stdout && (
+              <div style={{ marginBottom: 12 }}>
+                <strong>输出:</strong>
+                <pre style={{ background: 'var(--color-fill-quaternary)', padding: 8, borderRadius: 4, fontSize: 12, maxHeight: 200, overflow: 'auto', whiteSpace: 'pre-wrap', marginTop: 4 }}>
+                  {execDetailRecord.stdout}
+                </pre>
+              </div>
+            )}
+            {execDetailRecord.stderr && (
+              <div>
+                <strong>错误:</strong>
+                <pre style={{ background: 'var(--color-fill-quaternary)', padding: 8, borderRadius: 4, fontSize: 12, maxHeight: 150, overflow: 'auto', whiteSpace: 'pre-wrap', marginTop: 4, color: 'var(--color-error)' }}>
+                  {execDetailRecord.stderr}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
       </Modal>
     </div>
   );

@@ -421,11 +421,9 @@ impl FeishuHistoryFetcher {
                                     executor: None,
                                     trigger_type,
                                     params,
+                                    message_id: Some(item.message_id.clone()),
                                 });
-                                // Mark message as processed (execution_record_id will be set later by debounce)
-                                if let Err(e) = db.mark_feishu_message_processed(&item.message_id, todo_id, None).await {
-                                    warn!("[feishu-history-fetcher] failed to mark message {} as processed: {}", item.message_id, e);
-                                }
+                                // Debounce timer will mark message as processed with execution_record_id
                             }
                         }
                     }
