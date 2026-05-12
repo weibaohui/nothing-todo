@@ -468,6 +468,39 @@ impl Database {
             .exec("ALTER TABLE executors ADD COLUMN session_dir TEXT NOT NULL DEFAULT ''")
             .await;
 
+        // Project directories table
+        self.exec(
+            "CREATE TABLE IF NOT EXISTS project_directories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE,
+                name TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            )",
+        )
+        .await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_project_directories_path ON project_directories(path)")
+            .await?;
+
+        // Project directories timestamps triggers
+        self.exec(
+            "CREATE TRIGGER IF NOT EXISTS set_project_directories_created_at_utc AFTER INSERT ON project_directories
+             WHEN new.created_at IS NULL OR new.created_at = ''
+             BEGIN
+                 UPDATE project_directories SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+             END",
+        )
+        .await?;
+
+        self.exec(
+            "CREATE TRIGGER IF NOT EXISTS set_project_directories_updated_at_utc BEFORE UPDATE ON project_directories
+             WHEN new.updated_at IS NULL OR new.updated_at = ''
+             BEGIN
+                 SELECT raise(IGNORE);
+             END",
+        )
+        .await?;
+
         // Executors timestamps triggers
         self.exec(
             "CREATE TRIGGER IF NOT EXISTS set_executors_created_at_utc AFTER INSERT ON executors
@@ -506,6 +539,7 @@ mod feishu_group_whitelist;
 mod feishu_history_chat;
 mod feishu_push_target;
 mod feishu_response_config;
+pub mod project_directory;
 
 #[cfg(test)]
 mod tests {
