@@ -79,7 +79,6 @@ pub async fn create_todo(
         scheduler_next_run_at: None,
         task_id: None,
         workspace: None,
-        worktree: None,
     }))
 }
 
@@ -107,7 +106,6 @@ pub async fn update_todo(
     let status = req.status.unwrap_or(current.status);
     let executor = req.executor.or(current.executor);
     let workspace = req.workspace.or(current.workspace);
-    let worktree = req.worktree.or(current.worktree);
 
     let scheduler_config = req
         .scheduler_config
@@ -130,7 +128,6 @@ pub async fn update_todo(
             scheduler_enabled: req.scheduler_enabled,
             scheduler_config: scheduler_config.as_deref(),
             workspace: workspace.as_deref(),
-            worktree: worktree.as_deref(),
         })
         .await
         .map_err(AppError::from)?;

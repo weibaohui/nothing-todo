@@ -58,14 +58,12 @@ export async function updateTodo(
   scheduler_enabled?: boolean,
   scheduler_config?: string | null,
   workspace?: string | null,
-  worktree?: string | null,
 ): Promise<Todo> {
   const body: Record<string, unknown> = { title, prompt, status };
   if (executor !== undefined) body.executor = executor;
   if (scheduler_enabled !== undefined) body.scheduler_enabled = scheduler_enabled;
   if (scheduler_config !== undefined) body.scheduler_config = scheduler_config;
   if (workspace !== undefined) body.workspace = workspace;
-  if (worktree !== undefined) body.worktree = worktree;
 
   return unwrap(await api.put<ApiResp<Todo>>(`/xyz/todos/${id}`, body));
 }
