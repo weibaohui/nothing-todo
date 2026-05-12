@@ -1,7 +1,11 @@
 use std::collections::HashMap;
-use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Statement};
-use crate::db::Database;
+
 use crate::db::entity::feishu_messages;
+use crate::db::Database;
+use sea_orm::{
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, Statement,
+};
 
 #[derive(Debug, Clone)]
 pub struct FeishuMessageRecord {
@@ -24,31 +28,48 @@ pub struct FeishuMessageRecord {
     pub created_at: Option<String>,
 }
 
+pub struct NewFeishuMessage<'a> {
+    pub bot_id: i64,
+    pub message_id: &'a str,
+    pub chat_id: &'a str,
+    pub chat_type: &'a str,
+    pub sender_open_id: &'a str,
+    pub sender_type: Option<&'a str>,
+    pub content: Option<&'a str>,
+    pub msg_type: &'a str,
+    pub is_mention: bool,
+}
+
+pub struct NewFeishuHistoryMessage<'a> {
+    pub bot_id: i64,
+    pub message_id: &'a str,
+    pub chat_id: &'a str,
+    pub chat_type: &'a str,
+    pub sender_open_id: &'a str,
+    pub sender_nickname: Option<&'a str>,
+    pub sender_type: Option<&'a str>,
+    pub content: Option<&'a str>,
+    pub msg_type: &'a str,
+    pub created_at: &'a str,
+}
+
 impl Database {
     pub async fn save_feishu_message(
         &self,
-        bot_id: i64,
-        message_id: &str,
-        chat_id: &str,
-        chat_type: &str,
-        sender_open_id: &str,
-        sender_type: Option<&str>,
-        content: Option<&str>,
-        msg_type: &str,
-        is_mention: bool,
+        message: NewFeishuMessage<'_>,
     ) -> Result<i64, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = feishu_messages::ActiveModel {
-            bot_id: ActiveValue::Set(bot_id),
-            message_id: ActiveValue::Set(message_id.to_string()),
-            chat_id: ActiveValue::Set(chat_id.to_string()),
-            chat_type: ActiveValue::Set(chat_type.to_string()),
-            sender_open_id: ActiveValue::Set(sender_open_id.to_string()),
+            bot_id: ActiveValue::Set(message.bot_id),
+            message_id: ActiveValue::Set(message.message_id.to_string()),
+            chat_id: ActiveValue::Set(message.chat_id.to_string()),
+            chat_type: ActiveValue::Set(message.chat_type.to_string()),
+            sender_open_id: ActiveValue::Set(message.sender_open_id.to_string()),
             sender_nickname: ActiveValue::Set(None),
-            sender_type: ActiveValue::Set(sender_type.map(String::from)),
-            content: ActiveValue::Set(content.map(String::from)),
-            msg_type: ActiveValue::Set(msg_type.to_string()),
-            is_mention: ActiveValue::Set(Some(is_mention)),
+            sender_type: ActiveValue::Set(message.sender_type.map(String::from)),
+            content: ActiveValue::Set(message.content.map(String::from)),
+            msg_type: ActiveValue::Set(message.msg_type.to_string()),
+            is_mention: ActiveValue::Set(Some(message.is_mention)),
             processed: ActiveValue::Set(Some(false)),
             is_history: ActiveValue::Set(Some(false)),
             fetch_time: ActiveValue::Set(None),
@@ -61,33 +82,24 @@ impl Database {
 
     pub async fn save_feishu_history_message(
         &self,
-        bot_id: i64,
-        message_id: &str,
-        chat_id: &str,
-        chat_type: &str,
-        sender_open_id: &str,
-        sender_nickname: Option<&str>,
-        sender_type: Option<&str>,
-        content: Option<&str>,
-        msg_type: &str,
-        created_at: &str,
+        message: NewFeishuHistoryMessage<'_>,
     ) -> Result<i64, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = feishu_messages::ActiveModel {
-            bot_id: ActiveValue::Set(bot_id),
-            message_id: ActiveValue::Set(message_id.to_string()),
-            chat_id: ActiveValue::Set(chat_id.to_string()),
-            chat_type: ActiveValue::Set(chat_type.to_string()),
-            sender_open_id: ActiveValue::Set(sender_open_id.to_string()),
-            sender_nickname: ActiveValue::Set(sender_nickname.map(String::from)),
-            sender_type: ActiveValue::Set(sender_type.map(String::from)),
-            content: ActiveValue::Set(content.map(String::from)),
-            msg_type: ActiveValue::Set(msg_type.to_string()),
+            bot_id: ActiveValue::Set(message.bot_id),
+            message_id: ActiveValue::Set(message.message_id.to_string()),
+            chat_id: ActiveValue::Set(message.chat_id.to_string()),
+            chat_type: ActiveValue::Set(message.chat_type.to_string()),
+            sender_open_id: ActiveValue::Set(message.sender_open_id.to_string()),
+            sender_nickname: ActiveValue::Set(message.sender_nickname.map(String::from)),
+            sender_type: ActiveValue::Set(message.sender_type.map(String::from)),
+            content: ActiveValue::Set(message.content.map(String::from)),
+            msg_type: ActiveValue::Set(message.msg_type.to_string()),
             is_mention: ActiveValue::Set(Some(false)),
             processed: ActiveValue::Set(Some(true)),
             is_history: ActiveValue::Set(Some(true)),
             fetch_time: ActiveValue::Set(Some(now)),
-            created_at: ActiveValue::Set(Some(created_at.to_string())),
+            created_at: ActiveValue::Set(Some(message.created_at.to_string())),
             ..Default::default()
         };
         let inserted = am.insert(&self.conn).await?;
@@ -138,8 +150,8 @@ impl Database {
         page: u64,
         page_size: u64,
     ) -> Result<(Vec<FeishuMessageRecord>, i64), sea_orm::DbErr> {
-        let mut query = feishu_messages::Entity::find()
-            .order_by_desc(feishu_messages::Column::CreatedAt);
+        let mut query =
+            feishu_messages::Entity::find().order_by_desc(feishu_messages::Column::CreatedAt);
 
         if let Some(sid) = sender_open_id {
             query = query.filter(feishu_messages::Column::SenderOpenId.eq(sid.to_string()));
@@ -196,7 +208,9 @@ impl Database {
         Ok(result.is_some())
     }
 
-    pub async fn get_distinct_senders(&self) -> Result<Vec<(String, Option<String>, Option<String>, i64)>, sea_orm::DbErr> {
+    pub async fn get_distinct_senders(
+        &self,
+    ) -> Result<Vec<(String, Option<String>, Option<String>, i64)>, sea_orm::DbErr> {
         // Returns distinct sender_open_ids with their message count, sender_type, and sender_nickname
         let models = feishu_messages::Entity::find()
             .order_by_desc(feishu_messages::Column::CreatedAt)

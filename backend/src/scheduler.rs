@@ -7,7 +7,7 @@ use tracing::{error, info, warn};
 
 use crate::adapters::ExecutorRegistry;
 use crate::db::Database;
-use crate::executor_service::run_todo_execution;
+use crate::executor_service::{run_todo_execution, RunTodoExecutionRequest};
 use crate::handlers::ExecEvent;
 use crate::task_manager::TaskManager;
 
@@ -37,16 +37,25 @@ impl TodoScheduler {
         for todo in todos {
             if let Some(ref config) = todo.scheduler_config {
                 if todo.scheduler_enabled {
-                    info!("Loading scheduled task for todo {} with cron: {}", todo.id, config);
-                    if let Err(e) = self.upsert_task(
-                        db.clone(),
-                        executor_registry.clone(),
-                        tx.clone(),
-                        todo.id,
-                        config.clone(),
-                        task_manager.clone(),
-                    ).await {
-                        warn!("Skipping invalid scheduled task for todo {}: {}", todo.id, e);
+                    info!(
+                        "Loading scheduled task for todo {} with cron: {}",
+                        todo.id, config
+                    );
+                    if let Err(e) = self
+                        .upsert_task(
+                            db.clone(),
+                            executor_registry.clone(),
+                            tx.clone(),
+                            todo.id,
+                            config.clone(),
+                            task_manager.clone(),
+                        )
+                        .await
+                    {
+                        warn!(
+                            "Skipping invalid scheduled task for todo {}: {}",
+                            todo.id, e
+                        );
                     }
                 }
             }
@@ -95,10 +104,27 @@ impl TodoScheduler {
             Box::pin(async move {
                 match db.get_todo(todo_id).await {
                     Ok(Some(todo)) => {
-                        let message = if todo.prompt.is_empty() { todo.title.clone() } else { todo.prompt.clone() };
+                        let message = if todo.prompt.is_empty() {
+                            todo.title.clone()
+                        } else {
+                            todo.prompt.clone()
+                        };
                         let executor = todo.executor.clone();
                         info!("Scheduled execution triggered for todo {}", todo_id);
-                        run_todo_execution(db, registry, tx, todo_id, message, executor, "cron", tm, None, None).await;
+                        run_todo_execution(RunTodoExecutionRequest {
+                            db,
+                            executor_registry: registry,
+                            tx,
+                            task_manager: tm,
+                            todo_id,
+                            message,
+                            req_executor: executor,
+                            trigger_type: "cron".to_string(),
+                            params: None,
+                            resume_session_id: None,
+                            resume_message: None,
+                        })
+                        .await;
                     }
                     Ok(None) => warn!("Scheduled todo {} not found, skipping", todo_id),
                     Err(e) => tracing::error!("Failed to fetch scheduled todo {}: {}", todo_id, e),
@@ -107,14 +133,20 @@ impl TodoScheduler {
         })?;
 
         let job_id = job.guid();
-        info!("Job created with guid {}, now adding to scheduler...", job_id);
+        info!(
+            "Job created with guid {}, now adding to scheduler...",
+            job_id
+        );
         let sched = self.sched.lock().await;
         info!("Scheduler inited: {}", sched.inited().await);
         match sched.add(job).await {
             Ok(id) => {
                 drop(sched);
                 self.job_map.lock().await.insert(todo_id, id);
-                info!("Added scheduled task {} for todo {} with cron: {}", id, todo_id, cron_expr);
+                info!(
+                    "Added scheduled task {} for todo {} with cron: {}",
+                    id, todo_id, cron_expr
+                );
                 Ok(id)
             }
             Err(e) => {
@@ -129,7 +161,10 @@ impl TodoScheduler {
         if let Some(job_id) = job_id {
             match self.sched.lock().await.remove(&job_id).await {
                 Ok(_) => info!("Removed scheduled task {} for todo {}", job_id, todo_id),
-                Err(e) => error!("Failed to remove scheduled task {} for todo {}: {:?}", job_id, todo_id, e),
+                Err(e) => error!(
+                    "Failed to remove scheduled task {} for todo {}: {:?}",
+                    job_id, todo_id, e
+                ),
             }
         }
     }

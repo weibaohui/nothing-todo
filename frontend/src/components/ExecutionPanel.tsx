@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
 import { ExpandOutlined, CompressOutlined, InfoCircleOutlined, StopOutlined } from '@ant-design/icons';
-import { Popconfirm, App } from 'antd';
+import { Popconfirm, Popover, App } from 'antd';
 import { useApp } from '../hooks/useApp';
 import { useTheme } from '../hooks/useTheme';
 import { getExecutorOption } from '../types';
@@ -83,7 +83,6 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
   const { message } = App.useApp();
   const logsEndRef = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
-  const [infoTaskId, setInfoTaskId] = useState<string | null>(null);
 
   // Tick for elapsed time display - triggers re-render every second
   const [, setTick] = useState(0);
@@ -197,42 +196,30 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
                         title="停止"
                       />
                     </Popconfirm>
-                    <InfoCircleOutlined
-                      style={{ fontSize: 12, marginLeft: 4, color: 'var(--color-text-secondary)', cursor: 'pointer' }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setInfoTaskId(infoTaskId === taskId ? null : taskId);
-                      }}
-                    />
+                    <Popover
+                      trigger="click"
+                      placement="bottom"
+                      content={
+                        <div style={{ minWidth: 200 }} onClick={(e) => e.stopPropagation()}>
+                          <div style={{ fontSize: 12, marginBottom: 8 }}><strong>{task.todoTitle}</strong></div>
+                          <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
+                            <span style={{ fontWeight: 600 }}>执行器:</span> {task.executor}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
+                            <span style={{ fontWeight: 600 }}>开始时间:</span> {formatLocalDateTime(task.startedAt)}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--color-info)', fontWeight: 600 }}>
+                            <span style={{ fontWeight: 600 }}>已运行:</span> {formatDuration(getElapsedSeconds(task.startedAt))}
+                          </div>
+                        </div>
+                      }
+                    >
+                      <InfoCircleOutlined
+                        style={{ fontSize: 12, marginLeft: 4, color: 'var(--color-text-secondary)', cursor: 'pointer' }}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </Popover>
                   </>
-                )}
-                {infoTaskId === taskId && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '100%',
-                      left: 0,
-                      zIndex: 1000,
-                      background: 'var(--color-bg-elevated)',
-                      border: '1px solid var(--color-border-light)',
-                      borderRadius: 8,
-                      padding: 12,
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                      minWidth: 200,
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div style={{ fontSize: 12, marginBottom: 8 }}><strong>{task.todoTitle}</strong></div>
-                    <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
-                      <span style={{ fontWeight: 600 }}>执行器:</span> {task.executor}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
-                      <span style={{ fontWeight: 600 }}>开始时间:</span> {formatLocalDateTime(task.startedAt)}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--color-info)', fontWeight: 600 }}>
-                      <span style={{ fontWeight: 600 }}>已运行:</span> {formatDuration(getElapsedSeconds(task.startedAt))}
-                    </div>
-                  </div>
                 )}
               </div>
             );

@@ -1,11 +1,12 @@
-use axum::{
-    extract::{Path, State},
-};
+use axum::extract::{Path, State};
 use cron::Schedule;
 use std::str::FromStr;
 
+use crate::db::TodoUpdate;
 use crate::handlers::{ApiJson, AppError, AppState};
-use crate::models::{ApiResponse, CreateTodoRequest, Todo, UpdateTagsRequest, UpdateTodoRequest, utc_timestamp};
+use crate::models::{
+    utc_timestamp, ApiResponse, CreateTodoRequest, Todo, UpdateTagsRequest, UpdateTodoRequest,
+};
 
 /// Validate cron expression, return helpful error for invalid ones
 fn validate_cron_expression(expr: &str) -> Result<(), String> {
@@ -21,9 +22,7 @@ fn validate_cron_expression(expr: &str) -> Result<(), String> {
         })
 }
 
-pub async fn get_todos(
-    State(state): State<AppState>,
-) -> Result<ApiResponse<Vec<Todo>>, AppError> {
+pub async fn get_todos(State(state): State<AppState>) -> Result<ApiResponse<Vec<Todo>>, AppError> {
     Ok(ApiResponse::ok(state.db.get_todos().await?))
 }
 
@@ -49,7 +48,10 @@ pub async fn create_todo(
     } else {
         req.prompt.trim().to_string()
     };
-    let executor = req.executor.clone().unwrap_or_else(|| "claudecode".to_string());
+    let executor = req
+        .executor
+        .clone()
+        .unwrap_or_else(|| "claudecode".to_string());
     let id = state.db.create_todo(title, &prompt).await?;
 
     // Update executor if specified
@@ -93,7 +95,11 @@ pub async fn update_todo(
     let prompt = match req.prompt {
         Some(p) => {
             let p = p.trim();
-            if p.is_empty() { title.clone() } else { p.to_string() }
+            if p.is_empty() {
+                title.clone()
+            } else {
+                p.to_string()
+            }
         }
         None => current.prompt.clone(),
     };
@@ -101,7 +107,8 @@ pub async fn update_todo(
     let executor = req.executor.or(current.executor);
     let workspace = req.workspace.or(current.workspace);
 
-    let scheduler_config = req.scheduler_config
+    let scheduler_config = req
+        .scheduler_config
         .as_ref()
         .filter(|s| !s.is_empty())
         .cloned();
@@ -112,16 +119,16 @@ pub async fn update_todo(
     }
     state
         .db
-        .update_todo_full(
+        .update_todo_full(TodoUpdate {
             id,
-            &title,
-            &prompt,
+            title: &title,
+            prompt: &prompt,
             status,
-            executor.as_deref(),
-            req.scheduler_enabled,
-            scheduler_config.as_deref(),
-            workspace.as_deref(),
-        )
+            executor: executor.as_deref(),
+            scheduler_enabled: req.scheduler_enabled,
+            scheduler_config: scheduler_config.as_deref(),
+            workspace: workspace.as_deref(),
+        })
         .await
         .map_err(AppError::from)?;
 
@@ -152,7 +159,11 @@ pub async fn force_update_todo_status(
     ApiJson(req): ApiJson<UpdateTodoRequest>,
 ) -> Result<ApiResponse<Todo>, AppError> {
     if let Some(status) = req.status {
-        state.db.force_update_todo_status(id, status).await.map_err(AppError::from)?;
+        state
+            .db
+            .force_update_todo_status(id, status)
+            .await
+            .map_err(AppError::from)?;
     }
     let todo = state.require_todo(id).await?;
     Ok(ApiResponse::ok(todo))

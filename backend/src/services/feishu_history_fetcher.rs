@@ -5,13 +5,13 @@ use std::time::Duration;
 use dashmap::DashMap;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde::Deserialize;
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::{broadcast, RwLock};
 use tokio::time::interval;
 use tracing::{debug, info, warn};
 
 use crate::adapters::ExecutorRegistry;
 use crate::config::Config as AppConfig;
-use crate::db::Database;
+use crate::db::{Database, NewFeishuHistoryMessage};
 use crate::feishu::sdk::config::{Config as FeishuSdkConfig, CONTENT_TYPE_JSON};
 use crate::feishu::sdk::token_manager::TokenManager;
 use crate::handlers::ExecEvent;
@@ -144,7 +144,10 @@ impl FeishuHistoryFetcher {
                 if let Ok(push_targets) = db.get_group_chat_ids().await {
                     for (bot_id, chat_id) in push_targets {
                         // Avoid duplicates
-                        if !chats_to_fetch.iter().any(|c| c.bot_id == bot_id && c.chat_id == chat_id) {
+                        if !chats_to_fetch
+                            .iter()
+                            .any(|c| c.bot_id == bot_id && c.chat_id == chat_id)
+                        {
                             chats_to_fetch.push(ChatToFetch { bot_id, chat_id });
                         }
                     }
@@ -157,7 +160,8 @@ impl FeishuHistoryFetcher {
 
                 for (bot_id, app_id, app_secret) in &bots {
                     // Filter chats for this bot
-                    let bot_chats: Vec<_> = chats_to_fetch.iter()
+                    let bot_chats: Vec<_> = chats_to_fetch
+                        .iter()
                         .filter(|c| c.bot_id == *bot_id)
                         .cloned()
                         .collect();
@@ -179,8 +183,13 @@ impl FeishuHistoryFetcher {
                         app_id,
                         app_secret,
                         &bot_chats,
-                    ).await {
-                        warn!("[feishu-history-fetcher] error fetching for bot {}: {}", bot_id, e);
+                    )
+                    .await
+                    {
+                        warn!(
+                            "[feishu-history-fetcher] error fetching for bot {}: {}",
+                            bot_id, e
+                        );
                     }
                 }
             }
@@ -230,14 +239,22 @@ impl FeishuHistoryFetcher {
                 bot_id,
                 &chat.chat_id,
                 &token,
-            ).await {
+            )
+            .await
+            {
                 Ok(count) => {
                     if count > 0 {
-                        info!("[feishu-history-fetcher] fetched {} new messages from chat {}", count, chat.chat_id);
+                        info!(
+                            "[feishu-history-fetcher] fetched {} new messages from chat {}",
+                            count, chat.chat_id
+                        );
                     }
                 }
                 Err(e) => {
-                    warn!("[feishu-history-fetcher] error fetching chat {}: {}", chat.chat_id, e);
+                    warn!(
+                        "[feishu-history-fetcher] error fetching chat {}: {}",
+                        chat.chat_id, e
+                    );
                 }
             }
         }
@@ -304,7 +321,9 @@ impl FeishuHistoryFetcher {
 
             if let Some(items) = data.items {
                 for item in items {
-                    if db.feishu_message_exists(&item.message_id).await
+                    if db
+                        .feishu_message_exists(&item.message_id)
+                        .await
                         .map_err(|e| format!("db error: {}", e))?
                     {
                         // Message already exists, skip it but continue fetching
@@ -313,7 +332,11 @@ impl FeishuHistoryFetcher {
                     }
 
                     // Extract sender info from API response
-                    let sender_id = item.sender.as_ref().and_then(|s| s.id.clone()).unwrap_or_default();
+                    let sender_id = item
+                        .sender
+                        .as_ref()
+                        .and_then(|s| s.id.clone())
+                        .unwrap_or_default();
                     let sender_type = item.sender.as_ref().and_then(|s| s.sender_type.clone());
 
                     // sender_open_id is actually the sender's ID (open_id for users, app_id for bots)
@@ -327,7 +350,8 @@ impl FeishuHistoryFetcher {
                         bot_credentials,
                         token_manager,
                         bot_id,
-                    ).await;
+                    )
+                    .await;
 
                     if is_our_bot {
                         tracing::debug!(
@@ -339,33 +363,35 @@ impl FeishuHistoryFetcher {
 
                     let sender_nickname: Option<&str> = None;
 
-                    let content = item.body.as_ref()
-                        .and_then(|b| b.content.clone());
+                    let content = item.body.as_ref().and_then(|b| b.content.clone());
 
                     // create_time from API is in milliseconds, convert to seconds
-                    let created_at = item.create_time
-                        .and_then(|t| {
-                            t.parse::<i64>().ok().map(|ms| ms / 1000)
-                        })
-                        .and_then(|secs| {
-                            chrono::DateTime::from_timestamp(secs, 0)
-                        })
+                    let created_at = item
+                        .create_time
+                        .and_then(|t| t.parse::<i64>().ok().map(|ms| ms / 1000))
+                        .and_then(|secs| chrono::DateTime::from_timestamp(secs, 0))
                         .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
                         .unwrap_or_else(crate::models::utc_timestamp);
 
-                    if let Err(e) = db.save_feishu_history_message(
-                        bot_id,
-                        &item.message_id,
-                        &item.chat_id,
-                        item.chat_type.as_deref().unwrap_or(""),
-                        sender_open_id,
-                        sender_nickname,
-                        sender_type.as_deref(),
-                        content.as_deref(),
-                        &item.msg_type,
-                        &created_at,
-                    ).await {
-                        warn!("[feishu-history-fetcher] failed to save message {}: {}", item.message_id, e);
+                    if let Err(e) = db
+                        .save_feishu_history_message(NewFeishuHistoryMessage {
+                            bot_id,
+                            message_id: &item.message_id,
+                            chat_id: &item.chat_id,
+                            chat_type: item.chat_type.as_deref().unwrap_or(""),
+                            sender_open_id,
+                            sender_nickname,
+                            sender_type: sender_type.as_deref(),
+                            content: content.as_deref(),
+                            msg_type: &item.msg_type,
+                            created_at: &created_at,
+                        })
+                        .await
+                    {
+                        warn!(
+                            "[feishu-history-fetcher] failed to save message {}: {}",
+                            item.message_id, e
+                        );
                     } else {
                         total_fetched += 1;
 
@@ -391,7 +417,10 @@ impl FeishuHistoryFetcher {
                         // Process the message through debounce pipeline
                         if let Some(ref msg_content) = content {
                             // Check group whitelist
-                            let in_whitelist = match db.is_sender_in_whitelist(bot_id, sender_open_id).await {
+                            let in_whitelist = match db
+                                .is_sender_in_whitelist(bot_id, sender_open_id)
+                                .await
+                            {
                                 Ok(allowed) => allowed,
                                 Err(e) => {
                                     tracing::warn!("[feishu-history-fetcher] whitelist check failed for sender {}, denying: {}", sender_open_id, e);
@@ -407,16 +436,23 @@ impl FeishuHistoryFetcher {
                             }
 
                             // Push to debounce buffer instead of executing directly
-                            if let Some(todo_id) = Self::resolve_todo_id(config, msg_content).await {
-                                let (trigger_type, params) = Self::build_trigger_params(msg_content);
+                            if let Some(todo_id) = Self::resolve_todo_id(config, msg_content).await
+                            {
+                                let (trigger_type, params) =
+                                    Self::build_trigger_params(msg_content);
                                 let todo_prompt = match db.get_todo(todo_id).await {
                                     Ok(Some(t)) => Some(t.prompt.clone()),
                                     Ok(None) => None,
                                     Err(e) => {
-                                        tracing::error!("Failed to fetch todo {} for feishu history: {}", todo_id, e);
+                                        tracing::error!(
+                                            "Failed to fetch todo {} for feishu history: {}",
+                                            todo_id,
+                                            e
+                                        );
                                         None
                                     }
-                                }.unwrap_or_default();
+                                }
+                                .unwrap_or_default();
                                 debounce.push(PendingMessage {
                                     bot_id,
                                     chat_id: chat_id.to_string(),
@@ -453,7 +489,9 @@ impl FeishuHistoryFetcher {
 
             if !body.is_empty() {
                 let cfg = config.read().await;
-                if let Some(rule) = cfg.slash_command_rules.iter()
+                if let Some(rule) = cfg
+                    .slash_command_rules
+                    .iter()
                     .find(|rule| rule.enabled && rule.slash_command.eq_ignore_ascii_case(command))
                 {
                     return Some(rule.todo_id);
@@ -479,7 +517,10 @@ impl FeishuHistoryFetcher {
                 let mut params = HashMap::new();
                 params.insert("content".to_string(), body.to_string());
                 params.insert("message".to_string(), body.to_string());
-                params.insert("raw_message".to_string(), format!("{} {}", command, body).trim().to_string());
+                params.insert(
+                    "raw_message".to_string(),
+                    format!("{} {}", command, body).trim().to_string(),
+                );
                 params.insert("slash_command".to_string(), command.to_string());
                 return ("slash_command".to_string(), Some(params));
             }
@@ -510,7 +551,10 @@ impl FeishuHistoryFetcher {
         };
 
         let client = reqwest::Client::new();
-        let url = format!("{}/open-apis/im/v1/messages?receive_id_type={}", base_url, receive_id_type);
+        let url = format!(
+            "{}/open-apis/im/v1/messages?receive_id_type={}",
+            base_url, receive_id_type
+        );
         let body = serde_json::json!({
             "receive_id": receive_id,
             "msg_type": "text",
@@ -537,7 +581,10 @@ impl FeishuHistoryFetcher {
         }
     }
 
-    fn base_url(bot_credentials: &Arc<DashMap<i64, (String, String, String)>>, bot_id: i64) -> Option<String> {
+    fn base_url(
+        bot_credentials: &Arc<DashMap<i64, (String, String, String)>>,
+        bot_id: i64,
+    ) -> Option<String> {
         let domain = bot_credentials.get(&bot_id)?.2.clone();
         Some(if domain == "lark" {
             "https://open.larksuite.com".to_string()
@@ -615,7 +662,8 @@ impl FeishuHistoryFetcher {
 
         // Check 2: Resolve bot's open_id and compare
         if sender_type != Some("user") {
-            let bot_open_id = Self::resolve_bot_open_id(bot_credentials, token_manager, bot_id).await;
+            let bot_open_id =
+                Self::resolve_bot_open_id(bot_credentials, token_manager, bot_id).await;
             if let Some(open_id) = bot_open_id {
                 if sender_id == open_id {
                     tracing::debug!(
@@ -635,7 +683,8 @@ impl FeishuHistoryFetcher {
         bot_id: i64,
     ) -> Option<FeishuSdkConfig> {
         let ref_val = bot_credentials.get(&bot_id)?;
-        let (app_id, app_secret, domain) = (ref_val.0.clone(), ref_val.1.clone(), ref_val.2.clone());
+        let (app_id, app_secret, domain) =
+            (ref_val.0.clone(), ref_val.1.clone(), ref_val.2.clone());
         let base_url = if domain == "lark" {
             "https://open.larksuite.com"
         } else {
@@ -673,17 +722,25 @@ impl FeishuHistoryFetcher {
             builder = builder.query(&[(key.as_str(), value.as_str())]);
         }
 
-        let resp = builder.send().await
+        let resp = builder
+            .send()
+            .await
             .map_err(|e| format!("request failed: {}", e))?;
 
         let status = resp.status();
-        let body = resp.text().await
+        let body = resp
+            .text()
+            .await
             .map_err(|e| format!("failed to read body: {}", e))?;
 
-        debug!("[feishu-history-fetcher] API response status: {}, body (first 500): {}", status, &body[..body.len().min(500)]);
+        debug!(
+            "[feishu-history-fetcher] API response status: {}, body (first 500): {}",
+            status,
+            &body[..body.len().min(500)]
+        );
 
-        let result: ListMessagesResponse = serde_json::from_str(&body)
-            .map_err(|e| format!("json parse failed: {}", e))?;
+        let result: ListMessagesResponse =
+            serde_json::from_str(&body).map_err(|e| format!("json parse failed: {}", e))?;
 
         Ok(result)
     }
