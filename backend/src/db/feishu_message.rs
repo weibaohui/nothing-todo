@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Statement};
 use crate::db::Database;
 use crate::db::entity::feishu_messages;
 
@@ -266,5 +266,49 @@ impl Database {
             am.update(&self.conn).await?;
         }
         Ok(())
+    }
+
+    pub async fn get_feishu_message_stats(&self) -> Result<crate::models::FeishuMessageStats, sea_orm::DbErr> {
+        let backend = self.conn.get_database_backend();
+
+        let stats_sql = "SELECT \
+            COUNT(*) as total, \
+            COALESCE(SUM(CASE WHEN processed = 1 OR processed = 'true' THEN 1 ELSE 0 END), 0) as processed, \
+            COALESCE(SUM(CASE WHEN processed IS NULL OR processed = 0 OR processed = 'false' THEN 1 ELSE 0 END), 0) as unprocessed, \
+            COALESCE(SUM(CASE WHEN processed_todo_id IS NOT NULL THEN 1 ELSE 0 END), 0) as triggered_todos, \
+            COUNT(DISTINCT sender_open_id) as unique_senders, \
+            COUNT(DISTINCT chat_id) as unique_chats \
+            FROM feishu_messages";
+
+        let mut stats = if let Some(row) = self.conn.query_one(Statement::from_string(backend, stats_sql.to_string())).await? {
+            crate::models::FeishuMessageStats {
+                total_messages: row.try_get_by("total").unwrap_or(0),
+                processed: row.try_get_by("processed").unwrap_or(0),
+                unprocessed: row.try_get_by("unprocessed").unwrap_or(0),
+                triggered_todos: row.try_get_by("triggered_todos").unwrap_or(0),
+                unique_senders: row.try_get_by("unique_senders").unwrap_or(0),
+                unique_chats: row.try_get_by("unique_chats").unwrap_or(0),
+                last_24h_messages: 0,
+            }
+        } else {
+            return Ok(crate::models::FeishuMessageStats {
+                total_messages: 0,
+                processed: 0,
+                unprocessed: 0,
+                triggered_todos: 0,
+                unique_senders: 0,
+                last_24h_messages: 0,
+                unique_chats: 0,
+            });
+        };
+
+        // Last 24h count - try matching ISO datetime or timestamp format
+        let recent_sql = "SELECT COUNT(*) as cnt FROM feishu_messages WHERE \
+            created_at IS NOT NULL AND datetime(created_at) >= datetime('now', '-1 day')";
+        if let Some(row) = self.conn.query_one(Statement::from_string(backend, recent_sql.to_string())).await? {
+            stats.last_24h_messages = row.try_get_by("cnt").unwrap_or(0);
+        }
+
+        Ok(stats)
     }
 }
