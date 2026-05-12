@@ -1,8 +1,10 @@
-import { useState } from 'react';
-import { Modal, Input, Button, App } from 'antd';
+import { useState, useEffect } from 'react';
+import { Modal, Input, Button, App, Space, Empty, Card, List, Spin } from 'antd';
+import { FileTextOutlined } from '@ant-design/icons';
 import { useApp } from '../hooks/useApp';
 import { TagCheckCardGroup } from './TagCheckCard';
 import * as db from '../utils/database';
+import type { TodoTemplate } from '../types';
 
 const { TextArea } = Input;
 
@@ -18,6 +20,37 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
   const [prompt, setPrompt] = useState('');
   const [selectedTag, setSelectedTag] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Template selection modal state
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [templates, setTemplates] = useState<TodoTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+
+  useEffect(() => {
+    if (open && state.tags.length > 0) {
+      setSelectedTag(null);
+    }
+  }, [open, state.tags.length]);
+
+  const loadTemplates = () => {
+    setTemplatesLoading(true);
+    db.getTodoTemplates()
+      .then(setTemplates)
+      .catch(() => message.error('加载模板失败'))
+      .finally(() => setTemplatesLoading(false));
+  };
+
+  const openTemplateModal = () => {
+    loadTemplates();
+    setTemplateModalOpen(true);
+  };
+
+  const selectTemplate = (template: TodoTemplate) => {
+    setTitle(template.title);
+    setPrompt(template.prompt || '');
+    setTemplateModalOpen(false);
+    message.success('已应用模板');
+  };
 
   const handleCreate = async () => {
     if (!title.trim()) {
@@ -44,42 +77,80 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
   };
 
   return (
-    <Modal
-      title="创建 Todo"
-      open={open}
-      onCancel={onClose}
-      footer={[
-        <Button key="cancel" onClick={onClose}>取消</Button>,
-        <Button key="create" type="primary" loading={loading} onClick={handleCreate}>创建</Button>,
-      ]}
-    >
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ marginBottom: 8 }}>标题 <span style={{ color: '#ff4d4f' }}>*</span></div>
-        <Input
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          placeholder="输入 Todo 标题"
-        />
-      </div>
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ marginBottom: 8 }}>Prompt</div>
-        <TextArea
-          value={prompt}
-          onChange={e => setPrompt(e.target.value)}
-          rows={4}
-          placeholder="输入 Prompt（会作为任务执行的内容，留空则使用标题）"
-        />
-      </div>
-      {state.tags.length > 0 && (
-        <div style={{ marginTop: 16 }}>
-          <div style={{ marginBottom: 10, fontWeight: 600 }}>标签</div>
-          <TagCheckCardGroup
-            tags={state.tags}
-            value={selectedTag}
-            onChange={(val) => setSelectedTag(val as number | null)}
+    <>
+      <Modal
+        title="创建 Todo"
+        open={open}
+        onCancel={onClose}
+        footer={[
+          <Button key="cancel" onClick={onClose}>取消</Button>,
+          <Button key="template" icon={<FileTextOutlined />} onClick={openTemplateModal}>从模板创建</Button>,
+          <Button key="create" type="primary" loading={loading} onClick={handleCreate}>创建</Button>,
+        ]}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 8 }}>标题 <span style={{ color: '#ff4d4f' }}>*</span></div>
+          <Input
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder="输入 Todo 标题"
           />
         </div>
-      )}
-    </Modal>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 8 }}>Prompt</div>
+          <TextArea
+            value={prompt}
+            onChange={e => setPrompt(e.target.value)}
+            rows={4}
+            placeholder="输入 Prompt（会作为任务执行的内容，留空则使用标题）"
+          />
+        </div>
+        {state.tags.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ marginBottom: 10, fontWeight: 600 }}>标签</div>
+            <TagCheckCardGroup
+              tags={state.tags}
+              value={selectedTag}
+              onChange={(val) => setSelectedTag(val as number | null)}
+            />
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        title="选择模板"
+        open={templateModalOpen}
+        onCancel={() => setTemplateModalOpen(false)}
+        footer={null}
+        width={600}
+      >
+        <Spin spinning={templatesLoading}>
+          {templates.length === 0 ? (
+            <Empty description="暂无模板，请在设置中添加" />
+          ) : (
+            <Space direction="vertical" style={{ width: '100%' }}>
+              {Array.from(new Set(templates.map(t => t.category))).sort().map(category => (
+                <Card key={category} title={category || '未分类'} size="small">
+                  <List
+                    dataSource={templates.filter(t => t.category === category)}
+                    renderItem={(template) => (
+                      <List.Item
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => selectTemplate(template)}
+                      >
+                        <List.Item.Meta
+                          title={template.title}
+                          description={template.prompt || '(无内容)'}
+                        />
+                      </List.Item>
+                    )}
+                  />
+                </Card>
+              ))}
+            </Space>
+          )}
+        </Spin>
+      </Modal>
+    </>
   );
 }

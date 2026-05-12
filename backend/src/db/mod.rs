@@ -55,6 +55,7 @@ impl Database {
         db.exec("PRAGMA busy_timeout = 5000").await?;
 
         db.init_tables().await?;
+        db.seed_default_templates().await?;
         Ok(db)
     }
 
@@ -497,6 +498,30 @@ impl Database {
         )
         .await?;
 
+        // Todo templates table
+        self.exec(
+            "CREATE TABLE IF NOT EXISTS todo_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                prompt TEXT,
+                category TEXT NOT NULL DEFAULT '',
+                sort_order INTEGER,
+                created_at TEXT,
+                updated_at TEXT
+            )",
+        )
+        .await?;
+
+        // Todo templates timestamps triggers
+        self.exec(
+            "CREATE TRIGGER IF NOT EXISTS set_todo_templates_created_at_utc AFTER INSERT ON todo_templates
+             WHEN new.created_at IS NULL OR new.created_at = ''
+             BEGIN
+                 UPDATE todo_templates SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+             END",
+        )
+        .await?;
+
         self.exec(
             "CREATE TRIGGER IF NOT EXISTS set_project_directories_updated_at_utc BEFORE UPDATE ON project_directories
              WHEN new.updated_at IS NULL OR new.updated_at = ''
@@ -545,6 +570,7 @@ mod feishu_history_chat;
 mod feishu_push_target;
 mod feishu_response_config;
 pub mod project_directory;
+mod todo_template;
 
 #[cfg(test)]
 mod tests {

@@ -31,6 +31,16 @@ export interface TodoTag {
   tag_id: number;
 }
 
+export interface TodoTemplate {
+  id: number;
+  title: string;
+  prompt: string | null;
+  category: string;
+  sort_order: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export interface LogEntry {
   timestamp: string;
   type: 'info' | 'stdout' | 'stderr' | 'error' | 'text' | 'tool' | 'tool_use' | 'tool_call' | 'tool_result' | 'step_start' | 'step_finish' | 'result' | 'assistant' | 'user' | 'system' | 'thinking' | 'tokens';
