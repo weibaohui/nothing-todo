@@ -16,6 +16,7 @@ export interface Todo {
   scheduler_next_run_at?: string | null;
   task_id?: string | null;
   workspace?: string | null;
+  worktree?: string | null;
 }
 
 export interface Tag {

@@ -103,6 +103,8 @@ pub struct Todo {
     pub task_id: Option<String>,
     #[serde(default)]
     pub workspace: Option<String>,
+    #[serde(default)]
+    pub worktree: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -297,6 +299,8 @@ pub struct UpdateTodoRequest {
     pub scheduler_config: Option<String>,
     #[serde(default)]
     pub workspace: Option<String>,
+    #[serde(default)]
+    pub worktree: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]

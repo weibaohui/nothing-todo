@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Drawer, Button, Switch, Divider, App, AutoComplete } from 'antd';
-import { ClockCircleOutlined, CheckOutlined, FolderOutlined } from '@ant-design/icons';
+import { ClockCircleOutlined, CheckOutlined, FolderOutlined,BranchesOutlined } from '@ant-design/icons';
 import { Cron } from 'react-js-cron';
 import 'react-js-cron/dist/styles.css';
 import * as db from '../utils/database';
@@ -28,6 +28,7 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
   const [schedulerConfig, setSchedulerConfig] = useState<string>('');
   const [selectedTags, setSelectedTags] = useState<number[]>([]);
   const [workspace, setWorkspace] = useState<string>('');
+  const [worktree, setWorktree] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [executorOptions, setExecutorOptions] = useState<ExecutorOption[]>(EXECUTORS);
   const [projectDirectories, setProjectDirectories] = useState<ProjectDirectory[]>([]);
@@ -58,6 +59,7 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
       setSchedulerConfig(todo.scheduler_config || '');
       setSelectedTags((todo as any).tag_ids || []);
       setWorkspace(todo.workspace || '');
+      setWorktree(todo.worktree || '');
     }
   }, [todo, open]);
 
@@ -67,6 +69,7 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
     setLoading(true);
     try {
       const trimmedWorkspace = workspace.trim() || null;
+      const trimmedWorktree = worktree.trim() || null;
 
       // 如果填写了目录但不在项目目录列表中，自动添加
       if (trimmedWorkspace) {
@@ -89,6 +92,7 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
         schedulerEnabled,
         schedulerConfig || null,
         trimmedWorkspace,
+        trimmedWorktree,
       );
       await db.updateScheduler(todo.id, schedulerEnabled, schedulerConfig || null);
       await db.updateTodoTags(todo.id, selectedTags);
@@ -203,6 +207,29 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
           })}
         </div>
       </div>
+
+      {/* Worktree - 仅 Claude Code 和 Codex 支持 */}
+      {(executor === 'claude_code' || executor === 'codex') && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 10, fontWeight: 600, fontSize: 14 }}>
+            <BranchesOutlined style={{ color: 'var(--color-primary)', marginRight: 6 }} />
+            Git Worktree
+          </div>
+          <AutoComplete
+            value={worktree}
+            onChange={(value) => setWorktree(value)}
+            options={projectDirectories.map(d => ({
+              value: d.path,
+              label: d.name ? `${d.name} (${d.path})` : d.path,
+            }))}
+            placeholder="指定 worktree 路径（可选）"
+            style={{ width: '100%' }}
+            filterOption={(input, option) =>
+              (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+            }
+          />
+        </div>
+      )}
 
       {/* Workspace */}
       <div style={{ marginBottom: 16 }}>
