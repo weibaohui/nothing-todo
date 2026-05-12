@@ -228,8 +228,8 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
         />
       </div>
 
-      {/* Worktree Switch - 仅 Claude Code 和 Codex 支持 */}
-      {(executor === 'claude_code' || executor === 'codex') && (
+      {/* Worktree Switch - 仅 Claude Code 支持 */}
+      {executor === 'claude_code' && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ fontWeight: 600, fontSize: 14 }}>
