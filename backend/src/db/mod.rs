@@ -157,6 +157,11 @@ impl Database {
             .await
             .ok(); // 忽略错误，因为字段可能已存在
 
+        // 添加 worktree_enabled 字段的迁移（向后兼容）
+        self.exec("ALTER TABLE todos ADD COLUMN worktree_enabled INTEGER DEFAULT 0")
+            .await
+            .ok(); // 忽略错误，因为字段可能已存在
+
         // 添加 todo_progress 字段的迁移（向后兼容）
         self.exec("ALTER TABLE execution_records ADD COLUMN todo_progress TEXT")
             .await

@@ -8,7 +8,7 @@ use command_group::AsyncCommandGroup;
 use crate::adapters::{parse_executor_type, ExecutorRegistry};
 use crate::db::{Database, NewExecutionRecord};
 use crate::handlers::ExecEvent;
-use crate::models::ParsedLogEntry;
+use crate::models::{ExecutorType, ParsedLogEntry};
 use crate::task_manager::TaskManager;
 
 fn send_event(tx: &broadcast::Sender<ExecEvent>, event: ExecEvent) {
@@ -80,6 +80,7 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
     };
     let todo_executor = todo.as_ref().and_then(|t| t.executor.clone());
     let todo_workspace = todo.as_ref().and_then(|t| t.workspace.clone());
+    let todo_worktree_enabled = todo.as_ref().map(|t| t.worktree_enabled).unwrap_or(false);
 
     // Determine which executor to use: explicit > todo stored > default
     let executor_type = req_executor
@@ -133,8 +134,27 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
     let executable_path = executor.executable_path().to_string();
     let session_id_for_executor = resume_session_id.as_deref().unwrap_or(&task_id);
     let is_resume = resume_session_id.is_some();
-    let command_args =
+    let mut command_args =
         executor.command_args_with_session(&message, Some(session_id_for_executor), is_resume);
+
+    // Add worktree flag for claude_code and hermes executors
+    // claude_code: --worktree <path>
+    // hermes: --worktree (no path argument, uses current directory)
+    let exec_type = executor.executor_type();
+    if todo_worktree_enabled {
+        match exec_type {
+            ExecutorType::Claudecode => {
+                if let Some(wt) = todo_workspace.as_deref() {
+                    command_args.push("--worktree".to_string());
+                    command_args.push(wt.to_string());
+                }
+            }
+            ExecutorType::Hermes => {
+                command_args.push("--worktree".to_string());
+            }
+            _ => {}
+        }
+    }
 
     // Update todo's executor to the one being used
     let executor_str = executor.executor_type().to_string();
