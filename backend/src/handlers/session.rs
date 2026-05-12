@@ -88,6 +88,12 @@ pub struct SessionDetail {
 
 // ─── Helpers ──────────────────────────────────────────────
 
+/// Parsed metadata from a Claude Code session log line.
+pub type ClaudeLineMeta = (
+    Option<String>, Option<String>, Option<String>, Option<String>,
+    Option<String>, Option<String>, Option<u64>, Option<u64>, String,
+);
+
 fn home_dir() -> PathBuf {
     dirs::home_dir().expect("no home directory")
 }
@@ -128,10 +134,7 @@ fn decode_project_path(encoded: &str) -> String {
 
 fn parse_claude_line_metadata(
     line: &str,
-) -> Option<(
-    Option<String>, Option<String>, Option<String>, Option<String>,
-    Option<String>, Option<String>, Option<u64>, Option<u64>, String,
-)> {
+) -> Option<ClaudeLineMeta> {
     let v: serde_json::Value = serde_json::from_str(line).ok()?;
     let msg_type = v.get("type")?.as_str()?;
     match msg_type {

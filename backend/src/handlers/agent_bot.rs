@@ -143,8 +143,8 @@ pub async fn feishu_poll(
     Json(req): Json<FeishuPollRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let client = Client::new();
-    let expire_in = req.expire_in.unwrap_or(600).min(600);
-    let interval = Duration::from_secs(req.interval.unwrap_or(5).max(1).min(30));
+    let expire_in = req.expire_in.unwrap_or(600).clamp(1, 600);
+    let interval = Duration::from_secs(req.interval.unwrap_or(5).clamp(1, 30));
     let deadline = std::time::Instant::now() + Duration::from_secs(expire_in);
 
     loop {

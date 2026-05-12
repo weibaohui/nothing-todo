@@ -105,9 +105,8 @@ impl CodeExecutor for ClaudeCodeExecutor {
                     }
 
                     // Check for thinking (for AI thinking display)
-                    for block in &message.content {
-                        if let ClaudeContentBlock::Thinking { thinking } = block {
-                            if let Some(t) = thinking {
+                        for block in &message.content {
+                            if let ClaudeContentBlock::Thinking { thinking: Some(t) } = block {
                                 return Some(ParsedLogEntry {
                                     timestamp: utc_timestamp(),
                                     log_type: "thinking".to_string(),
@@ -118,7 +117,6 @@ impl CodeExecutor for ClaudeCodeExecutor {
                                 });
                             }
                         }
-                    }
 
                     // Check for tool_result (from user message)
                     for block in &message.content {
@@ -138,10 +136,8 @@ impl CodeExecutor for ClaudeCodeExecutor {
                     // Check for text content
                     let mut text_parts = Vec::new();
                     for block in &message.content {
-                        if let ClaudeContentBlock::Text { text } = block {
-                            if let Some(t) = text {
-                                text_parts.push(t.clone());
-                            }
+                        if let ClaudeContentBlock::Text { text: Some(t) } = block {
+                            text_parts.push(t.clone());
                         }
                     }
                     if !text_parts.is_empty() {
