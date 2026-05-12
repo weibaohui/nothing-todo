@@ -1820,6 +1820,152 @@ code {
   color: var(--color-text-secondary);
 }
 
+/* ---------- Settings Page ---------- */
+.settings-page-root {
+  padding: var(--space-xl);
+}
+
+.settings-header-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: var(--space-lg);
+}
+
+.settings-header-card .ant-typography {
+  color: var(--color-text-secondary);
+}
+
+.settings-tabs > .ant-tabs-nav {
+  margin-bottom: 0;
+}
+
+.settings-tabs > .ant-tabs-nav::before {
+  border-color: var(--color-border-light);
+}
+
+.settings-tabs.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab {
+  border-color: var(--color-border-light);
+  background: var(--color-bg-elevated);
+  color: var(--color-text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.settings-tabs.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab:hover {
+  color: var(--color-text);
+  border-color: var(--color-primary);
+  background: var(--color-primary-bg);
+}
+
+.settings-tabs.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab-active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-bg);
+  box-shadow: var(--shadow-primary);
+}
+
+.settings-tabs.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.settings-tabs > .ant-tabs-content-holder {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-light);
+  border-top: 0;
+  border-radius: 0 var(--radius-md) var(--radius-md) var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  min-height: 0;
+}
+
+.settings-tabs > .ant-tabs-content-holder > .ant-tabs-content > .ant-tabs-tabpane {
+  padding: var(--space-xl);
+}
+
+.settings-page-root .ant-card {
+  background: var(--color-bg-elevated);
+  border-color: var(--color-border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.settings-page-root .ant-card-head {
+  min-height: 42px;
+  border-color: var(--color-border-light);
+}
+
+.settings-page-root .ant-card-head-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.settings-page-root .ant-card-body {
+  color: var(--color-text);
+}
+
+.settings-page-root .ant-form-item-label > label {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.settings-page-root .ant-form-item-required::before {
+  color: var(--color-error) !important;
+}
+
+.settings-page-root .ant-input,
+.settings-page-root .ant-input-number,
+.settings-page-root .ant-input-affix-wrapper,
+.settings-page-root .ant-select-selector,
+.settings-page-root .ant-picker {
+  background: var(--color-bg-elevated) !important;
+  border-color: var(--color-border) !important;
+  color: var(--color-text) !important;
+  box-shadow: none !important;
+}
+
+.settings-page-root .ant-input:hover,
+.settings-page-root .ant-input-number:hover,
+.settings-page-root .ant-input-affix-wrapper:hover,
+.settings-page-root .ant-select-selector:hover,
+.settings-page-root .ant-picker:hover {
+  border-color: var(--color-primary) !important;
+}
+
+.settings-page-root .ant-input:focus,
+.settings-page-root .ant-input-number-focused,
+.settings-page-root .ant-input-affix-wrapper-focused,
+.settings-page-root .ant-select-focused .ant-select-selector,
+.settings-page-root .ant-picker-focused {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 2px rgba(8, 145, 178, 0.18) !important;
+}
+
+.settings-page-root .ant-table-wrapper,
+.settings-page-root .ant-list {
+  color: var(--color-text);
+}
+
+.settings-page-root .ant-table {
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.settings-page-root .ant-table-thead > tr > th {
+  background: var(--color-bg-hover, var(--color-border-light));
+  border-color: var(--color-border-light);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.settings-page-root .ant-table-tbody > tr > td {
+  border-color: var(--color-border-light);
+}
+
+.settings-page-root .ant-table-tbody > tr:hover > td {
+  background: var(--color-primary-bg);
+}
+
 /* ---------- Settings Page Mobile Responsive ---------- */
 @media (max-width: 767px) {
   .settings-page-root {

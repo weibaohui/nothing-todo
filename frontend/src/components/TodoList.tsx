@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty, Tooltip } from 'antd';
-import { PlusOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, SettingOutlined, SunOutlined, MoonOutlined, DesktopOutlined } from '@ant-design/icons';
+import { PlusOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, SettingOutlined, SunOutlined, MoonOutlined } from '@ant-design/icons';
 import { useTheme } from '../hooks/useTheme';
 import { StatusPicker } from './StatusPicker';
 import * as db from '../utils/database';
@@ -85,11 +85,11 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onShowDashboard, onS
             className="tag-btn"
             aria-label="查看仪表盘"
           />
-          <Tooltip title={themeMode === 'light' ? '切换暗色主题' : themeMode === 'dark' ? '切换自动主题' : '切换亮色主题'}>
+          <Tooltip title={themeMode === 'light' ? '切换暗色主题' : '切换亮色主题'}>
             <Button
               type="text"
               size="small"
-              icon={themeMode === 'light' ? <MoonOutlined /> : themeMode === 'dark' ? <DesktopOutlined /> : <SunOutlined />}
+              icon={themeMode === 'light' ? <MoonOutlined /> : <SunOutlined />}
               onClick={toggleTheme}
               className="tag-btn"
               aria-label="切换主题"

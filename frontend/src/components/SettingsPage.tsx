@@ -2247,15 +2247,13 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
   return (
     <div
-      className="settings-page-root"
+      className="settings-page-root detail-panel"
       style={{
         height: '100%',
         overflowY: 'auto',
-        padding: '24px 32px',
-        background: 'var(--color-bg-layout, #f8fafc)',
       }}
     >
-      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div className="settings-header-card detail-card header-card">
         {onBack && (
           <button
             onClick={onBack}
@@ -2276,13 +2274,13 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           </button>
         )}
         <div style={{ minWidth: 0 }}>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>配置管理</h2>
+          <h2 className="card-title">配置管理</h2>
           <Paragraph type="secondary" style={{ marginTop: 4, fontSize: 13 }}>
             管理系统配置、执行器路径、标签、备份和消息智能体
           </Paragraph>
         </div>
       </div>
-      <Tabs items={tabItems} type="card" size="small" />
+      <Tabs className="settings-tabs" items={tabItems} type="card" size="small" />
 
       <Modal
         title="导入预览"
