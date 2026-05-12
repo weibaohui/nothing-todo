@@ -191,6 +191,16 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
             },
         );
         let _ = db.finish_todo_execution(todo_id, false).await;
+        let _ = db
+            .update_execution_record(
+                record_id,
+                crate::models::ExecutionStatus::Failed.as_str(),
+                "[]",
+                &format!("Failed to start todo execution: {}", e),
+                None,
+                None,
+            )
+            .await;
         task_manager.remove(&task_id).await;
         return ExecutionResult {
             task_id,

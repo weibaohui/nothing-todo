@@ -73,7 +73,9 @@ impl CodeExecutor for JoinaiExecutor {
                 let raw = ts.0;
                 // Try ISO 8601 first (new version format)
                 if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&raw) {
-                    return dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+                    return dt.with_timezone(&chrono::Utc)
+                        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                        .to_string();
                 }
                 // Try as numeric string (milliseconds or seconds)
                 if let Ok(ts_f) = raw.parse::<f64>() {
