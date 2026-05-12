@@ -194,10 +194,9 @@ export const darkTheme: ThemeConfig = {
 export const darkPalette = catppuccinMocha;
 export const darkAccent = cyanAccent;
 
-export type ThemeMode = 'light' | 'dark' | 'auto';
+export type ThemeMode = 'light' | 'dark';
 
 export const themeMap: Record<ThemeMode, ThemeConfig> = {
   light: lightTheme,
   dark: darkTheme,
-  auto: lightTheme, // auto 使用 lightTheme 作为默认值，实际主题由 CSS media query 控制
 };
