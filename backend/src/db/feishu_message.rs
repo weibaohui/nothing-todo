@@ -282,17 +282,21 @@ impl Database {
         Ok(())
     }
 
-    pub async fn get_feishu_message_stats(&self) -> Result<crate::models::FeishuMessageStats, sea_orm::DbErr> {
+    pub async fn get_feishu_message_stats(&self, hours: Option<u32>) -> Result<crate::models::FeishuMessageStats, sea_orm::DbErr> {
         let backend = self.conn.get_database_backend();
+        let hours = hours.unwrap_or(720); // default 30 days = 720 hours (matches frontend)
+        let time_filter = format!("datetime('now', '-{} hours')", hours);
 
-        let stats_sql = "SELECT \
+        let stats_sql = format!(
+            "SELECT \
             COUNT(*) as total, \
             COALESCE(SUM(CASE WHEN processed = 1 OR processed = 'true' THEN 1 ELSE 0 END), 0) as processed, \
             COALESCE(SUM(CASE WHEN processed IS NULL OR processed = 0 OR processed = 'false' THEN 1 ELSE 0 END), 0) as unprocessed, \
             COALESCE(SUM(CASE WHEN processed_todo_id IS NOT NULL THEN 1 ELSE 0 END), 0) as triggered_todos, \
             COUNT(DISTINCT sender_open_id) as unique_senders, \
             COUNT(DISTINCT chat_id) as unique_chats \
-            FROM feishu_messages";
+            FROM feishu_messages \
+            WHERE datetime(created_at) >= {}", time_filter);
 
         let mut stats = if let Some(row) = self.conn.query_one(Statement::from_string(backend, stats_sql.to_string())).await? {
             crate::models::FeishuMessageStats {

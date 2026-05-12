@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Table, Badge, Tag, Empty, Masonry, App, Button } from 'antd';
+import { Card, Table, Badge, Tag, Empty, Masonry, App, Button, Segmented, DatePicker } from 'antd';
 import {
   ArrowLeftOutlined,
   FileTextOutlined,
@@ -13,6 +13,7 @@ import {
   BarChartOutlined,
   MessageOutlined,
 } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { useApp } from '../hooks/useApp';
 import { PieChart, PieChartLegend } from './PieChart';
 import { TrendChart } from './dashboard/DashboardCharts';
@@ -21,6 +22,14 @@ import * as db from '../utils/database';
 import { getExecutorOption } from '../types';
 import type { DashboardStats, FeishuMessageStats } from '../types';
 import { formatRelativeTime } from '../utils/datetime';
+
+const TIME_RANGE_OPTIONS: { label: string; value: number | 'custom' }[] = [
+  { label: '5小时', value: 5 },
+  { label: '7天', value: 168 },
+  { label: '14天', value: 336 },
+  { label: '30天', value: 720 },
+  { label: '自定义', value: 'custom' },
+];
 
 const STATUS_COLORS: Record<string, string> = {
   pending: '#94a3b8',
@@ -160,42 +169,55 @@ export function Dashboard({ onBack }: DashboardProps) {
   const [loading, setLoading] = useState(true);
   const [msgStats, setMsgStats] = useState<FeishuMessageStats | null>(null);
   const [msgStatsError, setMsgStatsError] = useState(false);
+  const [timeRange, setTimeRange] = useState<number | 'custom'>(720); // default 30 days
+  const [customRange, setCustomRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+
+  const loadStats = async (hours?: number) => {
+    try {
+      setLoading(true);
+      const data = await db.getDashboardStats(hours);
+      setStats(data);
+    } catch {
+      message.error('加载统计数据失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTimeRangeChange = (value: number | 'custom') => {
+    setTimeRange(value);
+    if (value === 'custom') {
+      // Don't load yet, wait for date selection
+    } else {
+      setCustomRange(null);
+      loadStats(value);
+      loadMsgStats(value);
+    }
+  };
+
+  const handleCustomRangeChange = (dates: [dayjs.Dayjs, dayjs.Dayjs] | null) => {
+    setCustomRange(dates);
+    if (dates) {
+      const hours = Math.round(dates[1].diff(dates[0], 'hour', true));
+      loadStats(hours);
+      loadMsgStats(hours);
+    }
+  };
 
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        setLoading(true);
-        const data = await db.getDashboardStats();
-        if (!cancelled) setStats(data);
-      } catch {
-        if (!cancelled) {
-          message.error('加载统计数据失败');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    loadStats(720);
+    loadMsgStats(720);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadMsgStats() {
-      try {
-        if (!cancelled) setMsgStatsError(false);
-        const data = await db.getFeishuMessageStats();
-        if (!cancelled) setMsgStats(data);
-      } catch {
-        if (!cancelled) setMsgStatsError(true);
-      }
+  const loadMsgStats = async (hours?: number) => {
+    try {
+      setMsgStatsError(false);
+      const data = await db.getFeishuMessageStats(hours);
+      setMsgStats(data);
+    } catch {
+      setMsgStatsError(true);
     }
-    loadMsgStats();
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  };
 
   const totalTodos = stats?.total_todos ?? todos.length;
 
@@ -611,7 +633,7 @@ export function Dashboard({ onBack }: DashboardProps) {
     key: 'trend-chart',
     render: () => (
       <Card
-        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BarChartOutlined /><span>执行趋势（近30天）</span></div>}
+        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BarChartOutlined /><span>执行趋势</span></div>}
         className="dashboard-card" style={{ borderRadius: 12 }}
         bodyStyle={{ padding: '16px 20px' }}
       >
@@ -806,7 +828,7 @@ export function Dashboard({ onBack }: DashboardProps) {
 
       return (
         <Card
-          title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BarChartOutlined /><span>Token 趋势（近30天）</span></div>}
+          title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BarChartOutlined /><span>Token 趋势</span></div>}
           className="dashboard-card" style={{ borderRadius: 12 }}
           bodyStyle={{ padding: '16px 20px' }}
         >
@@ -958,6 +980,23 @@ export function Dashboard({ onBack }: DashboardProps) {
           返回任务列表
         </Button>
       )}
+      {/* Time Range Selector */}
+      <div style={{ marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <Segmented
+          value={timeRange}
+          onChange={(value) => handleTimeRangeChange(value as number | 'custom')}
+          options={TIME_RANGE_OPTIONS}
+        />
+        {timeRange === 'custom' && (
+          <DatePicker.RangePicker
+            value={customRange}
+            onChange={(dates) => handleCustomRangeChange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
+            showTime={{ format: 'HH:mm' }}
+            format="YYYY-MM-DD HH:mm"
+            style={{ minWidth: 280 }}
+          />
+        )}
+      </div>
       <Masonry
         columns={{ xs: 1, sm: 1, md: 2, lg: 2, xl: 3 }}
         gutter={[16, 16]}

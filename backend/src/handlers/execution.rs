@@ -312,8 +312,15 @@ pub async fn get_execution_summary(
 
 pub async fn get_dashboard_stats(
     State(state): State<AppState>,
+    Query(params): Query<DashboardStatsParams>,
 ) -> Result<ApiResponse<DashboardStats>, AppError> {
-    Ok(ApiResponse::ok(state.db.get_dashboard_stats().await?))
+    Ok(ApiResponse::ok(state.db.get_dashboard_stats(params.hours).await?))
+}
+
+#[derive(Deserialize)]
+pub struct DashboardStatsParams {
+    #[serde(default)]
+    pub hours: Option<u32>,
 }
 
 pub async fn get_running_todos(

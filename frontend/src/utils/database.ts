@@ -147,8 +147,9 @@ export async function getExecutionSummary(todoId: number): Promise<ExecutionSumm
   return unwrap(await api.get<ApiResp<ExecutionSummary>>(`/xyz/todos/${todoId}/summary`));
 }
 
-export async function getDashboardStats(): Promise<import('../types').DashboardStats> {
-  return unwrap(await api.get<ApiResp<import('../types').DashboardStats>>('/xyz/dashboard-stats'));
+export async function getDashboardStats(hours?: number): Promise<import('../types').DashboardStats> {
+  const params = hours !== undefined ? { hours } : undefined;
+  return unwrap(await api.get<ApiResp<import('../types').DashboardStats>>('/xyz/dashboard-stats', { params }));
 }
 
 export async function stopExecution(recordId: number): Promise<void> {
@@ -483,8 +484,9 @@ export async function getFeishuHistoryMessages(params?: {
   return unwrap(await api.get<ApiResp<FeishuHistoryMessagesPage>>('/xyz/feishu/history-messages', { params }));
 }
 
-export async function getFeishuMessageStats(): Promise<FeishuMessageStats> {
-  return unwrap(await api.get<ApiResp<FeishuMessageStats>>('/xyz/feishu/message-stats'));
+export async function getFeishuMessageStats(hours?: number): Promise<FeishuMessageStats> {
+  const params = hours !== undefined ? { hours } : undefined;
+  return unwrap(await api.get<ApiResp<FeishuMessageStats>>('/xyz/feishu/message-stats', { params }));
 }
 
 export interface FeishuSenderItem {
