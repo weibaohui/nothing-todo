@@ -80,6 +80,7 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
     };
     let todo_executor = todo.as_ref().and_then(|t| t.executor.clone());
     let todo_workspace = todo.as_ref().and_then(|t| t.workspace.clone());
+    let todo_worktree_enabled = todo.as_ref().map(|t| t.worktree_enabled).unwrap_or(false);
 
     // Determine which executor to use: explicit > todo stored > default
     let executor_type = req_executor
@@ -137,10 +138,10 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         executor.command_args_with_session(&message, Some(session_id_for_executor), is_resume);
 
     // Add worktree flag for claude_code and codex executors
-    // workspace 字段即为 git worktree 路径
+    // 需要同时满足：1) worktree_enabled=true 2) workspace 有值 3) 是 claude_code 或 codex
     let exec_type = executor.executor_type();
-    if let Some(wt) = todo_workspace.as_deref() {
-        if exec_type == ExecutorType::Claudecode || exec_type == ExecutorType::Codex {
+    if todo_worktree_enabled {
+        if let (Some(wt), true) = (todo_workspace.as_deref(), exec_type == ExecutorType::Claudecode || exec_type == ExecutorType::Codex) {
             command_args.push("--worktree".to_string());
             command_args.push(wt.to_string());
         }

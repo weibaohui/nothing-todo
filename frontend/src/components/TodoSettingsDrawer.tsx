@@ -28,6 +28,7 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
   const [schedulerConfig, setSchedulerConfig] = useState<string>('');
   const [selectedTags, setSelectedTags] = useState<number[]>([]);
   const [workspace, setWorkspace] = useState<string>('');
+  const [worktreeEnabled, setWorktreeEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [executorOptions, setExecutorOptions] = useState<ExecutorOption[]>(EXECUTORS);
   const [projectDirectories, setProjectDirectories] = useState<ProjectDirectory[]>([]);
@@ -58,6 +59,7 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
       setSchedulerConfig(todo.scheduler_config || '');
       setSelectedTags((todo as any).tag_ids || []);
       setWorkspace(todo.workspace || '');
+      setWorktreeEnabled(todo.worktree_enabled || false);
     }
   }, [todo, open]);
 
@@ -89,6 +91,7 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
         schedulerEnabled,
         schedulerConfig || null,
         trimmedWorkspace,
+        worktreeEnabled,
       );
       await db.updateScheduler(todo.id, schedulerEnabled, schedulerConfig || null);
       await db.updateTodoTags(todo.id, selectedTags);
@@ -224,6 +227,27 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
           }
         />
       </div>
+
+      {/* Worktree Switch - 仅 Claude Code 和 Codex 支持 */}
+      {(executor === 'claude_code' || executor === 'codex') && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>
+              Git Worktree
+            </div>
+            <Switch
+              checked={worktreeEnabled}
+              onChange={(checked) => setWorktreeEnabled(checked)}
+              disabled={!workspace}
+            />
+          </div>
+          {!workspace && (
+            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 4 }}>
+              请先设置工作目录
+            </div>
+          )}
+        </div>
+      )}
 
       <Divider style={{ margin: '8px 0 16px' }} />
 

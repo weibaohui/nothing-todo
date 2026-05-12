@@ -14,6 +14,7 @@ pub struct TodoUpdate<'a> {
     pub scheduler_enabled: Option<bool>,
     pub scheduler_config: Option<&'a str>,
     pub workspace: Option<&'a str>,
+    pub worktree_enabled: Option<bool>,
 }
 
 impl Database {
@@ -45,6 +46,7 @@ impl Database {
             scheduler_next_run_at,
             task_id: m.task_id,
             workspace: m.workspace,
+            worktree_enabled: m.worktree_enabled.unwrap_or(false),
         }
     }
 
@@ -127,6 +129,9 @@ impl Database {
             } else {
                 am.workspace = ActiveValue::Set(Some(ws.to_string()));
             }
+        }
+        if let Some(wt) = update.worktree_enabled {
+            am.worktree_enabled = ActiveValue::Set(Some(wt));
         }
         self.exec_update(am).await
     }
