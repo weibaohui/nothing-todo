@@ -107,6 +107,7 @@ impl Database {
     }
 
     /// 如果目录不存在则创建，返回目录信息
+    /// 处理并发竞态：捕获唯一约束冲突并重试查询
     pub async fn get_or_create_project_directory(
         &self,
         path: &str,
@@ -114,10 +115,29 @@ impl Database {
         if let Some(existing) = self.get_project_directory_by_path(path).await? {
             return Ok(existing);
         }
-        let id = self.create_project_directory(path, None).await?;
-        // 从数据库重新查询以获取准确的时间戳
-        self.get_project_directory_by_id(id)
-            .await?
-            .ok_or_else(|| sea_orm::DbErr::Custom("Failed to retrieve created directory".into()))
+
+        match self.create_project_directory(path, None).await {
+            Ok(id) => {
+                // 创建成功后从数据库查询以获取准确的时间戳
+                self.get_project_directory_by_id(id)
+                    .await?
+                    .ok_or_else(|| sea_orm::DbErr::Custom("Failed to retrieve created directory".into()))
+            }
+            Err(e) => {
+                // 如果是唯一约束冲突，说明另一个请求已经创建了该目录，重试查询
+                if is_unique_constraint_error(&e) {
+                    self.get_project_directory_by_path(path)
+                        .await?
+                        .ok_or_else(|| sea_orm::DbErr::Custom("Directory disappeared after conflict".into()))
+                } else {
+                    Err(e)
+                }
+            }
+        }
     }
+}
+
+fn is_unique_constraint_error(err: &sea_orm::DbErr) -> bool {
+    let err_str = format!("{:?}", err);
+    err_str.contains("UNIQUE constraint failed")
 }
