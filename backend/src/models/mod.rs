@@ -415,6 +415,32 @@ pub struct DashboardStats {
     pub daily_executions: Vec<DailyExecution>,
     pub daily_token_stats: Vec<DailyTokenStats>,
     pub recent_executions: Vec<ExecutionRecord>,
+    pub trigger_type_distribution: Vec<TriggerTypeCount>,
+    pub executor_duration_stats: Vec<ExecutorDuration>,
+    pub model_cache_stats: Vec<ModelCacheStat>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerTypeCount {
+    pub trigger_type: String,
+    pub count: i64,
+    pub success_count: i64,
+    pub failed_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutorDuration {
+    pub executor: String,
+    pub avg_duration_ms: f64,
+    pub execution_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelCacheStat {
+    pub model: String,
+    pub total_input_tokens: u64,
+    pub total_cache_read_tokens: u64,
+    pub cache_hit_rate: f64,
 }
 
 #[derive(Deserialize)]
@@ -432,6 +458,17 @@ pub struct UpdateConfigRequest {
     pub slash_command_rules: Option<Vec<crate::config::SlashCommandRule>>,
     pub default_response_todo_id: Option<i64>,
     pub history_message_max_age_secs: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeishuMessageStats {
+    pub total_messages: i64,
+    pub processed: i64,
+    pub unprocessed: i64,
+    pub triggered_todos: i64,
+    pub unique_senders: i64,
+    pub last_24h_messages: i64,
+    pub unique_chats: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

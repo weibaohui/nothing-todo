@@ -178,6 +178,29 @@ export interface DashboardStats {
   daily_executions: DailyExecution[];
   daily_token_stats: DailyTokenStats[];
   recent_executions: ExecutionRecord[];
+  trigger_type_distribution: TriggerTypeCount[];
+  executor_duration_stats: ExecutorDuration[];
+  model_cache_stats: ModelCacheStat[];
+}
+
+export interface TriggerTypeCount {
+  trigger_type: string;
+  count: number;
+  success_count: number;
+  failed_count: number;
+}
+
+export interface ExecutorDuration {
+  executor: string;
+  avg_duration_ms: number;
+  execution_count: number;
+}
+
+export interface ModelCacheStat {
+  model: string;
+  total_input_tokens: number;
+  total_cache_read_tokens: number;
+  cache_hit_rate: number;
 }
 
 export interface ExecutionRecordsPage {
@@ -364,6 +387,16 @@ export interface FeishuHistoryMessagesPage {
   total: number;
   page: number;
   page_size: number;
+}
+
+export interface FeishuMessageStats {
+  total_messages: number;
+  processed: number;
+  unprocessed: number;
+  triggered_todos: number;
+  unique_senders: number;
+  last_24h_messages: number;
+  unique_chats: number;
 }
 
 export interface FeishuHistoryChat {

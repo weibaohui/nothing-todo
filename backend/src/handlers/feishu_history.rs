@@ -3,7 +3,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::handlers::{AppError, AppState};
-use crate::models::ApiResponse;
+use crate::models::{ApiResponse, FeishuMessageStats};
 
 #[derive(Debug, Deserialize)]
 pub struct HistoryMessagesQuery {
@@ -209,4 +209,11 @@ pub async fn delete_history_chat(
 ) -> Result<Json<ApiResponse<()>>, AppError> {
     state.db.delete_feishu_history_chat(id).await?;
     Ok(Json(ApiResponse::ok(())))
+}
+
+pub async fn get_message_stats(
+    State(state): State<AppState>,
+) -> Result<Json<ApiResponse<FeishuMessageStats>>, AppError> {
+    let stats = state.db.get_feishu_message_stats().await?;
+    Ok(Json(ApiResponse::ok(stats)))
 }

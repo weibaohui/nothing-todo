@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutorSkills, SkillComparison, PaginatedInvocations, FeishuHistoryMessagesPage, FeishuHistoryChat } from '../types';
+import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutorSkills, SkillComparison, PaginatedInvocations, FeishuHistoryMessagesPage, FeishuHistoryChat, FeishuMessageStats } from '../types';
 
 interface ApiResp<T> {
   code: number;
@@ -453,6 +453,10 @@ export async function getFeishuHistoryMessages(params?: {
   page_size?: number;
 }): Promise<FeishuHistoryMessagesPage> {
   return unwrap(await api.get<ApiResp<FeishuHistoryMessagesPage>>('/xyz/feishu/history-messages', { params }));
+}
+
+export async function getFeishuMessageStats(): Promise<FeishuMessageStats> {
+  return unwrap(await api.get<ApiResp<FeishuMessageStats>>('/xyz/feishu/message-stats'));
 }
 
 export interface FeishuSenderItem {

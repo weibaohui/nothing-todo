@@ -451,6 +451,91 @@ impl Database {
             .collect();
         model_distribution.sort_by(|a, b| b.execution_count.cmp(&a.execution_count));
 
+        // Trigger type distribution
+        let trigger_sql = "SELECT \
+            trigger_type, \
+            COUNT(*) as count, \
+            COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success_count, \
+            COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed_count \
+            FROM execution_records \
+            WHERE started_at >= date('now', '-90 days') AND trigger_type IS NOT NULL \
+            GROUP BY trigger_type";
+
+        let mut trigger_type_distribution: Vec<crate::models::TriggerTypeCount> = self.conn
+            .query_all(Statement::from_string(backend, trigger_sql.to_string()))
+            .await?
+            .into_iter()
+            .filter_map(|row| {
+                let tt: String = row.try_get_by("trigger_type").ok()?;
+                let c: i64 = row.try_get_by("count").ok()?;
+                let sc: i64 = row.try_get_by("success_count").ok()?;
+                let fc: i64 = row.try_get_by("failed_count").ok()?;
+                Some(crate::models::TriggerTypeCount {
+                    trigger_type: tt,
+                    count: c,
+                    success_count: sc,
+                    failed_count: fc,
+                })
+            })
+            .collect();
+        trigger_type_distribution.sort_by(|a, b| b.count.cmp(&a.count));
+
+        // Executor average duration
+        let duration_sql = "SELECT \
+            COALESCE(executor, 'claudecode') as executor, \
+            ROUND(AVG(json_extract(usage, '$.duration_ms')), 0) as avg_duration, \
+            COUNT(*) as execution_count \
+            FROM execution_records \
+            WHERE started_at >= date('now', '-90 days') AND json_extract(usage, '$.duration_ms') IS NOT NULL \
+            GROUP BY COALESCE(executor, 'claudecode')";
+
+        let mut executor_duration_stats: Vec<crate::models::ExecutorDuration> = self.conn
+            .query_all(Statement::from_string(backend, duration_sql.to_string()))
+            .await?
+            .into_iter()
+            .filter_map(|row| {
+                let exec: String = row.try_get_by("executor").ok()?;
+                let ad: f64 = row.try_get_by("avg_duration").ok()?;
+                let ec: i64 = row.try_get_by("execution_count").ok()?;
+                Some(crate::models::ExecutorDuration {
+                    executor: exec,
+                    avg_duration_ms: ad,
+                    execution_count: ec,
+                })
+            })
+            .collect();
+        executor_duration_stats.sort_by(|a, b| b.avg_duration_ms.partial_cmp(&a.avg_duration_ms).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Model cache stats
+        let cache_sql = "SELECT \
+            COALESCE(model, 'unknown') as model, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.input_tokens'), 0)), 0) as input_tokens, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_read_input_tokens'), 0)), 0) as cache_read \
+            FROM execution_records \
+            WHERE started_at >= date('now', '-90 days') AND model IS NOT NULL \
+            GROUP BY COALESCE(model, 'unknown')";
+
+        let mut model_cache_stats: Vec<crate::models::ModelCacheStat> = self.conn
+            .query_all(Statement::from_string(backend, cache_sql.to_string()))
+            .await?
+            .into_iter()
+            .filter_map(|row| {
+                let model: String = row.try_get_by("model").ok()?;
+                let it: i64 = row.try_get_by("input_tokens").ok()?;
+                let cr: i64 = row.try_get_by("cache_read").ok()?;
+                let total = it as u64 + cr as u64;
+                let rate = if total > 0 { cr as f64 / total as f64 * 100.0 } else { 0.0 };
+                Some(crate::models::ModelCacheStat {
+                    model,
+                    total_input_tokens: it as u64,
+                    total_cache_read_tokens: cr as u64,
+                    cache_hit_rate: rate,
+                })
+            })
+            .collect();
+        model_cache_stats.sort_by(|a, b| b.cache_hit_rate.partial_cmp(&a.cache_hit_rate).unwrap_or(std::cmp::Ordering::Equal));
+        model_cache_stats.retain(|m| m.total_input_tokens > 0 || m.total_cache_read_tokens > 0);
+
         // 5. Daily execution stats via SQL
         let daily_sql = "SELECT \
             SUBSTR(COALESCE(started_at, ''), 1, 10) as day, \
@@ -579,6 +664,9 @@ impl Database {
             daily_executions,
             daily_token_stats,
             recent_executions,
+            trigger_type_distribution,
+            executor_duration_stats,
+            model_cache_stats,
         })
     }
 
