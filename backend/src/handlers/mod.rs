@@ -152,6 +152,7 @@ pub mod agent_bot;
 pub mod executor_config;
 mod feishu_history;
 mod session;
+pub mod project_directory;
 
 // WebSocket handler
 pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
@@ -434,6 +435,7 @@ pub fn create_app(
         .route("/xyz/sessions", get(session::list_sessions))
         .route("/xyz/sessions/stats", get(session::get_session_stats))
         .route("/xyz/sessions/{id}", get(session::get_session_detail).delete(session::delete_session))
+        .merge(project_directory::routes())
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
         .layer(CompressionLayer::new())
         .layer(

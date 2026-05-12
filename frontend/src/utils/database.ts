@@ -94,6 +94,32 @@ export async function deleteTag(id: number): Promise<void> {
   await api.delete(`/xyz/tags/${id}`);
 }
 
+// Project Directory APIs
+
+export interface ProjectDirectory {
+  id: number;
+  path: string;
+  name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getProjectDirectories(): Promise<ProjectDirectory[]> {
+  return unwrap(await api.get<ApiResp<ProjectDirectory[]>>('/xyz/project-directories'));
+}
+
+export async function createProjectDirectory(path: string, name?: string): Promise<ProjectDirectory> {
+  return unwrap(await api.post<ApiResp<ProjectDirectory>>('/xyz/project-directories', { path, name }));
+}
+
+export async function updateProjectDirectory(id: number, name?: string): Promise<void> {
+  await api.put(`/xyz/project-directories/${id}`, { name });
+}
+
+export async function deleteProjectDirectory(id: number): Promise<void> {
+  await api.delete(`/xyz/project-directories/${id}`);
+}
+
 // Execution APIs
 
 export async function getExecutionRecords(todoId: number, page?: number, limit?: number): Promise<ExecutionRecordsPage> {

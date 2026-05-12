@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Drawer, Input, Button, Switch, Divider, App } from 'antd';
+import { Drawer, Button, Switch, Divider, App, AutoComplete } from 'antd';
 import { ClockCircleOutlined, CheckOutlined, FolderOutlined } from '@ant-design/icons';
 import { Cron } from 'react-js-cron';
 import 'react-js-cron/dist/styles.css';
 import * as db from '../utils/database';
+import type { ProjectDirectory } from '../utils/database';
 import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
 import { EXECUTORS, executorConfigToOption } from '../types';
 import type { Todo, ExecutorConfig, ExecutorOption } from '../types';
@@ -29,6 +30,7 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
   const [workspace, setWorkspace] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [executorOptions, setExecutorOptions] = useState<ExecutorOption[]>(EXECUTORS);
+  const [projectDirectories, setProjectDirectories] = useState<ProjectDirectory[]>([]);
 
   useEffect(() => {
     db.getExecutors()
@@ -39,6 +41,14 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
         }
       })
       .catch(() => {});
+  }, [open]);
+
+  useEffect(() => {
+    if (open) {
+      db.getProjectDirectories()
+        .then(setProjectDirectories)
+        .catch(() => {});
+    }
   }, [open]);
 
   useEffect(() => {
@@ -57,6 +67,19 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
     setLoading(true);
     try {
       const trimmedWorkspace = workspace.trim() || null;
+
+      // 如果填写了目录但不在项目目录列表中，自动添加
+      if (trimmedWorkspace) {
+        const exists = projectDirectories.some(d => d.path === trimmedWorkspace);
+        if (!exists) {
+          try {
+            await db.createProjectDirectory(trimmedWorkspace);
+          } catch {
+            // 忽略添加失败，可能是已存在
+          }
+        }
+      }
+
       await db.updateTodo(
         todo.id,
         todo.title,
@@ -187,11 +210,18 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
           <FolderOutlined style={{ color: 'var(--color-primary)', marginRight: 6 }} />
           工作目录
         </div>
-        <Input
+        <AutoComplete
           value={workspace}
-          onChange={(e) => setWorkspace(e.target.value)}
-          placeholder="设置执行器的工作目录（可选）"
+          onChange={(value) => setWorkspace(value)}
+          options={projectDirectories.map(d => ({
+            value: d.path,
+            label: d.name ? `${d.name} (${d.path})` : d.path,
+          }))}
+          placeholder="从项目目录选择或手动输入路径"
           style={{ width: '100%' }}
+          filterOption={(input, option) =>
+            (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+          }
         />
       </div>
 
