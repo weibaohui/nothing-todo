@@ -325,12 +325,15 @@ impl Database {
 
     pub async fn get_dashboard_stats(
         &self,
+        hours: Option<u32>,
     ) -> Result<crate::models::DashboardStats, sea_orm::DbErr> {
         use std::collections::HashMap;
 
         let backend = self.conn.get_database_backend();
+        let hours = hours.unwrap_or(2160); // default 90 days = 2160 hours
+        let time_filter = format!("datetime('now', '-{} hours')", hours);
+        let daily_limit = (hours / 24).max(1).min(365) as i64;
 
-        // 1. Todo status counts via SQL (replaces get_todos() + in-memory filtering)
         let todo_sql = "SELECT \
             COUNT(*) as total, \
             COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) as pending, \
@@ -339,6 +342,24 @@ impl Database {
             COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed, \
             COALESCE(SUM(CASE WHEN scheduler_enabled = 1 AND scheduler_config IS NOT NULL THEN 1 ELSE 0 END), 0) as scheduled \
             FROM todos WHERE deleted_at IS NULL";
+
+        // Build time-filtered SQL queries
+        let overall_sql = format!(
+            "SELECT \
+            COUNT(*) as total, \
+            COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success, \
+            COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.input_tokens'), 0)), 0) as input_tokens, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.output_tokens'), 0)), 0) as output_tokens, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_read_input_tokens'), 0)), 0) as cache_read, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_creation_input_tokens'), 0)), 0) as cache_creation, \
+            COALESCE(SUM(COALESCE(json_extract(usage, '$.total_cost_usd'), 0.0)), 0.0) as total_cost, \
+            COALESCE(SUM(CASE WHEN json_extract(usage, '$.duration_ms') IS NOT NULL THEN json_extract(usage, '$.duration_ms') ELSE 0 END), 0) as total_duration, \
+            COALESCE(SUM(CASE WHEN json_extract(usage, '$.duration_ms') IS NOT NULL THEN 1 ELSE 0 END), 0) as duration_count \
+            FROM execution_records \
+            WHERE started_at >= {}",
+            time_filter
+        );
 
         let (
             total_todos,
@@ -404,21 +425,6 @@ impl Database {
             })
             .collect();
 
-        // 2. Overall execution stats with token aggregation
-        let overall_sql = "SELECT \
-            COUNT(*) as total, \
-            COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success, \
-            COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed, \
-            COALESCE(SUM(COALESCE(json_extract(usage, '$.input_tokens'), 0)), 0) as input_tokens, \
-            COALESCE(SUM(COALESCE(json_extract(usage, '$.output_tokens'), 0)), 0) as output_tokens, \
-            COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_read_input_tokens'), 0)), 0) as cache_read, \
-            COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_creation_input_tokens'), 0)), 0) as cache_creation, \
-            COALESCE(SUM(COALESCE(json_extract(usage, '$.total_cost_usd'), 0.0)), 0.0) as total_cost, \
-            COALESCE(SUM(CASE WHEN json_extract(usage, '$.duration_ms') IS NOT NULL THEN json_extract(usage, '$.duration_ms') ELSE 0 END), 0) as total_duration, \
-            COALESCE(SUM(CASE WHEN json_extract(usage, '$.duration_ms') IS NOT NULL THEN 1 ELSE 0 END), 0) as duration_count \
-            FROM execution_records \
-            WHERE started_at >= date('now', '-90 days')";
-
         let (
             total_executions,
             success_executions,
@@ -459,7 +465,8 @@ impl Database {
         };
 
         // 3. Executor distribution via SQL
-        let executor_sql = "SELECT \
+        let executor_sql = format!(
+            "SELECT \
             COALESCE(executor, 'claudecode') as executor, \
             COUNT(*) as execution_count, \
             COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success_count, \
@@ -468,8 +475,10 @@ impl Database {
             COALESCE(SUM(COALESCE(json_extract(usage, '$.output_tokens'), 0)), 0) as output_tokens, \
             COALESCE(SUM(COALESCE(json_extract(usage, '$.total_cost_usd'), 0.0)), 0.0) as cost \
             FROM execution_records \
-            WHERE started_at >= date('now', '-90 days') \
-            GROUP BY COALESCE(executor, 'claudecode')";
+            WHERE started_at >= {} \
+            GROUP BY COALESCE(executor, 'claudecode')",
+            time_filter
+        );
 
         let mut executor_distribution: Vec<crate::models::ExecutorCount> = self
             .conn
@@ -502,7 +511,8 @@ impl Database {
         executor_distribution.sort_by(|a, b| b.execution_count.cmp(&a.execution_count));
 
         // 4. Model distribution via SQL
-        let model_sql = "SELECT \
+        let model_sql = format!(
+            "SELECT \
             COALESCE(model, 'unknown') as model, \
             COUNT(*) as execution_count, \
             COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success_count, \
@@ -513,8 +523,10 @@ impl Database {
             COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_creation_input_tokens'), 0)), 0) as cache_creation, \
             COALESCE(SUM(COALESCE(json_extract(usage, '$.total_cost_usd'), 0.0)), 0.0) as cost \
             FROM execution_records \
-            WHERE started_at >= date('now', '-90 days') \
-            GROUP BY COALESCE(model, 'unknown')";
+            WHERE started_at >= {} \
+            GROUP BY COALESCE(model, 'unknown')",
+            time_filter
+        );
 
         let mut model_distribution: Vec<crate::models::ModelCount> = self
             .conn
@@ -551,14 +563,17 @@ impl Database {
         model_distribution.sort_by(|a, b| b.execution_count.cmp(&a.execution_count));
 
         // Trigger type distribution
-        let trigger_sql = "SELECT \
+        let trigger_sql = format!(
+            "SELECT \
             COALESCE(trigger_type, 'manual') as trigger_type, \
             COUNT(*) as count, \
             COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success_count, \
             COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed_count \
             FROM execution_records \
-            WHERE started_at >= date('now', '-90 days') \
-            GROUP BY COALESCE(trigger_type, 'manual')";
+            WHERE started_at >= {} \
+            GROUP BY COALESCE(trigger_type, 'manual')",
+            time_filter
+        );
 
         let mut trigger_type_distribution: Vec<crate::models::TriggerTypeCount> = self.conn
             .query_all(Statement::from_string(backend, trigger_sql.to_string()))
@@ -580,13 +595,16 @@ impl Database {
         trigger_type_distribution.sort_by(|a, b| b.count.cmp(&a.count));
 
         // Executor average duration
-        let duration_sql = "SELECT \
+        let duration_sql = format!(
+            "SELECT \
             COALESCE(executor, 'claudecode') as executor, \
             ROUND(AVG(json_extract(usage, '$.duration_ms')), 0) as avg_duration, \
             COUNT(*) as execution_count \
             FROM execution_records \
-            WHERE started_at >= date('now', '-90 days') AND json_extract(usage, '$.duration_ms') IS NOT NULL \
-            GROUP BY COALESCE(executor, 'claudecode')";
+            WHERE started_at >= {} AND json_extract(usage, '$.duration_ms') IS NOT NULL \
+            GROUP BY COALESCE(executor, 'claudecode')",
+            time_filter
+        );
 
         let mut executor_duration_stats: Vec<crate::models::ExecutorDuration> = self.conn
             .query_all(Statement::from_string(backend, duration_sql.to_string()))
@@ -606,13 +624,16 @@ impl Database {
         executor_duration_stats.sort_by(|a, b| b.avg_duration_ms.partial_cmp(&a.avg_duration_ms).unwrap_or(std::cmp::Ordering::Equal));
 
         // Model cache stats
-        let cache_sql = "SELECT \
+        let cache_sql = format!(
+            "SELECT \
             COALESCE(model, 'unknown') as model, \
             COALESCE(SUM(COALESCE(json_extract(usage, '$.input_tokens'), 0)), 0) as input_tokens, \
             COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_read_input_tokens'), 0)), 0) as cache_read \
             FROM execution_records \
-            WHERE started_at >= date('now', '-90 days') AND model IS NOT NULL \
-            GROUP BY COALESCE(model, 'unknown')";
+            WHERE started_at >= {} AND model IS NOT NULL \
+            GROUP BY COALESCE(model, 'unknown')",
+            time_filter
+        );
 
         let mut model_cache_stats: Vec<crate::models::ModelCacheStat> = self.conn
             .query_all(Statement::from_string(backend, cache_sql.to_string()))
@@ -636,7 +657,8 @@ impl Database {
         model_cache_stats.retain(|m| m.total_input_tokens > 0 || m.total_cache_read_tokens > 0);
 
         // 5. Daily execution stats via SQL
-        let daily_sql = "SELECT \
+        let daily_sql = format!(
+            "SELECT \
             SUBSTR(COALESCE(started_at, ''), 1, 10) as day, \
             COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success, \
             COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed, \
@@ -646,10 +668,12 @@ impl Database {
             COALESCE(SUM(COALESCE(json_extract(usage, '$.cache_creation_input_tokens'), 0)), 0) as cache_creation, \
             COALESCE(SUM(COALESCE(json_extract(usage, '$.total_cost_usd'), 0.0)), 0.0) as cost \
             FROM execution_records \
-            WHERE started_at IS NOT NULL AND LENGTH(started_at) >= 10 AND started_at >= date('now', '-90 days') \
+            WHERE started_at IS NOT NULL AND LENGTH(started_at) >= 10 AND started_at >= {} \
             GROUP BY SUBSTR(started_at, 1, 10) \
             ORDER BY day DESC \
-            LIMIT 30";
+            LIMIT {}",
+            time_filter, daily_limit
+        );
 
         let daily_rows = self
             .conn
@@ -688,7 +712,8 @@ impl Database {
         daily_token_stats.reverse();
 
         // 6. Tag distribution via SQL (join through todo_tags)
-        let tag_sql = "SELECT \
+        let tag_sql = format!(
+            "SELECT \
             tt.tag_id, \
             COUNT(*) as execution_count, \
             COALESCE(SUM(CASE WHEN er.status = 'success' THEN 1 ELSE 0 END), 0) as success_count, \
@@ -698,8 +723,10 @@ impl Database {
             COALESCE(SUM(COALESCE(json_extract(er.usage, '$.total_cost_usd'), 0.0)), 0.0) as cost \
             FROM execution_records er \
             INNER JOIN todo_tags tt ON tt.todo_id = er.todo_id \
-            WHERE er.todo_id IS NOT NULL \
-            GROUP BY tt.tag_id";
+            WHERE er.todo_id IS NOT NULL AND er.started_at >= {} \
+            GROUP BY tt.tag_id",
+            time_filter
+        );
 
         let tag_rows = self
             .conn
@@ -746,11 +773,42 @@ impl Database {
         tag_distribution.sort_by(|a, b| b.execution_count.cmp(&a.execution_count));
 
         // 7. Recent executions (only load 10 rows, not the entire table)
-        let recent_records = execution_records::Entity::find()
-            .order_by_desc(execution_records::Column::StartedAt)
-            .limit(10)
-            .all(&self.conn)
-            .await?;
+        let recent_sql = format!(
+            "SELECT id, todo_id, executor, trigger_type, status, started_at, finished_at, usage, task_id, session_id, result, resume_message FROM execution_records \
+            WHERE started_at >= {} \
+            ORDER BY started_at DESC LIMIT 10",
+            time_filter
+        );
+        let recent_records: Vec<execution_records::Model> = self
+            .conn
+            .query_all(Statement::from_string(backend, recent_sql))
+            .await?
+            .into_iter()
+            .map(|row| {
+                execution_records::Model {
+                    id: row.try_get_by("id").unwrap_or(0),
+                    todo_id: row.try_get_by("todo_id").ok(),
+                    executor: row.try_get_by("executor").ok(),
+                    trigger_type: row.try_get_by("trigger_type").ok(),
+                    status: row.try_get_by("status").ok(),
+                    started_at: row.try_get_by("started_at").ok(),
+                    finished_at: row.try_get_by("finished_at").ok(),
+                    usage: row.try_get_by("usage").ok(),
+                    task_id: row.try_get_by("task_id").ok(),
+                    session_id: row.try_get_by("session_id").ok(),
+                    result: row.try_get_by("result").ok(),
+                    resume_message: row.try_get_by("resume_message").ok(),
+                    command: None,
+                    stdout: None,
+                    stderr: None,
+                    logs: None,
+                    model: None,
+                    pid: None,
+                    todo_progress: None,
+                    execution_stats: None,
+                }
+            })
+            .collect();
 
         let recent_executions: Vec<crate::models::ExecutionRecord> =
             recent_records.into_iter().map(Into::into).collect();
