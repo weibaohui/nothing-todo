@@ -9,8 +9,8 @@ pub struct ProjectDirectory {
     pub id: i64,
     pub path: String,
     pub name: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 impl Database {
@@ -26,8 +26,8 @@ impl Database {
                 id: m.id,
                 path: m.path,
                 name: m.name,
-                created_at: m.created_at.unwrap_or_default(),
-                updated_at: m.updated_at.unwrap_or_default(),
+                created_at: m.created_at,
+                updated_at: m.updated_at,
             })
             .collect())
     }
@@ -84,8 +84,25 @@ impl Database {
             id: m.id,
             path: m.path,
             name: m.name,
-            created_at: m.created_at.unwrap_or_default(),
-            updated_at: m.updated_at.unwrap_or_default(),
+            created_at: m.created_at,
+            updated_at: m.updated_at,
+        }))
+    }
+
+    pub async fn get_project_directory_by_id(
+        &self,
+        id: i64,
+    ) -> Result<Option<ProjectDirectory>, sea_orm::DbErr> {
+        let model = project_directories::Entity::find_by_id(id)
+            .one(&self.conn)
+            .await?;
+
+        Ok(model.map(|m| ProjectDirectory {
+            id: m.id,
+            path: m.path,
+            name: m.name,
+            created_at: m.created_at,
+            updated_at: m.updated_at,
         }))
     }
 
@@ -98,12 +115,9 @@ impl Database {
             return Ok(existing);
         }
         let id = self.create_project_directory(path, None).await?;
-        Ok(ProjectDirectory {
-            id,
-            path: path.to_string(),
-            name: None,
-            created_at: crate::models::utc_timestamp(),
-            updated_at: crate::models::utc_timestamp(),
-        })
+        // 从数据库重新查询以获取准确的时间戳
+        self.get_project_directory_by_id(id)
+            .await?
+            .ok_or_else(|| sea_orm::DbErr::Custom("Failed to retrieve created directory".into()))
     }
 }
