@@ -148,8 +148,8 @@ export async function getExecutionSummary(todoId: number): Promise<ExecutionSumm
 }
 
 export async function getDashboardStats(hours?: number): Promise<import('../types').DashboardStats> {
-  const params = hours ? `?hours=${hours}` : '';
-  return unwrap(await api.get<ApiResp<import('../types').DashboardStats>>(`/xyz/dashboard-stats${params}`));
+  const params = hours !== undefined ? { hours } : undefined;
+  return unwrap(await api.get<ApiResp<import('../types').DashboardStats>>('/xyz/dashboard-stats', { params }));
 }
 
 export async function stopExecution(recordId: number): Promise<void> {
@@ -485,8 +485,8 @@ export async function getFeishuHistoryMessages(params?: {
 }
 
 export async function getFeishuMessageStats(hours?: number): Promise<FeishuMessageStats> {
-  const params = hours ? `?hours=${hours}` : '';
-  return unwrap(await api.get<ApiResp<FeishuMessageStats>>(`/xyz/feishu/message-stats${params}`));
+  const params = hours !== undefined ? { hours } : undefined;
+  return unwrap(await api.get<ApiResp<FeishuMessageStats>>('/xyz/feishu/message-stats', { params }));
 }
 
 export interface FeishuSenderItem {

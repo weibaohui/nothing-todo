@@ -330,7 +330,7 @@ impl Database {
         use std::collections::HashMap;
 
         let backend = self.conn.get_database_backend();
-        let hours = hours.unwrap_or(2160); // default 90 days = 2160 hours
+        let hours = hours.unwrap_or(720); // default 30 days = 720 hours (matches frontend)
         let time_filter = format!("datetime('now', '-{} hours')", hours);
         let daily_limit = (hours / 24).max(1).min(365) as i64;
 
@@ -773,6 +773,8 @@ impl Database {
         tag_distribution.sort_by(|a, b| b.execution_count.cmp(&a.execution_count));
 
         // 7. Recent executions (only load 10 rows, not the entire table)
+        // Note: Only essential fields are loaded for performance; logs, stdout, stderr,
+        // command, model, pid, todo_progress, execution_stats are omitted as they're large
         let recent_sql = format!(
             "SELECT id, todo_id, executor, trigger_type, status, started_at, finished_at, usage, task_id, session_id, result, resume_message FROM execution_records \
             WHERE started_at >= {} \

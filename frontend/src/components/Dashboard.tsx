@@ -205,10 +205,8 @@ export function Dashboard({ onBack }: DashboardProps) {
   };
 
   useEffect(() => {
-    const initialHours = timeRange === 'custom' ? undefined : timeRange;
-    loadStats(initialHours);
-    loadMsgStats(initialHours);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    loadStats(720);
+    loadMsgStats(720);
   }, []);
 
   const loadMsgStats = async (hours?: number) => {

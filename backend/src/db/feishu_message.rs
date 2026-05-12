@@ -284,7 +284,7 @@ impl Database {
 
     pub async fn get_feishu_message_stats(&self, hours: Option<u32>) -> Result<crate::models::FeishuMessageStats, sea_orm::DbErr> {
         let backend = self.conn.get_database_backend();
-        let hours = hours.unwrap_or(2160); // default 90 days = 2160 hours
+        let hours = hours.unwrap_or(720); // default 30 days = 720 hours (matches frontend)
         let time_filter = format!("datetime('now', '-{} hours')", hours);
 
         let stats_sql = format!(
