@@ -453,13 +453,13 @@ impl Database {
 
         // Trigger type distribution
         let trigger_sql = "SELECT \
-            trigger_type, \
+            COALESCE(trigger_type, 'manual') as trigger_type, \
             COUNT(*) as count, \
             COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success_count, \
             COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed_count \
             FROM execution_records \
-            WHERE started_at >= date('now', '-90 days') AND trigger_type IS NOT NULL \
-            GROUP BY trigger_type";
+            WHERE started_at >= date('now', '-90 days') \
+            GROUP BY COALESCE(trigger_type, 'manual')";
 
         let mut trigger_type_distribution: Vec<crate::models::TriggerTypeCount> = self.conn
             .query_all(Statement::from_string(backend, trigger_sql.to_string()))

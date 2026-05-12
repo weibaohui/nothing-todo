@@ -159,6 +159,7 @@ export function Dashboard({ onBack }: DashboardProps) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [msgStats, setMsgStats] = useState<FeishuMessageStats | null>(null);
+  const [msgStatsError, setMsgStatsError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -184,10 +185,11 @@ export function Dashboard({ onBack }: DashboardProps) {
     let cancelled = false;
     async function loadMsgStats() {
       try {
+        if (!cancelled) setMsgStatsError(false);
         const data = await db.getFeishuMessageStats();
         if (!cancelled) setMsgStats(data);
       } catch {
-        // silently ignore
+        if (!cancelled) setMsgStatsError(true);
       }
     }
     loadMsgStats();
@@ -888,6 +890,8 @@ export function Dashboard({ onBack }: DashboardProps) {
             <MiniStat title="处理率" value={processingRate} prefix={<BarChartOutlined />} color="#8b5cf6" decimals={1} suffix="%" loading={false} />
             <MiniStat title="触发任务" value={msgStats.triggered_todos} prefix={<ThunderboltOutlined />} color="#f59e0b" loading={false} chineseFormat />
           </div>
+        ) : msgStatsError ? (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="消息数据加载失败" />
         ) : (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无消息数据" />
         )}

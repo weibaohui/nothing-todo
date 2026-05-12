@@ -304,7 +304,7 @@ impl Database {
 
         // Last 24h count - try matching ISO datetime or timestamp format
         let recent_sql = "SELECT COUNT(*) as cnt FROM feishu_messages WHERE \
-            created_at IS NOT NULL AND created_at >= datetime('now', '-1 day')";
+            created_at IS NOT NULL AND datetime(created_at) >= datetime('now', '-1 day')";
         if let Some(row) = self.conn.query_one(Statement::from_string(backend, recent_sql.to_string())).await? {
             stats.last_24h_messages = row.try_get_by("cnt").unwrap_or(0);
         }
