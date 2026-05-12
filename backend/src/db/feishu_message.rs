@@ -296,7 +296,7 @@ impl Database {
             COUNT(DISTINCT sender_open_id) as unique_senders, \
             COUNT(DISTINCT chat_id) as unique_chats \
             FROM feishu_messages \
-            WHERE created_at >= {}", time_filter);
+            WHERE datetime(created_at) >= {}", time_filter);
 
         let mut stats = if let Some(row) = self.conn.query_one(Statement::from_string(backend, stats_sql.to_string())).await? {
             crate::models::FeishuMessageStats {
