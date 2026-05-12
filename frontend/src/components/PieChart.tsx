@@ -64,50 +64,61 @@ export function PieChart({
     });
 
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 100 100"
-      style={{ flexShrink: 0 }}
-    >
-      <circle cx={cx} cy={cy} r={r} fill="var(--color-border-light, #e2e8f0)" />
-      {paths.map((p, i) => (
-        <path key={i} d={p.d} fill={p.color} />
-      ))}
-      <circle cx={cx} cy={cy} r={26} fill="var(--color-bg-elevated, #fff)" />
-      {centerText && (
-        <text
-          x={cx}
-          y={cy + (centerSubtext ? -5 : 0)}
-          textAnchor="middle"
-          dominantBaseline="central"
+    <div style={{ position: 'relative', display: 'inline-flex', flexShrink: 0, width: size, height: size }}>
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 100 100"
+        style={{ flexShrink: 0 }}
+      >
+        <circle cx={cx} cy={cy} r={r} fill="var(--color-border-light, #e2e8f0)" />
+        {paths.map((p, i) => (
+          <path key={i} d={p.d} fill={p.color} />
+        ))}
+        <circle cx={cx} cy={cy} r={26} fill="var(--color-bg-elevated, #fff)" />
+      </svg>
+      {(centerText || centerSubtext) && (
+        <div
           style={{
-            fontSize: 13,
-            fontWeight: 700,
-            fill: 'var(--color-text, #0f172a)',
-            fontFamily: 'var(--font-sans)',
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            pointerEvents: 'none',
           }}
         >
-          {centerText}
-        </text>
+          {centerText && (
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: 'var(--color-text, #0f172a)',
+                fontFamily: 'var(--font-sans)',
+                lineHeight: 1.2,
+              }}
+            >
+              {centerText}
+            </div>
+          )}
+          {centerSubtext && (
+            <div
+              style={{
+                fontSize: 9,
+                fontWeight: 500,
+                color: 'var(--color-text-secondary, #94a3b8)',
+                fontFamily: 'var(--font-sans)',
+                lineHeight: 1.2,
+                marginTop: 2,
+              }}
+            >
+              {centerSubtext}
+            </div>
+          )}
+        </div>
       )}
-      {centerSubtext && (
-        <text
-          x={cx}
-          y={cy + 10}
-          textAnchor="middle"
-          dominantBaseline="central"
-          style={{
-            fontSize: 9,
-            fontWeight: 500,
-            fill: 'var(--color-text-secondary, #94a3b8)',
-            fontFamily: 'var(--font-sans)',
-          }}
-        >
-          {centerSubtext}
-        </text>
-      )}
-    </svg>
+    </div>
   );
 }
 

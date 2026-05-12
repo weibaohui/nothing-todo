@@ -11,6 +11,7 @@ import {
   ThunderboltOutlined,
   DollarOutlined,
   BarChartOutlined,
+  MessageOutlined,
 } from '@ant-design/icons';
 import { useApp } from '../hooks/useApp';
 import { PieChart, PieChartLegend } from './PieChart';
@@ -18,7 +19,7 @@ import { TrendChart } from './dashboard/DashboardCharts';
 import { AnimatedNumber } from './AnimatedNumber';
 import * as db from '../utils/database';
 import { getExecutorOption } from '../types';
-import type { DashboardStats } from '../types';
+import type { DashboardStats, FeishuMessageStats } from '../types';
 import { formatRelativeTime } from '../utils/datetime';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -157,6 +158,8 @@ export function Dashboard({ onBack }: DashboardProps) {
 
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [msgStats, setMsgStats] = useState<FeishuMessageStats | null>(null);
+  const [msgStatsError, setMsgStatsError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -174,6 +177,22 @@ export function Dashboard({ onBack }: DashboardProps) {
       }
     }
     load();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMsgStats() {
+      try {
+        if (!cancelled) setMsgStatsError(false);
+        const data = await db.getFeishuMessageStats();
+        if (!cancelled) setMsgStats(data);
+      } catch {
+        if (!cancelled) setMsgStatsError(true);
+      }
+    }
+    loadMsgStats();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -381,6 +400,62 @@ export function Dashboard({ onBack }: DashboardProps) {
     ),
   });
 
+  const triggerData = stats?.trigger_type_distribution ?? [];
+  const totalTrigger = triggerData.reduce((sum, t) => sum + t.count, 0);
+  const cronCount = triggerData.find((t) => t.trigger_type === 'cron')?.count ?? 0;
+  const autoRate = totalTrigger > 0 ? (cronCount / totalTrigger) * 100 : 0;
+
+  const TRIGGER_LABELS: Record<string, string> = {
+    manual: '手动',
+    cron: '定时',
+    slash_command: '命令',
+    default_response: '默认回复',
+  };
+
+  const TRIGGER_COLORS: Record<string, string> = {
+    manual: '#3b82f6',
+    cron: '#8b5cf6',
+    slash_command: '#f59e0b',
+    default_response: '#22c55e',
+  };
+
+  panels.push({
+    key: 'trigger-source',
+    render: () => (
+      <Card
+        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BarChartOutlined /><span>触发来源分析</span></div>}
+        className="dashboard-card" style={{ borderRadius: 12 }}
+        bodyStyle={{ padding: '16px 20px' }}
+      >
+        {totalTrigger > 0 ? (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>自动化率（定时占比）</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#8b5cf6' }}><AnimatedNumber value={autoRate} duration={1.2} decimals={1} suffix="%" /></span>
+            </div>
+            <div style={{ height: 6, borderRadius: 3, background: 'var(--color-fill-quaternary)', overflow: 'hidden', marginBottom: 16 }}>
+              <div style={{ height: '100%', width: `${autoRate}%`, borderRadius: 3, background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)', transition: 'width 0.8s ease' }} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+              {triggerData.map((t) => {
+                const label = TRIGGER_LABELS[t.trigger_type] || t.trigger_type;
+                const color = TRIGGER_COLORS[t.trigger_type] || '#6b7280';
+                return (
+                  <div key={t.trigger_type} style={{ padding: '10px 14px', borderRadius: 10, background: `${color}10` }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 2 }}>{label}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color }}><AnimatedNumber value={t.count} duration={0.8} chineseFormat /></div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据" />
+        )}
+      </Card>
+    ),
+  });
+
   panels.push({
     key: 'executor-chart',
     render: () => (
@@ -411,6 +486,45 @@ export function Dashboard({ onBack }: DashboardProps) {
                         <span style={{ color: '#f59e0b', fontWeight: 600 }}>${Math.round(e.total_cost_usd)}</span>
                       </>
                     )}
+                  </span>
+                }
+              />
+            );
+          })
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据" />
+        )}
+      </Card>
+    ),
+  });
+
+  const durationData = stats?.executor_duration_stats ?? [];
+  const durationMax = Math.max(...durationData.map((d) => d.avg_duration_ms), 1);
+
+  panels.push({
+    key: 'executor-duration',
+    render: () => (
+      <Card
+        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ThunderboltOutlined /><span>执行器平均耗时</span></div>}
+        className="dashboard-card" style={{ borderRadius: 12 }}
+        bodyStyle={{ padding: '8px 16px' }}
+      >
+        {durationData.length > 0 ? (
+          durationData.map((d) => {
+            const opt = getExecutorOption(d.executor);
+            const seconds = d.avg_duration_ms > 1000
+              ? (d.avg_duration_ms / 1000).toFixed(1) + 's'
+              : d.avg_duration_ms.toFixed(0) + 'ms';
+            return (
+              <CompactRow
+                key={d.executor}
+                name={opt.label}
+                value={<span style={{ fontSize: 18, fontWeight: 700, color: opt.color }}>{seconds}</span>}
+                color={opt.color}
+                barPct={(d.avg_duration_ms / durationMax) * 100}
+                sub={
+                  <span>
+                    执行 <strong style={{ color: 'var(--color-text)' }}>{d.execution_count}</strong> 次
                   </span>
                 }
               />
@@ -585,6 +699,44 @@ export function Dashboard({ onBack }: DashboardProps) {
     ),
   });
 
+  const cacheData = stats?.model_cache_stats ?? [];
+  const cacheRateMax = Math.max(...cacheData.map((c) => c.cache_hit_rate), 1);
+
+  panels.push({
+    key: 'model-cache',
+    render: () => (
+      <Card
+        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BarChartOutlined /><span>缓存效率</span></div>}
+        className="dashboard-card" style={{ borderRadius: 12 }}
+        bodyStyle={{ padding: '8px 16px' }}
+      >
+        {cacheData.length > 0 ? (
+          cacheData.map((c) => {
+            const color = c.cache_hit_rate > 50 ? '#22c55e' : c.cache_hit_rate > 20 ? '#f59e0b' : '#ef4444';
+            return (
+              <CompactRow
+                key={c.model}
+                name={c.model}
+                value={<span style={{ fontSize: 16, fontWeight: 700, color }}>{c.cache_hit_rate.toFixed(1)}%</span>}
+                color={color}
+                barPct={(c.cache_hit_rate / cacheRateMax) * 100}
+                sub={
+                  <span>
+                    缓存读 <strong style={{ color: '#22c55e' }}>{(c.total_cache_read_tokens / 10000).toFixed(1)}万</strong>
+                    <span style={{ margin: '0 4px' }}>·</span>
+                    输入 <strong style={{ color: '#3b82f6' }}>{(c.total_input_tokens / 10000).toFixed(1)}万</strong>
+                  </span>
+                }
+              />
+            );
+          })
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无缓存数据" />
+        )}
+      </Card>
+    ),
+  });
+
   panels.push({
     key: 'token-trend-chart',
     render: () => {
@@ -717,6 +869,34 @@ export function Dashboard({ onBack }: DashboardProps) {
         </Card>
       );
     },
+  });
+
+  const processingRate = msgStats && msgStats.total_messages > 0
+    ? (msgStats.processed / msgStats.total_messages) * 100
+    : 0;
+
+  panels.push({
+    key: 'message-stats',
+    render: () => (
+      <Card
+        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><MessageOutlined /><span>消息记录分析</span></div>}
+        className="dashboard-card" style={{ borderRadius: 12 }}
+        bodyStyle={{ padding: '16px 20px' }}
+      >
+        {msgStats ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+            <MiniStat title="消息总量" value={msgStats.total_messages} prefix={<MessageOutlined />} color="#3b82f6" loading={false} chineseFormat />
+            <MiniStat title="已处理" value={msgStats.processed} prefix={<CheckCircleOutlined />} color="#22c55e" loading={false} chineseFormat />
+            <MiniStat title="处理率" value={processingRate} prefix={<BarChartOutlined />} color="#8b5cf6" decimals={1} suffix="%" loading={false} />
+            <MiniStat title="触发任务" value={msgStats.triggered_todos} prefix={<ThunderboltOutlined />} color="#f59e0b" loading={false} chineseFormat />
+          </div>
+        ) : msgStatsError ? (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="消息数据加载失败" />
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无消息数据" />
+        )}
+      </Card>
+    ),
   });
 
   panels.push({

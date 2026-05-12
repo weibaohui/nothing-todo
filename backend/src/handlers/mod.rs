@@ -428,6 +428,7 @@ pub fn create_app(
         .route("/xyz/agent-bots/feishu/group-whitelist", get(agent_bot::get_group_whitelist).post(agent_bot::add_group_whitelist))
         .route("/xyz/agent-bots/feishu/group-whitelist/{id}", delete(agent_bot::delete_group_whitelist))
         .route("/xyz/feishu/history-messages", get(feishu_history::get_history_messages))
+        .route("/xyz/feishu/message-stats", get(feishu_history::get_message_stats))
         .route("/xyz/feishu/senders", get(feishu_history::get_distinct_senders))
         .route("/xyz/feishu/history-chats", get(feishu_history::get_history_chats).post(feishu_history::create_history_chat))
         .route("/xyz/feishu/history-chats/{id}", delete(feishu_history::delete_history_chat).put(feishu_history::update_history_chat))
