@@ -11,6 +11,7 @@ pub struct Model {
     pub path: String,
     pub enabled: bool,
     pub display_name: String,
+    pub session_dir: String,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }

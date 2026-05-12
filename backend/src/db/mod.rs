@@ -430,12 +430,16 @@ impl Database {
                 path TEXT NOT NULL DEFAULT '',
                 enabled INTEGER NOT NULL DEFAULT 1,
                 display_name TEXT NOT NULL DEFAULT '',
+                session_dir TEXT NOT NULL DEFAULT '',
                 created_at TEXT,
                 updated_at TEXT
             )",
         )
         .await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_executors_name ON executors(name)").await?;
+
+        // Migration: add session_dir column if missing (existing databases)
+        let _ = self.exec("ALTER TABLE executors ADD COLUMN session_dir TEXT NOT NULL DEFAULT ''").await;
 
         // Executors timestamps triggers
         self.exec(
