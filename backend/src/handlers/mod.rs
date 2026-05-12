@@ -177,22 +177,17 @@ pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade)
                 .await;
         }
 
-        loop {
-            match rx.recv().await {
-                Ok(event) => {
-                    let json = serde_json::to_string(&event).unwrap_or_default();
-                    if json.is_empty() {
-                        continue;
-                    }
-                    if ws
-                        .send(axum::extract::ws::Message::Text(json.into()))
-                        .await
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                Err(_) => break,
+        while let Ok(event) = rx.recv().await {
+            let json = serde_json::to_string(&event).unwrap_or_default();
+            if json.is_empty() {
+                continue;
+            }
+            if ws
+                .send(axum::extract::ws::Message::Text(json.into()))
+                .await
+                .is_err()
+            {
+                break;
             }
         }
     })
