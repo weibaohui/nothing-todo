@@ -1,64 +1,24 @@
-use axum::{
-    extract::{Path, Query, State},
-};
+use axum::extract::{Path, Query, State};
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::broadcast;
 
 use crate::adapters::parse_executor_type;
-use crate::adapters::ExecutorRegistry;
-use crate::db::Database;
-use crate::executor_service::{ExecutionResult, run_todo_execution, run_todo_execution_with_params};
-use crate::handlers::{ApiJson, AppError, AppState, ExecEvent};
-use crate::models::{
-    ApiResponse, DashboardStats, ExecuteRequest, ExecutionRecordsPage, ExecutionStatus, ExecutionSummary, TodoIdQuery,
+use crate::executor_service::{
+    run_todo_execution, run_todo_execution_with_params, ExecutionResult, RunTodoExecutionRequest,
 };
-use crate::task_manager::TaskManager;
+use crate::handlers::{ApiJson, AppError, AppState};
+use crate::models::{
+    ApiResponse, DashboardStats, ExecuteRequest, ExecutionRecordsPage, ExecutionStatus,
+    ExecutionSummary, TodoIdQuery,
+};
 
 /// 统一启动一条 Todo 执行，供手动执行、消息路由等入口复用。
 pub async fn start_todo_execution(
-    db: Arc<Database>,
-    executor_registry: Arc<ExecutorRegistry>,
-    tx: broadcast::Sender<ExecEvent>,
-    task_manager: Arc<TaskManager>,
-    todo_id: i64,
-    message_template: String,
-    req_executor: Option<String>,
-    trigger_type: &str,
-    params: Option<HashMap<String, String>>,
-    resume_session_id: Option<String>,
-    resume_message: Option<String>,
+    request: RunTodoExecutionRequest,
 ) -> Result<ExecutionResult, AppError> {
-    let result = if let Some(params) = params {
-        run_todo_execution_with_params(
-            db.clone(),
-            executor_registry.clone(),
-            tx.clone(),
-            todo_id,
-            message_template,
-            req_executor,
-            trigger_type,
-            task_manager.clone(),
-            params,
-            resume_session_id,
-            resume_message,
-        )
-        .await
+    let result = if request.params.is_some() {
+        run_todo_execution_with_params(request).await
     } else {
-        run_todo_execution(
-            db.clone(),
-            executor_registry.clone(),
-            tx.clone(),
-            todo_id,
-            message_template,
-            req_executor,
-            trigger_type,
-            task_manager.clone(),
-            resume_session_id,
-            resume_message,
-        )
-        .await
+        run_todo_execution(request).await
     };
 
     if result.record_id.is_none() {
@@ -115,35 +75,41 @@ pub async fn execute_handler(
     ApiJson(req): ApiJson<ExecuteRequest>,
 ) -> Result<ApiResponse<serde_json::Value>, AppError> {
     // Get the todo to use its prompt as fallback when message is not provided
-    let todo = state.db.get_todo(req.todo_id).await?
+    let todo = state
+        .db
+        .get_todo(req.todo_id)
+        .await?
         .ok_or_else(|| AppError::BadRequest(format!("Todo {} not found", req.todo_id)))?;
 
     // Fall back to todo.prompt if message is None or whitespace-only
-    let message = req.message
+    let message = req
+        .message
         .as_ref()
         .map(|m| m.trim())
         .filter(|m| !m.is_empty())
         .map(|m| m.to_string())
         .unwrap_or_else(|| todo.prompt.clone());
 
-    let result = start_todo_execution(
-        state.db.clone(),
-        state.executor_registry.clone(),
-        state.tx.clone(),
-        state.task_manager.clone(),
-        req.todo_id,
+    let result = start_todo_execution(RunTodoExecutionRequest {
+        db: state.db.clone(),
+        executor_registry: state.executor_registry.clone(),
+        tx: state.tx.clone(),
+        task_manager: state.task_manager.clone(),
+        todo_id: req.todo_id,
         message,
-        req.executor,
-        "manual",
-        None,
-        None,
-        None,
-    )
+        req_executor: req.executor,
+        trigger_type: "manual".to_string(),
+        params: None,
+        resume_session_id: None,
+        resume_message: None,
+    })
     .await;
     let result = result?;
     let record_id = result.record_id.expect("record_id checked above");
 
-    Ok(ApiResponse::ok(serde_json::json!({ "task_id": result.task_id, "record_id": record_id })))
+    Ok(ApiResponse::ok(
+        serde_json::json!({ "task_id": result.task_id, "record_id": record_id }),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -157,33 +123,53 @@ pub async fn stop_execution_handler(
 ) -> Result<ApiResponse<()>, AppError> {
     tracing::info!("Stopping execution record: {}", req.record_id);
 
-    let record = state.db.get_execution_record(req.record_id).await?
-        .ok_or(AppError::BadRequest("Execution record not found".to_string()))?;
+    let record =
+        state
+            .db
+            .get_execution_record(req.record_id)
+            .await?
+            .ok_or(AppError::BadRequest(
+                "Execution record not found".to_string(),
+            ))?;
 
     if record.status != ExecutionStatus::Running {
-        return Err(AppError::BadRequest("Execution record is not running".to_string()));
+        return Err(AppError::BadRequest(
+            "Execution record is not running".to_string(),
+        ));
     }
 
     if let Some(task_id) = &record.task_id {
-        tracing::info!("Stopping execution record {} with task_id: {}", req.record_id, task_id);
+        tracing::info!(
+            "Stopping execution record {} with task_id: {}",
+            req.record_id,
+            task_id
+        );
         let cancelled = state.task_manager.cancel(task_id).await;
         if !cancelled {
-            tracing::warn!("Task {} was not found in task manager (may have already finished)", task_id);
+            tracing::warn!(
+                "Task {} was not found in task manager (may have already finished)",
+                task_id
+            );
         }
         // 更新数据库状态为失败，保留定时刷新已写入的日志
         let logs_json = record.logs.clone();
-        let _ = state.db.update_execution_record(
-            req.record_id,
-            crate::models::ExecutionStatus::Failed.as_str(),
-            &logs_json,
-            "任务已被手动停止",
-            None,
-            None,
-        ).await;
+        let _ = state
+            .db
+            .update_execution_record(
+                req.record_id,
+                crate::models::ExecutionStatus::Failed.as_str(),
+                &logs_json,
+                "任务已被手动停止",
+                None,
+                None,
+            )
+            .await;
         tracing::info!("Successfully stopped execution record {}", req.record_id);
         Ok(ApiResponse::ok(()))
     } else {
-        Err(AppError::BadRequest("No task_id found for this execution record".to_string()))
+        Err(AppError::BadRequest(
+            "No task_id found for this execution record".to_string(),
+        ))
     }
 }
 
@@ -203,11 +189,19 @@ pub async fn force_fail_execution_handler(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<ForceFailRequest>,
 ) -> Result<ApiResponse<()>, AppError> {
-    let record = state.db.get_execution_record(req.record_id).await?
-        .ok_or(AppError::BadRequest("Execution record not found".to_string()))?;
+    let record =
+        state
+            .db
+            .get_execution_record(req.record_id)
+            .await?
+            .ok_or(AppError::BadRequest(
+                "Execution record not found".to_string(),
+            ))?;
 
     if record.status != ExecutionStatus::Running {
-        return Err(AppError::BadRequest("Execution record is not running".to_string()));
+        return Err(AppError::BadRequest(
+            "Execution record is not running".to_string(),
+        ));
     }
 
     // Try to cancel in-memory task if it exists
@@ -215,7 +209,10 @@ pub async fn force_fail_execution_handler(
         state.task_manager.cancel(task_id).await;
     }
 
-    state.db.force_fail_execution_record(req.record_id).await
+    state
+        .db
+        .force_fail_execution_record(req.record_id)
+        .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
     Ok(ApiResponse::ok(()))
 }
@@ -230,79 +227,93 @@ pub async fn resume_execution_handler(
     Path(id): Path<i64>,
     ApiJson(req): ApiJson<ResumeExecutionRequest>,
 ) -> Result<ApiResponse<serde_json::Value>, AppError> {
-    let record = state.db.get_execution_record(id).await?
+    let record = state
+        .db
+        .get_execution_record(id)
+        .await?
         .ok_or(AppError::NotFound)?;
 
     if record.status == ExecutionStatus::Running {
-        return Err(AppError::BadRequest("Cannot resume a running execution".to_string()));
+        return Err(AppError::BadRequest(
+            "Cannot resume a running execution".to_string(),
+        ));
     }
 
-    let executor_type = record.executor.as_deref()
+    let executor_type = record
+        .executor
+        .as_deref()
         .and_then(parse_executor_type)
         .ok_or_else(|| AppError::BadRequest("Unknown executor type".to_string()))?;
 
-    let executor = state.executor_registry.get(executor_type)
+    let executor = state
+        .executor_registry
+        .get(executor_type)
         .ok_or_else(|| AppError::Internal("Executor not found in registry".to_string()))?;
 
     if !executor.supports_resume() {
-        return Err(AppError::BadRequest("This executor does not support resuming conversations".to_string()));
+        return Err(AppError::BadRequest(
+            "This executor does not support resuming conversations".to_string(),
+        ));
     }
 
     let todo_id = record.todo_id;
-    let todo = state.db.get_todo(todo_id).await?
+    let todo = state
+        .db
+        .get_todo(todo_id)
+        .await?
         .ok_or(AppError::NotFound)?;
 
-    let message = req.message
+    let message = req
+        .message
         .as_ref()
         .map(|m| m.trim())
         .filter(|m| !m.is_empty())
         .map(|m| m.to_string())
         .unwrap_or_else(|| todo.prompt.clone());
 
-    let resume_message = req.message
+    let resume_message = req
+        .message
         .as_ref()
         .map(|m| m.trim())
         .filter(|m| !m.is_empty())
         .map(|m| m.to_string());
 
-    let resume_session_id = record.session_id
-        .or(record.task_id)
-        .ok_or_else(|| AppError::BadRequest("No session_id found for this execution record".to_string()))?;
+    let resume_session_id = record.session_id.or(record.task_id).ok_or_else(|| {
+        AppError::BadRequest("No session_id found for this execution record".to_string())
+    })?;
 
-    let result = start_todo_execution(
-        state.db.clone(),
-        state.executor_registry.clone(),
-        state.tx.clone(),
-        state.task_manager.clone(),
+    let result = start_todo_execution(RunTodoExecutionRequest {
+        db: state.db.clone(),
+        executor_registry: state.executor_registry.clone(),
+        tx: state.tx.clone(),
+        task_manager: state.task_manager.clone(),
         todo_id,
         message,
-        record.executor.clone(),
-        "manual",
-        None,
-        Some(resume_session_id),
+        req_executor: record.executor.clone(),
+        trigger_type: "manual".to_string(),
+        params: None,
+        resume_session_id: Some(resume_session_id),
         resume_message,
-    )
+    })
     .await?;
     let record_id = result.record_id.expect("record_id checked above");
 
-    Ok(ApiResponse::ok(serde_json::json!({ "task_id": result.task_id, "record_id": record_id })))
+    Ok(ApiResponse::ok(
+        serde_json::json!({ "task_id": result.task_id, "record_id": record_id }),
+    ))
 }
 
 pub async fn get_execution_summary(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<ApiResponse<ExecutionSummary>, AppError> {
-    Ok(ApiResponse::ok(
-        state.db.get_execution_summary(id).await?,
-    ))
+    Ok(ApiResponse::ok(state.db.get_execution_summary(id).await?))
 }
 
 pub async fn get_dashboard_stats(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<DashboardStats>, AppError> {
-    Ok(ApiResponse::ok(
-        state.db.get_dashboard_stats().await?,
-    ))
+    Ok(ApiResponse::ok(state.db.get_dashboard_stats().await?))
 }
 
 pub async fn get_running_todos(

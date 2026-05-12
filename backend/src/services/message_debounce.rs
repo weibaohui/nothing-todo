@@ -7,6 +7,7 @@ use tokio::task::JoinHandle;
 
 use crate::adapters::ExecutorRegistry;
 use crate::db::Database;
+use crate::executor_service::RunTodoExecutionRequest;
 use crate::handlers::execution::start_todo_execution;
 use crate::handlers::ExecEvent;
 use crate::task_manager::TaskManager;
@@ -60,8 +61,13 @@ impl MessageDebounce {
         let key = (msg.bot_id, msg.chat_id.clone());
 
         // Remove old entry and collect existing messages
-        let mut all_msgs = self.entries.remove(&key)
-            .map(|(_, old)| { old.timer.abort(); old.messages })
+        let mut all_msgs = self
+            .entries
+            .remove(&key)
+            .map(|(_, old)| {
+                old.timer.abort();
+                old.messages
+            })
             .unwrap_or_default();
         all_msgs.push(msg);
 
@@ -74,10 +80,17 @@ impl MessageDebounce {
             let task_manager = self.task_manager.clone();
             let bot_id = key.0;
             let chat_id = key.1.clone();
-            let target_type = all_msgs.first().map(|m| m.chat_type.clone()).unwrap_or_default();
+            let target_type = all_msgs
+                .first()
+                .map(|m| m.chat_type.clone())
+                .unwrap_or_default();
 
             tokio::spawn(async move {
-                let secs = db.get_debounce_secs(bot_id, &target_type).await.unwrap_or(20).max(1);
+                let secs = db
+                    .get_debounce_secs(bot_id, &target_type)
+                    .await
+                    .unwrap_or(20)
+                    .max(1);
                 tokio::time::sleep(std::time::Duration::from_secs(secs as u64)).await;
 
                 // Timer fired: drain all pending messages for this key
@@ -87,7 +100,8 @@ impl MessageDebounce {
                         return;
                     }
 
-                    let merged_content: String = entry.messages
+                    let merged_content: String = entry
+                        .messages
                         .iter()
                         .map(|m| m.content.as_str())
                         .collect::<Vec<&str>>()
@@ -98,19 +112,20 @@ impl MessageDebounce {
                     merged_params.insert("content".to_string(), merged_content.clone());
                     merged_params.insert("message".to_string(), merged_content);
 
-                    let result = start_todo_execution(
-                        db.clone(),
+                    let result = start_todo_execution(RunTodoExecutionRequest {
+                        db: db.clone(),
                         executor_registry,
                         tx,
                         task_manager,
-                        last.todo_id,
-                        last.todo_prompt.clone(),
-                        last.executor.clone(),
-                        &last.trigger_type,
-                        Some(merged_params),
-                        None,
-                        None,
-                    ).await;
+                        todo_id: last.todo_id,
+                        message: last.todo_prompt.clone(),
+                        req_executor: last.executor.clone(),
+                        trigger_type: last.trigger_type.clone(),
+                        params: Some(merged_params),
+                        resume_session_id: None,
+                        resume_message: None,
+                    })
+                    .await;
 
                     match result {
                         Ok(exec_result) => {
@@ -118,18 +133,32 @@ impl MessageDebounce {
                             let record_id = exec_result.record_id;
                             for msg in &entry.messages {
                                 if let Some(ref msg_id) = msg.message_id {
-                                    if let Err(e) = db.mark_feishu_message_processed(msg_id, msg.todo_id, record_id).await {
+                                    if let Err(e) = db
+                                        .mark_feishu_message_processed(
+                                            msg_id,
+                                            msg.todo_id,
+                                            record_id,
+                                        )
+                                        .await
+                                    {
                                         tracing::warn!("[debounce] failed to mark message {} as processed: {:?}", msg_id, e);
                                     }
                                 }
                             }
                         }
                         Err(e) => {
-                            tracing::warn!("[debounce] failed to execute todo {}: {:?}", last.todo_id, e);
+                            tracing::warn!(
+                                "[debounce] failed to execute todo {}: {:?}",
+                                last.todo_id,
+                                e
+                            );
                             // Still mark messages as processed with todo_id but no record_id
                             for msg in &entry.messages {
                                 if let Some(ref msg_id) = msg.message_id {
-                                    if let Err(mark_err) = db.mark_feishu_message_processed(msg_id, msg.todo_id, None).await {
+                                    if let Err(mark_err) = db
+                                        .mark_feishu_message_processed(msg_id, msg.todo_id, None)
+                                        .await
+                                    {
                                         tracing::warn!("[debounce] failed to mark message {} after execution failure: {:?}", msg_id, mark_err);
                                     }
                                 }
@@ -140,10 +169,13 @@ impl MessageDebounce {
             })
         };
 
-        self.entries.insert(key, DebounceEntry {
-            messages: all_msgs,
-            timer: new_timer,
-        });
+        self.entries.insert(
+            key,
+            DebounceEntry {
+                messages: all_msgs,
+                timer: new_timer,
+            },
+        );
     }
 
     pub fn pending_count(&self) -> usize {

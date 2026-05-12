@@ -1,20 +1,19 @@
-use std::sync::Arc;
-use std::collections::HashMap;
 use dashmap::DashMap;
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::{broadcast, RwLock};
 
-use crate::feishu::{
-    create_channel, ChannelMessage,
-    FeishuConfig, FeishuConnectionMode, FeishuDomain,
-    FeishuChannelService,
-};
 use crate::feishu::sdk::config::Config as FeishuSdkConfig;
 use crate::feishu::sdk::token_manager::TokenManager;
+use crate::feishu::{
+    create_channel, ChannelMessage, FeishuChannelService, FeishuConfig, FeishuConnectionMode,
+    FeishuDomain,
+};
 
 use crate::adapters::ExecutorRegistry;
 use crate::config::Config as AppConfig;
-use crate::db::Database;
+use crate::db::{Database, NewFeishuMessage};
 use crate::handlers::ExecEvent;
 use crate::models::{AgentBot, BotConfig};
 use crate::services::message_debounce::{MessageDebounce, PendingMessage};
@@ -33,6 +32,29 @@ pub struct FeishuListener {
     /// bot_id → (app_id, app_secret, domain)
     pub bot_credentials: Arc<DashMap<i64, (String, String, String)>>,
     debounce: Arc<MessageDebounce>,
+}
+
+struct ListenerMessageContext<'a> {
+    db: &'a Arc<Database>,
+    config: &'a Arc<RwLock<AppConfig>>,
+    token_manager: &'a Arc<TokenManager>,
+    credentials: &'a DashMap<i64, (String, String, String)>,
+    debounce: &'a Arc<MessageDebounce>,
+    bot_id: i64,
+    bot_open_id: &'a str,
+    bot_config: &'a BotConfig,
+}
+
+struct FeishuCommandContext<'a> {
+    db: &'a Arc<Database>,
+    credentials: &'a DashMap<i64, (String, String, String)>,
+    token_manager: &'a Arc<TokenManager>,
+    bot_id: i64,
+    chat_type: &'a str,
+    sender: &'a str,
+    channel: &'a str,
+    message_id: &'a str,
+    reaction_id: Option<&'a str>,
 }
 
 impl FeishuListener {
@@ -104,15 +126,26 @@ impl FeishuListener {
             FeishuDomain::Lark => "lark",
             _ => "feishu",
         };
-        self.bot_credentials.insert(bot.id, (bot.app_id.clone(), bot.app_secret.clone(), domain_str.to_string()));
+        self.bot_credentials.insert(
+            bot.id,
+            (
+                bot.app_id.clone(),
+                bot.app_secret.clone(),
+                domain_str.to_string(),
+            ),
+        );
 
-        let real_bot_open_id = Self::resolve_bot_open_id(&self.bot_credentials, &self.token_manager, bot.id).await
-            .or(bot.bot_open_id.clone())
-            .unwrap_or_default();
+        let real_bot_open_id =
+            Self::resolve_bot_open_id(&self.bot_credentials, &self.token_manager, bot.id)
+                .await
+                .or(bot.bot_open_id.clone())
+                .unwrap_or_default();
         if real_bot_open_id != bot.bot_open_id.clone().unwrap_or_default() {
             tracing::info!(
                 "[feishu:{}] corrected bot_open_id from {:?} to {}",
-                bot.id, bot.bot_open_id, real_bot_open_id
+                bot.id,
+                bot.bot_open_id,
+                real_bot_open_id
             );
         }
 
@@ -129,46 +162,48 @@ impl FeishuListener {
         tokio::spawn(async move {
             tracing::info!("[feishu:{}] message receiver loop started", bot_id);
             while let Some(msg) = rx.recv().await {
-                Self::handle_message(
-                    &db,
-                    &executor_registry,
-                    &tx,
-                    &task_manager,
-                    &config,
-                    &token_manager,
-                    &credentials,
-                    &debounce,
+                let context = ListenerMessageContext {
+                    db: &db,
+                    config: &config,
+                    token_manager: &token_manager,
+                    credentials: &credentials,
+                    debounce: &debounce,
                     bot_id,
-                    &bot_open_id,
-                    &bot_config_clone,
-                    &msg,
-                )
-                .await;
+                    bot_open_id: &bot_open_id,
+                    bot_config: &bot_config_clone,
+                };
+                let _ = (&executor_registry, &tx, &task_manager);
+                Self::handle_message(context, &msg).await;
             }
             tracing::warn!("[feishu:{}] message receiver loop ended", bot_id);
         });
 
-        tracing::info!("feishu listener started for bot {} ({})", bot.id, bot.bot_name);
+        tracing::info!(
+            "feishu listener started for bot {} ({})",
+            bot.id,
+            bot.bot_name
+        );
         Ok(())
     }
 
-    async fn handle_message(
-        db: &Arc<Database>,
-        _executor_registry: &Arc<ExecutorRegistry>,
-        _tx: &broadcast::Sender<ExecEvent>,
-        _task_manager: &Arc<TaskManager>,
-        config: &Arc<RwLock<AppConfig>>,
-        token_manager: &Arc<TokenManager>,
-        credentials: &DashMap<i64, (String, String, String)>,
-        debounce: &Arc<MessageDebounce>,
-        bot_id: i64,
-        bot_open_id: &str,
-        bot_config: &BotConfig,
-        msg: &ChannelMessage,
-    ) {
+    async fn handle_message(context: ListenerMessageContext<'_>, msg: &ChannelMessage) {
+        let ListenerMessageContext {
+            db,
+            config,
+            token_manager,
+            credentials,
+            debounce,
+            bot_id,
+            bot_open_id,
+            bot_config,
+        } = context;
         tracing::info!(
             "[feishu:{}] handle_message: sender={}, bot_open_id={}, content={:?}, chat_type={:?}",
-            bot_id, msg.sender, bot_open_id, msg.content, msg.chat_type
+            bot_id,
+            msg.sender,
+            bot_open_id,
+            msg.content,
+            msg.chat_type
         );
 
         if msg.sender == bot_open_id {
@@ -179,34 +214,57 @@ impl FeishuListener {
         let chat_type = msg.chat_type.as_deref().unwrap_or("p2p");
         let is_mention = !msg.mentioned_open_ids.is_empty();
 
-        db.save_feishu_message(
+        db.save_feishu_message(NewFeishuMessage {
             bot_id,
-            &msg.id,
-            &msg.channel,
+            message_id: &msg.id,
+            chat_id: &msg.channel,
             chat_type,
-            &msg.sender,
-            msg.sender_type.as_deref(),
-            Some(&msg.content),
-            "text",
+            sender_open_id: &msg.sender,
+            sender_type: msg.sender_type.as_deref(),
+            content: Some(&msg.content),
+            msg_type: "text",
             is_mention,
-        )
+        })
         .await
         .ok();
 
         let content = msg.content.trim();
 
         // Add "processing" reaction
-        let reaction_id = Self::add_reaction(credentials, token_manager, bot_id, &msg.id, "THUMBSUP").await;
+        let reaction_id =
+            Self::add_reaction(credentials, token_manager, bot_id, &msg.id, "THUMBSUP").await;
 
         // /sethome command
         if content == "/sethome" {
-            Self::handle_sethome(db, credentials, token_manager, bot_id, chat_type, &msg.sender, &msg.channel, &msg.id, reaction_id.as_deref()).await;
+            Self::handle_sethome(FeishuCommandContext {
+                db,
+                credentials,
+                token_manager,
+                bot_id,
+                chat_type,
+                sender: &msg.sender,
+                channel: &msg.channel,
+                message_id: &msg.id,
+                reaction_id: reaction_id.as_deref(),
+            })
+            .await;
             return;
         }
 
         // /feishupush command (toggle push)
         if content == "/feishupush" {
-            Self::handle_feishupush(db, credentials, token_manager, bot_id, chat_type, &msg.sender, &msg.channel, &msg.id, reaction_id.as_deref()).await;
+            Self::handle_feishupush(FeishuCommandContext {
+                db,
+                credentials,
+                token_manager,
+                bot_id,
+                chat_type,
+                sender: &msg.sender,
+                channel: &msg.channel,
+                message_id: &msg.id,
+                reaction_id: reaction_id.as_deref(),
+            })
+            .await;
             return;
         }
 
@@ -218,10 +276,17 @@ impl FeishuListener {
         }
 
         // Check if message response is enabled for this chat type
-        let response_enabled = db.get_feishu_response_enabled(bot_id, chat_type).await.unwrap_or(false);
+        let response_enabled = db
+            .get_feishu_response_enabled(bot_id, chat_type)
+            .await
+            .unwrap_or(false);
 
         if !response_enabled {
-            tracing::info!("[feishu:{}] message response is disabled for {} chat type", bot_id, chat_type);
+            tracing::info!(
+                "[feishu:{}] message response is disabled for {} chat type",
+                bot_id,
+                chat_type
+            );
             if let Some(rid) = &reaction_id {
                 Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
             }
@@ -233,12 +298,21 @@ impl FeishuListener {
             let in_whitelist = match db.is_sender_in_whitelist(bot_id, &msg.sender).await {
                 Ok(allowed) => allowed,
                 Err(e) => {
-                    tracing::warn!("[feishu:{}] whitelist check failed for sender {}, defaulting to allow: {}", bot_id, msg.sender, e);
+                    tracing::warn!(
+                        "[feishu:{}] whitelist check failed for sender {}, defaulting to allow: {}",
+                        bot_id,
+                        msg.sender,
+                        e
+                    );
                     true
                 }
             };
             if !in_whitelist {
-                tracing::info!("[feishu:{}] sender {} not in group whitelist, skipping", bot_id, msg.sender);
+                tracing::info!(
+                    "[feishu:{}] sender {} not in group whitelist, skipping",
+                    bot_id,
+                    msg.sender
+                );
                 if let Some(rid) = &reaction_id {
                     Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
                 }
@@ -250,7 +324,8 @@ impl FeishuListener {
             // Try slash command match
             let matched_rule = {
                 let cfg = config.read().await;
-                cfg.slash_command_rules.iter()
+                cfg.slash_command_rules
+                    .iter()
                     .find(|r| r.slash_command == command_ctx.command && r.enabled)
                     .cloned()
             };
@@ -261,7 +336,11 @@ impl FeishuListener {
                         Ok(Some(t)) => Some(t),
                         Ok(None) => None,
                         Err(e) => {
-                            tracing::error!("Failed to fetch todo {} for slash command: {}", rule.todo_id, e);
+                            tracing::error!(
+                                "Failed to fetch todo {} for slash command: {}",
+                                rule.todo_id,
+                                e
+                            );
                             None
                         }
                     };
@@ -269,7 +348,12 @@ impl FeishuListener {
                         let mut params = HashMap::new();
                         params.insert("content".to_string(), command_ctx.body.to_string());
                         params.insert("message".to_string(), command_ctx.body.to_string());
-                        params.insert("raw_message".to_string(), format!("{} {}", command_ctx.command, command_ctx.body).trim().to_string());
+                        params.insert(
+                            "raw_message".to_string(),
+                            format!("{} {}", command_ctx.command, command_ctx.body)
+                                .trim()
+                                .to_string(),
+                        );
                         params.insert("slash_command".to_string(), command_ctx.command.to_string());
 
                         debounce.push(PendingMessage {
@@ -299,10 +383,15 @@ impl FeishuListener {
                             Ok(Some(t)) => Some(t.prompt.clone()),
                             Ok(None) => None,
                             Err(e) => {
-                                tracing::error!("Failed to fetch todo {} for debounce: {}", todo_id, e);
+                                tracing::error!(
+                                    "Failed to fetch todo {} for debounce: {}",
+                                    todo_id,
+                                    e
+                                );
                                 None
                             }
-                        }.unwrap_or_default();
+                        }
+                        .unwrap_or_default();
                         debounce.push(PendingMessage {
                             bot_id,
                             chat_id: msg.channel.clone(),
@@ -332,10 +421,15 @@ impl FeishuListener {
                         Ok(Some(t)) => Some(t.prompt.clone()),
                         Ok(None) => None,
                         Err(e) => {
-                            tracing::error!("Failed to fetch todo {} for message debounce: {}", todo_id, e);
+                            tracing::error!(
+                                "Failed to fetch todo {} for message debounce: {}",
+                                todo_id,
+                                e
+                            );
                             None
                         }
-                    }.unwrap_or_default();
+                    }
+                    .unwrap_or_default();
                     debounce.push(PendingMessage {
                         bot_id,
                         chat_id: msg.channel.clone(),
@@ -354,10 +448,21 @@ impl FeishuListener {
         }
 
         if chat_type == "p2p" && bot_config.echo_reply {
-            tracing::info!("[feishu:{}] 收到私聊消息: sender={}, content={}", bot_id, msg.sender, content);
+            tracing::info!(
+                "[feishu:{}] 收到私聊消息: sender={}, content={}",
+                bot_id,
+                msg.sender,
+                content
+            );
         }
         if chat_type == "group" && bot_config.echo_reply {
-            tracing::info!("[feishu:{}] 收到群聊消息: channel={}, sender={}, content={}", bot_id, msg.channel, msg.sender, content);
+            tracing::info!(
+                "[feishu:{}] 收到群聊消息: channel={}, sender={}, content={}",
+                bot_id,
+                msg.channel,
+                msg.sender,
+                content
+            );
         }
 
         if let Some(rid) = &reaction_id {
@@ -394,17 +499,18 @@ impl FeishuListener {
         Some(SlashCommandMatch { command, body })
     }
 
-    async fn handle_sethome(
-        db: &Database,
-        credentials: &DashMap<i64, (String, String, String)>,
-        token_manager: &Arc<TokenManager>,
-        bot_id: i64,
-        chat_type: &str,
-        sender: &str,
-        channel: &str,
-        message_id: &str,
-        reaction_id: Option<&str>,
-    ) {
+    async fn handle_sethome(context: FeishuCommandContext<'_>) {
+        let FeishuCommandContext {
+            db,
+            credentials,
+            token_manager,
+            bot_id,
+            chat_type,
+            sender,
+            channel,
+            message_id,
+            reaction_id,
+        } = context;
         let target_type = if chat_type == "p2p" { "p2p" } else { "group" };
         let (receive_id, receive_id_type, chat_id) = match chat_type {
             "p2p" => (sender.to_string(), "open_id", None),
@@ -413,13 +519,22 @@ impl FeishuListener {
 
         // Update feishu_home
         match db
-            .set_feishu_home(bot_id, sender, chat_id.as_deref(), &receive_id, receive_id_type)
+            .set_feishu_home(
+                bot_id,
+                sender,
+                chat_id.as_deref(),
+                &receive_id,
+                receive_id_type,
+            )
             .await
         {
             Ok(_) => {
                 tracing::info!(
                     "[feishu:{}] /sethome by {} → {} ({})",
-                    bot_id, sender, receive_id, receive_id_type
+                    bot_id,
+                    sender,
+                    receive_id,
+                    receive_id_type
                 );
             }
             Err(e) => {
@@ -445,10 +560,26 @@ impl FeishuListener {
         }
 
         // Send confirmation
-        let chat_type_label = if chat_type == "p2p" { "私聊" } else { "群聊" };
-        let target_desc = if chat_type == "p2p" { "此私聊" } else { channel };
+        let chat_type_label = if chat_type == "p2p" {
+            "私聊"
+        } else {
+            "群聊"
+        };
+        let target_desc = if chat_type == "p2p" {
+            "此私聊"
+        } else {
+            channel
+        };
         let confirm = format!("✅ 已设置推送目标为此 {chat_type_label} ({target_desc})，执行过程将实时推送。\n\n如需关闭推送，请发送 /feishupush");
-        Self::send_text(credentials, token_manager, bot_id, &receive_id, receive_id_type, &confirm).await;
+        Self::send_text(
+            credentials,
+            token_manager,
+            bot_id,
+            &receive_id,
+            receive_id_type,
+            &confirm,
+        )
+        .await;
 
         if let Some(rid) = reaction_id {
             Self::delete_reaction(credentials, token_manager, bot_id, message_id, rid).await;
@@ -456,24 +587,28 @@ impl FeishuListener {
     }
 
     /// Handle /feishupush - cycle push level: disabled -> result_only -> all -> disabled.
-    async fn handle_feishupush(
-        db: &Database,
-        credentials: &DashMap<i64, (String, String, String)>,
-        token_manager: &Arc<TokenManager>,
-        bot_id: i64,
-        chat_type: &str,
-        sender: &str,
-        channel: &str,
-        message_id: &str,
-        reaction_id: Option<&str>,
-    ) {
+    async fn handle_feishupush(context: FeishuCommandContext<'_>) {
+        let FeishuCommandContext {
+            db,
+            credentials,
+            token_manager,
+            bot_id,
+            chat_type,
+            sender,
+            channel,
+            message_id,
+            reaction_id,
+        } = context;
         let (receive_id, receive_id_type) = match chat_type {
             "p2p" => (sender.to_string(), "open_id"),
             _ => (channel.to_string(), "chat_id"),
         };
 
         let target = db.get_feishu_push_target(bot_id).await.ok().flatten();
-        let current_level = target.as_ref().map(|t| t.push_level.as_str()).unwrap_or("disabled");
+        let current_level = target
+            .as_ref()
+            .map(|t| t.push_level.as_str())
+            .unwrap_or("disabled");
         let new_level = match current_level {
             "disabled" => "result_only",
             "result_only" => "all",
@@ -484,7 +619,15 @@ impl FeishuListener {
         if let Err(e) = db.update_feishu_push_level(bot_id, new_level).await {
             tracing::error!("[feishu:{}] /feishupush update failed: {e}", bot_id);
             let msg = "⚠️ 操作失败，请稍后重试";
-            Self::send_text(credentials, token_manager, bot_id, &receive_id, receive_id_type, msg).await;
+            Self::send_text(
+                credentials,
+                token_manager,
+                bot_id,
+                &receive_id,
+                receive_id_type,
+                msg,
+            )
+            .await;
         } else {
             let (status_text, status_emoji) = match new_level {
                 "disabled" => ("关闭", "ℹ️"),
@@ -493,8 +636,21 @@ impl FeishuListener {
                 _ => ("未知", "⚠️"),
             };
             let msg = format!("{} 推送{}。", status_emoji, status_text);
-            Self::send_text(credentials, token_manager, bot_id, &receive_id, receive_id_type, &msg).await;
-            tracing::info!("[feishu:{}] /feishupush: push level changed to {} for bot_id={}", bot_id, new_level, bot_id);
+            Self::send_text(
+                credentials,
+                token_manager,
+                bot_id,
+                &receive_id,
+                receive_id_type,
+                &msg,
+            )
+            .await;
+            tracing::info!(
+                "[feishu:{}] /feishupush: push level changed to {} for bot_id={}",
+                bot_id,
+                new_level,
+                bot_id
+            );
         }
 
         if let Some(rid) = reaction_id {
@@ -521,7 +677,10 @@ impl FeishuListener {
         };
 
         let client = reqwest::Client::new();
-        let url = format!("{}/open-apis/im/v1/messages?receive_id_type={}", base_url, receive_id_type);
+        let url = format!(
+            "{}/open-apis/im/v1/messages?receive_id_type={}",
+            base_url, receive_id_type
+        );
         let body = serde_json::json!({
             "receive_id": receive_id,
             "msg_type": "text",
@@ -541,7 +700,12 @@ impl FeishuListener {
                 if !status.is_success() {
                     tracing::error!("[feishu:{}] send_text failed: status={}", bot_id, status);
                 } else {
-                    tracing::debug!("[feishu:{}] send_text ok to {} ({})", bot_id, receive_id, receive_id_type);
+                    tracing::debug!(
+                        "[feishu:{}] send_text ok to {} ({})",
+                        bot_id,
+                        receive_id,
+                        receive_id_type
+                    );
                 }
             }
             Err(e) => {
@@ -575,7 +739,10 @@ impl FeishuListener {
             .ok_or_else(|| anyhow::anyhow!("no token for bot {}", bot_id))?;
 
         let client = reqwest::Client::new();
-        let url = format!("{}/open-apis/im/v1/messages?receive_id_type={}", base_url, receive_id_type);
+        let url = format!(
+            "{}/open-apis/im/v1/messages?receive_id_type={}",
+            base_url, receive_id_type
+        );
         let body = serde_json::json!({
             "receive_id": receive_id,
             "msg_type": "text",
@@ -601,7 +768,10 @@ impl FeishuListener {
 
     // --- Feishu API helpers ---
 
-    fn base_url(credentials: &DashMap<i64, (String, String, String)>, bot_id: i64) -> Option<String> {
+    fn base_url(
+        credentials: &DashMap<i64, (String, String, String)>,
+        bot_id: i64,
+    ) -> Option<String> {
         let domain = credentials.get(&bot_id)?.2.clone();
         Some(if domain == "lark" {
             "https://open.larksuite.com".to_string()
@@ -615,7 +785,8 @@ impl FeishuListener {
         bot_id: i64,
     ) -> Option<FeishuSdkConfig> {
         let ref_val = credentials.get(&bot_id)?;
-        let (app_id, app_secret, domain) = (ref_val.0.clone(), ref_val.1.clone(), ref_val.2.clone());
+        let (app_id, app_secret, domain) =
+            (ref_val.0.clone(), ref_val.1.clone(), ref_val.2.clone());
         let base_url = if domain == "lark" {
             "https://open.larksuite.com"
         } else {
@@ -689,7 +860,13 @@ impl FeishuListener {
                 "emoji_type": emoji_type
             }
         });
-        tracing::info!("[feishu:{}] add_reaction POST {} token={}... body={}", bot_id, url, &token[..token.len().min(10)], body_json);
+        tracing::info!(
+            "[feishu:{}] add_reaction POST {} token={}... body={}",
+            bot_id,
+            url,
+            &token[..token.len().min(10)],
+            body_json
+        );
         let res = match client
             .post(&url)
             .header("Authorization", format!("Bearer {token}"))
@@ -715,7 +892,11 @@ impl FeishuListener {
 
         let code = body.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
         if code != 0 {
-            tracing::error!("[feishu:{}] add_reaction API error (status={}): {body}", bot_id, status);
+            tracing::error!(
+                "[feishu:{}] add_reaction API error (status={}): {body}",
+                bot_id,
+                status
+            );
             return None;
         }
 
@@ -725,7 +906,12 @@ impl FeishuListener {
             .and_then(|v| v.as_str())
             .map(String::from);
 
-        tracing::info!("[feishu:{}] add_reaction {} ok, reaction_id={:?}", bot_id, emoji_type, reaction_id);
+        tracing::info!(
+            "[feishu:{}] add_reaction {} ok, reaction_id={:?}",
+            bot_id,
+            emoji_type,
+            reaction_id
+        );
         reaction_id
     }
 
@@ -748,7 +934,9 @@ impl FeishuListener {
 
         let client = reqwest::Client::new();
         match client
-            .delete(format!("{base_url}/open-apis/im/v1/messages/{message_id}/reactions/{reaction_id}"))
+            .delete(format!(
+                "{base_url}/open-apis/im/v1/messages/{message_id}/reactions/{reaction_id}"
+            ))
             .header("Authorization", format!("Bearer {token}"))
             .send()
             .await

@@ -2,14 +2,25 @@
 
 #[cfg(test)]
 mod todo_create_command_tests {
-    use ntd::cli::{Cli, Commands, TodoAction};
     use clap::Parser;
+    use ntd::cli::{Cli, Commands, TodoAction};
 
     #[test]
     fn test_todo_create_parsing() {
-        let cli = Cli::try_parse_from(["ntd", "todo", "create", "My Task", "-p", "prompt", "-e", "kimi"]).unwrap();
+        let cli = Cli::try_parse_from([
+            "ntd", "todo", "create", "My Task", "-p", "prompt", "-e", "kimi",
+        ])
+        .unwrap();
         match cli.command {
-            Commands::Todo { action: TodoAction::Create { title, prompt, executor, .. } } => {
+            Commands::Todo {
+                action:
+                    TodoAction::Create {
+                        title,
+                        prompt,
+                        executor,
+                        ..
+                    },
+            } => {
                 assert_eq!(title, Some("My Task".to_string()));
                 assert_eq!(prompt, Some("prompt".to_string()));
                 assert_eq!(executor, Some("kimi".to_string()));
@@ -20,9 +31,19 @@ mod todo_create_command_tests {
 
     #[test]
     fn test_todo_create_with_schedule() {
-        let cli = Cli::try_parse_from(["ntd", "todo", "create", "Task", "--schedule", "*/30 * * * *"]).unwrap();
+        let cli = Cli::try_parse_from([
+            "ntd",
+            "todo",
+            "create",
+            "Task",
+            "--schedule",
+            "*/30 * * * *",
+        ])
+        .unwrap();
         match cli.command {
-            Commands::Todo { action: TodoAction::Create { schedule, .. } } => {
+            Commands::Todo {
+                action: TodoAction::Create { schedule, .. },
+            } => {
                 assert_eq!(schedule, Some("*/30 * * * *".to_string()));
             }
             _ => panic!("Expected Todo::Create with schedule"),
@@ -31,9 +52,12 @@ mod todo_create_command_tests {
 
     #[test]
     fn test_todo_create_with_tags() {
-        let cli = Cli::try_parse_from(["ntd", "todo", "create", "Task", "--tags", "1,2,3"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["ntd", "todo", "create", "Task", "--tags", "1,2,3"]).unwrap();
         match cli.command {
-            Commands::Todo { action: TodoAction::Create { tags, .. } } => {
+            Commands::Todo {
+                action: TodoAction::Create { tags, .. },
+            } => {
                 assert_eq!(tags, Some("1,2,3".to_string()));
             }
             _ => panic!("Expected Todo::Create with tags"),
@@ -42,9 +66,12 @@ mod todo_create_command_tests {
 
     #[test]
     fn test_todo_create_with_workspace() {
-        let cli = Cli::try_parse_from(["ntd", "todo", "create", "Task", "-w", "/path/to/dir"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["ntd", "todo", "create", "Task", "-w", "/path/to/dir"]).unwrap();
         match cli.command {
-            Commands::Todo { action: TodoAction::Create { workspace, .. } } => {
+            Commands::Todo {
+                action: TodoAction::Create { workspace, .. },
+            } => {
                 assert_eq!(workspace, Some("/path/to/dir".to_string()));
             }
             _ => panic!("Expected Todo::Create with workspace"),
@@ -55,7 +82,9 @@ mod todo_create_command_tests {
     fn test_todo_create_with_stdin() {
         let cli = Cli::try_parse_from(["ntd", "todo", "create", "--stdin"]).unwrap();
         match cli.command {
-            Commands::Todo { action: TodoAction::Create { stdin, title, .. } } => {
+            Commands::Todo {
+                action: TodoAction::Create { stdin, title, .. },
+            } => {
                 assert!(stdin);
                 assert!(title.is_none());
             }
@@ -65,9 +94,12 @@ mod todo_create_command_tests {
 
     #[test]
     fn test_todo_create_with_file_prompt() {
-        let cli = Cli::try_parse_from(["ntd", "todo", "create", "Task", "-f", "/tmp/prompt.txt"]).unwrap();
+        let cli = Cli::try_parse_from(["ntd", "todo", "create", "Task", "-f", "/tmp/prompt.txt"])
+            .unwrap();
         match cli.command {
-            Commands::Todo { action: TodoAction::Create { file, .. } } => {
+            Commands::Todo {
+                action: TodoAction::Create { file, .. },
+            } => {
                 assert_eq!(file, Some("/tmp/prompt.txt".to_string()));
             }
             _ => panic!("Expected Todo::Create with file"),
@@ -130,14 +162,22 @@ mod stop_execution_request_tests {
 
 #[cfg(test)]
 mod todo_list_command_tests {
-    use ntd::cli::{Cli, Commands, TodoAction};
     use clap::Parser;
+    use ntd::cli::{Cli, Commands, TodoAction};
 
     #[test]
     fn test_todo_list_parsing() {
         let cli = Cli::try_parse_from(["ntd", "todo", "list"]).unwrap();
         match cli.command {
-            Commands::Todo { action: TodoAction::List { status, tag, running, search } } => {
+            Commands::Todo {
+                action:
+                    TodoAction::List {
+                        status,
+                        tag,
+                        running,
+                        search,
+                    },
+            } => {
                 assert!(status.is_none());
                 assert!(tag.is_none());
                 assert!(!running);
@@ -151,7 +191,9 @@ mod todo_list_command_tests {
     fn test_todo_list_with_status_filter() {
         let cli = Cli::try_parse_from(["ntd", "todo", "list", "--status", "completed"]).unwrap();
         match cli.command {
-            Commands::Todo { action: TodoAction::List { status, .. } } => {
+            Commands::Todo {
+                action: TodoAction::List { status, .. },
+            } => {
                 assert_eq!(status, Some("completed".to_string()));
             }
             _ => panic!("Expected Todo::List with status"),
@@ -162,7 +204,9 @@ mod todo_list_command_tests {
     fn test_todo_list_with_tag_filter() {
         let cli = Cli::try_parse_from(["ntd", "todo", "list", "--tag", "3"]).unwrap();
         match cli.command {
-            Commands::Todo { action: TodoAction::List { tag, .. } } => {
+            Commands::Todo {
+                action: TodoAction::List { tag, .. },
+            } => {
                 assert_eq!(tag, Some(3));
             }
             _ => panic!("Expected Todo::List with tag"),
@@ -173,7 +217,9 @@ mod todo_list_command_tests {
     fn test_todo_list_with_running_filter() {
         let cli = Cli::try_parse_from(["ntd", "todo", "list", "--running"]).unwrap();
         match cli.command {
-            Commands::Todo { action: TodoAction::List { running, .. } } => {
+            Commands::Todo {
+                action: TodoAction::List { running, .. },
+            } => {
                 assert!(running);
             }
             _ => panic!("Expected Todo::List with running"),
@@ -184,7 +230,9 @@ mod todo_list_command_tests {
     fn test_todo_list_with_search() {
         let cli = Cli::try_parse_from(["ntd", "todo", "list", "-s", "rust"]).unwrap();
         match cli.command {
-            Commands::Todo { action: TodoAction::List { search, .. } } => {
+            Commands::Todo {
+                action: TodoAction::List { search, .. },
+            } => {
                 assert_eq!(search, Some("rust".to_string()));
             }
             _ => panic!("Expected Todo::List with search"),
@@ -194,14 +242,28 @@ mod todo_list_command_tests {
     #[test]
     fn test_todo_list_combined_filters() {
         let cli = Cli::try_parse_from([
-            "ntd", "todo", "list",
-            "--status", "pending",
-            "--tag", "1",
+            "ntd",
+            "todo",
+            "list",
+            "--status",
+            "pending",
+            "--tag",
+            "1",
             "--running",
-            "--search", "bug",
-        ]).unwrap();
+            "--search",
+            "bug",
+        ])
+        .unwrap();
         match cli.command {
-            Commands::Todo { action: TodoAction::List { status, tag, running, search } } => {
+            Commands::Todo {
+                action:
+                    TodoAction::List {
+                        status,
+                        tag,
+                        running,
+                        search,
+                    },
+            } => {
                 assert_eq!(status, Some("pending".to_string()));
                 assert_eq!(tag, Some(1));
                 assert!(running);
@@ -215,7 +277,9 @@ mod todo_list_command_tests {
     fn test_todo_get_parsing() {
         let cli = Cli::try_parse_from(["ntd", "todo", "get", "123"]).unwrap();
         match cli.command {
-            Commands::Todo { action: TodoAction::Get { id } } => {
+            Commands::Todo {
+                action: TodoAction::Get { id },
+            } => {
                 assert_eq!(id, 123);
             }
             _ => panic!("Expected Todo::Get"),
@@ -225,19 +289,35 @@ mod todo_list_command_tests {
 
 #[cfg(test)]
 mod todo_update_command_tests {
-    use ntd::cli::{Cli, Commands, TodoAction};
     use clap::Parser;
+    use ntd::cli::{Cli, Commands, TodoAction};
 
     #[test]
     fn test_todo_update_parsing() {
         let cli = Cli::try_parse_from([
-            "ntd", "todo", "update", "1",
-            "--title", "New Title",
-            "--status", "completed",
-            "--executor", "kimi",
-        ]).unwrap();
+            "ntd",
+            "todo",
+            "update",
+            "1",
+            "--title",
+            "New Title",
+            "--status",
+            "completed",
+            "--executor",
+            "kimi",
+        ])
+        .unwrap();
         match cli.command {
-            Commands::Todo { action: TodoAction::Update { id, title, status, executor, .. } } => {
+            Commands::Todo {
+                action:
+                    TodoAction::Update {
+                        id,
+                        title,
+                        status,
+                        executor,
+                        ..
+                    },
+            } => {
                 assert_eq!(id, 1);
                 assert_eq!(title, Some("New Title".to_string()));
                 assert_eq!(status, Some("completed".to_string()));
@@ -251,7 +331,9 @@ mod todo_update_command_tests {
     fn test_todo_update_with_stdin() {
         let cli = Cli::try_parse_from(["ntd", "todo", "update", "1", "--stdin"]).unwrap();
         match cli.command {
-            Commands::Todo { action: TodoAction::Update { id, stdin, .. } } => {
+            Commands::Todo {
+                action: TodoAction::Update { id, stdin, .. },
+            } => {
                 assert_eq!(id, 1);
                 assert!(stdin);
             }
@@ -282,7 +364,7 @@ mod config_parsing_tests {
         let config = Config::default();
         assert_eq!(config.port, 8088);
         assert_eq!(config.host, "0.0.0.0");
-        assert!(config.log_level.contains("INFO") || config.log_level == "INFO".to_string());
+        assert!(config.log_level.contains("INFO") || config.log_level == "INFO");
     }
 
     #[test]
@@ -304,8 +386,8 @@ mod config_parsing_tests {
 
 #[cfg(test)]
 mod output_format_tests {
-    use ntd::cli::{Cli, OutputFormat};
     use clap::Parser;
+    use ntd::cli::{Cli, OutputFormat};
 
     #[test]
     fn test_output_format_json() {
@@ -334,8 +416,8 @@ mod output_format_tests {
 
 #[cfg(test)]
 mod fields_tests {
-    use ntd::cli::Cli;
     use clap::Parser;
+    use ntd::cli::Cli;
 
     #[test]
     fn test_fields_parsing() {
@@ -357,11 +439,11 @@ mod cron_validation_tests {
     #[test]
     fn test_valid_cron_expressions() {
         let expressions = vec![
-            "*/30 * * * * *",  // every 30 seconds
-            "0 */12 * * * *",   // every 12 hours
-            "0 0 * * * *",      // every hour
-            "0 0 9 * * *",      // daily at 9am
-            "0 0 0 * * *",      // midnight
+            "*/30 * * * * *", // every 30 seconds
+            "0 */12 * * * *", // every 12 hours
+            "0 0 * * * *",    // every hour
+            "0 0 9 * * *",    // daily at 9am
+            "0 0 0 * * *",    // midnight
         ];
 
         for expr in expressions {
@@ -373,28 +455,32 @@ mod cron_validation_tests {
     #[test]
     fn test_invalid_cron_expressions() {
         let expressions = vec![
-            "invalid",
-            "",
-            "* * *",           // too few fields (6 required)
+            "invalid", "", "* * *", // too few fields (6 required)
         ];
 
         for expr in expressions {
             let result = cron::Schedule::from_str(expr);
-            assert!(result.is_err(), "Cron expression '{}' should be invalid", expr);
+            assert!(
+                result.is_err(),
+                "Cron expression '{}' should be invalid",
+                expr
+            );
         }
     }
 }
 
 #[cfg(test)]
 mod tag_command_tests {
-    use ntd::cli::{Cli, Commands, TagAction};
     use clap::Parser;
+    use ntd::cli::{Cli, Commands, TagAction};
 
     #[test]
     fn test_tag_list_parsing() {
         let cli = Cli::try_parse_from(["ntd", "tag", "list"]).unwrap();
         match cli.command {
-            Commands::Tag { action: TagAction::List } => {}
+            Commands::Tag {
+                action: TagAction::List,
+            } => {}
             _ => panic!("Expected Tag::List"),
         }
     }
@@ -403,7 +489,9 @@ mod tag_command_tests {
     fn test_tag_create_parsing() {
         let cli = Cli::try_parse_from(["ntd", "tag", "create", "Bugfix", "-c", "#ff0000"]).unwrap();
         match cli.command {
-            Commands::Tag { action: TagAction::Create { name, color } } => {
+            Commands::Tag {
+                action: TagAction::Create { name, color },
+            } => {
                 assert_eq!(name, "Bugfix");
                 assert_eq!(color, "#ff0000");
             }
@@ -415,7 +503,9 @@ mod tag_command_tests {
     fn test_tag_create_default_color() {
         let cli = Cli::try_parse_from(["ntd", "tag", "create", "Feature"]).unwrap();
         match cli.command {
-            Commands::Tag { action: TagAction::Create { name, color } } => {
+            Commands::Tag {
+                action: TagAction::Create { name, color },
+            } => {
                 assert_eq!(name, "Feature");
                 assert_eq!(color, "#1890ff");
             }
@@ -427,7 +517,9 @@ mod tag_command_tests {
     fn test_tag_delete_parsing() {
         let cli = Cli::try_parse_from(["ntd", "tag", "delete", "5"]).unwrap();
         match cli.command {
-            Commands::Tag { action: TagAction::Delete { id } } => {
+            Commands::Tag {
+                action: TagAction::Delete { id },
+            } => {
                 assert_eq!(id, 5);
             }
             _ => panic!("Expected Tag::Delete"),
@@ -441,7 +533,10 @@ mod tunnel_command_tests {
 
     #[test]
     fn test_tunnel_start_default() {
-        let action = TunnelAction::Start { tunnel_type: "hostc".to_string(), json: false };
+        let action = TunnelAction::Start {
+            tunnel_type: "hostc".to_string(),
+            json: false,
+        };
         match action {
             TunnelAction::Start { tunnel_type, json } => {
                 assert_eq!(tunnel_type, "hostc");
@@ -453,7 +548,10 @@ mod tunnel_command_tests {
 
     #[test]
     fn test_tunnel_start_json() {
-        let action = TunnelAction::Start { tunnel_type: "hostc".to_string(), json: true };
+        let action = TunnelAction::Start {
+            tunnel_type: "hostc".to_string(),
+            json: true,
+        };
         match action {
             TunnelAction::Start { json, .. } => {
                 assert!(json);
@@ -464,7 +562,10 @@ mod tunnel_command_tests {
 
     #[test]
     fn test_tunnel_start_cloudflare() {
-        let action = TunnelAction::Start { tunnel_type: "trycloudflare".to_string(), json: false };
+        let action = TunnelAction::Start {
+            tunnel_type: "trycloudflare".to_string(),
+            json: false,
+        };
         match action {
             TunnelAction::Start { tunnel_type, .. } => {
                 assert_eq!(tunnel_type, "trycloudflare");
@@ -498,28 +599,37 @@ mod tunnel_command_tests {
 
 #[cfg(test)]
 mod combined_options_tests {
-    use ntd::cli::{Cli, Commands, OutputFormat, TodoAction};
     use clap::Parser;
+    use ntd::cli::{Cli, Commands, OutputFormat, TodoAction};
 
     #[test]
     fn test_full_ai_workflow_list() {
         // AI-friendly command: list todos with raw output, filtered fields, and search
         let cli = Cli::try_parse_from([
             "ntd",
-            "--server", "http://localhost:8088",
-            "-o", "raw",
-            "-f", "id,title,status,executor",
-            "todo", "list",
-            "--status", "pending",
-            "--search", "bug",
-        ]).unwrap();
+            "--server",
+            "http://localhost:8088",
+            "-o",
+            "raw",
+            "-f",
+            "id,title,status,executor",
+            "todo",
+            "list",
+            "--status",
+            "pending",
+            "--search",
+            "bug",
+        ])
+        .unwrap();
 
         assert_eq!(cli.server, Some("http://localhost:8088".to_string()));
         assert_eq!(cli.output, OutputFormat::Raw);
         assert_eq!(cli.fields, Some("id,title,status,executor".to_string()));
 
         match cli.command {
-            Commands::Todo { action: TodoAction::List { status, search, .. } } => {
+            Commands::Todo {
+                action: TodoAction::List { status, search, .. },
+            } => {
                 assert_eq!(status, Some("pending".to_string()));
                 assert_eq!(search, Some("bug".to_string()));
             }
@@ -529,7 +639,8 @@ mod combined_options_tests {
 
     #[test]
     fn test_raw_fields_combination() {
-        let cli = Cli::try_parse_from(["ntd", "-o", "raw", "-f", "id", "todo", "get", "42"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["ntd", "-o", "raw", "-f", "id", "todo", "get", "42"]).unwrap();
         assert_eq!(cli.output, OutputFormat::Raw);
         assert_eq!(cli.fields, Some("id".to_string()));
     }

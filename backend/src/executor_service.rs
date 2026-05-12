@@ -5,8 +5,8 @@ use uuid::Uuid;
 
 use command_group::AsyncCommandGroup;
 
-use crate::adapters::{ExecutorRegistry, parse_executor_type};
-use crate::db::Database;
+use crate::adapters::{parse_executor_type, ExecutorRegistry};
+use crate::db::{Database, NewExecutionRecord};
 use crate::handlers::ExecEvent;
 use crate::models::ParsedLogEntry;
 use crate::task_manager::TaskManager;
@@ -29,19 +29,39 @@ pub struct ExecutionResult {
     pub record_id: Option<i64>,
 }
 
+pub struct RunTodoExecutionRequest {
+    pub db: Arc<Database>,
+    pub executor_registry: Arc<ExecutorRegistry>,
+    pub tx: broadcast::Sender<ExecEvent>,
+    pub task_manager: Arc<TaskManager>,
+    pub todo_id: i64,
+    pub message: String,
+    pub req_executor: Option<String>,
+    pub trigger_type: String,
+    pub params: Option<std::collections::HashMap<String, String>>,
+    pub resume_session_id: Option<String>,
+    pub resume_message: Option<String>,
+}
+
 /// Run a todo execution. Priority: explicit executor > todo stored executor > default.
-pub async fn run_todo_execution(
-    db: Arc<Database>,
-    executor_registry: Arc<ExecutorRegistry>,
-    tx: broadcast::Sender<ExecEvent>,
-    todo_id: i64,
-    message: String,
-    req_executor: Option<String>,
-    trigger_type: &str,
-    task_manager: Arc<TaskManager>,
-    resume_session_id: Option<String>,
-    resume_message: Option<String>,
-) -> ExecutionResult {
+pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionResult {
+    let RunTodoExecutionRequest {
+        db,
+        executor_registry,
+        tx,
+        task_manager,
+        todo_id,
+        message,
+        req_executor,
+        trigger_type,
+        params,
+        resume_session_id,
+        resume_message,
+    } = request;
+    let message = params
+        .as_ref()
+        .map(|params| crate::models::replace_placeholders(&message, params))
+        .unwrap_or(message);
     let task_id = Uuid::new_v4().to_string();
     let mut cancel_rx = task_manager.register(task_id.clone()).await;
 
@@ -50,7 +70,11 @@ pub async fn run_todo_execution(
         Ok(Some(t)) => Some(t),
         Ok(None) => None,
         Err(e) => {
-            tracing::error!("Failed to fetch todo {} for executor selection: {}", todo_id, e);
+            tracing::error!(
+                "Failed to fetch todo {} for executor selection: {}",
+                todo_id,
+                e
+            );
             None
         }
     };
@@ -76,22 +100,41 @@ pub async fn run_todo_execution(
         })
         .unwrap_or_default();
 
-    let executor = match executor_registry.get(executor_type)
-        .or_else(|| executor_registry.get_default()) {
+    let executor = match executor_registry
+        .get(executor_type)
+        .or_else(|| executor_registry.get_default())
+    {
         Some(exec) => exec,
         None => {
-            tracing::error!("No executor available for type {:?} and no default registered", executor_type);
+            tracing::error!(
+                "No executor available for type {:?} and no default registered",
+                executor_type
+            );
             let _ = db.finish_todo_execution(todo_id, false).await;
-            send_event(&tx, ExecEvent::Finished { task_id: task_id.clone(), todo_id, todo_title: todo.as_ref().map(|t| t.title.clone()).unwrap_or_default(), executor: executor_type.to_string(), success: false, result: Some("No executor available".to_string()) });
+            send_event(
+                &tx,
+                ExecEvent::Finished {
+                    task_id: task_id.clone(),
+                    todo_id,
+                    todo_title: todo.as_ref().map(|t| t.title.clone()).unwrap_or_default(),
+                    executor: executor_type.to_string(),
+                    success: false,
+                    result: Some("No executor available".to_string()),
+                },
+            );
             task_manager.remove(&task_id).await;
-            return ExecutionResult { task_id, record_id: None };
+            return ExecutionResult {
+                task_id,
+                record_id: None,
+            };
         }
     };
 
     let executable_path = executor.executable_path().to_string();
     let session_id_for_executor = resume_session_id.as_deref().unwrap_or(&task_id);
     let is_resume = resume_session_id.is_some();
-    let command_args = executor.command_args_with_session(&message, Some(session_id_for_executor), is_resume);
+    let command_args =
+        executor.command_args_with_session(&message, Some(session_id_for_executor), is_resume);
 
     // Update todo's executor to the one being used
     let executor_str = executor.executor_type().to_string();
@@ -101,13 +144,27 @@ pub async fn run_todo_execution(
 
     // Create execution record
     let command = format!("{} {}", executable_path, command_args.join(" "));
-    let record_id = match db.create_execution_record(todo_id, &command, &executor_str, trigger_type, &task_id, Some(session_id_for_executor), resume_message.as_deref()).await {
+    let record_id = match db
+        .create_execution_record(NewExecutionRecord {
+            todo_id,
+            command: &command,
+            executor: &executor_str,
+            trigger_type: &trigger_type,
+            task_id: &task_id,
+            session_id: Some(session_id_for_executor),
+            resume_message: resume_message.as_deref(),
+        })
+        .await
+    {
         Ok(id) => id,
         Err(e) => {
             tracing::error!("Failed to create execution record: {}", e);
             let _ = db.finish_todo_execution(todo_id, false).await;
             task_manager.remove(&task_id).await;
-            return ExecutionResult { task_id, record_id: None };
+            return ExecutionResult {
+                task_id,
+                record_id: None,
+            };
         }
     };
 
@@ -115,11 +172,30 @@ pub async fn run_todo_execution(
     if let Err(e) = db.start_todo_execution(todo_id, &task_id).await {
         tracing::error!("Failed to start todo execution: {}", e);
         let entry = ParsedLogEntry::error(format!("Failed to start todo execution: {}", e));
-        send_event(&tx, ExecEvent::Output { task_id: task_id.clone(), entry });
-        send_event(&tx, ExecEvent::Finished { task_id: task_id.clone(), todo_id, todo_title: todo.as_ref().map(|t| t.title.clone()).unwrap_or_default(), executor: executor_str.clone(), success: false, result: Some("Failed to start execution".to_string()) });
+        send_event(
+            &tx,
+            ExecEvent::Output {
+                task_id: task_id.clone(),
+                entry,
+            },
+        );
+        send_event(
+            &tx,
+            ExecEvent::Finished {
+                task_id: task_id.clone(),
+                todo_id,
+                todo_title: todo.as_ref().map(|t| t.title.clone()).unwrap_or_default(),
+                executor: executor_str.clone(),
+                success: false,
+                result: Some("Failed to start execution".to_string()),
+            },
+        );
         let _ = db.finish_todo_execution(todo_id, false).await;
         task_manager.remove(&task_id).await;
-        return ExecutionResult { task_id, record_id: Some(record_id) };
+        return ExecutionResult {
+            task_id,
+            record_id: Some(record_id),
+        };
     }
 
     let task_id_return = task_id.clone();
@@ -131,21 +207,37 @@ pub async fn run_todo_execution(
     let todo_title = todo.as_ref().map(|t| t.title.clone()).unwrap_or_default();
 
     // 注册任务信息，用于 WebSocket 同步
-    task_manager.register_info(crate::task_manager::TaskInfo {
-        task_id: task_id.clone(),
-        todo_id,
-        todo_title: todo_title.clone(),
-        executor: executor_spawn.executor_type().to_string(),
-        logs: "[]".to_string(), // 初始为空，WebSocket 同步时会从数据库获取实际日志
-    }).await;
+    task_manager
+        .register_info(crate::task_manager::TaskInfo {
+            task_id: task_id.clone(),
+            todo_id,
+            todo_title: todo_title.clone(),
+            executor: executor_spawn.executor_type().to_string(),
+            logs: "[]".to_string(), // 初始为空，WebSocket 同步时会从数据库获取实际日志
+        })
+        .await;
 
     tokio::spawn(async move {
         let execution_start = std::time::Instant::now();
 
-        send_event(&tx_clone, ExecEvent::Started { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string() });
+        send_event(
+            &tx_clone,
+            ExecEvent::Started {
+                task_id: task_id.clone(),
+                todo_id,
+                todo_title: todo_title.clone(),
+                executor: executor_spawn.executor_type().to_string(),
+            },
+        );
 
         let entry = ParsedLogEntry::info(format!("Starting {}", executor_spawn.executor_type()));
-        send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
+        send_event(
+            &tx_clone,
+            ExecEvent::Output {
+                task_id: task_id.clone(),
+                entry,
+            },
+        );
 
         // 使用 command-group 创建进程组，自动管理进程树
         let mut cmd = tokio::process::Command::new(&executable_path);
@@ -172,8 +264,24 @@ pub async fn run_todo_execution(
             Err(e) => {
                 let error_msg = format!("Failed to spawn executor: {}", e);
                 let entry = ParsedLogEntry::error(error_msg.clone());
-                send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
-                send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string(), success: false, result: Some(error_msg) });
+                send_event(
+                    &tx_clone,
+                    ExecEvent::Output {
+                        task_id: task_id.clone(),
+                        entry,
+                    },
+                );
+                send_event(
+                    &tx_clone,
+                    ExecEvent::Finished {
+                        task_id: task_id.clone(),
+                        todo_id,
+                        todo_title: todo_title.clone(),
+                        executor: executor_spawn.executor_type().to_string(),
+                        success: false,
+                        result: Some(error_msg),
+                    },
+                );
                 let _ = db_clone.finish_todo_execution(todo_id, false).await;
                 task_manager_spawn.remove(&task_id).await;
                 return;
@@ -188,7 +296,9 @@ pub async fn run_todo_execution(
 
         // 保存 pid 到 execution_records 表 (使用进程组 leader 的 pid)
         if child_id > 0 {
-            let _ = db_clone.update_execution_record_pid(record_id, Some(child_id as i32)).await;
+            let _ = db_clone
+                .update_execution_record_pid(record_id, Some(child_id as i32))
+                .await;
         }
 
         let stdout_handle = child.inner().stdout.take();
@@ -199,7 +309,8 @@ pub async fn run_todo_execution(
         let logs_for_result = logs.clone();
         let flush_pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let unflushed_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
-        let flush_handles: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>> = Arc::new(Mutex::new(Vec::new()));
+        let flush_handles: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>> =
+            Arc::new(Mutex::new(Vec::new()));
         const FLUSH_COUNT_THRESHOLD: u64 = 5;
 
         let executor_for_parse = executor_spawn.clone();
@@ -224,34 +335,57 @@ pub async fn run_todo_execution(
                     // Extract and update session_id if present
                     if !session_id_updated {
                         if let Some(sid) = executor_clone.extract_session_id(&line) {
-                            let _ = db_for_todo.update_execution_record_session_id(rid, &sid).await;
+                            let _ = db_for_todo
+                                .update_execution_record_session_id(rid, &sid)
+                                .await;
                             session_id_updated = true;
                         }
                     }
                     if let Some(parsed) = executor_clone.parse_output_line(&line) {
                         // Detect todo progress updates
-                        if let Some(progress) = crate::todo_progress::try_extract_todo_progress(&parsed) {
+                        if let Some(progress) =
+                            crate::todo_progress::try_extract_todo_progress(&parsed)
+                        {
                             if let Ok(progress_json) = serde_json::to_string(&progress) {
-                                let _ = db_for_todo.update_execution_record_todo_progress(rid, &progress_json).await;
+                                let _ = db_for_todo
+                                    .update_execution_record_todo_progress(rid, &progress_json)
+                                    .await;
                             }
-                            send_event(&tx_clone, ExecEvent::TodoProgress {
-                                task_id: tid.clone(),
-                                progress,
-                            });
+                            send_event(
+                                &tx_clone,
+                                ExecEvent::TodoProgress {
+                                    task_id: tid.clone(),
+                                    progress,
+                                },
+                            );
                         }
 
                         // Send stats update after tool calls or every 10 log entries
-                        let is_tool_call = parsed.log_type == "tool_use" || parsed.log_type == "tool_call" || parsed.log_type == "tool";
+                        let is_tool_call = parsed.log_type == "tool_use"
+                            || parsed.log_type == "tool_call"
+                            || parsed.log_type == "tool";
                         log_count += 1;
                         if is_tool_call || log_count.is_multiple_of(10) {
                             let current_logs = logs_for_db.lock().await;
-                            let tool_calls = current_logs.iter()
-                                .filter(|l| l.log_type == "tool_use" || l.log_type == "tool_call" || l.log_type == "tool")
+                            let tool_calls = current_logs
+                                .iter()
+                                .filter(|l| {
+                                    l.log_type == "tool_use"
+                                        || l.log_type == "tool_call"
+                                        || l.log_type == "tool"
+                                })
                                 .count() as u64;
-                            let conversation_turns = current_logs.iter()
-                                .filter(|l| l.log_type == "assistant" || l.log_type == "result" || l.log_type == "text")
-                                .count() as u64;
-                            let thinking_count = current_logs.iter()
+                            let conversation_turns = current_logs
+                                .iter()
+                                .filter(|l| {
+                                    l.log_type == "assistant"
+                                        || l.log_type == "result"
+                                        || l.log_type == "text"
+                                })
+                                .count()
+                                as u64;
+                            let thinking_count = current_logs
+                                .iter()
                                 .filter(|l| l.log_type == "thinking")
                                 .count() as u64;
                             let stats = crate::models::ExecutionStats {
@@ -259,15 +393,22 @@ pub async fn run_todo_execution(
                                 conversation_turns,
                                 thinking_count,
                             };
-                            send_event(&tx_clone, ExecEvent::ExecutionStats {
-                                task_id: tid.clone(),
-                                stats,
-                            });
+                            send_event(
+                                &tx_clone,
+                                ExecEvent::ExecutionStats {
+                                    task_id: tid.clone(),
+                                    stats,
+                                },
+                            );
                         }
 
                         logs_for_db.lock().await.push(parsed.clone());
-                        let prev = unflushed_for_stdout.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        if prev + 1 >= FLUSH_COUNT_THRESHOLD && !flush_pending_for_stdout.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                        let prev =
+                            unflushed_for_stdout.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if prev + 1 >= FLUSH_COUNT_THRESHOLD
+                            && !flush_pending_for_stdout
+                                .swap(true, std::sync::atomic::Ordering::Relaxed)
+                        {
                             unflushed_for_stdout.store(0, std::sync::atomic::Ordering::Relaxed);
                             let snapshot = std::mem::take(&mut *logs_for_db.lock().await);
                             let db_flush = db_for_todo.clone();
@@ -275,13 +416,21 @@ pub async fn run_todo_execution(
                             let fp = flush_pending_for_stdout.clone();
                             let h = tokio::spawn(async move {
                                 if let Ok(json) = serde_json::to_string(&snapshot) {
-                                    let _ = db_flush.append_execution_record_logs(rid_flush, &json).await;
+                                    let _ = db_flush
+                                        .append_execution_record_logs(rid_flush, &json)
+                                        .await;
                                 }
                                 fp.store(false, std::sync::atomic::Ordering::Relaxed);
                             });
                             flush_handles_stdout.lock().await.push(h);
                         }
-                        send_event(&tx_clone, ExecEvent::Output { task_id: tid.clone(), entry: parsed });
+                        send_event(
+                            &tx_clone,
+                            ExecEvent::Output {
+                                task_id: tid.clone(),
+                                entry: parsed,
+                            },
+                        );
                     }
                 }
             }))
@@ -299,7 +448,8 @@ pub async fn run_todo_execution(
         let flush_for_stderr = flush_pending.clone();
         let unflushed_for_stderr = unflushed_count.clone();
         let flush_handles_stderr = flush_handles.clone();
-        let stderr_task = stderr_handle.map(|stderr_reader| tokio::spawn(async move {
+        let stderr_task = stderr_handle.map(|stderr_reader| {
+            tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr_reader).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
                     let entry = if let Some(parsed) = executor_for_stderr.parse_stderr_line(&line) {
@@ -308,8 +458,11 @@ pub async fn run_todo_execution(
                         ParsedLogEntry::stderr(line.clone())
                     };
                     logs_for_stderr.lock().await.push(entry.clone());
-                    let prev = unflushed_for_stderr.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    if prev + 1 >= FLUSH_COUNT_THRESHOLD && !flush_for_stderr.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    let prev =
+                        unflushed_for_stderr.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if prev + 1 >= FLUSH_COUNT_THRESHOLD
+                        && !flush_for_stderr.swap(true, std::sync::atomic::Ordering::Relaxed)
+                    {
                         unflushed_for_stderr.store(0, std::sync::atomic::Ordering::Relaxed);
                         let snapshot = std::mem::take(&mut *logs_for_stderr.lock().await);
                         let db_flush = db_for_stderr.clone();
@@ -317,15 +470,24 @@ pub async fn run_todo_execution(
                         let fp = flush_for_stderr.clone();
                         let h = tokio::spawn(async move {
                             if let Ok(json) = serde_json::to_string(&snapshot) {
-                                let _ = db_flush.append_execution_record_logs(rid_flush, &json).await;
+                                let _ = db_flush
+                                    .append_execution_record_logs(rid_flush, &json)
+                                    .await;
                             }
                             fp.store(false, std::sync::atomic::Ordering::Relaxed);
                         });
                         flush_handles_stderr.lock().await.push(h);
                     }
-                    send_event(&stderr_tx, ExecEvent::Output { task_id: stderr_tid.clone(), entry });
+                    send_event(
+                        &stderr_tx,
+                        ExecEvent::Output {
+                            task_id: stderr_tid.clone(),
+                            entry,
+                        },
+                    );
                 }
-            }));
+            })
+        });
 
         // 定时兜底 flush：每 3 秒检查未刷新条目，有则写库
         let timer_db = db_clone.clone();
@@ -417,17 +579,25 @@ pub async fn run_todo_execution(
             }
         };
 
-        let exit_code = status.as_ref().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
+        let exit_code = status
+            .as_ref()
+            .map(|s| s.code().unwrap_or(-1))
+            .unwrap_or(-1);
         let success = executor_spawn.check_success(exit_code);
 
         // Try post-execution todo progress extraction (for executors like hermes that don't expose tool calls in stdout)
         if let Some(progress) = executor_spawn.post_execution_todo_progress() {
             if let Ok(progress_json) = serde_json::to_string(&progress) {
-                let _ = db_clone.update_execution_record_todo_progress(record_id, &progress_json).await;
-                send_event(&tx_clone, ExecEvent::TodoProgress {
-                    task_id: task_id.clone(),
-                    progress,
-                });
+                let _ = db_clone
+                    .update_execution_record_todo_progress(record_id, &progress_json)
+                    .await;
+                send_event(
+                    &tx_clone,
+                    ExecEvent::TodoProgress {
+                        task_id: task_id.clone(),
+                        progress,
+                    },
+                );
             }
         }
 
@@ -443,7 +613,11 @@ pub async fn run_todo_execution(
                 let mut base: Vec<ParsedLogEntry> = match serde_json::from_str(&record.logs) {
                     Ok(b) => b,
                     Err(e) => {
-                        tracing::warn!("Failed to parse execution logs JSON, record_id={}: {}", record_id, e);
+                        tracing::warn!(
+                            "Failed to parse execution logs JSON, record_id={}: {}",
+                            record_id,
+                            e
+                        );
                         Vec::new()
                     }
                 };
@@ -456,22 +630,29 @@ pub async fn run_todo_execution(
                 remaining
             }
         };
-        let result_str = executor_spawn.get_final_result(&all_logs_snapshot).unwrap_or_default();
+        let result_str = executor_spawn
+            .get_final_result(&all_logs_snapshot)
+            .unwrap_or_default();
 
         // Extract execution stats from logs
         // tool_calls: tool_use (claudecode), tool_call (kimi), tool (atomcode, opencode)
         // For hermes, use get_tool_calls_count() which parses from output summary
         let tool_calls = executor_spawn.get_tool_calls_count().unwrap_or_else(|| {
-            all_logs_snapshot.iter()
-                .filter(|l| l.log_type == "tool_use" || l.log_type == "tool_call" || l.log_type == "tool")
+            all_logs_snapshot
+                .iter()
+                .filter(|l| {
+                    l.log_type == "tool_use" || l.log_type == "tool_call" || l.log_type == "tool"
+                })
                 .count() as u64
         });
         // conversation_turns: assistant/result (claudecode), text (kimi, atomcode, hermes)
-        let conversation_turns = all_logs_snapshot.iter()
+        let conversation_turns = all_logs_snapshot
+            .iter()
             .filter(|l| l.log_type == "assistant" || l.log_type == "result" || l.log_type == "text")
             .count() as u64;
         // thinking_count: thinking (claudecode)
-        let thinking_count = all_logs_snapshot.iter()
+        let thinking_count = all_logs_snapshot
+            .iter()
             .filter(|l| l.log_type == "thinking")
             .count() as u64;
         let execution_stats = crate::models::ExecutionStats {
@@ -480,12 +661,20 @@ pub async fn run_todo_execution(
             thinking_count,
         };
         if let Ok(stats_json) = serde_json::to_string(&execution_stats) {
-            let _ = db_clone.update_execution_record_stats(record_id, &stats_json).await;
+            let _ = db_clone
+                .update_execution_record_stats(record_id, &stats_json)
+                .await;
         }
 
-        let final_status = if success { crate::models::ExecutionStatus::Success.as_str() } else { crate::models::ExecutionStatus::Failed.as_str() };
-        let logs_json = serde_json::to_string(&all_logs_snapshot)
-            .unwrap_or_else(|e| { tracing::error!("Failed to serialize logs: {}", e); "[]".to_string() });
+        let final_status = if success {
+            crate::models::ExecutionStatus::Success.as_str()
+        } else {
+            crate::models::ExecutionStatus::Failed.as_str()
+        };
+        let logs_json = serde_json::to_string(&all_logs_snapshot).unwrap_or_else(|e| {
+            tracing::error!("Failed to serialize logs: {}", e);
+            "[]".to_string()
+        });
         let mut usage = executor_spawn.get_usage(&all_logs_snapshot);
         let model = executor_spawn.get_model();
 
@@ -509,50 +698,61 @@ pub async fn run_todo_execution(
             }
         }
 
-        let _ = db_clone.update_execution_record(record_id, final_status, &logs_json, &result_str, usage.as_ref(), model.as_deref()).await;
+        let _ = db_clone
+            .update_execution_record(
+                record_id,
+                final_status,
+                &logs_json,
+                &result_str,
+                usage.as_ref(),
+                model.as_deref(),
+            )
+            .await;
 
         let _ = db_clone.finish_todo_execution(todo_id, success).await;
 
         let entry = ParsedLogEntry::new(
             if success { "info" } else { "error" },
-            format!("Executor finished with exit_code: {}, result: {}", exit_code, result_str),
+            format!(
+                "Executor finished with exit_code: {}, result: {}",
+                exit_code, result_str
+            ),
         );
-        send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
+        send_event(
+            &tx_clone,
+            ExecEvent::Output {
+                task_id: task_id.clone(),
+                entry,
+            },
+        );
 
-        send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string(), success, result: Some(result_str) });
+        send_event(
+            &tx_clone,
+            ExecEvent::Finished {
+                task_id: task_id.clone(),
+                todo_id,
+                todo_title: todo_title.clone(),
+                executor: executor_spawn.executor_type().to_string(),
+                success,
+                result: Some(result_str),
+            },
+        );
         task_manager_spawn.remove(&task_id).await;
     });
 
-    ExecutionResult { task_id: task_id_return, record_id: Some(record_id) }
+    ExecutionResult {
+        task_id: task_id_return,
+        record_id: Some(record_id),
+    }
 }
 
 /// Run a todo execution with parameter substitution.
 /// Replaces placeholders `{{key}}` in the message with corresponding values from params before execution.
 pub async fn run_todo_execution_with_params(
-    db: Arc<Database>,
-    executor_registry: Arc<ExecutorRegistry>,
-    tx: broadcast::Sender<ExecEvent>,
-    todo_id: i64,
-    message: String,
-    req_executor: Option<String>,
-    trigger_type: &str,
-    task_manager: Arc<TaskManager>,
-    params: std::collections::HashMap<String, String>,
-    resume_session_id: Option<String>,
-    resume_message: Option<String>,
+    mut request: RunTodoExecutionRequest,
 ) -> ExecutionResult {
-    let message_with_params = crate::models::replace_placeholders(&message, &params);
-    run_todo_execution(
-        db,
-        executor_registry,
-        tx,
-        todo_id,
-        message_with_params,
-        req_executor,
-        trigger_type,
-        task_manager,
-        resume_session_id,
-        resume_message,
-    )
-    .await
+    if let Some(params) = request.params.take() {
+        request.message = crate::models::replace_placeholders(&request.message, &params);
+    }
+    run_todo_execution(request).await
 }

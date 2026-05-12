@@ -9,20 +9,23 @@ use std::time::Duration;
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelBehavior, ActiveModelTrait, ConnectOptions, ConnectionTrait, Database as SeaDatabase,
-    DatabaseConnection, DbBackend, EntityTrait, IntoActiveModel, Statement,
+    ActiveModelBehavior, ActiveModelTrait, ConnectOptions, ConnectionTrait,
+    Database as SeaDatabase, DatabaseConnection, DbBackend, EntityTrait, IntoActiveModel,
+    Statement,
 };
 
 pub mod entity;
 pub use entity::prelude::*;
 
 fn compute_next_run(cron_expr: &str) -> Option<String> {
-    cron::Schedule::from_str(cron_expr).ok().and_then(|schedule| {
-        schedule
-            .upcoming(Utc)
-            .next()
-            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
-    })
+    cron::Schedule::from_str(cron_expr)
+        .ok()
+        .and_then(|schedule| {
+            schedule
+                .upcoming(Utc)
+                .next()
+                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+        })
 }
 
 pub struct Database {
@@ -135,46 +138,39 @@ impl Database {
         .await?;
 
         // 添加 pid 字段的迁移（向后兼容）
-        self.exec(
-            "ALTER TABLE execution_records ADD COLUMN pid INTEGER"
-        )
-        .await.ok(); // 忽略错误，因为字段可能已存在
+        self.exec("ALTER TABLE execution_records ADD COLUMN pid INTEGER")
+            .await
+            .ok(); // 忽略错误，因为字段可能已存在
 
         // 添加 task_id 字段的迁移（向后兼容）
-        self.exec(
-            "ALTER TABLE execution_records ADD COLUMN task_id TEXT"
-        )
-        .await.ok(); // 忽略错误，因为字段可能已存在
+        self.exec("ALTER TABLE execution_records ADD COLUMN task_id TEXT")
+            .await
+            .ok(); // 忽略错误，因为字段可能已存在
 
         // 添加 session_id 字段的迁移（向后兼容）
-        self.exec(
-            "ALTER TABLE execution_records ADD COLUMN session_id TEXT"
-        )
-        .await.ok(); // 忽略错误，因为字段可能已存在
+        self.exec("ALTER TABLE execution_records ADD COLUMN session_id TEXT")
+            .await
+            .ok(); // 忽略错误，因为字段可能已存在
 
         // 添加 workspace 字段的迁移（向后兼容）
-        self.exec(
-            "ALTER TABLE todos ADD COLUMN workspace TEXT"
-        )
-        .await.ok(); // 忽略错误，因为字段可能已存在
+        self.exec("ALTER TABLE todos ADD COLUMN workspace TEXT")
+            .await
+            .ok(); // 忽略错误，因为字段可能已存在
 
         // 添加 todo_progress 字段的迁移（向后兼容）
-        self.exec(
-            "ALTER TABLE execution_records ADD COLUMN todo_progress TEXT"
-        )
-        .await.ok(); // 忽略错误，因为字段可能已存在
+        self.exec("ALTER TABLE execution_records ADD COLUMN todo_progress TEXT")
+            .await
+            .ok(); // 忽略错误，因为字段可能已存在
 
         // 添加 execution_stats 字段的迁移（向后兼容）
-        self.exec(
-            "ALTER TABLE execution_records ADD COLUMN execution_stats TEXT"
-        )
-        .await.ok(); // 忽略错误，因为字段可能已存在
+        self.exec("ALTER TABLE execution_records ADD COLUMN execution_stats TEXT")
+            .await
+            .ok(); // 忽略错误，因为字段可能已存在
 
         // 添加 resume_message 字段的迁移（向后兼容）
-        self.exec(
-            "ALTER TABLE execution_records ADD COLUMN resume_message TEXT"
-        )
-        .await.ok(); // 忽略错误，因为字段可能已存在
+        self.exec("ALTER TABLE execution_records ADD COLUMN resume_message TEXT")
+            .await
+            .ok(); // 忽略错误，因为字段可能已存在
 
         // Skill invocations tracking table
         self.exec(
@@ -192,21 +188,32 @@ impl Database {
         .await?;
 
         // --- Indexes for frequently-filtered columns ---
-        self.exec("CREATE INDEX IF NOT EXISTS idx_todos_deleted_at ON todos(deleted_at)").await?;
-        self.exec("CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status)").await?;
-        self.exec("CREATE INDEX IF NOT EXISTS idx_todos_task_id ON todos(task_id)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_todos_deleted_at ON todos(deleted_at)")
+            .await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status)")
+            .await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_todos_task_id ON todos(task_id)")
+            .await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_todo_id ON execution_records(todo_id)").await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_task_id ON execution_records(task_id)").await?;
-        self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_pid ON execution_records(pid)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_pid ON execution_records(pid)")
+            .await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_session_id ON execution_records(session_id)").await?;
-        self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_status ON execution_records(status)").await?;
-        self.exec("CREATE INDEX IF NOT EXISTS idx_todo_tags_todo_id ON todo_tags(todo_id)").await?;
+        self.exec(
+            "CREATE INDEX IF NOT EXISTS idx_execution_records_status ON execution_records(status)",
+        )
+        .await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_todo_tags_todo_id ON todo_tags(todo_id)")
+            .await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill_name ON skill_invocations(skill_name)").await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_executor ON skill_invocations(executor)").await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_todo_id ON skill_invocations(todo_id)").await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_started_at ON execution_records(started_at)").await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_executor ON execution_records(executor)").await?;
-        self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_model ON execution_records(model)").await?;
+        self.exec(
+            "CREATE INDEX IF NOT EXISTS idx_execution_records_model ON execution_records(model)",
+        )
+        .await?;
 
         // Trigger: fill created_at with UTC time on INSERT if not set
         self.exec(
@@ -264,7 +271,9 @@ impl Database {
             .await
             .unwrap_or_default();
         let has_config = cols.iter().any(|row| {
-            row.try_get::<String>("", "name").map(|n| n == "config").unwrap_or(false)
+            row.try_get::<String>("", "name")
+                .map(|n| n == "config")
+                .unwrap_or(false)
         });
         if !has_config {
             self.exec("ALTER TABLE agent_bots ADD COLUMN config TEXT DEFAULT '{}'")
@@ -313,24 +322,32 @@ impl Database {
 
         // 添加 sender_nickname 字段的迁移（向后兼容）
         self.exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS sender_nickname TEXT")
-            .await.ok();
+            .await
+            .ok();
 
         // 添加 sender_type 字段的迁移（向后兼容）
         self.exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS sender_type TEXT")
-            .await.ok();
+            .await
+            .ok();
 
         // 添加 is_history 字段的迁移（向后兼容）
-        self.exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS is_history INTEGER DEFAULT 0")
-            .await.ok();
+        self.exec(
+            "ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS is_history INTEGER DEFAULT 0",
+        )
+        .await
+        .ok();
 
         // 添加 fetch_time 字段的迁移（向后兼容）
         self.exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS fetch_time TEXT")
-            .await.ok();
+            .await
+            .ok();
 
         // 添加 processed_todo_id 字段的迁移（向后兼容）
         // 注意：SQLite 3.39.0+ 支持 IF NOT EXISTS，但旧版本不支持此语法
         // 先尝试带 IF NOT EXISTS 的版本，失败后再尝试不带 IF NOT EXISTS 的版本
-        let add_result = self.exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS processed_todo_id INTEGER").await;
+        let add_result = self
+            .exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS processed_todo_id INTEGER")
+            .await;
         if add_result.is_err() {
             // 尝试不带 IF NOT EXISTS 的版本（如果列已存在会报错，被 .ok() 忽略）
             self.exec("ALTER TABLE feishu_messages ADD COLUMN processed_todo_id INTEGER")
@@ -339,7 +356,11 @@ impl Database {
         }
 
         // 添加 execution_record_id 字段的迁移
-        let add_exec_result = self.exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS execution_record_id INTEGER").await;
+        let add_exec_result = self
+            .exec(
+                "ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS execution_record_id INTEGER",
+            )
+            .await;
         if add_exec_result.is_err() {
             self.exec("ALTER TABLE feishu_messages ADD COLUMN execution_record_id INTEGER")
                 .await
@@ -406,7 +427,10 @@ impl Database {
             .map(|r| r.try_get::<i64>("", "COUNT(*)").unwrap_or(0))
             .unwrap_or(0);
         if has_debounce == 0 {
-            self.exec("ALTER TABLE feishu_response_config ADD COLUMN debounce_secs INTEGER DEFAULT 20").await?;
+            self.exec(
+                "ALTER TABLE feishu_response_config ADD COLUMN debounce_secs INTEGER DEFAULT 20",
+            )
+            .await?;
         }
 
         // feishu_group_whitelist 表（群聊响应白名单）
@@ -436,10 +460,13 @@ impl Database {
             )",
         )
         .await?;
-        self.exec("CREATE INDEX IF NOT EXISTS idx_executors_name ON executors(name)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_executors_name ON executors(name)")
+            .await?;
 
         // Migration: add session_dir column if missing (existing databases)
-        let _ = self.exec("ALTER TABLE executors ADD COLUMN session_dir TEXT NOT NULL DEFAULT ''").await;
+        let _ = self
+            .exec("ALTER TABLE executors ADD COLUMN session_dir TEXT NOT NULL DEFAULT ''")
+            .await;
 
         // Executors timestamps triggers
         self.exec(
@@ -465,17 +492,20 @@ impl Database {
 }
 
 mod todo;
-mod tag;
+pub use todo::TodoUpdate;
 mod execution;
-mod skills;
+mod tag;
+pub use execution::NewExecutionRecord;
 mod agent_bot;
 mod executor_config;
 mod feishu_home;
 mod feishu_message;
-mod feishu_push_target;
-mod feishu_history_chat;
-mod feishu_response_config;
+mod skills;
+pub use feishu_message::{NewFeishuHistoryMessage, NewFeishuMessage};
 mod feishu_group_whitelist;
+mod feishu_history_chat;
+mod feishu_push_target;
+mod feishu_response_config;
 
 #[cfg(test)]
 mod tests {
@@ -486,8 +516,24 @@ mod tests {
         Database::new(":memory:").await.unwrap()
     }
 
+    async fn create_test_execution_record(db: &Database, todo_id: i64, command: &str) -> i64 {
+        db.create_execution_record(NewExecutionRecord {
+            todo_id,
+            command,
+            executor: "claudecode",
+            trigger_type: "manual",
+            task_id: "test-task-id",
+            session_id: None,
+            resume_message: None,
+        })
+        .await
+        .unwrap()
+    }
+
     fn parse_utc(ts: &str) -> DateTime<Utc> {
-        DateTime::parse_from_rfc3339(ts).unwrap().with_timezone(&Utc)
+        DateTime::parse_from_rfc3339(ts)
+            .unwrap()
+            .with_timezone(&Utc)
     }
 
     fn truncate_seconds(dt: DateTime<Utc>) -> DateTime<Utc> {
@@ -504,9 +550,15 @@ mod tests {
         let todo = db.get_todo(id).await.unwrap().unwrap();
         let created = truncate_seconds(parse_utc(&todo.created_at));
 
-        assert!(created >= before, "created_at should not be before test start");
+        assert!(
+            created >= before,
+            "created_at should not be before test start"
+        );
         assert!(created <= after, "created_at should not be after test end");
-        assert!(todo.created_at.ends_with('Z'), "UTC timestamp must end with Z");
+        assert!(
+            todo.created_at.ends_with('Z'),
+            "UTC timestamp must end with Z"
+        );
     }
 
     #[tokio::test]
@@ -516,16 +568,16 @@ mod tests {
         let original = db.get_todo(id).await.unwrap().unwrap().updated_at;
 
         tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
-        db.update_todo_full(
+        db.update_todo_full(TodoUpdate {
             id,
-            "Updated",
-            "Desc",
-            crate::models::TodoStatus::InProgress,
-            None,
-            None,
-            None,
-            None,
-        )
+            title: "Updated",
+            prompt: "Desc",
+            status: crate::models::TodoStatus::InProgress,
+            executor: None,
+            scheduler_enabled: None,
+            scheduler_config: None,
+            workspace: None,
+        })
         .await
         .unwrap();
         let updated = db.get_todo(id).await.unwrap().unwrap().updated_at;
@@ -561,7 +613,13 @@ mod tests {
         let id = db.create_tag("urgent", "#ff0000").await.unwrap();
         let after = truncate_seconds(Utc::now());
 
-        let tag = db.get_tags().await.unwrap().into_iter().find(|t| t.id == id).unwrap();
+        let tag = db
+            .get_tags()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|t| t.id == id)
+            .unwrap();
         let created = truncate_seconds(parse_utc(&tag.created_at));
 
         assert!(created >= before);
@@ -574,10 +632,7 @@ mod tests {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Desc").await.unwrap();
         let before = truncate_seconds(Utc::now());
-        let record_id = db
-            .create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id", None, None)
-            .await
-            .unwrap();
+        let record_id = create_test_execution_record(&db, todo_id, "echo hi").await;
         let after = truncate_seconds(Utc::now());
 
         let (records, _) = db.get_execution_records(todo_id, 100, 0).await.unwrap();
@@ -593,15 +648,19 @@ mod tests {
     async fn test_execution_record_finished_at_is_utc() {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Desc").await.unwrap();
-        let record_id = db
-            .create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id", None, None)
-            .await
-            .unwrap();
+        let record_id = create_test_execution_record(&db, todo_id, "echo hi").await;
 
         let before = truncate_seconds(Utc::now());
-        db.update_execution_record(record_id, crate::models::ExecutionStatus::Success.as_str(), "[]", "done", None, None)
-            .await
-            .unwrap();
+        db.update_execution_record(
+            record_id,
+            crate::models::ExecutionStatus::Success.as_str(),
+            "[]",
+            "done",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
         let after = truncate_seconds(Utc::now());
 
         let (records, _) = db.get_execution_records(todo_id, 100, 0).await.unwrap();
@@ -651,16 +710,16 @@ mod tests {
     async fn test_update_todo_full() {
         let db = setup_db().await;
         let id = db.create_todo("Old", "Old prompt").await.unwrap();
-        db.update_todo_full(
+        db.update_todo_full(TodoUpdate {
             id,
-            "New",
-            "New prompt",
-            crate::models::TodoStatus::InProgress,
-            Some("opencode"),
-            Some(true),
-            Some("0 0 * * *"),
-            Some("/tmp/workspace"),
-        )
+            title: "New",
+            prompt: "New prompt",
+            status: crate::models::TodoStatus::InProgress,
+            executor: Some("opencode"),
+            scheduler_enabled: Some(true),
+            scheduler_config: Some("0 0 * * *"),
+            workspace: Some("/tmp/workspace"),
+        })
         .await
         .unwrap();
         let todo = db.get_todo(id).await.unwrap().unwrap();
@@ -698,7 +757,9 @@ mod tests {
     async fn test_update_todo_scheduler() {
         let db = setup_db().await;
         let id = db.create_todo("Test", "Prompt").await.unwrap();
-        db.update_todo_scheduler(id, true, Some("0 0 * * *")).await.unwrap();
+        db.update_todo_scheduler(id, true, Some("0 0 * * *"))
+            .await
+            .unwrap();
         let todo = db.get_todo(id).await.unwrap().unwrap();
         assert!(todo.scheduler_enabled);
         assert_eq!(todo.scheduler_config, Some("0 0 * * *".to_string()));
@@ -708,7 +769,9 @@ mod tests {
     async fn test_force_update_todo_status() {
         let db = setup_db().await;
         let id = db.create_todo("Test", "Prompt").await.unwrap();
-        db.force_update_todo_status(id, crate::models::TodoStatus::Failed).await.unwrap();
+        db.force_update_todo_status(id, crate::models::TodoStatus::Failed)
+            .await
+            .unwrap();
         let todo = db.get_todo(id).await.unwrap().unwrap();
         assert_eq!(todo.status, crate::models::TodoStatus::Failed);
     }
@@ -758,7 +821,9 @@ mod tests {
     async fn test_get_scheduler_todos() {
         let db = setup_db().await;
         let id1 = db.create_todo("Scheduled", "Prompt").await.unwrap();
-        db.update_todo_scheduler(id1, true, Some("0 0 * * *")).await.unwrap();
+        db.update_todo_scheduler(id1, true, Some("0 0 * * *"))
+            .await
+            .unwrap();
         let id2 = db.create_todo("Normal", "Prompt").await.unwrap();
         let scheduled = db.get_scheduler_todos().await.unwrap();
         assert_eq!(scheduled.len(), 1);
@@ -875,7 +940,7 @@ mod tests {
     async fn test_create_execution_record() {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
-        let record_id = db.create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id", None, None).await.unwrap();
+        let record_id = create_test_execution_record(&db, todo_id, "echo hi").await;
         let (records, total) = db.get_execution_records(todo_id, 100, 0).await.unwrap();
         assert_eq!(total, 1);
         let record = records.iter().find(|r| r.id == record_id).unwrap();
@@ -891,7 +956,7 @@ mod tests {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
         for i in 0..5 {
-            db.create_execution_record(todo_id, &format!("cmd{}", i), "claudecode", "manual", "test-task-id", None, None).await.unwrap();
+            create_test_execution_record(&db, todo_id, &format!("cmd{}", i)).await;
         }
         let (records, total) = db.get_execution_records(todo_id, 2, 0).await.unwrap();
         assert_eq!(total, 5);
@@ -903,7 +968,7 @@ mod tests {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
         for i in 0..3 {
-            db.create_execution_record(todo_id, &format!("cmd{}", i), "claudecode", "manual", "test-task-id", None, None).await.unwrap();
+            create_test_execution_record(&db, todo_id, &format!("cmd{}", i)).await;
         }
         let (records, total) = db.get_execution_records(todo_id, 10, 2).await.unwrap();
         assert_eq!(total, 3);
@@ -914,7 +979,7 @@ mod tests {
     async fn test_update_execution_record() {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
-        let record_id = db.create_execution_record(todo_id, "echo hi", "claudecode", "manual", "test-task-id", None, None).await.unwrap();
+        let record_id = create_test_execution_record(&db, todo_id, "echo hi").await;
         let usage = crate::models::ExecutionUsage {
             input_tokens: 100,
             output_tokens: 50,
@@ -923,7 +988,16 @@ mod tests {
             total_cost_usd: Some(0.005),
             duration_ms: Some(1000),
         };
-        db.update_execution_record(record_id, "success", "[{\"type\":\"info\"}]", "done", Some(&usage), Some("claude-3")).await.unwrap();
+        db.update_execution_record(
+            record_id,
+            "success",
+            "[{\"type\":\"info\"}]",
+            "done",
+            Some(&usage),
+            Some("claude-3"),
+        )
+        .await
+        .unwrap();
         let (records, _) = db.get_execution_records(todo_id, 100, 0).await.unwrap();
         let record = records.iter().find(|r| r.id == record_id).unwrap();
         assert_eq!(record.status, crate::models::ExecutionStatus::Success);
@@ -953,11 +1027,15 @@ mod tests {
     async fn test_get_execution_summary_counts() {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
-        let r1 = db.create_execution_record(todo_id, "cmd1", "claudecode", "manual", "test-task-id", None, None).await.unwrap();
-        db.update_execution_record(r1, "success", "[]", "", None, None).await.unwrap();
-        let r2 = db.create_execution_record(todo_id, "cmd2", "claudecode", "manual", "test-task-id", None, None).await.unwrap();
-        db.update_execution_record(r2, "failed", "[]", "", None, None).await.unwrap();
-        let _r3 = db.create_execution_record(todo_id, "cmd3", "claudecode", "manual", "test-task-id", None, None).await.unwrap();
+        let r1 = create_test_execution_record(&db, todo_id, "cmd1").await;
+        db.update_execution_record(r1, "success", "[]", "", None, None)
+            .await
+            .unwrap();
+        let r2 = create_test_execution_record(&db, todo_id, "cmd2").await;
+        db.update_execution_record(r2, "failed", "[]", "", None, None)
+            .await
+            .unwrap();
+        let _r3 = create_test_execution_record(&db, todo_id, "cmd3").await;
         // r3 stays "running"
         let summary = db.get_execution_summary(todo_id).await.unwrap();
         assert_eq!(summary.total_executions, 3);
@@ -970,7 +1048,7 @@ mod tests {
     async fn test_get_execution_summary_tokens_and_cost() {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
-        let r1 = db.create_execution_record(todo_id, "cmd1", "claudecode", "manual", "test-task-id", None, None).await.unwrap();
+        let r1 = create_test_execution_record(&db, todo_id, "cmd1").await;
         let usage1 = crate::models::ExecutionUsage {
             input_tokens: 100,
             output_tokens: 50,
@@ -979,8 +1057,10 @@ mod tests {
             total_cost_usd: Some(0.005),
             duration_ms: Some(1000),
         };
-        db.update_execution_record(r1, "success", "[]", "", Some(&usage1), None).await.unwrap();
-        let r2 = db.create_execution_record(todo_id, "cmd2", "claudecode", "manual", "test-task-id", None, None).await.unwrap();
+        db.update_execution_record(r1, "success", "[]", "", Some(&usage1), None)
+            .await
+            .unwrap();
+        let r2 = create_test_execution_record(&db, todo_id, "cmd2").await;
         let usage2 = crate::models::ExecutionUsage {
             input_tokens: 200,
             output_tokens: 100,
@@ -989,7 +1069,9 @@ mod tests {
             total_cost_usd: Some(0.010),
             duration_ms: Some(2000),
         };
-        db.update_execution_record(r2, "success", "[]", "", Some(&usage2), None).await.unwrap();
+        db.update_execution_record(r2, "success", "[]", "", Some(&usage2), None)
+            .await
+            .unwrap();
         let summary = db.get_execution_summary(todo_id).await.unwrap();
         assert_eq!(summary.total_input_tokens, 300);
         assert_eq!(summary.total_output_tokens, 150);
@@ -997,5 +1079,4 @@ mod tests {
         assert_eq!(summary.total_cache_creation_tokens, 10);
         assert_eq!(summary.total_cost_usd, Some(0.015));
     }
-
 }
