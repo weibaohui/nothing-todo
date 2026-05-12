@@ -119,6 +119,7 @@ pub async fn feishu_begin() -> Result<impl IntoResponse, AppError> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct FeishuPollResponse {
     pub success: bool,
     pub app_id: Option<String>,
@@ -229,20 +230,6 @@ pub async fn feishu_poll(
     }
 }
 
-impl Default for FeishuPollResponse {
-    fn default() -> Self {
-        Self {
-            success: false,
-            app_id: None,
-            app_secret: None,
-            domain: None,
-            open_id: None,
-            bot_name: None,
-            bot_id: None,
-            error: None,
-        }
-    }
-}
 
 async fn probe_bot(app_id: &str, app_secret: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let client = Client::new();

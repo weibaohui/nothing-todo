@@ -119,7 +119,7 @@ impl TodoScheduler {
             }
             Err(e) => {
                 error!("Failed to add job to scheduler: {:?}", e);
-                Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e))))
+                Err(Box::new(std::io::Error::other(format!("{:?}", e))))
             }
         }
     }

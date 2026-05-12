@@ -26,15 +26,13 @@ pub async fn update_executor(
     // Re-read updated executor
     let ec = state.db.get_executor_by_name(&name).await
         .map_err(|e| AppError::Internal(e.to_string()))?
-        .ok_or_else(|| AppError::NotFound)?;
+        .ok_or(AppError::NotFound)?;
 
     // Update registry based on enabled state
     if ec.enabled {
         state.executor_registry.register_by_name(&ec.name, &ec.path);
-    } else {
-        if let Some(et) = crate::adapters::parse_executor_type(&ec.name) {
-            state.executor_registry.unregister(et);
-        }
+    } else if let Some(et) = crate::adapters::parse_executor_type(&ec.name) {
+        state.executor_registry.unregister(et);
     }
 
     Ok(ApiResponse::ok(ec))
@@ -46,7 +44,7 @@ pub async fn detect_executor(
 ) -> Result<ApiResponse<ExecutorDetectResult>, AppError> {
     let ec = state.db.get_executor_by_name(&name).await
         .map_err(|e| AppError::Internal(e.to_string()))?
-        .ok_or_else(|| AppError::NotFound)?;
+        .ok_or(AppError::NotFound)?;
 
     let path = if ec.path.is_empty() { name.clone() } else { ec.path.clone() };
     let (found, resolved) = detect_binary(&path);
@@ -63,7 +61,7 @@ pub async fn test_executor(
 ) -> Result<ApiResponse<ExecutorTestResult>, AppError> {
     let ec = state.db.get_executor_by_name(&name).await
         .map_err(|e| AppError::Internal(e.to_string()))?
-        .ok_or_else(|| AppError::NotFound)?;
+        .ok_or(AppError::NotFound)?;
 
     let path = if ec.path.is_empty() { name.clone() } else { ec.path.clone() };
     let (found, _) = detect_binary(&path);

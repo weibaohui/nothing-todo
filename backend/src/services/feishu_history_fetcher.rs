@@ -248,9 +248,9 @@ impl FeishuHistoryFetcher {
     #[allow(clippy::too_many_arguments)]
     async fn fetch_chat_history(
         db: &Arc<Database>,
-        executor_registry: &Arc<ExecutorRegistry>,
-        tx: &broadcast::Sender<ExecEvent>,
-        task_manager: &Arc<TaskManager>,
+        _executor_registry: &Arc<ExecutorRegistry>,
+        _tx: &broadcast::Sender<ExecEvent>,
+        _task_manager: &Arc<TaskManager>,
         config: &Arc<RwLock<AppConfig>>,
         token_manager: &Arc<TokenManager>,
         bot_credentials: &Arc<DashMap<i64, (String, String, String)>>,
@@ -351,7 +351,7 @@ impl FeishuHistoryFetcher {
                             chrono::DateTime::from_timestamp(secs, 0)
                         })
                         .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
-                        .unwrap_or_else(|| crate::models::utc_timestamp());
+                        .unwrap_or_else(crate::models::utc_timestamp);
 
                     if let Err(e) = db.save_feishu_history_message(
                         bot_id,

@@ -264,7 +264,7 @@ pub async fn update_auto_backup(
         }
         cfg.auto_backup_max_files = max_files;
     }
-    cfg.save().map_err(|e| AppError::Internal(e))?;
+    cfg.save().map_err(AppError::Internal)?;
 
     Ok(ApiResponse::ok("自动备份配置已更新".to_string()))
 }

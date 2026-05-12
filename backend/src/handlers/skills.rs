@@ -298,11 +298,10 @@ fn collect_skills_recursive(base_dir: &std::path::Path, current_dir: &std::path:
                 if let Ok(rel) = path.strip_prefix(base_dir) {
                     let rel_str = rel.to_string_lossy().to_string();
                     // Only add prefix if nested (e.g. "devops/lark-cli" -> keep as name)
-                    if rel_str.contains('/') {
-                        if meta.name == path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default() {
+                    if rel_str.contains('/')
+                        && meta.name == path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default() {
                             meta.name = rel_str;
                         }
-                    }
                 }
 
                 let (file_count, total_size) = count_files_and_size(&path);
@@ -470,7 +469,7 @@ fn add_dir_to_zip<W: std::io::Write + std::io::Seek>(
         if path.is_dir() {
             add_dir_to_zip(zip_writer, &path, &name, options)?;
         } else {
-            zip_writer.start_file(name, options.clone())?;
+            zip_writer.start_file(name, *options)?;
             let mut file = std::fs::File::open(&path)?;
             std::io::copy(&mut file, zip_writer)?;
         }
@@ -758,7 +757,7 @@ pub async fn sync_skill(
 
         // Flatten directory: take only the last part of the skill name
         // e.g., "creative/joke-teller" -> "joke-teller"
-        let target_skill_name = req.skill_name.split('/').last().unwrap_or(&req.skill_name);
+        let target_skill_name = req.skill_name.split('/').next_back().unwrap_or(&req.skill_name);
         let dest = target_dir.join(target_skill_name);
 
         // Use temporary directory for atomic replace
@@ -831,7 +830,7 @@ fn copy_dir_recursive_flat(src: &std::path::Path, dst: &std::path::Path, flatten
                 copy_dir_recursive_flat(&src_path, &dst_path, flatten)?;
             }
         } else {
-            std::fs::copy(&src_path, &dst.join(&file_name))?;
+            std::fs::copy(&src_path, dst.join(&file_name))?;
         }
     }
     Ok(())

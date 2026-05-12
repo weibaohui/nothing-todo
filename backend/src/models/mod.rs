@@ -507,8 +507,10 @@ pub struct ExecutorTestResult {
 // Executor types
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ExecutorType {
     Joinai,
+    #[default]
     Claudecode,
     Codebuddy,
     Opencode,
@@ -518,11 +520,6 @@ pub enum ExecutorType {
     Codex,
 }
 
-impl Default for ExecutorType {
-    fn default() -> Self {
-        ExecutorType::Claudecode
-    }
-}
 
 impl ExecutorType {
     pub fn as_str(&self) -> &'static str {

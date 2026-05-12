@@ -71,8 +71,8 @@ impl FeishuListener {
         let bot_config: BotConfig = serde_json::from_str(&bot.config).unwrap_or_default();
 
         let config = FeishuConfig {
-            app_id: bot.app_id.clone().into(),
-            app_secret: bot.app_secret.clone().into(),
+            app_id: bot.app_id.clone(),
+            app_secret: bot.app_secret.clone(),
             domain: domain.clone(),
             connection_mode: FeishuConnectionMode::WebSocket,
             allowed_users: vec!["*".into()],
@@ -154,9 +154,9 @@ impl FeishuListener {
 
     async fn handle_message(
         db: &Arc<Database>,
-        executor_registry: &Arc<ExecutorRegistry>,
-        tx: &broadcast::Sender<ExecEvent>,
-        task_manager: &Arc<TaskManager>,
+        _executor_registry: &Arc<ExecutorRegistry>,
+        _tx: &broadcast::Sender<ExecEvent>,
+        _task_manager: &Arc<TaskManager>,
         config: &Arc<RwLock<AppConfig>>,
         token_manager: &Arc<TokenManager>,
         credentials: &DashMap<i64, (String, String, String)>,
@@ -432,10 +432,8 @@ impl FeishuListener {
             if let Err(e) = db.set_p2p_receive_id(bot_id, &receive_id).await {
                 tracing::error!("[feishu:{}] set p2p push target failed: {e}", bot_id);
             }
-        } else {
-            if let Err(e) = db.set_group_chat_id(bot_id, channel).await {
-                tracing::error!("[feishu:{}] set group push target failed: {e}", bot_id);
-            }
+        } else if let Err(e) = db.set_group_chat_id(bot_id, channel).await {
+            tracing::error!("[feishu:{}] set group push target failed: {e}", bot_id);
         }
 
         // Enable message response for this chat type
@@ -450,7 +448,7 @@ impl FeishuListener {
         let chat_type_label = if chat_type == "p2p" { "私聊" } else { "群聊" };
         let target_desc = if chat_type == "p2p" { "此私聊" } else { channel };
         let confirm = format!("✅ 已设置推送目标为此 {chat_type_label} ({target_desc})，执行过程将实时推送。\n\n如需关闭推送，请发送 /feishupush");
-        Self::send_text(credentials, token_manager, bot_id, &receive_id, &receive_id_type, &confirm).await;
+        Self::send_text(credentials, token_manager, bot_id, &receive_id, receive_id_type, &confirm).await;
 
         if let Some(rid) = reaction_id {
             Self::delete_reaction(credentials, token_manager, bot_id, message_id, rid).await;
@@ -486,7 +484,7 @@ impl FeishuListener {
         if let Err(e) = db.update_feishu_push_level(bot_id, new_level).await {
             tracing::error!("[feishu:{}] /feishupush update failed: {e}", bot_id);
             let msg = "⚠️ 操作失败，请稍后重试";
-            Self::send_text(credentials, token_manager, bot_id, &receive_id, &receive_id_type, msg).await;
+            Self::send_text(credentials, token_manager, bot_id, &receive_id, receive_id_type, msg).await;
         } else {
             let (status_text, status_emoji) = match new_level {
                 "disabled" => ("关闭", "ℹ️"),
@@ -495,7 +493,7 @@ impl FeishuListener {
                 _ => ("未知", "⚠️"),
             };
             let msg = format!("{} 推送{}。", status_emoji, status_text);
-            Self::send_text(credentials, token_manager, bot_id, &receive_id, &receive_id_type, &msg).await;
+            Self::send_text(credentials, token_manager, bot_id, &receive_id, receive_id_type, &msg).await;
             tracing::info!("[feishu:{}] /feishupush: push level changed to {} for bot_id={}", bot_id, new_level, bot_id);
         }
 

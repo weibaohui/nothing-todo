@@ -166,7 +166,7 @@ impl CodeExecutor for CodexExecutor {
             return Some(ParsedLogEntry {
                 timestamp: utc_timestamp(),
                 log_type: log_type.to_string(),
-                content: format!("Codex {}", event_type.replace('.', " ").replace('_', " ")),
+                content: format!("Codex {}", event_type.replace(['.', '_'], " ")),
                 usage: None,
                 tool_name: None,
                 tool_input_json: None,
