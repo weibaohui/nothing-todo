@@ -591,6 +591,7 @@ pub struct TodoBackup {
     pub scheduler_config: Option<String>,
     pub tag_names: Vec<String>,
     pub workspace: Option<String>,
+    pub worktree: Option<String>,
 }
 
 // Business error codes

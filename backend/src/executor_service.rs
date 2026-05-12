@@ -137,13 +137,22 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
     let mut command_args =
         executor.command_args_with_session(&message, Some(session_id_for_executor), is_resume);
 
-    // Add worktree flag for claude_code executor
-    // 需要同时满足：1) worktree_enabled=true 2) workspace 有值 3) 是 claude_code
+    // Add worktree flag for claude_code and hermes executors
+    // claude_code: --worktree <path>
+    // hermes: --worktree (no path argument, uses current directory)
     let exec_type = executor.executor_type();
     if todo_worktree_enabled {
-        if let (Some(wt), true) = (todo_workspace.as_deref(), exec_type == ExecutorType::Claudecode) {
-            command_args.push("--worktree".to_string());
-            command_args.push(wt.to_string());
+        match exec_type {
+            ExecutorType::Claudecode => {
+                if let Some(wt) = todo_workspace.as_deref() {
+                    command_args.push("--worktree".to_string());
+                    command_args.push(wt.to_string());
+                }
+            }
+            ExecutorType::Hermes => {
+                command_args.push("--worktree".to_string());
+            }
+            _ => {}
         }
     }
 
