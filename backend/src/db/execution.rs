@@ -306,7 +306,6 @@ impl Database {
             .query_all(Statement::from_string(backend, executor_todo_sql.to_string()))
             .await?
             .into_iter()
-            .into_iter()
             .filter_map(|row| {
                 let exec: String = row.try_get_by("executor").ok()?;
                 let count: i64 = row.try_get_by("todo_count").ok()?;
@@ -320,7 +319,6 @@ impl Database {
         let tag_todo_counts: HashMap<i64, i64> = self.conn
             .query_all(Statement::from_string(backend, tag_todo_sql.to_string()))
             .await?
-            .into_iter()
             .into_iter()
             .filter_map(|row| {
                 let tag_id: i64 = row.try_get_by("tag_id").ok()?;

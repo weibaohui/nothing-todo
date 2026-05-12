@@ -6,13 +6,50 @@
 use std::collections::HashMap;
 use serde::Deserialize;
 
+/// Flexible timestamp that can be deserialized from both numbers and strings.
+#[derive(Debug, Clone)]
+pub struct JoinAITimestamp(pub String);
+
+impl<'de> Deserialize<'de> for JoinAITimestamp {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct JoinAITimestampVisitor;
+        impl<'de> serde::de::Visitor<'de> for JoinAITimestampVisitor {
+            type Value = JoinAITimestamp;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a number (u64) or a string")
+            }
+
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<JoinAITimestamp, E> {
+                Ok(JoinAITimestamp(v.to_string()))
+            }
+
+            fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<JoinAITimestamp, E> {
+                Ok(JoinAITimestamp(v.to_string()))
+            }
+
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<JoinAITimestamp, E> {
+                Ok(JoinAITimestamp(v.to_string()))
+            }
+
+            fn visit_string<E: serde::de::Error>(self, v: String) -> Result<JoinAITimestamp, E> {
+                Ok(JoinAITimestamp(v))
+            }
+        }
+        deserializer.deserialize_any(JoinAITimestampVisitor)
+    }
+}
+
 /// JoinAI agent event with underscore-separated type names
 #[derive(Debug, Clone, Deserialize)]
 pub struct JoinaiAgentEvent {
     #[serde(rename = "type")]
     pub event_type: String,
     #[serde(default)]
-    pub timestamp: Option<u64>,
+    pub timestamp: Option<JoinAITimestamp>,
     #[serde(default)]
     pub session_id: Option<String>,
     #[serde(default)]

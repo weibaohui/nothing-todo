@@ -140,7 +140,7 @@ fn parse_claude_line_metadata(
             let branch = v.get("gitBranch").and_then(|b| b.as_str()).map(String::from);
             let ver = v.get("version").and_then(|v| v.as_str()).map(String::from);
             let entry = v.get("entrypoint").and_then(|e| e.as_str()).map(String::from);
-            let content = v.get("message").and_then(|m| m.get("content")).map(|c| extract_text_content(c));
+            let content = v.get("message").and_then(|m| m.get("content")).map(extract_text_content);
             Some((ts, None, branch, ver, entry, content, None, None, "user".into()))
         }
         "assistant" => {
@@ -610,86 +610,7 @@ fn scan_atomcode(sessions: &mut Vec<SessionInfo>) {
     }
 }
 
-// ─── CC-Connect Scanner ───────────────────────────────────
 
-fn scan_ccconnect(sessions: &mut Vec<SessionInfo>) {
-    let dir = home_dir().join(".cc-connect/sessions");
-    if !dir.exists() { return; }
-
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("json") { continue; }
-
-            let content = match std::fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-            let v: serde_json::Value = match serde_json::from_str(&content) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-
-            let file_name = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
-            let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-
-            let sess_map = v.get("sessions").and_then(|s| s.as_object());
-            if let Some(sess_map) = sess_map {
-                for (sess_key, sess_val) in sess_map {
-                    let history = sess_val.get("history").and_then(|h| h.as_array());
-                    let msg_count = history.map(|h| h.len()).unwrap_or(0) as u32;
-
-                    let first_prompt = history.and_then(|h| {
-                        h.first()
-                            .and_then(|m| m.get("content"))
-                            .and_then(|c| c.as_str())
-                            .map(|t| truncate_str(t, 200))
-                    });
-
-                    let first_ts = history.and_then(|h| {
-                        h.first().and_then(|m| m.get("timestamp")).and_then(|t| t.as_f64())
-                    });
-                    let last_ts = history.and_then(|h| {
-                        h.last().and_then(|m| m.get("timestamp")).and_then(|t| t.as_f64())
-                    });
-
-                    let created_at = first_ts.map(|ts| {
-                        chrono::DateTime::from_timestamp(ts as i64, 0)
-                            .map(|dt| dt.to_rfc3339())
-                            .unwrap_or_default()
-                    });
-                    let last_active_at = last_ts.map(|ts| {
-                        chrono::DateTime::from_timestamp(ts as i64, 0)
-                            .map(|dt| dt.to_rfc3339())
-                            .unwrap_or_default()
-                    });
-
-                    // Determine project from file name (e.g. "aitodo_3c4bc799")
-                    let project_name = file_name.split('_').next().unwrap_or(&file_name).to_string();
-
-                    sessions.push(SessionInfo {
-                        session_id: format!("cc-connect-{}-{}", file_name, sess_key),
-                        source: "cc-connect".to_string(),
-                        project_path: project_name,
-                        status: "completed".to_string(),
-                        executor: "cc-connect".to_string(),
-                        model: "-".to_string(),
-                        git_branch: None,
-                        message_count: msg_count,
-                        total_input_tokens: 0,
-                        total_output_tokens: 0,
-                        first_prompt,
-                        created_at,
-                        last_active_at,
-                        file_size: file_size / (sess_map.len().max(1) as u64),
-                        version: None,
-                        subagent_count: 0,
-                    });
-                }
-            }
-        }
-    }
-}
 
 // ─── Unified scan ─────────────────────────────────────────
 
@@ -848,9 +769,6 @@ pub async fn get_session_detail(
         if let Some(d) = get_kimi_detail(&session_id) { return Some(d); }
         // AtomCode
         if let Some(d) = get_atomcode_detail(&session_id) { return Some(d); }
-        // CC-Connect
-        if let Some(d) = get_ccconnect_detail(&session_id) { return Some(d); }
-
         None
     })
     .await
@@ -1124,7 +1042,7 @@ fn get_hermes_detail(session_id: &str) -> Option<SessionDetail> {
     let mut first_prompt: Option<String> = None;
     let mut msg_count: u32 = 0;
     let mut messages: Vec<SessionMessage> = Vec::new();
-    let mut project_path = String::new();
+    let project_path = String::new();
 
     for line in content.lines() {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
@@ -1338,91 +1256,4 @@ fn get_atomcode_detail(session_id: &str) -> Option<SessionDetail> {
     None
 }
 
-fn get_ccconnect_detail(session_id: &str) -> Option<SessionDetail> {
-    // session_id format: "cc-connect-{file_name}-{sess_key}"
-    if !session_id.starts_with("cc-connect-") { return None; }
-    let rest = &session_id["cc-connect-".len()..];
-    // Try to find the file by scanning
-    let dir = home_dir().join(".cc-connect/sessions");
-    if !dir.exists() { return None; }
 
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("json") { continue; }
-            let file_name = path.file_stem()?.to_string_lossy().to_string();
-
-            // Check if session_id starts with "cc-connect-{file_name}"
-            let prefix = format!("cc-connect-{}", file_name);
-            if !session_id.starts_with(&prefix) { continue; }
-
-            let content = std::fs::read_to_string(&path).ok()?;
-            let v: serde_json::Value = serde_json::from_str(&content).ok()?;
-            let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-
-            let sess_map = v.get("sessions")?.as_object()?;
-            for (key, val) in sess_map {
-                let expected_id = format!("cc-connect-{}-{}", file_name, key);
-                if expected_id != session_id { continue; }
-
-                let history = val.get("history").and_then(|h| h.as_array());
-                let msg_count = history.map(|h| h.len()).unwrap_or(0) as u32;
-                let project_name = file_name.split('_').next().unwrap_or(&file_name).to_string();
-
-                let mut messages: Vec<SessionMessage> = Vec::new();
-                let mut first_prompt: Option<String> = None;
-                let mut first_ts: Option<String> = None;
-                let mut last_ts: Option<String> = None;
-
-                if let Some(hist) = history {
-                    for msg in hist {
-                        let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("").to_string();
-                        let text = msg.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
-                        if first_prompt.is_none() && role == "user" && !text.is_empty() {
-                            first_prompt = Some(truncate_str(&text, 200));
-                        }
-                        let ts = msg.get("timestamp").and_then(|t| t.as_f64()).and_then(|ts| {
-                            chrono::DateTime::from_timestamp(ts as i64, 0).map(|dt| dt.to_rfc3339())
-                        });
-                        if first_ts.is_none() { first_ts = ts.clone(); }
-                        if ts.is_some() { last_ts = ts.clone(); }
-
-                        messages.push(SessionMessage {
-                            role,
-                            content_preview: truncate_str(&text, 500),
-                            model: None,
-                            input_tokens: None,
-                            output_tokens: None,
-                            timestamp: ts,
-                            stop_reason: None,
-                        });
-                    }
-                }
-
-                return Some(SessionDetail {
-                    info: SessionInfo {
-                        session_id: session_id.to_string(),
-                        source: "cc-connect".to_string(),
-                        project_path: project_name,
-                        status: "completed".to_string(),
-                        executor: "cc-connect".to_string(),
-                        model: "-".to_string(),
-                        git_branch: None,
-                        message_count: msg_count,
-                        total_input_tokens: 0,
-                        total_output_tokens: 0,
-                        first_prompt,
-                        created_at: first_ts,
-                        last_active_at: last_ts,
-                        file_size: file_size / (sess_map.len().max(1) as u64),
-                        version: None,
-                        subagent_count: 0,
-                    },
-                    messages,
-                    subagents: vec![],
-                });
-            }
-        }
-    }
-    None
-}

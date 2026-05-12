@@ -337,12 +337,10 @@ fn poll_for_url(output_file: &str, extract: impl Fn(&str) -> String) -> String {
     for _ in 0..120 {
         if let Ok(file) = std::fs::File::open(output_file) {
             let reader = std::io::BufReader::new(file);
-            for line in reader.lines() {
-                if let Ok(line_content) = line {
-                    let url = extract(&line_content);
-                    if !url.is_empty() {
-                        return url;
-                    }
+            for line_content in reader.lines().flatten() {
+                let url = extract(&line_content);
+                if !url.is_empty() {
+                    return url;
                 }
             }
         }

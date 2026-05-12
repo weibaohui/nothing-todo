@@ -243,7 +243,7 @@ pub async fn run_todo_execution(
                         // Send stats update after tool calls or every 10 log entries
                         let is_tool_call = parsed.log_type == "tool_use" || parsed.log_type == "tool_call" || parsed.log_type == "tool";
                         log_count += 1;
-                        if is_tool_call || log_count % 10 == 0 {
+                        if is_tool_call || log_count.is_multiple_of(10) {
                             let current_logs = logs_for_db.lock().await;
                             let tool_calls = current_logs.iter()
                                 .filter(|l| l.log_type == "tool_use" || l.log_type == "tool_call" || l.log_type == "tool")
@@ -299,8 +299,7 @@ pub async fn run_todo_execution(
         let flush_for_stderr = flush_pending.clone();
         let unflushed_for_stderr = unflushed_count.clone();
         let flush_handles_stderr = flush_handles.clone();
-        let stderr_task = if let Some(stderr_reader) = stderr_handle {
-            Some(tokio::spawn(async move {
+        let stderr_task = stderr_handle.map(|stderr_reader| tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr_reader).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
                     let entry = if let Some(parsed) = executor_for_stderr.parse_stderr_line(&line) {
@@ -326,10 +325,7 @@ pub async fn run_todo_execution(
                     }
                     send_event(&stderr_tx, ExecEvent::Output { task_id: stderr_tid.clone(), entry });
                 }
-            }))
-        } else {
-            None
-        };
+            }));
 
         // 定时兜底 flush：每 3 秒检查未刷新条目，有则写库
         let timer_db = db_clone.clone();

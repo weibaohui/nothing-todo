@@ -19,6 +19,12 @@ pub struct TaskManager {
     task_infos: RwLock<HashMap<String, TaskInfo>>,
 }
 
+impl Default for TaskManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TaskManager {
     pub fn new() -> Self {
         Self {

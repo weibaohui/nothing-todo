@@ -183,7 +183,7 @@ async fn run_server(cli_port: Option<u16>) {
         std::fs::create_dir_all(parent).ok();
     }
 
-    let db = match db::Database::new(&db_path).await {
+    let db = match db::Database::new(db_path).await {
         Ok(db) => Arc::new(db),
         Err(e) => {
             eprintln!("Failed to open database at {}: {}", db_path, e);
