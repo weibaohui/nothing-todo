@@ -213,7 +213,14 @@ pub async fn delete_history_chat(
 
 pub async fn get_message_stats(
     State(state): State<AppState>,
+    Query(params): Query<MessageStatsParams>,
 ) -> Result<Json<ApiResponse<FeishuMessageStats>>, AppError> {
-    let stats = state.db.get_feishu_message_stats().await?;
+    let stats = state.db.get_feishu_message_stats(params.hours).await?;
     Ok(Json(ApiResponse::ok(stats)))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MessageStatsParams {
+    #[serde(default)]
+    pub hours: Option<u32>,
 }
