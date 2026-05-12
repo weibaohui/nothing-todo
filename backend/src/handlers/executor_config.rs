@@ -20,6 +20,7 @@ pub async fn update_executor(
         req.path.as_deref(),
         req.enabled,
         req.display_name.as_deref(),
+        req.session_dir.as_deref(),
     ).await.map_err(|e| AppError::Internal(e.to_string()))?;
 
     // Re-read updated executor
