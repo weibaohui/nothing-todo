@@ -174,6 +174,11 @@ export async function getExecutionSummary(todoId: number): Promise<ExecutionSumm
   return unwrap(await api.get<ApiResp<ExecutionSummary>>(`/xyz/todos/${todoId}/summary`));
 }
 
+export async function getRecentCompletedTodos(hours?: number): Promise<import('../types').RecentCompletedTodo[]> {
+  const params = hours !== undefined ? { hours } : undefined;
+  return unwrap(await api.get<ApiResp<import('../types').RecentCompletedTodo[]>>('/xyz/todos/recent-completed', { params }));
+}
+
 export async function getDashboardStats(hours?: number): Promise<import('../types').DashboardStats> {
   const params = hours !== undefined ? { hours } : undefined;
   return unwrap(await api.get<ApiResp<import('../types').DashboardStats>>('/xyz/dashboard-stats', { params }));

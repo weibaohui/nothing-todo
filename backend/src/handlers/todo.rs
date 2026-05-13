@@ -1,11 +1,13 @@
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use cron::Schedule;
+use serde::Deserialize;
 use std::str::FromStr;
 
 use crate::db::TodoUpdate;
 use crate::handlers::{ApiJson, AppError, AppState};
 use crate::models::{
-    utc_timestamp, ApiResponse, CreateTodoRequest, Todo, UpdateTagsRequest, UpdateTodoRequest,
+    utc_timestamp, ApiResponse, CreateTodoRequest, RecentCompletedTodo, Todo, UpdateTagsRequest,
+    UpdateTodoRequest,
 };
 
 /// Validate cron expression, return helpful error for invalid ones
@@ -170,4 +172,24 @@ pub async fn force_update_todo_status(
     }
     let todo = state.require_todo(id).await?;
     Ok(ApiResponse::ok(todo))
+}
+
+#[derive(Deserialize)]
+pub struct RecentCompletedParams {
+    #[serde(default = "default_recent_hours")]
+    pub hours: u32,
+}
+
+fn default_recent_hours() -> u32 {
+    24
+}
+
+pub async fn get_recent_completed_todos(
+    State(state): State<AppState>,
+    Query(params): Query<RecentCompletedParams>,
+) -> Result<ApiResponse<Vec<RecentCompletedTodo>>, AppError> {
+    let hours = params.hours.clamp(1, 720);
+    Ok(ApiResponse::ok(
+        state.db.get_recent_completed_todos(hours).await?,
+    ))
 }

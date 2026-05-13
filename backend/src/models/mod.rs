@@ -425,6 +425,21 @@ pub struct DashboardStats {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecentCompletedTodo {
+    pub todo_id: i64,
+    pub title: String,
+    pub executor: Option<String>,
+    pub tag_ids: Vec<i64>,
+    pub completed_at: String,
+    pub result: Option<String>,
+    pub model: Option<String>,
+    pub usage: Option<ExecutionUsage>,
+    pub execution_status: String,
+    pub trigger_type: String,
+    pub record_id: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TriggerTypeCount {
     pub trigger_type: String,
     pub count: i64,

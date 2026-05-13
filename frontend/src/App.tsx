@@ -7,6 +7,7 @@ import { ThemeProvider, useTheme } from './hooks/useTheme';
 import { TodoList } from './components/TodoList';
 import { TodoDetail } from './components/TodoDetail';
 import { Dashboard } from './components/Dashboard';
+import { MemorialBoard } from './components/MemorialBoard';
 import { SettingsPage } from './components/SettingsPage';
 import { ExecutionPanel } from './components/ExecutionPanel';
 import { CreateTodoModal } from './components/CreateTodoModal';
@@ -22,7 +23,7 @@ function AppContent() {
   const [todoModalOpen, setTodoModalOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [selectedPanel, setSelectedPanel] = useState<'list' | 'detail'>('list');
-  const [activeView, setActiveView] = useState<'dashboard' | 'settings'>('dashboard');
+  const [activeView, setActiveView] = useState<'dashboard' | 'settings' | 'memorial'>('dashboard');
   const [panelCollapsed, setPanelCollapsed] = useState(() => {
     try {
       return localStorage.getItem('execution_panel_collapsed') === 'true';
@@ -62,6 +63,12 @@ function AppContent() {
   const handleShowDashboard = () => {
     clearSelection();
     setActiveView('dashboard');
+    setSelectedPanel('detail');
+  };
+
+  const handleShowMemorial = () => {
+    clearSelection();
+    setActiveView('memorial');
     setSelectedPanel('detail');
   };
 
@@ -117,6 +124,7 @@ function AppContent() {
               onOpenCreateModal={() => setTodoModalOpen(true)}
               onSelectTodo={handleSelectTodo}
               onShowDashboard={handleShowDashboard}
+              onShowMemorial={handleShowMemorial}
               onShowSettings={handleShowSettings}
             />
           </div>
@@ -135,6 +143,8 @@ function AppContent() {
               <TodoDetail onBack={isMobile ? handleBackToList : undefined} />
             ) : activeView === 'settings' ? (
               <SettingsPage onBack={isMobile ? handleBackToList : undefined} />
+            ) : activeView === 'memorial' ? (
+              <MemorialBoard onBack={isMobile ? handleBackToList : undefined} />
             ) : (
               <Dashboard onBack={isMobile ? handleBackToList : undefined} />
             )}
