@@ -2128,7 +2128,7 @@ code {
   color: var(--color-text);
   cursor: pointer;
   transition: color var(--transition-fast);
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .memorial-card-title:hover {

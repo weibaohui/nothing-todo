@@ -91,7 +91,7 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onShowDashboard, onS
               type="text"
               size="small"
               icon={<ReadOutlined />}
-              onClick={onShowMemorial}
+              onClick={() => onShowMemorial?.()}
               className="tag-btn"
               aria-label="看板"
             />

@@ -699,7 +699,7 @@ impl Database {
              JOIN execution_records er ON er.id = ( \
                  SELECT er2.id FROM execution_records er2 \
                  WHERE er2.todo_id = t.id \
-                 ORDER BY er2.started_at DESC LIMIT 1 \
+                 ORDER BY er2.finished_at DESC LIMIT 1 \
              ) \
              WHERE t.deleted_at IS NULL \
                AND t.status IN ('completed', 'failed') \
