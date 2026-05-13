@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
-import { Modal, Input, Button, App, Space, Empty, Card, List, Spin, Tag } from 'antd';
-import { FileTextOutlined } from '@ant-design/icons';
+import { useState, useEffect, useMemo } from 'react';
+import { Modal, Input, Button, App, Empty, Card, Spin, Tag } from 'antd';
+import { FileTextOutlined, SearchOutlined } from '@ant-design/icons';
 import { useApp } from '../hooks/useApp';
 import { TagCheckCardGroup } from './TagCheckCard';
 import * as db from '../utils/database';
 import type { TodoTemplate } from '../types';
 
 const { TextArea } = Input;
+const { Search } = Input;
 
 interface CreateTodoModalProps {
   open: boolean;
@@ -25,6 +26,8 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [templates, setTemplates] = useState<TodoTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   useEffect(() => {
     if (open && state.tags.length > 0) {
@@ -76,6 +79,28 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
     }
   };
 
+  // Get unique categories
+  const categories = useMemo(() => {
+    const cats = Array.from(new Set(templates.map(t => t.category))).filter(c => c);
+    return cats.sort();
+  }, [templates]);
+
+  // Filter templates by search and category
+  const filteredTemplates = useMemo(() => {
+    let result = templates;
+    if (selectedCategory) {
+      result = result.filter(t => t.category === selectedCategory);
+    }
+    if (searchText.trim()) {
+      const search = searchText.toLowerCase();
+      result = result.filter(t =>
+        t.title.toLowerCase().includes(search) ||
+        (t.prompt?.toLowerCase().includes(search))
+      );
+    }
+    return result;
+  }, [templates, selectedCategory, searchText]);
+
   return (
     <>
       <Modal
@@ -118,54 +143,259 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
       </Modal>
 
       <Modal
-        title="选择模板"
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <FileTextOutlined style={{ color: 'var(--color-primary)' }} />
+            <span>选择模板</span>
+          </div>
+        }
         open={templateModalOpen}
-        onCancel={() => setTemplateModalOpen(false)}
+        onCancel={() => {
+          setTemplateModalOpen(false);
+          setSearchText('');
+          setSelectedCategory(null);
+        }}
         footer={null}
-        styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
+        width={900}
         className="template-modal"
       >
-        <Spin spinning={templatesLoading}>
-          {templates.length === 0 ? (
-            <Empty description="暂无模板，请在设置中添加" />
-          ) : (
-            <Space direction="vertical" style={{ width: '100%' }}>
-              {Array.from(new Set(templates.map(t => t.category))).sort().map(category => (
-                <Card key={category} title={category || '未分类'} size="small">
-                  <List
-                    dataSource={templates.filter(t => t.category === category)}
-                    renderItem={(template) => (
-                      <List.Item style={{ overflow: 'hidden' }}>
-                        <Button
-                          type="text"
-                          onClick={() => selectTemplate(template)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              selectTemplate(template);
-                            }
-                          }}
-                          style={{ width: '100%', height: 'auto', textAlign: 'left', padding: 0, wordBreak: 'break-word', overflowWrap: 'break-word' }}
-                        >
-                          <List.Item.Meta
-                            title={
-                              <span>
-                                {template.title}
-                                {template.is_system && <Tag color="blue" style={{ marginLeft: 8 }}>系统</Tag>}
-                              </span>
-                            }
-                            description={template.prompt || '(无内容)'}
-                          />
-                        </Button>
-                      </List.Item>
-                    )}
+        <div className="template-selector">
+          {/* Search bar */}
+          <div className="template-search">
+            <Search
+              placeholder="搜索模板标题或内容..."
+              allowClear
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              style={{ width: '100%' }}
+              size="large"
+              prefix={<SearchOutlined style={{ color: 'var(--color-text-tertiary)' }} />}
+            />
+          </div>
+
+          {/* Content area */}
+          <div className="template-content">
+            {/* Categories sidebar */}
+            <div className="template-categories">
+              <div
+                className={`template-category-item ${!selectedCategory ? 'active' : ''}`}
+                onClick={() => setSelectedCategory(null)}
+              >
+                <span>全部模板</span>
+                <Tag style={{ marginLeft: 'auto' }}>{templates.length}</Tag>
+              </div>
+              {categories.map(category => {
+                const count = templates.filter(t => t.category === category).length;
+                return (
+                  <div
+                    key={category}
+                    className={`template-category-item ${selectedCategory === category ? 'active' : ''}`}
+                    onClick={() => setSelectedCategory(category)}
+                  >
+                    <span>{category}</span>
+                    <Tag style={{ marginLeft: 'auto' }}>{count}</Tag>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Templates list */}
+            <div className="template-list">
+              <Spin spinning={templatesLoading}>
+                {filteredTemplates.length === 0 ? (
+                  <Empty
+                    description={searchText ? "未找到匹配的模板" : "暂无模板，请在设置中添加"}
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
                   />
-                </Card>
-              ))}
-            </Space>
-          )}
-        </Spin>
+                ) : (
+                  <div className="template-cards">
+                    {filteredTemplates.map(template => (
+                      <Card
+                        key={template.id}
+                        size="small"
+                        className="template-card"
+                        onClick={() => selectTemplate(template)}
+                        hoverable
+                      >
+                        <div className="template-card-header">
+                          <span className="template-card-title">{template.title}</span>
+                          {template.is_system && <Tag color="blue" style={{ marginLeft: 8 }}>系统</Tag>}
+                        </div>
+                        <div className="template-card-desc">
+                          {template.prompt || '(无内容)'}
+                        </div>
+                        <div className="template-card-footer">
+                          <Tag>{template.category}</Tag>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </Spin>
+            </div>
+          </div>
+        </div>
       </Modal>
+
+      <style>{`
+        .template-selector {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          min-height: 400px;
+          max-height: 70vh;
+        }
+
+        .template-search {
+          flex-shrink: 0;
+        }
+
+        .template-content {
+          display: flex;
+          gap: 16px;
+          flex: 1;
+          min-height: 0;
+          overflow: hidden;
+        }
+
+        .template-categories {
+          width: 180px;
+          flex-shrink: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          border-right: 1px solid var(--color-border-light);
+          padding-right: 16px;
+          overflow-y: auto;
+        }
+
+        .template-category-item {
+          display: flex;
+          align-items: center;
+          padding: 10px 12px;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          color: var(--color-text-secondary);
+          font-size: 14px;
+        }
+
+        .template-category-item:hover {
+          background: var(--color-bg-hover);
+          color: var(--color-text);
+        }
+
+        .template-category-item.active {
+          background: var(--color-primary-bg);
+          color: var(--color-primary);
+          font-weight: 600;
+        }
+
+        .template-list {
+          flex: 1;
+          overflow-y: auto;
+          padding-left: 16px;
+        }
+
+        .template-cards {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
+        }
+
+        .template-card {
+          cursor: pointer;
+          transition: all 0.2s ease;
+          border: 1px solid var(--color-border-light);
+        }
+
+        .template-card:hover {
+          border-color: var(--color-primary);
+          box-shadow: var(--shadow-primary);
+          transform: translateY(-2px);
+        }
+
+        .template-card-header {
+          display: flex;
+          align-items: center;
+          margin-bottom: 8px;
+        }
+
+        .template-card-title {
+          font-weight: 600;
+          font-size: 14px;
+          color: var(--color-text);
+        }
+
+        .template-card-desc {
+          font-size: 12px;
+          color: var(--color-text-secondary);
+          line-height: 1.5;
+          max-height: 60px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          display: -webkit-box;
+          -webkit-line-clamp: 3;
+          -webkit-box-orient: vertical;
+          word-break: break-word;
+        }
+
+        .template-card-footer {
+          margin-top: 8px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        /* Mobile responsive */
+        @media (max-width: 768px) {
+          .template-content {
+            flex-direction: column;
+          }
+
+          .template-categories {
+            width: 100%;
+            flex-direction: row;
+            flex-wrap: wrap;
+            gap: 8px;
+            border-right: none;
+            border-bottom: 1px solid var(--color-border-light);
+            padding-right: 0;
+            padding-bottom: 16px;
+            overflow-x: auto;
+          }
+
+          .template-category-item {
+            padding: 6px 12px;
+            white-space: nowrap;
+          }
+
+          .template-list {
+            padding-left: 0;
+            padding-top: 16px;
+          }
+
+          .template-cards {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        /* Desktop - larger modal */
+        @media (min-width: 769px) {
+          .template-selector {
+            min-height: 500px;
+          }
+
+          .template-cards {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+          }
+
+          .template-card {
+            padding: 4px;
+          }
+        }
+      `}</style>
     </>
   );
 }

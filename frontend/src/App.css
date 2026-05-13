@@ -931,12 +931,12 @@ body {
 /* ---------- Template Modal Desktop Styles ---------- */
 @media (min-width: 769px) {
   .template-modal .ant-modal {
-    min-width: 600px;
-    max-width: 800px;
+    min-width: 900px;
+    max-width: 1000px;
   }
 
   .template-modal .ant-modal-body {
-    padding: 20px;
+    padding: 24px;
   }
 }
 
