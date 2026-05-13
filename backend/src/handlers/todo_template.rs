@@ -37,10 +37,9 @@ pub async fn create_template(
         .create_template(title, req.prompt.as_deref(), category, req.sort_order)
         .await?;
 
-    let templates = state.db.get_templates().await?;
-    let template = templates
-        .into_iter()
-        .find(|t| t.id == id)
+    let template = state.db
+        .get_template_by_id(id)
+        .await?
         .ok_or_else(|| AppError::Internal("Failed to get created template".to_string()))?;
 
     Ok(Json(ApiResponse::ok(template)))
@@ -51,14 +50,13 @@ pub async fn update_template(
     Path(id): Path<i64>,
     ApiJson(req): ApiJson<UpdateTemplateRequest>,
 ) -> Result<Json<ApiResponse<TodoTemplate>>, AppError> {
-    let templates = state.db.get_templates().await?;
-    let existing = templates
-        .into_iter()
-        .find(|t| t.id == id)
+    let existing = state.db
+        .get_template_by_id(id)
+        .await?
         .ok_or_else(|| AppError::NotFound)?;
 
     let title = req.title.unwrap_or_else(|| existing.title.clone());
-    let prompt = req.prompt.or(existing.prompt.clone());
+    let prompt = req.prompt.or(existing.prompt);
     let category = req.category.unwrap_or_else(|| existing.category.clone());
     let sort_order = req.sort_order.or(Some(existing.sort_order));
 
@@ -66,10 +64,9 @@ pub async fn update_template(
         .update_template(id, &title, prompt.as_deref(), &category, sort_order)
         .await?;
 
-    let templates = state.db.get_templates().await?;
-    let template = templates
-        .into_iter()
-        .find(|t| t.id == id)
+    let template = state.db
+        .get_template_by_id(id)
+        .await?
         .ok_or_else(|| AppError::Internal("Failed to get updated template".to_string()))?;
 
     Ok(Json(ApiResponse::ok(template)))

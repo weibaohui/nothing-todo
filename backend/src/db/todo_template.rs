@@ -7,6 +7,21 @@ use crate::db::entity::todo_templates;
 use crate::models::TodoTemplate;
 
 impl Database {
+    pub async fn get_template_by_id(&self, id: i64) -> Result<Option<TodoTemplate>, sea_orm::DbErr> {
+        let model = todo_templates::Entity::find_by_id(id)
+            .one(&self.conn)
+            .await?;
+        Ok(model.map(|m| TodoTemplate {
+            id: m.id,
+            title: m.title,
+            prompt: m.prompt,
+            category: m.category,
+            sort_order: m.sort_order.unwrap_or(0),
+            created_at: m.created_at,
+            updated_at: m.updated_at,
+        }))
+    }
+
     pub async fn get_templates(&self) -> Result<Vec<TodoTemplate>, sea_orm::DbErr> {
         let models = todo_templates::Entity::find()
             .order_by_asc(todo_templates::Column::SortOrder)
