@@ -1,10 +1,10 @@
 name: Build GUI (Tauri)
 
-# Triggered when rust.yaml workflow completes
+# Trigger on tag pushes (same as rust.yaml)
 on:
-  workflow_run:
-    workflows: ["Build and Release"]
-    types: [completed]
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
@@ -13,8 +13,46 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Get the run ID of the rust.yaml workflow that was triggered by this tag
+  get-rust-run:
+    runs-on: ubuntu-latest
+    outputs:
+      run_id: ${{ steps.find-run.outputs.run_id }}
+    steps:
+      - name: Find rust.yaml workflow run for this tag
+        id: find-run
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          echo "Looking for rust.yaml run with tag: $TAG_NAME"
+          RUN_ID=$(gh run list --workflow=rust.yml --event=push --status=success --limit 50 --json id --jq '.[] | select(.head_branch == "'$TAG_NAME'") | .id' | head -1)
+          if [ -z "$RUN_ID" ]; then
+            # Try alternative: get most recent successful run
+            RUN_ID=$(gh run list --workflow=rust.yml --status=success --limit 1 --json id --jq '.[0].id')
+          fi
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+          echo "Found run ID: $RUN_ID"
+
+      - name: Download backend artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: backend-artifacts
+          run-id: ${{ steps.find-run.outputs.run_id }}
+          pattern: nothing-todo-*
+          merge-multiple: true
+
+      - name: Verify artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          ls -la backend-artifacts/
+
+      - name: Upload backend artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-binaries
+          path: backend-artifacts/
+
   build-gui:
-    if: github.event.workflow_run.conclusion == 'success'
+    needs: get-rust-run
     strategy:
       matrix:
         include:
@@ -39,27 +77,21 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      # Download artifacts from the triggering rust.yaml workflow run
+      - uses: actions/checkout@v4
+
       - name: Download backend binary
         uses: actions/download-artifact@v4
         with:
-          name: ${{ matrix.bin_name }}
-          run-id: ${{ github.event.workflow_run.id }}
-
-      - name: Verify backend binary
-        shell: bash
-        run: |
-          ls -la
-          file ${{ matrix.bin_name }}
+          name: backend-binaries
+          path: backend-artifacts
 
       - name: Prepare backend binary for bundle
         shell: bash
         run: |
           mkdir -p backend/target/${{ matrix.target }}/release/
-          cp ${{ matrix.bin_name }} backend/target/${{ matrix.target }}/release/ntd
+          cp backend-artifacts/${{ matrix.bin_name }} backend/target/${{ matrix.target }}/release/ntd
           chmod +x backend/target/${{ matrix.target }}/release/ntd
-
-      - uses: actions/checkout@v4
+          ls -la backend/target/${{ matrix.target }}/release/
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -118,7 +150,6 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          # Find and copy bundles
           if [ -d "src-tauri/target/${{ matrix.target }}/release/bundle" ]; then
             find src-tauri/target/${{ matrix.target }}/release/bundle -type f \( \
               -name "*.exe" -o \
@@ -139,7 +170,6 @@ jobs:
 
   release:
     needs: build-gui
-    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
