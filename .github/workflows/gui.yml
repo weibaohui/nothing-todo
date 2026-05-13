@@ -58,23 +58,23 @@ jobs:
         run: |
           echo "Working directory: $(pwd)"
           echo "Workspace: ${{ github.workspace }}"
-          # Tauri expects resources at backend/target/release/ relative to src-tauri
-          # Create backend/target/release structure in src-tauri to satisfy Tauri resource path check
-          mkdir -p src-tauri/backend/target/release
-          # Find the binary file in the downloaded artifact and copy to both locations
+          # Tauri expects resources at ../backend/target/release/ relative to src-tauri
+          # Create backend/target/release in repo root (src-tauri's parent directory)
+          mkdir -p backend/target/release
+          # Find the binary file in the downloaded artifact and copy to repo root backend/target/release
           for f in ntd ntd.exe ntd-*; do
             if [ -f "$f" ]; then
-              cp "$f" src-tauri/backend/target/release/ntd
-              chmod +x src-tauri/backend/target/release/ntd
+              cp "$f" backend/target/release/ntd
+              chmod +x backend/target/release/ntd
               echo "Copied $f as ntd"
               break
             fi
           done
           # Create ntd.exe for all platforms to satisfy Tauri config
-          cp src-tauri/backend/target/release/ntd src-tauri/backend/target/release/ntd.exe
+          cp backend/target/release/ntd backend/target/release/ntd.exe
           echo "Created ntd.exe as copy of ntd for Tauri config"
-          ls -la src-tauri/backend/target/release/
-          ls -la src-tauri/backend/target/release/ntd*
+          ls -la backend/target/release/
+          ls -la backend/target/release/ntd*
 
       - uses: actions/checkout@v4
 
