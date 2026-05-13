@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Check if this was a tag trigger
         id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Get the workflow run details
           RUN_ID=${{ github.event.workflow_run.id }}
