@@ -1,0 +1,188 @@
+name: Build GUI (Tauri)
+
+# Triggered after rust.yaml completes (workflow_run ensures rust.yaml is done first)
+on:
+  workflow_run:
+    workflows: ["Build and Release"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Check if this workflow_run should proceed (only on successful tag builds)
+  check-trigger:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+      tag_name: ${{ steps.check.outputs.tag_name }}
+    steps:
+      - name: Check if this was a tag trigger
+        id: check
+        run: |
+          # Get the workflow run details
+          RUN_ID=${{ github.event.workflow_run.id }}
+          echo "Checking workflow run: $RUN_ID"
+          # Get the head branch/tag of the triggering run
+          HEAD_BRANCH=$(gh api repos/${{ github.repository }}/actions/runs/$RUN_ID --jq '.head_branch')
+          echo "Head branch: $HEAD_BRANCH"
+          TAG_NAME=${HEAD_BRANCH#refs/tags/}
+          echo "Tag name: $TAG_NAME"
+          # Check if this was a tag push (starts with v)
+          if [[ "$TAG_NAME" == v* ]]; then
+            echo "proceed=true" >> $GITHUB_OUTPUT
+            echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          else
+            echo "proceed=false" >> $GITHUB_OUTPUT
+            echo "tag_name=" >> $GITHUB_OUTPUT
+          fi
+
+  build-gui:
+    needs: check-trigger
+    if: needs.check-trigger.outputs.proceed == 'true'
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            pkg: ntd-desktop-linux-x64
+            bundle: deb
+            bin_name: ntd-linux-x64
+
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            pkg: ntd-desktop-windows-x64
+            bundle: nsis
+            bin_name: ntd-windows-x64.exe
+
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            pkg: ntd-desktop-darwin-arm64
+            bundle: dmg
+            bin_name: ntd-darwin-arm64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      # Download artifacts from the triggering rust.yaml workflow run
+      - name: Download backend binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.bin_name }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Verify backend binary
+        shell: bash
+        run: |
+          ls -la
+          file ${{ matrix.bin_name }}
+
+      - name: Prepare backend binary for bundle
+        shell: bash
+        run: |
+          mkdir -p backend/target/${{ matrix.target }}/release/
+          cp ${{ matrix.bin_name }} backend/target/${{ matrix.target }}/release/ntd
+          chmod +x backend/target/${{ matrix.target }}/release/ntd
+
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install system dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-24.04'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci --legacy-peer-deps
+
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@latest
+
+      - name: Build frontend
+        run: cd frontend && npm run build
+
+      - name: Verify frontend dist
+        shell: bash
+        run: ls -la frontend/dist/
+
+      - name: Build Tauri bundle
+        shell: bash
+        run: |
+          cd src-tauri
+          npx @tauri-apps/cli@latest build \
+            --target ${{ matrix.target }} \
+            --bundles ${{ matrix.bundle }}
+
+      - name: Find built artifacts
+        shell: bash
+        run: |
+          echo "=== Release directory ==="
+          ls -la src-tauri/target/${{ matrix.target }}/release/ 2>/dev/null | head -20 || dir src-tauri\\target\\${{ matrix.target }}\\release\\ 2>/dev/null | head -20 || true
+          echo ""
+          echo "=== Bundle directory ==="
+          find src-tauri/target/${{ matrix.target }}/release/bundle -type f 2>/dev/null | head -20 || dir /s /b src-tauri\\target\\${{ matrix.target }}\\release\\bundle\\*.exe src-tauri\\target\\${{ matrix.target }}\\release\\bundle\\*.msi 2>/dev/null || true
+
+      - name: Prepare artifacts for upload
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [ -d "src-tauri/target/${{ matrix.target }}/release/bundle" ]; then
+            find src-tauri/target/${{ matrix.target }}/release/bundle -type f \( \
+              -name "*.exe" -o \
+              -name "*.msi" -o \
+              -name "*.dmg" -o \
+              -name "*.app" -o \
+              -name "*.deb" -o \
+              -name "*.rpm" \
+            \) -exec cp {} dist/ \; 2>/dev/null || true
+          fi
+          ls -la dist/ 2>/dev/null || dir dist\\ 2>/dev/null || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.pkg }}
+          path: dist/*
+
+  release:
+    needs: build-gui
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: List artifacts
+        run: find artifacts/ -type f | sort
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
