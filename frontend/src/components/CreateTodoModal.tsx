@@ -134,14 +134,23 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
                   <List
                     dataSource={templates.filter(t => t.category === category)}
                     renderItem={(template) => (
-                      <List.Item
-                        style={{ cursor: 'pointer' }}
-                        onClick={() => selectTemplate(template)}
-                      >
-                        <List.Item.Meta
-                          title={template.title}
-                          description={template.prompt || '(无内容)'}
-                        />
+                      <List.Item>
+                        <Button
+                          type="text"
+                          onClick={() => selectTemplate(template)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              selectTemplate(template);
+                            }
+                          }}
+                          style={{ width: '100%', height: 'auto', textAlign: 'left', padding: 0 }}
+                        >
+                          <List.Item.Meta
+                            title={template.title}
+                            description={template.prompt || '(无内容)'}
+                          />
+                        </Button>
                       </List.Item>
                     )}
                   />
