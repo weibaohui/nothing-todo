@@ -233,7 +233,7 @@ fn scan_claude_code(sessions: &mut Vec<SessionInfo>) {
 
                     sessions.push(SessionInfo {
                         session_id: session_id.clone(),
-                        source: "claude_code".to_string(),
+                        source: "claudecode".to_string(),
                         project_path: project_path.clone(),
                         status: if active_set.contains(&session_id) { "active".into() } else { "completed".into() },
                         executor: executor.unwrap_or_else(|| "unknown".into()),
@@ -621,7 +621,7 @@ fn scan_atomcode(sessions: &mut Vec<SessionInfo>) {
 /// Only executors listed here will be scanned.
 fn get_scanner(name: &str) -> Option<fn(&mut Vec<SessionInfo>)> {
     match name {
-        "claude_code" => Some(scan_claude_code),
+        "claudecode" => Some(scan_claude_code),
         "codex" => Some(scan_codex),
         "hermes" => Some(scan_hermes),
         "kimi" => Some(scan_kimi),
@@ -902,7 +902,7 @@ fn get_claude_detail(session_id: &str) -> Option<SessionDetail> {
     Some(SessionDetail {
         info: SessionInfo {
             session_id: session_id.to_string(),
-            source: "claude_code".to_string(),
+            source: "claudecode".to_string(),
             project_path,
             status: if active_set.contains(session_id) { "active".into() } else { "completed".into() },
             executor: executor.unwrap_or_else(|| "unknown".into()),
