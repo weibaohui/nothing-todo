@@ -76,11 +76,13 @@ jobs:
           fi
           ls -la backend/target/release/
           ls -la backend/target/release/ntd*
-          # Create symlink in src-tauri/backend to satisfy Tauri resource path check
+          # Create symlink in src-tauri/backend/target/release to satisfy Tauri resource path check
+          # The relative path from src-tauri/backend/target/release/ to backend/target/release/ is ../../../../backend/target/release/
           mkdir -p src-tauri/backend/target/release
-          ln -sf ../../../backend/target/release/ntd src-tauri/backend/target/release/ntd 2>/dev/null || true
-          ln -sf ../../../backend/target/release/ntd.exe src-tauri/backend/target/release/ntd.exe 2>/dev/null || true
-          echo "Created symlinks in src-tauri/backend/target/release/"
+          ln -sf ../../../../backend/target/release/ntd src-tauri/backend/target/release/ntd
+          ln -sf ../../../../backend/target/release/ntd.exe src-tauri/backend/target/release/ntd.exe
+          echo "Created symlinks:"
+          ls -la src-tauri/backend/target/release/
 
       - uses: actions/checkout@v4
 
