@@ -58,6 +58,7 @@ jobs:
 
       - name: Install system dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-24.04'
+        shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -76,9 +77,11 @@ jobs:
         run: cd frontend && npm run build
 
       - name: Verify frontend dist
+        shell: bash
         run: ls -la frontend/dist/
 
       - name: Build Tauri bundle
+        shell: bash
         run: |
           cd src-tauri
           npx @tauri-apps/cli@latest build \
@@ -86,17 +89,19 @@ jobs:
             --bundles ${{ matrix.bundle }}
 
       - name: Find built artifacts
+        shell: bash
         run: |
           echo "=== Release directory ==="
-          ls -la src-tauri/target/${{ matrix.target }}/release/ 2>/dev/null | head -20
+          ls -la src-tauri/target/${{ matrix.target }}/release/ 2>/dev/null | head -20 || dir src-tauri\\target\\${{ matrix.target }}\\release\\ 2>/dev/null | head -20 || true
           echo ""
           echo "=== Bundle directory ==="
-          find src-tauri/target/${{ matrix.target }}/release/bundle -type f 2>/dev/null | head -20
+          find src-tauri/target/${{ matrix.target }}/release/bundle -type f 2>/dev/null | head -20 || dir /s /b src-tauri\\target\\${{ matrix.target }}\\release\\bundle\\*.exe src-tauri\\target\\${{ matrix.target }}\\release\\bundle\\*.msi 2>/dev/null || true
 
       - name: Prepare artifacts for upload
+        shell: bash
         run: |
           mkdir -p dist
-          # Find and copy bundles
+          # Find and copy bundles (Unix)
           if [ -d "src-tauri/target/${{ matrix.target }}/release/bundle" ]; then
             find src-tauri/target/${{ matrix.target }}/release/bundle -type f \( \
               -name "*.exe" -o \
@@ -107,7 +112,7 @@ jobs:
               -name "*.rpm" \
             \) -exec cp {} dist/ \; 2>/dev/null || true
           fi
-          ls -la dist/
+          ls -la dist/ 2>/dev/null || dir dist\\ 2>/dev/null || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
