@@ -17,6 +17,7 @@ impl Database {
             prompt: m.prompt,
             category: m.category,
             sort_order: m.sort_order.unwrap_or(0),
+            is_system: m.is_system,
             created_at: m.created_at,
             updated_at: m.updated_at,
         }))
@@ -36,6 +37,7 @@ impl Database {
                 prompt: m.prompt,
                 category: m.category,
                 sort_order: m.sort_order.unwrap_or(0),
+                is_system: m.is_system,
                 created_at: m.created_at,
                 updated_at: m.updated_at,
             })
@@ -57,6 +59,7 @@ impl Database {
                 prompt: m.prompt,
                 category: m.category,
                 sort_order: m.sort_order.unwrap_or(0),
+                is_system: m.is_system,
                 created_at: m.created_at,
                 updated_at: m.updated_at,
             })
@@ -69,6 +72,7 @@ impl Database {
         prompt: Option<&str>,
         category: &str,
         sort_order: Option<i32>,
+        is_system: bool,
     ) -> Result<i64, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = todo_templates::ActiveModel {
@@ -76,6 +80,7 @@ impl Database {
             prompt: ActiveValue::Set(prompt.map(String::from)),
             category: ActiveValue::Set(category.to_string()),
             sort_order: ActiveValue::Set(sort_order),
+            is_system: ActiveValue::Set(is_system),
             created_at: ActiveValue::Set(Some(now.clone())),
             updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
@@ -113,14 +118,6 @@ impl Database {
     }
 
     pub async fn seed_default_templates(&self) -> Result<(), sea_orm::DbErr> {
-        // Check if templates already exist
-        let existing = todo_templates::Entity::find()
-            .one(&self.conn)
-            .await?;
-        if existing.is_some() {
-            return Ok(());
-        }
-
         let default_templates = vec![
             // 开发流程（来自飞书文档）
             ("Bug 扫描与修复", Some("扫描最近的提交（自上次运行以来，或过去 24 小时内），查找可能的 bug 并提出最小修复方案。\n\n依据规则：\n- 只使用仓库中的具体证据（提交 SHA、PR、文件路径、diff、失败的测试、CI 信号）\n- 不要臆造 bug；如果证据不足，请说明并跳过\n- 优先选择最小且安全的修复；避免重构和无关清理"), "开发流程", Some(1)),
@@ -148,7 +145,25 @@ impl Database {
         ];
 
         for (title, prompt, category, sort_order) in default_templates {
-            self.create_template(title, prompt, category, sort_order).await?;
+            // Check if this system template already exists
+            let existing = todo_templates::Entity::find()
+                .filter(todo_templates::Column::Title.eq(title.to_string()))
+                .filter(todo_templates::Column::IsSystem.eq(true))
+                .one(&self.conn)
+                .await?;
+
+            if let Some(model) = existing {
+                // Update existing system template
+                let mut am: todo_templates::ActiveModel = model.into();
+                am.prompt = ActiveValue::Set(prompt.map(String::from));
+                am.category = ActiveValue::Set(category.to_string());
+                am.sort_order = ActiveValue::Set(sort_order);
+                am.updated_at = ActiveValue::Set(Some(crate::models::utc_timestamp()));
+                am.update(&self.conn).await?;
+            } else {
+                // Insert new system template
+                self.create_template(title, prompt, category, sort_order, true).await?;
+            }
         }
 
         Ok(())

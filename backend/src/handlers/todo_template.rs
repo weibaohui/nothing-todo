@@ -26,7 +26,7 @@ pub async fn create_template(
     }
 
     let id = state.db
-        .create_template(title, req.prompt.as_deref(), category, req.sort_order)
+        .create_template(title, req.prompt.as_deref(), category, req.sort_order, false)
         .await?;
 
     let template = state.db
@@ -46,6 +46,11 @@ pub async fn update_template(
         .get_template_by_id(id)
         .await?
         .ok_or_else(|| AppError::NotFound)?;
+
+    // System templates cannot be modified
+    if existing.is_system {
+        return Err(AppError::BadRequest("Cannot modify system template".to_string()));
+    }
 
     let title = req.title.unwrap_or_else(|| existing.title.clone());
     let prompt = req.prompt.or(existing.prompt);
@@ -68,6 +73,39 @@ pub async fn delete_template(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<ApiResponse<()>>, AppError> {
+    let existing = state.db
+        .get_template_by_id(id)
+        .await?
+        .ok_or_else(|| AppError::NotFound)?;
+
+    // System templates cannot be deleted
+    if existing.is_system {
+        return Err(AppError::BadRequest("Cannot delete system template".to_string()));
+    }
+
     state.db.delete_template(id).await?;
     Ok(Json(ApiResponse::ok(())))
+}
+
+pub async fn copy_template(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<ApiResponse<TodoTemplate>>, AppError> {
+    let existing = state.db
+        .get_template_by_id(id)
+        .await?
+        .ok_or_else(|| AppError::NotFound)?;
+
+    // Create a copy as user template
+    let new_title = format!("{} (副本)", existing.title);
+    let id = state.db
+        .create_template(&new_title, existing.prompt.as_deref(), &existing.category, Some(existing.sort_order), false)
+        .await?;
+
+    let template = state.db
+        .get_template_by_id(id)
+        .await?
+        .ok_or_else(|| AppError::Internal("Failed to get copied template".to_string()))?;
+
+    Ok(Json(ApiResponse::ok(template)))
 }

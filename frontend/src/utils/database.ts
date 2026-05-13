@@ -119,6 +119,10 @@ export async function deleteTodoTemplate(id: number): Promise<void> {
   await api.delete(`/xyz/todo-templates/${id}`);
 }
 
+export async function copyTodoTemplate(id: number): Promise<TodoTemplate> {
+  return unwrap(await api.post<ApiResp<TodoTemplate>>(`/xyz/todo-templates/${id}/copy`, {}));
+}
+
 // Project Directory APIs
 
 export interface ProjectDirectory {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Modal, Input, Button, App, Space, Empty, Card, List, Spin } from 'antd';
+import { Modal, Input, Button, App, Space, Empty, Card, List, Spin, Tag } from 'antd';
 import { FileTextOutlined } from '@ant-design/icons';
 import { useApp } from '../hooks/useApp';
 import { TagCheckCardGroup } from './TagCheckCard';
@@ -147,7 +147,12 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
                           style={{ width: '100%', height: 'auto', textAlign: 'left', padding: 0, wordBreak: 'break-word', overflowWrap: 'break-word' }}
                         >
                           <List.Item.Meta
-                            title={template.title}
+                            title={
+                              <span>
+                                {template.title}
+                                {template.is_system && <Tag color="blue" style={{ marginLeft: 8 }}>系统</Tag>}
+                              </span>
+                            }
                             description={template.prompt || '(无内容)'}
                           />
                         </Button>

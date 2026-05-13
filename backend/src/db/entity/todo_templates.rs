@@ -10,6 +10,7 @@ pub struct Model {
     pub prompt: Option<String>,
     pub category: String,
     pub sort_order: Option<i32>,
+    pub is_system: bool,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }

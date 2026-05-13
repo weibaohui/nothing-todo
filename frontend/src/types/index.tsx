@@ -37,6 +37,7 @@ export interface TodoTemplate {
   prompt: string | null;
   category: string;
   sort_order: number;
+  is_system: boolean;
   created_at: string | null;
   updated_at: string | null;
 }

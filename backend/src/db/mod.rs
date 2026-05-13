@@ -506,11 +506,26 @@ impl Database {
                 prompt TEXT,
                 category TEXT NOT NULL DEFAULT '',
                 sort_order INTEGER,
+                is_system INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT,
                 updated_at TEXT
             )",
         )
         .await?;
+
+        // Migration: add is_system column if missing (existing databases)
+        let has_is_system: i64 = self.conn
+            .query_one(Statement::from_string(
+                sea_orm::DatabaseBackend::Sqlite,
+                "SELECT COUNT(*) FROM pragma_table_info('todo_templates') WHERE name='is_system'".to_string(),
+            ))
+            .await?
+            .map(|r| r.try_get::<i64>("", "COUNT(*)").unwrap_or(0))
+            .unwrap_or(0);
+        if has_is_system == 0 {
+            self.exec("ALTER TABLE todo_templates ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0")
+                .await?;
+        }
 
         // Todo templates timestamps triggers
         self.exec(

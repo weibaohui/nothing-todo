@@ -439,6 +439,7 @@ pub fn create_app(
         .merge(project_directory::routes())
         .route("/xyz/todo-templates", get(todo_template::get_templates).post(todo_template::create_template))
         .route("/xyz/todo-templates/{id}", put(todo_template::update_template).delete(todo_template::delete_template))
+        .route("/xyz/todo-templates/{id}/copy", post(todo_template::copy_template))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
         .layer(CompressionLayer::new())
         .layer(

@@ -599,6 +599,16 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     }
   };
 
+  const handleCopyTemplate = async (templateId: number) => {
+    try {
+      const newTemplate = await db.copyTodoTemplate(templateId);
+      setTemplates(prev => [...prev, newTemplate]);
+      message.success('模板已复制');
+    } catch (err: any) {
+      message.error('复制失败: ' + (err?.message || String(err)));
+    }
+  };
+
   // Project directories handlers
   const loadProjectDirectories = () => {
     setProjectDirsLoading(true);
@@ -2487,29 +2497,67 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               <Empty description="暂无模板" image={Empty.PRESENTED_IMAGE_SIMPLE} />
             ) : (
               <div>
-                {Array.from(new Set(templates.map(t => t.category))).sort().map(category => (
-                  <Card key={category} title={category || '未分类'} size="small" style={{ marginBottom: 16 }}>
-                    <List
-                      dataSource={templates.filter(t => t.category === category)}
-                      renderItem={(template) => (
-                        <List.Item
-                          style={{ padding: '8px 0' }}
-                          actions={[
-                            <Button key="edit" type="text" icon={<EditOutlined />} size="small" onClick={() => openTemplateForm(template)} />,
-                            <Popconfirm key="delete" title="删除模板" description={`确定要删除模板 "${template.title}" 吗？`} onConfirm={() => handleDeleteTemplate(template.id)}>
-                              <Button type="text" danger icon={<DeleteOutlined />} size="small" />
-                            </Popconfirm>,
-                          ]}
-                        >
-                          <List.Item.Meta
-                            title={template.title}
-                            description={template.prompt || '(无内容)'}
-                          />
-                        </List.Item>
-                      )}
-                    />
-                  </Card>
-                ))}
+                {/* System templates section */}
+                {templates.filter(t => t.is_system).length > 0 && (
+                  <div style={{ marginBottom: 24 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: 'var(--color-text-secondary)' }}>
+                      系统模板 <span style={{ fontWeight: 400, fontSize: 12 }}>（不可修改，可复制）</span>
+                    </div>
+                    {Array.from(new Set(templates.filter(t => t.is_system).map(t => t.category))).sort().map(category => (
+                      <Card key={category} title={category || '未分类'} size="small" style={{ marginBottom: 12 }}>
+                        <List
+                          dataSource={templates.filter(t => t.is_system && t.category === category)}
+                          renderItem={(template) => (
+                            <List.Item
+                              style={{ padding: '8px 0' }}
+                              actions={[
+                                <Button key="copy" type="text" icon={<CopyOutlined />} size="small" onClick={() => handleCopyTemplate(template.id)}>
+                                  复制
+                                </Button>,
+                              ]}
+                            >
+                              <List.Item.Meta
+                                title={template.title}
+                                description={template.prompt || '(无内容)'}
+                              />
+                            </List.Item>
+                          )}
+                        />
+                      </Card>
+                    ))}
+                  </div>
+                )}
+                {/* User templates section */}
+                {templates.filter(t => !t.is_system).length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: 'var(--color-text-secondary)' }}>
+                      我的模板 <span style={{ fontWeight: 400, fontSize: 12 }}>（可自由编辑）</span>
+                    </div>
+                    {Array.from(new Set(templates.filter(t => !t.is_system).map(t => t.category))).sort().map(category => (
+                      <Card key={category} title={category || '未分类'} size="small" style={{ marginBottom: 12 }}>
+                        <List
+                          dataSource={templates.filter(t => !t.is_system && t.category === category)}
+                          renderItem={(template) => (
+                            <List.Item
+                              style={{ padding: '8px 0' }}
+                              actions={[
+                                <Button key="edit" type="text" icon={<EditOutlined />} size="small" onClick={() => openTemplateForm(template)} />,
+                                <Popconfirm key="delete" title="删除模板" description={`确定要删除模板 "${template.title}" 吗？`} onConfirm={() => handleDeleteTemplate(template.id)}>
+                                  <Button type="text" danger icon={<DeleteOutlined />} size="small" />
+                                </Popconfirm>,
+                              ]}
+                            >
+                              <List.Item.Meta
+                                title={template.title}
+                                description={template.prompt || '(无内容)'}
+                              />
+                            </List.Item>
+                          )}
+                        />
+                      </Card>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </Spin>
