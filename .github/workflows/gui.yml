@@ -65,6 +65,13 @@ jobs:
               break
             fi
           done
+          # For non-Windows platforms, create a placeholder ntd.exe to satisfy Tauri config
+          if [ "${{ matrix.target }}" != "x86_64-pc-windows-msvc" ]; then
+            if [ ! -f "backend/target/${{ matrix.target }}/release/ntd.exe" ]; then
+              cp backend/target/${{ matrix.target }}/release/ntd backend/target/${{ matrix.target }}/release/ntd.exe
+              echo "Created ntd.exe as copy of ntd for Tauri config"
+            fi
+          fi
           ls -la backend/target/${{ matrix.target }}/release/
 
       - uses: actions/checkout@v4
