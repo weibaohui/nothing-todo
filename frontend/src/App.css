@@ -2260,6 +2260,30 @@ code {
   margin: 2px 0;
 }
 
+/* Table styles inside memorial-result */
+.memorial-result table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: 4px 0;
+}
+
+.memorial-result table th,
+.memorial-result table td {
+  border: 1px solid var(--color-border);
+  padding: 4px 8px;
+  text-align: left;
+}
+
+.memorial-result table th {
+  background: var(--color-bg);
+  font-weight: 600;
+}
+
+.memorial-result table tr:nth-child(even) td {
+  background: rgba(0, 0, 0, 0.02);
+}
+
 .memorial-copy-btn {
   float: right;
   background: none;

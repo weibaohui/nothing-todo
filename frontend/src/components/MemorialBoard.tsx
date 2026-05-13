@@ -7,7 +7,7 @@ import {
   RobotOutlined,
   CopyOutlined,
 } from '@ant-design/icons';
-import ReactMarkdown from 'react-markdown';
+import XMarkdown from '@ant-design/x-markdown';
 import { useApp } from '../hooks/useApp';
 import { ExecutorBadge } from './ExecutorBadge';
 import * as db from '../utils/database';
@@ -154,9 +154,7 @@ export function MemorialBoard({ onBack: _onBack }: MemorialBoardProps) {
               >
                 <CopyOutlined />
               </button>
-              <ReactMarkdown>
-                {previewMd}
-              </ReactMarkdown>
+              <XMarkdown content={previewMd} />
               {result.length > 200 && (
                 <button className="memorial-expand-btn" onClick={e => { e.stopPropagation(); toggleExpand(item.todo_id); }}>
                   {expanded ? '收起' : '展开'}
