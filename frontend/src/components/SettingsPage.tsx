@@ -2587,17 +2587,16 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               </div>
               <div>
                 <div style={{ marginBottom: 4, fontWeight: 500 }}>分类</div>
-                <Input
+                <AutoComplete
+                  placeholder="输入或选择分类"
                   value={templateFormCategory}
-                  onChange={e => setTemplateFormCategory(e.target.value)}
-                  placeholder="输入或选择分类（如：开发、测试、文档）"
-                  list="template-categories"
+                  onChange={(value) => setTemplateFormCategory(value)}
+                  options={Array.from(new Set(templates.map(t => t.category))).filter(c => c).map(c => ({ label: c, value: c }))}
+                  style={{ width: '100%' }}
+                  filterOption={(input, option) =>
+                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                  }
                 />
-                <datalist id="template-categories">
-                  {Array.from(new Set(templates.map(t => t.category))).filter(c => c).map(c => (
-                    <option key={c} value={c} />
-                  ))}
-                </datalist>
               </div>
               <div>
                 <div style={{ marginBottom: 4, fontWeight: 500 }}>Prompt 内容</div>
