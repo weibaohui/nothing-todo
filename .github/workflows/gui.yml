@@ -1,13 +1,10 @@
 name: Build GUI (Tauri)
 
-# Same trigger conditions as rust.yaml
+# Triggered after rust.yaml completes (workflow_run ensures rust.yaml is done first)
 on:
-  push:
-    branches: [ "main" ]
-    tags:
-      - 'v*'
-  pull_request:
-    branches: [ "main" ]
+  workflow_run:
+    workflows: ["Build and Release"]
+    types: [completed]
 
 permissions:
   contents: write
@@ -16,46 +13,37 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Get the run ID of the rust.yaml workflow that was triggered by this tag
-  get-rust-run:
+  # Check if this workflow_run should proceed (only on successful tag builds)
+  check-trigger:
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     outputs:
-      run_id: ${{ steps.find-run.outputs.run_id }}
+      proceed: ${{ steps.check.outputs.proceed }}
+      tag_name: ${{ steps.check.outputs.tag_name }}
     steps:
-      - name: Find rust.yaml workflow run for this tag
-        id: find-run
+      - name: Check if this was a tag trigger
+        id: check
         run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
-          echo "Looking for rust.yaml run with tag: $TAG_NAME"
-          RUN_ID=$(gh run list --workflow=rust.yml --event=push --status=success --limit 50 --json id --jq '.[] | select(.head_branch == "'$TAG_NAME'") | .id' | head -1)
-          if [ -z "$RUN_ID" ]; then
-            # Try alternative: get most recent successful run
-            RUN_ID=$(gh run list --workflow=rust.yml --status=success --limit 1 --json id --jq '.[0].id')
+          # Get the workflow run details
+          RUN_ID=${{ github.event.workflow_run.id }}
+          echo "Checking workflow run: $RUN_ID"
+          # Get the head branch/tag of the triggering run
+          HEAD_BRANCH=$(gh api repos/${{ github.repository }}/actions/runs/$RUN_ID --jq '.head_branch')
+          echo "Head branch: $HEAD_BRANCH"
+          TAG_NAME=${HEAD_BRANCH#refs/tags/}
+          echo "Tag name: $TAG_NAME"
+          # Check if this was a tag push (starts with v)
+          if [[ "$TAG_NAME" == v* ]]; then
+            echo "proceed=true" >> $GITHUB_OUTPUT
+            echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          else
+            echo "proceed=false" >> $GITHUB_OUTPUT
+            echo "tag_name=" >> $GITHUB_OUTPUT
           fi
-          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
-          echo "Found run ID: $RUN_ID"
-
-      - name: Download backend artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: backend-artifacts
-          run-id: ${{ steps.find-run.outputs.run_id }}
-          pattern: nothing-todo-*
-          merge-multiple: true
-
-      - name: Verify artifacts
-        run: |
-          echo "Downloaded artifacts:"
-          ls -la backend-artifacts/
-
-      - name: Upload backend artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-binaries
-          path: backend-artifacts/
 
   build-gui:
-    needs: get-rust-run
+    needs: check-trigger
+    if: needs.check-trigger.outputs.proceed == 'true'
     strategy:
       matrix:
         include:
@@ -80,21 +68,27 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
-
+      # Download artifacts from the triggering rust.yaml workflow run
       - name: Download backend binary
         uses: actions/download-artifact@v4
         with:
-          name: backend-binaries
-          path: backend-artifacts
+          name: ${{ matrix.bin_name }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Verify backend binary
+        shell: bash
+        run: |
+          ls -la
+          file ${{ matrix.bin_name }}
 
       - name: Prepare backend binary for bundle
         shell: bash
         run: |
           mkdir -p backend/target/${{ matrix.target }}/release/
-          cp backend-artifacts/${{ matrix.bin_name }} backend/target/${{ matrix.target }}/release/ntd
+          cp ${{ matrix.bin_name }} backend/target/${{ matrix.target }}/release/ntd
           chmod +x backend/target/${{ matrix.target }}/release/ntd
-          ls -la backend/target/${{ matrix.target }}/release/
+
+      - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
