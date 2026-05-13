@@ -69,18 +69,16 @@ jobs:
               break
             fi
           done
-          # Create placeholder ntd.exe for non-Windows platforms to satisfy Tauri config
-          if [ "${{ matrix.target }}" != "x86_64-pc-windows-msvc" ]; then
-            cp backend/target/release/ntd backend/target/release/ntd.exe
-            echo "Created ntd.exe as copy of ntd for Tauri config"
-          fi
+          # Create ntd.exe for all platforms to satisfy Tauri config
+          # Windows native binary already has .exe suffix, but Tauri expects both ntd and ntd.exe
+          cp backend/target/release/ntd backend/target/release/ntd.exe
+          echo "Created ntd.exe as copy of ntd for Tauri config"
           ls -la backend/target/release/
           ls -la backend/target/release/ntd*
-          # Create symlink in src-tauri/backend/target/release to satisfy Tauri resource path check
-          # The relative path from src-tauri/backend/target/release/ to backend/target/release/ is ../../../../backend/target/release/
+          # Create symlinks in src-tauri/backend/target/release to satisfy Tauri resource path check
           mkdir -p src-tauri/backend/target/release
           ln -sf ../../../../backend/target/release/ntd src-tauri/backend/target/release/ntd
-          ln -sf ../../../../backend/target/release/ntd.exe src-tauri/backend/target/release/ntd.exe
+          ln -sf ../../../../backend/target/release/ntd.exe src-tauri/backend/target/release/ntd.exe || true
           echo "Created symlinks:"
           ls -la src-tauri/backend/target/release/
 
