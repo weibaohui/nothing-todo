@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::process::Command;
 use tokio::process::Command as TokioCommand;
 use tokio::time::Duration;
 
@@ -10,9 +11,20 @@ pub enum NtdStatus {
     NotInstalled,
 }
 
-/// Read port from ~/.ntd/config.yaml
+fn expand_tilde(path: &str) -> Result<PathBuf, String> {
+    if path.starts_with("~/") {
+        let home = dirs::home_dir().ok_or("Cannot find home directory")?;
+        Ok(home.join(path.trim_start_matches("~/")))
+    } else {
+        Ok(PathBuf::from(path))
+    }
+}
+
 fn read_port_from_config() -> u16 {
-    let path = expand_tilde(CONFIG_PATH);
+    let path = match expand_tilde(CONFIG_PATH) {
+        Ok(p) => p,
+        Err(_) => return DEFAULT_PORT,
+    };
     if let Ok(content) = std::fs::read_to_string(&path) {
         if let Ok(map) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
             if let Some(port) = map.get("port").and_then(|v| v.as_u64()) {
@@ -23,25 +35,23 @@ fn read_port_from_config() -> u16 {
     DEFAULT_PORT
 }
 
-fn expand_tilde(path: &str) -> PathBuf {
-    if path.starts_with("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(path.trim_start_matches("~/"));
+fn is_file_executable(path: &PathBuf) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = std::fs::metadata(path) {
+            let mode = metadata.permissions().mode();
+            return (mode & 0o111) != 0;
         }
+        return false;
     }
-    PathBuf::from(path)
-}
-
-/// Check if ntd is running on the given port
-async fn is_ntd_running(port: u16) -> bool {
-    tokio::net::TcpStream::connect(format!("localhost:{}", port))
-        .await
-        .is_ok()
+    #[cfg(not(unix))]
+    true
 }
 
 fn find_ntd_binary() -> Option<String> {
     // Try ntd --version to verify it's installed and executable
-    if std::process::Command::new("ntd")
+    if Command::new("ntd")
         .arg("--version")
         .output()
         .map(|o| o.status.success())
@@ -56,9 +66,8 @@ fn find_ntd_binary() -> Option<String> {
     if let Some(home) = dirs::home_dir() {
         for candidate in &candidates {
             let path = home.join(candidate);
-            if path.exists() {
-                // Verify it's executable
-                if std::process::Command::new(&path)
+            if path.exists() && is_file_executable(&path) {
+                if Command::new(&path)
                     .arg("--version")
                     .output()
                     .map(|o| o.status.success())
@@ -73,7 +82,20 @@ fn find_ntd_binary() -> Option<String> {
     None
 }
 
-/// Check ntd installation and running status
+async fn is_ntd_responding(port: u16) -> bool {
+    let url = format!("http://localhost:{}/health", port);
+    match reqwest::get(&url).await {
+        Ok(resp) => resp.status().is_success(),
+        Err(_) => false,
+    }
+}
+
+async fn is_port_open(port: u16) -> bool {
+    tokio::net::TcpStream::connect(format!("localhost:{}", port))
+        .await
+        .is_ok()
+}
+
 pub async fn check_ntd_status() -> NtdStatus {
     let port = read_port_from_config();
 
@@ -81,14 +103,13 @@ pub async fn check_ntd_status() -> NtdStatus {
         return NtdStatus::NotInstalled;
     }
 
-    if is_ntd_running(port).await {
+    if is_port_open(port).await && is_ntd_responding(port).await {
         NtdStatus::Installed { running: true, port }
     } else {
         NtdStatus::Installed { running: false, port }
     }
 }
 
-/// Start ntd daemon
 pub async fn start_ntd_daemon(port: u16) -> Result<u16, String> {
     let ntd_bin = find_ntd_binary().ok_or("ntd binary not found")?;
 
@@ -97,14 +118,14 @@ pub async fn start_ntd_daemon(port: u16) -> Result<u16, String> {
         .spawn()
         .map_err(|e| format!("Failed to spawn ntd daemon: {}", e))?;
 
-    // Wait for ntd to be ready
+    // Wait for ntd to be ready with health check
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(30) {
-        if is_ntd_running(port).await {
+        if is_port_open(port).await && is_ntd_responding(port).await {
             return Ok(port);
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-    Err("ntd daemon failed to start".to_string())
+    Err("ntd daemon failed to start or health check timeout".to_string())
 }

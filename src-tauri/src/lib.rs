@@ -132,6 +132,58 @@ const LOADING_PAGE: &str = r#"<!DOCTYPE html>
 </html>
 "#;
 
+const ERROR_PAGE: &str = r#"<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ntd - 启动失败</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      background: white;
+      border-radius: 16px;
+      padding: 48px;
+      max-width: 500px;
+      text-align: center;
+      box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+    }
+    h1 { color: #1a1a2e; margin-bottom: 16px; font-size: 28px; }
+    p { color: #64748b; margin-bottom: 24px; line-height: 1.6; }
+    .command {
+      background: #1a1a2e;
+      color: #a5f3fc;
+      padding: 16px 24px;
+      border-radius: 8px;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 14px;
+      margin-bottom: 24px;
+      word-break: break-all;
+    }
+    .hint { color: #94a3b8; font-size: 14px; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>启动失败</h1>
+    <p>无法自动启动 ntd 服务，请手动启动：</p>
+    <div class="command">ntd daemon start</div>
+    <p class="hint">启动后关闭此窗口重新打开即可。</p>
+  </div>
+</body>
+</html>
+"#;
+
+/// Shows HTML content by replacing the entire document.
+/// This is intentional for the loading/install/error pages - we want to replace everything.
 fn show_html(window: &tauri::WebviewWindow, html: &str) {
     let escaped = html
         .replace('\\', "\\\\")
@@ -194,6 +246,7 @@ pub fn run() {
                             }
                             Err(e) => {
                                 log::error!("Failed to start ntd daemon: {}", e);
+                                show_html(&main_window, ERROR_PAGE);
                             }
                         }
                     }
