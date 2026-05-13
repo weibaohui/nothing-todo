@@ -26,7 +26,7 @@ fn read_port_from_config() -> u16 {
 fn expand_tilde(path: &str) -> PathBuf {
     if path.starts_with("~/") {
         if let Some(home) = dirs::home_dir() {
-            return home.join(path.trim_start_matches("~/").trim_start_matches('/'));
+            return home.join(path.trim_start_matches("~/"));
         }
     }
     PathBuf::from(path)
@@ -40,9 +40,9 @@ async fn is_ntd_running(port: u16) -> bool {
 }
 
 fn find_ntd_binary() -> Option<String> {
-    // Check if ntd is in PATH
-    if std::process::Command::new("which")
-        .arg("ntd")
+    // Try ntd --version to verify it's installed and executable
+    if std::process::Command::new("ntd")
+        .arg("--version")
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
@@ -57,7 +57,15 @@ fn find_ntd_binary() -> Option<String> {
         for candidate in &candidates {
             let path = home.join(candidate);
             if path.exists() {
-                return Some(path.to_string_lossy().to_string());
+                // Verify it's executable
+                if std::process::Command::new(&path)
+                    .arg("--version")
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false)
+                {
+                    return Some(path.to_string_lossy().to_string());
+                }
             }
         }
     }
