@@ -22,19 +22,19 @@ jobs:
             target: x86_64-unknown-linux-gnu
             pkg: ntd-desktop-linux-x64
             bundle: deb
-            bin_name: ntd-linux-x64
+            artifact_name: nothing-todo-linux-x64
 
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             pkg: ntd-desktop-windows-x64
             bundle: nsis
-            bin_name: ntd-windows-x64.exe
+            artifact_name: nothing-todo-windows-x64
 
           - os: macos-latest
             target: aarch64-apple-darwin
             pkg: ntd-desktop-darwin-arm64
             bundle: dmg
-            bin_name: ntd-darwin-arm64
+            artifact_name: nothing-todo-darwin-arm64
 
     runs-on: ${{ matrix.os }}
 
@@ -43,21 +43,28 @@ jobs:
       - name: Download backend binary
         uses: actions/download-artifact@v4
         with:
-          name: ${{ matrix.bin_name }}
+          name: ${{ matrix.artifact_name }}
           run-id: ${{ github.event.workflow_run.id }}
 
       - name: Verify backend binary
         shell: bash
         run: |
           ls -la
-          file ${{ matrix.bin_name }}
 
       - name: Prepare backend binary for bundle
         shell: bash
         run: |
           mkdir -p backend/target/${{ matrix.target }}/release/
-          cp ${{ matrix.bin_name }} backend/target/${{ matrix.target }}/release/ntd
-          chmod +x backend/target/${{ matrix.target }}/release/ntd
+          # Find the binary file in the downloaded artifact and rename to 'ntd'
+          for f in ntd ntd.exe ntd-*; do
+            if [ -f "$f" ]; then
+              cp "$f" backend/target/${{ matrix.target }}/release/ntd
+              chmod +x backend/target/${{ matrix.target }}/release/ntd
+              echo "Copied $f as ntd"
+              break
+            fi
+          done
+          ls -la backend/target/${{ matrix.target }}/release/
 
       - uses: actions/checkout@v4
 
