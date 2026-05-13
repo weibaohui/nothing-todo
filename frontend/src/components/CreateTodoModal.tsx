@@ -122,7 +122,8 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
         open={templateModalOpen}
         onCancel={() => setTemplateModalOpen(false)}
         footer={null}
-        width={600}
+        styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
+        className="template-modal"
       >
         <Spin spinning={templatesLoading}>
           {templates.length === 0 ? (

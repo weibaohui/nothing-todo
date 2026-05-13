@@ -928,6 +928,18 @@ body {
   resize: vertical;
 }
 
+/* ---------- Template Modal Desktop Styles ---------- */
+@media (min-width: 769px) {
+  .template-modal .ant-modal {
+    min-width: 600px;
+    max-width: 800px;
+  }
+
+  .template-modal .ant-modal-body {
+    padding: 20px;
+  }
+}
+
 /* ---------- Mobile Styles ---------- */
 .mobile-header {
   display: flex;
@@ -1994,6 +2006,16 @@ code {
   }
 
   .settings-bind-modal .ant-modal-body {
+    padding: 12px;
+  }
+
+  /* Template modal responsive */
+  .template-modal .ant-modal {
+    max-width: calc(100vw - 32px) !important;
+    margin: 16px auto;
+  }
+
+  .template-modal .ant-modal-body {
     padding: 12px;
   }
 }
