@@ -2,7 +2,7 @@
 //!
 //! Config file location: `~/.ntd/config.yaml`
 //!
-//! All components (server, CLI, tunnel, executors) read their settings from this module.
+//! All components (server, CLI, executors) read their settings from this module.
 //! No direct environment variable reads — route everything through Config.
 
 use std::path::PathBuf;
