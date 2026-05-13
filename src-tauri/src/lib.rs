@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -12,13 +12,21 @@ pub struct AppState {
 }
 
 #[tauri::command]
-fn get_backend_url(state: tauri::State<AppState>) -> String {
-    let port = *state.backend_port.lock().unwrap();
+fn get_backend_url(state: tauri::State<Arc<AppState>>) -> String {
+    let port = *state.backend_port.lock().expect("backend_port mutex poisoned");
     format!("http://localhost:{}", port)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Create the shared state before setup
+    let app_state = Arc::new(AppState {
+        backend_port: Mutex::new(0),
+    });
+
+    // Clone for the spawned task
+    let state_for_task = app_state.clone();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
@@ -28,17 +36,24 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
-        .manage(AppState {
-            backend_port: Mutex::new(0),
+        .manage(app_state)
+        .setup(move |_app| {
+            // Spawn backend using Tauri's async runtime to avoid "runtime within runtime" panic
+            tauri::async_runtime::spawn(async move {
+                match backend::spawn_backend().await {
+                    Ok(port) => {
+                        *state_for_task.backend_port.lock().expect("backend_port mutex poisoned") = port;
+                        log::info!("Backend spawned on port {}", port);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to spawn backend: {}", e);
+                    }
+                }
+            });
+
+            Ok(())
         })
         .setup(|app| {
-            let state = app.state::<AppState>();
-
-            // Spawn backend
-            let port = tokio::runtime::Handle::current().block_on(backend::spawn_backend())?;
-            *state.backend_port.lock().unwrap() = port;
-            log::info!("Backend spawned on port {}", port);
-
             // System tray
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let show_item = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
@@ -73,14 +88,15 @@ pub fn run() {
                 .build(app)?;
 
             // Close to tray
-            let main_window = app.get_webview_window("main").unwrap();
-            let window_clone = main_window.clone();
-            main_window.on_window_event(move |event| {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = window_clone.hide();
-                }
-            });
+            if let Some(main_window) = app.get_webview_window("main") {
+                let window_clone = main_window.clone();
+                main_window.on_window_event(move |event| {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = window_clone.hide();
+                    }
+                });
+            }
 
             Ok(())
         })

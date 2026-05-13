@@ -32,23 +32,35 @@ pub async fn spawn_backend() -> Result<u16, String> {
 }
 
 fn find_backend_binary(exe_path: &PathBuf) -> Result<PathBuf, String> {
-    // Development: use locally-built binary
+    // Development: use locally-built binary (relative to src-tauri/)
     let dev_path = PathBuf::from("../../backend/target/release/ntd");
     if dev_path.exists() {
         return Ok(dev_path);
     }
 
     // Release: binary is bundled alongside Tauri app
+    // Check both with and without .exe suffix for cross-platform compatibility
     if let Some(parent) = exe_path.parent() {
-        let backend_path = parent.join("ntd");
-        if backend_path.exists() {
-            return Ok(backend_path);
+        let candidates = if cfg!(windows) {
+            vec![parent.join("ntd.exe"), parent.join("ntd")]
+        } else {
+            vec![parent.join("ntd")]
+        };
+
+        for candidate in candidates {
+            if candidate.exists() {
+                return Ok(candidate);
+            }
         }
     }
 
     Err("Could not find ntd backend binary".to_string())
 }
 
+/// Find an available port in range 8089-8189.
+/// Note: This is best-effort due to TOCTOU race condition - another process
+/// may bind the port between our check and actual use. The spawn_backend()
+/// function validates by waiting for the server to actually start.
 async fn find_available_port() -> Result<u16, String> {
     for port in 8089..8189 {
         if tokio::net::TcpStream::connect(format!("localhost:{}", port))
