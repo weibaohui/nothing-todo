@@ -134,7 +134,7 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
                   <List
                     dataSource={templates.filter(t => t.category === category)}
                     renderItem={(template) => (
-                      <List.Item>
+                      <List.Item style={{ overflow: 'hidden' }}>
                         <Button
                           type="text"
                           onClick={() => selectTemplate(template)}
@@ -144,7 +144,7 @@ export function CreateTodoModal({ open, onClose }: CreateTodoModalProps) {
                               selectTemplate(template);
                             }
                           }}
-                          style={{ width: '100%', height: 'auto', textAlign: 'left', padding: 0 }}
+                          style={{ width: '100%', height: 'auto', textAlign: 'left', padding: 0, wordBreak: 'break-word', overflowWrap: 'break-word' }}
                         >
                           <List.Item.Meta
                             title={template.title}
