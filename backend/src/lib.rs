@@ -11,7 +11,6 @@ pub mod scheduler;
 pub mod services;
 pub mod task_manager;
 pub mod todo_progress;
-pub mod tunnel;
 
 use rust_embed::RustEmbed;
 

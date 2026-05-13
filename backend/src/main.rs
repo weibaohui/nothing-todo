@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use tokio::sync::broadcast;
 use tracing::info;
 
-use ntd::{adapters, cli, daemon, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager, tunnel};
+use ntd::{adapters, cli, daemon, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager};
 
 /// ntd - Nothing Todo
 #[derive(Parser)]
@@ -31,11 +31,6 @@ enum Commands {
     Version,
     /// Upgrade ntd to the latest version via npm
     Upgrade,
-    /// Manage tunnels
-    Tunnel {
-        #[command(subcommand)]
-        action: tunnel::TunnelAction,
-    },
     /// Start the API server
     Server {
         #[command(subcommand)]
@@ -95,10 +90,6 @@ async fn main() {
                 eprintln!("Upgrade failed.");
                 std::process::exit(1);
             }
-            return;
-        }
-        Some(Commands::Tunnel { action }) => {
-            tunnel::handle_tunnel_command(action);
             return;
         }
         Some(Commands::Server { action: ServerAction::Start { port } }) => {
