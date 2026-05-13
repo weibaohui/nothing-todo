@@ -39,24 +39,13 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      # Download artifacts from the triggering rust.yaml workflow run using curl
+      # Download artifacts from the triggering rust.yaml workflow run
       - name: Download backend binary
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          echo "Downloading artifact ${{ matrix.artifact_name }} from workflow run ${{ github.event.workflow_run.id }}"
-          # Get artifact ID and download URL from the triggering workflow run
-          ARTIFACT_DATA=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/artifacts --jq '.artifacts[] | select(.name == "${{ matrix.artifact_name }}") | {id, archive_download_url}')
-          ARTIFACT_ID=$(echo "$ARTIFACT_DATA" | jq -r '.id')
-          DOWNLOAD_URL=$(echo "$ARTIFACT_DATA" | jq -r '.archive_download_url')
-          echo "Artifact ID: $ARTIFACT_ID"
-          echo "Download URL: $DOWNLOAD_URL"
-          # Download and extract artifact
-          curl -L -o artifact.zip "$DOWNLOAD_URL"
-          unzip -o artifact.zip
-          rm artifact.zip
-          ls -la
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          run-id: ${{ github.event.workflow_run.id }}
+          token: ${{ github.token }}
 
       - name: Verify backend binary
         shell: bash
