@@ -2487,79 +2487,86 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       ),
       children: (
         <div style={{ maxWidth: 700 }}>
-          <div style={{ marginBottom: 16 }}>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => openTemplateForm()}>
-              新建模板
-            </Button>
-          </div>
           <Spin spinning={templatesLoading}>
-            {templates.length === 0 ? (
-              <Empty description="暂无模板" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-            ) : (
-              <div>
-                {/* System templates section */}
-                {templates.filter(t => t.is_system).length > 0 && (
-                  <div style={{ marginBottom: 24 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: 'var(--color-text-secondary)' }}>
-                      系统模板 <span style={{ fontWeight: 400, fontSize: 12 }}>（不可修改，可复制）</span>
+            <Tabs
+              defaultActiveKey="user"
+              items={[
+                {
+                  key: 'user',
+                  label: '我的模板',
+                  children: (
+                    <div>
+                      <div style={{ marginBottom: 16 }}>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => openTemplateForm()}>
+                          新建模板
+                        </Button>
+                      </div>
+                      {templates.filter(t => !t.is_system).length === 0 ? (
+                        <Empty description="暂无用户模板" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                      ) : (
+                        Array.from(new Set(templates.filter(t => !t.is_system).map(t => t.category))).sort().map(category => (
+                          <Card key={category} title={category || '未分类'} size="small" style={{ marginBottom: 12 }}>
+                            <List
+                              dataSource={templates.filter(t => !t.is_system && t.category === category)}
+                              renderItem={(template) => (
+                                <List.Item
+                                  style={{ padding: '8px 0' }}
+                                  actions={[
+                                    <Button key="edit" type="text" icon={<EditOutlined />} size="small" onClick={() => openTemplateForm(template)} />,
+                                    <Popconfirm key="delete" title="删除模板" description={`确定要删除模板 "${template.title}" 吗？`} onConfirm={() => handleDeleteTemplate(template.id)}>
+                                      <Button type="text" danger icon={<DeleteOutlined />} size="small" />
+                                    </Popconfirm>,
+                                  ]}
+                                >
+                                  <List.Item.Meta
+                                    title={template.title}
+                                    description={template.prompt || '(无内容)'}
+                                  />
+                                </List.Item>
+                              )}
+                            />
+                          </Card>
+                        ))
+                      )}
                     </div>
-                    {Array.from(new Set(templates.filter(t => t.is_system).map(t => t.category))).sort().map(category => (
-                      <Card key={category} title={category || '未分类'} size="small" style={{ marginBottom: 12 }}>
-                        <List
-                          dataSource={templates.filter(t => t.is_system && t.category === category)}
-                          renderItem={(template) => (
-                            <List.Item
-                              style={{ padding: '8px 0' }}
-                              actions={[
-                                <Button key="copy" type="text" icon={<CopyOutlined />} size="small" onClick={() => handleCopyTemplate(template.id)}>
-                                  复制
-                                </Button>,
-                              ]}
-                            >
-                              <List.Item.Meta
-                                title={template.title}
-                                description={template.prompt || '(无内容)'}
-                              />
-                            </List.Item>
-                          )}
-                        />
-                      </Card>
-                    ))}
-                  </div>
-                )}
-                {/* User templates section */}
-                {templates.filter(t => !t.is_system).length > 0 && (
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: 'var(--color-text-secondary)' }}>
-                      我的模板 <span style={{ fontWeight: 400, fontSize: 12 }}>（可自由编辑）</span>
+                  ),
+                },
+                {
+                  key: 'system',
+                  label: '系统模板',
+                  children: (
+                    <div>
+                      {templates.filter(t => t.is_system).length === 0 ? (
+                        <Empty description="暂无系统模板" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                      ) : (
+                        Array.from(new Set(templates.filter(t => t.is_system).map(t => t.category))).sort().map(category => (
+                          <Card key={category} title={category || '未分类'} size="small" style={{ marginBottom: 12 }}>
+                            <List
+                              dataSource={templates.filter(t => t.is_system && t.category === category)}
+                              renderItem={(template) => (
+                                <List.Item
+                                  style={{ padding: '8px 0' }}
+                                  actions={[
+                                    <Button key="copy" type="text" icon={<CopyOutlined />} size="small" onClick={() => handleCopyTemplate(template.id)}>
+                                      复制
+                                    </Button>,
+                                  ]}
+                                >
+                                  <List.Item.Meta
+                                    title={template.title}
+                                    description={template.prompt || '(无内容)'}
+                                  />
+                                </List.Item>
+                              )}
+                            />
+                          </Card>
+                        ))
+                      )}
                     </div>
-                    {Array.from(new Set(templates.filter(t => !t.is_system).map(t => t.category))).sort().map(category => (
-                      <Card key={category} title={category || '未分类'} size="small" style={{ marginBottom: 12 }}>
-                        <List
-                          dataSource={templates.filter(t => !t.is_system && t.category === category)}
-                          renderItem={(template) => (
-                            <List.Item
-                              style={{ padding: '8px 0' }}
-                              actions={[
-                                <Button key="edit" type="text" icon={<EditOutlined />} size="small" onClick={() => openTemplateForm(template)} />,
-                                <Popconfirm key="delete" title="删除模板" description={`确定要删除模板 "${template.title}" 吗？`} onConfirm={() => handleDeleteTemplate(template.id)}>
-                                  <Button type="text" danger icon={<DeleteOutlined />} size="small" />
-                                </Popconfirm>,
-                              ]}
-                            >
-                              <List.Item.Meta
-                                title={template.title}
-                                description={template.prompt || '(无内容)'}
-                              />
-                            </List.Item>
-                          )}
-                        />
-                      </Card>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+                  ),
+                },
+              ]}
+            />
           </Spin>
           <Modal
             title={templateEditing ? '编辑模板' : '新建模板'}
