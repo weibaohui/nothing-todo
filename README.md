@@ -14,9 +14,15 @@
 
 - **智能任务管理** — 创建、编辑、跟踪 Todo，支持多种状态（待办、进行中、已完成、已取消、已归档）
 - **多 AI 执行器支持** — 集成 Claude Code、JoinAI、CodeBuddy、OpenCode、AtomCode 等多种 AI CLI 工具
-- **可视化仪表盘** — 实时统计任务完成情况，支持趋势图表和数据洞察
+- **可视化仪表盘** — 实时统计任务完成情况，支持趋势图表和数据洞察，可按时间区间筛选（6h/12h/24h/3d/7d）
+- **看板视图** — 瀑布流展示最近完成的任务及其 AI 执行结论，方便回顾
 - **标签系统** — 灵活的标签分类，快速筛选和定位任务
 - **定时调度** — 内置 Cron 调度器，支持定时触发任务执行
+- **Todo 模板** — 预设任务模板，一键创建标准化任务流程
+- **Session 管理** — 任务会话历史追踪，支持会话续连和状态恢复
+- **项目目录管理** — 多项目隔离，每个项目独立的目录和工作空间
+- **Worktree 支持** — Claude Code/Codex 执行时自动创建 Git Worktree，隔离分支操作
+- **自动备份** — 定时自动备份数据，支持保留数量限制和一键下载
 - **跨平台** — 支持 Windows、macOS、Linux（x86_64 & ARM64）
 
 ---
@@ -76,11 +82,14 @@ npm install -g @weibaohui/nothing-todo@latest
 
 | 执行器 | 说明 |
 |--------|------|
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) | Anthropic 官方 CLI |
-| JoinAI | AI 工作流工具 |
-| CodeBuddy | 代码助手 |
-| OpenCode | 开源代码助手 |
-| AtomCode | AI 代码编辑器 |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) | Anthropic 官方 CLI，支持 Worktree |
+| [JoinAI](https://www.joinai.com) | AI 工作流工具 |
+| [Codebuddy](https://codebuddy.com) | 代码助手 |
+| [OpenCode](https://opencode.ai) | 开源代码助手 |
+| [AtomCode](https://atomcode.dev) | AI 代码编辑器 |
+| [Hermes](https://hermes.chat) | AI 助手 |
+| [Kimi](https://kimi.moonshot.cn) | Kimi AI |
+| [Codex](https://openai.com/codex) | OpenAI 代码助手 |
 
 ---
 
