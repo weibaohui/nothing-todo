@@ -1,0 +1,157 @@
+name: Build GUI (Tauri)
+
+on:
+  push:
+    branches: [ "main" ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-gui:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            pkg: ntd-desktop-linux-x64
+            bundle: deb
+            install-deps: |
+              apt-get update && apt-get install -y \
+                libwebkit2gtk-4.1-dev \
+                libgtk-3-dev \
+                libayatana-appindicator3-dev \
+                librsvg2-dev
+
+          - os: ubuntu-24.04
+            target: aarch64-unknown-linux-gnu
+            pkg: ntd-desktop-linux-arm64
+            bundle: deb
+            install-deps: |
+              apt-get update && apt-get install -y \
+                libwebkit2gtk-4.1-dev:arm64 \
+                libgtk-3-dev:arm64 \
+                libayatana-appindicator3-dev:arm64 \
+                librsvg2-dev:arm64 \
+                qemu-user
+
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            pkg: ntd-desktop-windows-x64
+            bundle: nsis
+            install-deps: ""
+
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            pkg: ntd-desktop-darwin-arm64
+            bundle: dmg
+            install-deps: ""
+
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            pkg: ntd-desktop-darwin-x64
+            bundle: dmg
+            install-deps: ""
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install system dependencies (Linux)
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          # Add architecture for cross-compilation if needed
+          dpkg --add-architecture arm64 || true
+          ${{ matrix.install-deps }}
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci --legacy-peer-deps
+
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@latest
+
+      - name: Build frontend
+        run: cd frontend && npm run build
+
+      - name: Verify frontend dist
+        run: ls -la frontend/dist/
+
+      - name: Build Tauri bundle
+        run: |
+          cd src-tauri
+          npx @tauri-apps/cli@latest build \
+            --target ${{ matrix.target }} \
+            --bundles ${{ matrix.bundle }}
+
+      - name: Find built artifacts
+        run: |
+          echo "=== Release directory ==="
+          ls -la src-tauri/target/${{ matrix.target }}/release/ 2>/dev/null | head -20
+          echo ""
+          echo "=== Bundle directory ==="
+          find src-tauri/target/${{ matrix.target }}/release/bundle -type f 2>/dev/null | head -20
+
+      - name: Prepare artifacts for upload
+        run: |
+          mkdir -p dist
+          # Find and copy bundles
+          if [ -d "src-tauri/target/${{ matrix.target }}/release/bundle" ]; then
+            find src-tauri/target/${{ matrix.target }}/release/bundle -type f \( \
+              -name "*.exe" -o \
+              -name "*.msi" -o \
+              -name "*.dmg" -o \
+              -name "*.app" -o \
+              -name "*.deb" -o \
+              -name "*.rpm" \
+            \) -exec cp {} dist/ \; 2>/dev/null || true
+          fi
+          ls -la dist/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.pkg }}
+          path: dist/*
+
+  release:
+    needs: build-gui
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: List artifacts
+        run: find artifacts/ -type f | sort
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

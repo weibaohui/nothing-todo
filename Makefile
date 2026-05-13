@@ -139,3 +139,18 @@ cross-list:
 	@echo ""
 	@echo "Built binaries: backend/target/cross/"
 
+# Tauri desktop app
+TAURI_CLI := $(HOME)/.nvm/versions/node/v25.9.0/bin/tauri
+
+tauri-dev:
+	export PATH="$$HOME/.cargo/bin:$$PATH" && cd src-tauri && $(TAURI_CLI) dev
+
+tauri-build:
+	export PATH="$$HOME/.cargo/bin:$$PATH" && cd src-tauri && $(TAURI_CLI) build
+
+desktop: build
+	export PATH="$$HOME/.cargo/bin:$$PATH" && cd src-tauri && $(TAURI_CLI) build
+
+tauri-clean:
+	rm -rf src-tauri/target
+
