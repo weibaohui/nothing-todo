@@ -99,7 +99,7 @@ pub async fn start_ntd_daemon(port: u16) -> Result<u16, String> {
 
     // Wait for ntd to be ready
     let start = std::time::Instant::now();
-    while start.elapsed() < Duration::from_secs(10) {
+    while start.elapsed() < Duration::from_secs(30) {
         if is_ntd_running(port).await {
             return Ok(port);
         }
