@@ -50,6 +50,7 @@ import {
   LaptopOutlined,
   FolderOutlined,
   EditOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import { Cron } from 'react-js-cron';
 import QRCode from 'qrcode';
@@ -58,7 +59,7 @@ import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
 import type { FeishuPushStatus, WhitelistEntry, ProjectDirectory } from '../utils/database';
 import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
-import type { Config, ExecutorConfig, FeishuHistoryMessage, FeishuHistoryChat, SlashCommandRule, ExecutionRecord } from '../types';
+import type { Config, ExecutorConfig, FeishuHistoryMessage, FeishuHistoryChat, SlashCommandRule, ExecutionRecord, TodoTemplate } from '../types';
 import yaml from 'js-yaml';
 import { CronPresetSelect } from './CronPresetSelect';
 import { SkillsPanel } from './SkillsPanel';
@@ -124,6 +125,16 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   // Version info state
   const [versionInfo, setVersionInfo] = useState<{ version: string; git_sha: string; git_describe: string } | null>(null);
   const [versionLoading, setVersionLoading] = useState(false);
+
+  // Todo templates state
+  const [templates, setTemplates] = useState<TodoTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templateEditing, setTemplateEditing] = useState<TodoTemplate | null>(null);
+  const [templateFormOpen, setTemplateFormOpen] = useState(false);
+  const [templateFormTitle, setTemplateFormTitle] = useState('');
+  const [templateFormPrompt, setTemplateFormPrompt] = useState('');
+  const [templateFormCategory, setTemplateFormCategory] = useState('');
+  const [templateFormSaving, setTemplateFormSaving] = useState(false);
 
   // Agent Bots state
   const [agentBots, setAgentBots] = useState<db.AgentBot[]>([]);
@@ -259,6 +270,19 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       })
       .catch(() => {})
       .finally(() => setVersionLoading(false));
+  }, []);
+
+  // Load todo templates
+  useEffect(() => {
+    setTemplatesLoading(true);
+    db.getTodoTemplates()
+      .then((list) => {
+        setTemplates(list);
+      })
+      .catch((err) => {
+        message.error('加载模板失败: ' + (err?.message || String(err)));
+      })
+      .finally(() => setTemplatesLoading(false));
   }, []);
 
   // Load agent bots
@@ -510,6 +534,78 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       message.success('标签已删除');
     } catch (err: any) {
       message.error('删除失败: ' + (err?.message || String(err)));
+    }
+  };
+
+  // Template management handlers
+  const openTemplateForm = (template?: TodoTemplate) => {
+    if (template) {
+      setTemplateEditing(template);
+      setTemplateFormTitle(template.title);
+      setTemplateFormPrompt(template.prompt || '');
+      setTemplateFormCategory(template.category);
+    } else {
+      setTemplateEditing(null);
+      setTemplateFormTitle('');
+      setTemplateFormPrompt('');
+      setTemplateFormCategory('');
+    }
+    setTemplateFormOpen(true);
+  };
+
+  const closeTemplateForm = () => {
+    setTemplateFormOpen(false);
+    setTemplateEditing(null);
+  };
+
+  const handleSaveTemplate = async () => {
+    const title = templateFormTitle.trim();
+    const prompt = templateFormPrompt.trim();
+    const category = templateFormCategory.trim();
+    if (!title) {
+      message.error('请输入模板标题');
+      return;
+    }
+    if (!category) {
+      message.error('请输入模板分类');
+      return;
+    }
+    setTemplateFormSaving(true);
+    try {
+      if (templateEditing) {
+        await db.updateTodoTemplate(templateEditing.id, title, prompt || null, category);
+        setTemplates(prev => prev.map(t => t.id === templateEditing.id ? { ...t, title, prompt: prompt || null, category } : t));
+        message.success('模板已更新');
+      } else {
+        const newTemplate = await db.createTodoTemplate(title, prompt || null, category);
+        setTemplates(prev => [...prev, newTemplate]);
+        message.success('模板已创建');
+      }
+      closeTemplateForm();
+    } catch (err: any) {
+      message.error('保存失败: ' + (err?.message || String(err)));
+    } finally {
+      setTemplateFormSaving(false);
+    }
+  };
+
+  const handleDeleteTemplate = async (templateId: number) => {
+    try {
+      await db.deleteTodoTemplate(templateId);
+      setTemplates(prev => prev.filter(t => t.id !== templateId));
+      message.success('模板已删除');
+    } catch (err: any) {
+      message.error('删除失败: ' + (err?.message || String(err)));
+    }
+  };
+
+  const handleCopyTemplate = async (templateId: number) => {
+    try {
+      const newTemplate = await db.copyTodoTemplate(templateId);
+      setTemplates(prev => [...prev, newTemplate]);
+      message.success('模板已复制');
+    } catch (err: any) {
+      message.error('复制失败: ' + (err?.message || String(err)));
     }
   };
 
@@ -2380,6 +2476,141 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         </span>
       ),
       children: <SessionManager />,
+    },
+    {
+      key: 'templates',
+      label: (
+        <span>
+          <FileTextOutlined style={{ marginRight: 6 }} />
+          模板管理
+        </span>
+      ),
+      children: (
+        <div style={{ maxWidth: 700 }}>
+          <Spin spinning={templatesLoading}>
+            <Tabs
+              defaultActiveKey="user"
+              items={[
+                {
+                  key: 'user',
+                  label: '我的模板',
+                  children: (
+                    <div>
+                      <div style={{ marginBottom: 16 }}>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => openTemplateForm()}>
+                          新建模板
+                        </Button>
+                      </div>
+                      {templates.filter(t => !t.is_system).length === 0 ? (
+                        <Empty description="暂无用户模板" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                      ) : (
+                        Array.from(new Set(templates.filter(t => !t.is_system).map(t => t.category))).sort().map(category => (
+                          <Card key={category} title={category || '未分类'} size="small" style={{ marginBottom: 12 }}>
+                            <List
+                              dataSource={templates.filter(t => !t.is_system && t.category === category)}
+                              renderItem={(template) => (
+                                <List.Item
+                                  style={{ padding: '8px 0' }}
+                                  actions={[
+                                    <Button key="edit" type="text" icon={<EditOutlined />} size="small" onClick={() => openTemplateForm(template)} />,
+                                    <Popconfirm key="delete" title="删除模板" description={`确定要删除模板 "${template.title}" 吗？`} onConfirm={() => handleDeleteTemplate(template.id)}>
+                                      <Button type="text" danger icon={<DeleteOutlined />} size="small" />
+                                    </Popconfirm>,
+                                  ]}
+                                >
+                                  <List.Item.Meta
+                                    title={template.title}
+                                    description={template.prompt || '(无内容)'}
+                                  />
+                                </List.Item>
+                              )}
+                            />
+                          </Card>
+                        ))
+                      )}
+                    </div>
+                  ),
+                },
+                {
+                  key: 'system',
+                  label: '系统模板',
+                  children: (
+                    <div>
+                      {templates.filter(t => t.is_system).length === 0 ? (
+                        <Empty description="暂无系统模板" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                      ) : (
+                        Array.from(new Set(templates.filter(t => t.is_system).map(t => t.category))).sort().map(category => (
+                          <Card key={category} title={category || '未分类'} size="small" style={{ marginBottom: 12 }}>
+                            <List
+                              dataSource={templates.filter(t => t.is_system && t.category === category)}
+                              renderItem={(template) => (
+                                <List.Item
+                                  style={{ padding: '8px 0' }}
+                                  actions={[
+                                    <Button key="copy" type="text" icon={<CopyOutlined />} size="small" onClick={() => handleCopyTemplate(template.id)}>
+                                      复制
+                                    </Button>,
+                                  ]}
+                                >
+                                  <List.Item.Meta
+                                    title={template.title}
+                                    description={template.prompt || '(无内容)'}
+                                  />
+                                </List.Item>
+                              )}
+                            />
+                          </Card>
+                        ))
+                      )}
+                    </div>
+                  ),
+                },
+              ]}
+            />
+          </Spin>
+          <Modal
+            title={templateEditing ? '编辑模板' : '新建模板'}
+            open={templateFormOpen}
+            onOk={handleSaveTemplate}
+            onCancel={closeTemplateForm}
+            confirmLoading={templateFormSaving}
+            width={500}
+          >
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <div>
+                <div style={{ marginBottom: 4, fontWeight: 500 }}>标题</div>
+                <Input
+                  value={templateFormTitle}
+                  onChange={e => setTemplateFormTitle(e.target.value)}
+                  placeholder="输入模板标题"
+                />
+              </div>
+              <div>
+                <div style={{ marginBottom: 4, fontWeight: 500 }}>分类</div>
+                <AutoComplete
+                  placeholder="输入或选择分类"
+                  value={templateFormCategory}
+                  onChange={(value) => setTemplateFormCategory(value)}
+                  options={Array.from(new Set(templates.map(t => t.category))).filter(c => c).map(c => ({ label: c, value: c }))}
+                  style={{ width: '100%' }}
+                  filterOption={(input, option) =>
+                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                  }
+                />
+              </div>
+              <div>
+                <div style={{ marginBottom: 4, fontWeight: 500 }}>Prompt 内容</div>
+                <Input.TextArea
+                  value={templateFormPrompt}
+                  onChange={e => setTemplateFormPrompt(e.target.value)}
+                  placeholder="输入模板的 prompt 内容（可选）"
+                  rows={6}
+                />
+              </div>
+            </Space>
+          </Modal>
+        </div>
+      ),
     },
     {
       key: 'about',

@@ -153,6 +153,7 @@ pub mod executor_config;
 mod feishu_history;
 mod session;
 pub mod project_directory;
+pub(crate) mod todo_template;
 
 // WebSocket handler
 pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
@@ -436,6 +437,9 @@ pub fn create_app(
         .route("/xyz/sessions/stats", get(session::get_session_stats))
         .route("/xyz/sessions/{id}", get(session::get_session_detail).delete(session::delete_session))
         .merge(project_directory::routes())
+        .route("/xyz/todo-templates", get(todo_template::get_templates).post(todo_template::create_template))
+        .route("/xyz/todo-templates/{id}", put(todo_template::update_template).delete(todo_template::delete_template))
+        .route("/xyz/todo-templates/{id}/copy", post(todo_template::copy_template))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
         .layer(CompressionLayer::new())
         .layer(

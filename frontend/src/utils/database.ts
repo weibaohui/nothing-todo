@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutorSkills, SkillComparison, PaginatedInvocations, FeishuHistoryMessagesPage, FeishuHistoryChat, FeishuMessageStats } from '../types';
+import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutorSkills, SkillComparison, PaginatedInvocations, FeishuHistoryMessagesPage, FeishuHistoryChat, FeishuMessageStats, TodoTemplate } from '../types';
 
 interface ApiResp<T> {
   code: number;
@@ -94,6 +94,33 @@ export async function createTag(name: string, color: string): Promise<Tag> {
 
 export async function deleteTag(id: number): Promise<void> {
   await api.delete(`/xyz/tags/${id}`);
+}
+
+// Todo Template APIs
+
+export async function getTodoTemplates(): Promise<TodoTemplate[]> {
+  return unwrap(await api.get<ApiResp<TodoTemplate[]>>('/xyz/todo-templates'));
+}
+
+export async function createTodoTemplate(title: string, prompt: string | null, category: string, sort_order?: number): Promise<TodoTemplate> {
+  return unwrap(await api.post<ApiResp<TodoTemplate>>('/xyz/todo-templates', { title, prompt, category, sort_order }));
+}
+
+export async function updateTodoTemplate(id: number, title?: string, prompt?: string | null, category?: string, sort_order?: number): Promise<TodoTemplate> {
+  const body: Record<string, unknown> = {};
+  if (title !== undefined) body.title = title;
+  if (prompt !== undefined) body.prompt = prompt;
+  if (category !== undefined) body.category = category;
+  if (sort_order !== undefined) body.sort_order = sort_order;
+  return unwrap(await api.put<ApiResp<TodoTemplate>>(`/xyz/todo-templates/${id}`, body));
+}
+
+export async function deleteTodoTemplate(id: number): Promise<void> {
+  await api.delete(`/xyz/todo-templates/${id}`);
+}
+
+export async function copyTodoTemplate(id: number): Promise<TodoTemplate> {
+  return unwrap(await api.post<ApiResp<TodoTemplate>>(`/xyz/todo-templates/${id}/copy`, {}));
 }
 
 // Project Directory APIs
