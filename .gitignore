@@ -12,6 +12,7 @@ dist-ssr/
 
 # Rust build
 backend/target
+src-tauri/target
 *.db
 
 # Editor
