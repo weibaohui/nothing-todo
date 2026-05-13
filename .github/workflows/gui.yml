@@ -1,12 +1,10 @@
 name: Build GUI (Tauri)
 
+# Triggered when rust.yaml workflow completes
 on:
-  push:
-    branches: [ "main" ]
-    tags:
-      - 'v*'
-  pull_request:
-    branches: [ "main" ]
+  workflow_run:
+    workflows: ["Build and Release"]
+    types: [completed]
 
 permissions:
   contents: write
@@ -15,37 +13,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Get latest successful rust.yaml run ID for backend artifacts
-  get-backend-run:
-    runs-on: ubuntu-latest
-    outputs:
-      run_id: ${{ steps.get-run.outputs.run_id }}
-    steps:
-      - name: Get latest rust.yaml workflow run
-        id: get-run
-        run: |
-          RUN_ID=$(gh run list --workflow=rust.yml --status success --limit 1 --json id --jq '.[0].id')
-          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
-
-      - name: Download all backend artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: backend-artifacts
-          run-id: ${{ steps.get-run.outputs.run_id }}
-          pattern: nothing-todo-*
-          merge-multiple: true
-
-      - name: Verify artifacts
-        run: ls -la backend-artifacts/
-
-      - name: Upload backend artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-binaries
-          path: backend-artifacts/
-
   build-gui:
-    needs: get-backend-run
+    if: github.event.workflow_run.conclusion == 'success'
     strategy:
       matrix:
         include:
@@ -70,6 +39,26 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      # Download artifacts from the triggering rust.yaml workflow run
+      - name: Download backend binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.bin_name }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Verify backend binary
+        shell: bash
+        run: |
+          ls -la
+          file ${{ matrix.bin_name }}
+
+      - name: Prepare backend binary for bundle
+        shell: bash
+        run: |
+          mkdir -p backend/target/${{ matrix.target }}/release/
+          cp ${{ matrix.bin_name }} backend/target/${{ matrix.target }}/release/ntd
+          chmod +x backend/target/${{ matrix.target }}/release/ntd
+
       - uses: actions/checkout@v4
 
       - name: Install Rust
@@ -94,20 +83,6 @@ jobs:
             libgtk-3-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev
-
-      - name: Download backend binary
-        uses: actions/download-artifact@v4
-        with:
-          name: backend-binaries
-          path: backend-artifacts
-
-      - name: Prepare backend binary for bundle
-        shell: bash
-        run: |
-          mkdir -p backend/target/${{ matrix.target }}/release/
-          cp backend-artifacts/${{ matrix.bin_name }} backend/target/${{ matrix.target }}/release/ntd
-          chmod +x backend/target/${{ matrix.target }}/release/ntd
-          ls -la backend/target/${{ matrix.target }}/release/
 
       - name: Install frontend dependencies
         run: cd frontend && npm ci --legacy-peer-deps
