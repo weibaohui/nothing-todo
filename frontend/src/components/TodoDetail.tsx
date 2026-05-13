@@ -8,8 +8,6 @@ import { TodoSettingsDrawer } from './TodoSettingsDrawer';
 import { TodoEditDrawer } from './TodoEditDrawer';
 import { ChatView } from './ChatView';
 import { parseLogsToMessages } from './ChatView';
-import { TimelineFlow } from './TimelineFlow';
-import type { TimelineRecord } from './TimelineFlow';
 import * as db from '../utils/database';
 import { formatLocalDateTime, formatDuration } from '../utils/datetime';
 import { conversationToYaml } from '../utils/markdown';
@@ -325,21 +323,6 @@ function CompactHistoryItem({ record, onOpenResume, onExport }: {
 
 function hasLogsStatic(record: ExecutionRecord): boolean {
   return !!record.logs && record.logs !== '[]';
-}
-
-/** 将 execution record 的 logs 转换为 TimelineFlow 需要的格式 */
-function logsToTimelineRecords(record: ExecutionRecord): TimelineRecord[] {
-  try {
-    const logs: LogEntry[] = record.logs && record.logs !== '[]' ? JSON.parse(record.logs) : [];
-    return logs.map((log, i) => ({
-      id: `${record.id}-log-${i}`,
-      role: log.type || 'info',
-      content: log.content?.substring(0, 100),
-      timestamp: log.timestamp ? new Date(log.timestamp).getTime() : i,
-    }));
-  } catch {
-    return [];
-  }
 }
 
 /** 任务详情面板，包含执行、编辑、历史记录等功能 */
@@ -1030,11 +1013,6 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                         </div>
                       </Tooltip>
                     )}
-                    {(() => {
-                      const tl = logsToTimelineRecords(record);
-                      if (tl.length === 0) return null;
-                      return <TimelineFlow records={tl} height={20} containerStyle={{ marginBottom: 12 }} />;
-                    })()}
                     {record.result !== null && record.result !== '' && (
                       <div className={`history-result ${record.status === 'success' ? 'history-result-success' : 'history-result-failed'}`} style={{ marginBottom: 12 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
@@ -1322,11 +1300,6 @@ function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, o
           </div>
         </Tooltip>
       )}
-      {(() => {
-        const tl = logsToTimelineRecords(record);
-        if (tl.length === 0) return null;
-        return <TimelineFlow records={tl} height={16} containerStyle={{ marginBottom: 8 }} />;
-      })()}
       {record.result !== null && record.result !== '' && (
         <div className={`history-result ${record.status === 'success' ? 'history-result-success' : 'history-result-failed'}`}>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
@@ -1437,11 +1410,6 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
             </div>
           </Tooltip>
         )}
-        {(() => {
-          const tl = logsToTimelineRecords(mainRecord);
-          if (tl.length === 0) return null;
-          return <TimelineFlow records={tl} height={16} containerStyle={{ marginBottom: 8 }} />;
-        })()}
         {mainRecord.result && (
           <div className={`history-result ${mainRecord.status === 'success' ? 'history-result-success' : 'history-result-failed'}`}>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
