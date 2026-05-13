@@ -1,74 +1,102 @@
 use std::path::PathBuf;
-use tokio::process::Command;
+use tokio::process::Command as TokioCommand;
 use tokio::time::Duration;
 
-pub async fn spawn_backend() -> Result<u16, String> {
-    let exe_path = std::env::current_exe()
-        .map_err(|e| format!("Failed to get exe path: {}", e))?;
+const CONFIG_PATH: &str = "~/.ntd/config.yaml";
+const DEFAULT_PORT: u16 = 8088;
 
-    let backend_bin = find_backend_binary(&exe_path)?;
-    let port = find_available_port().await?;
+pub enum NtdStatus {
+    Installed { running: bool, port: u16 },
+    NotInstalled,
+}
 
-    let mut child = Command::new(&backend_bin)
-        .args(["server", "start", "--port", &port.to_string()])
+/// Read port from ~/.ntd/config.yaml
+fn read_port_from_config() -> u16 {
+    let path = expand_tilde(CONFIG_PATH);
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        if let Ok(map) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+            if let Some(port) = map.get("port").and_then(|v| v.as_u64()) {
+                return port as u16;
+            }
+        }
+    }
+    DEFAULT_PORT
+}
+
+fn expand_tilde(path: &str) -> PathBuf {
+    if path.starts_with("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(path.trim_start_matches("~/").trim_start_matches('/'));
+        }
+    }
+    PathBuf::from(path)
+}
+
+/// Check if ntd is running on the given port
+async fn is_ntd_running(port: u16) -> bool {
+    tokio::net::TcpStream::connect(format!("localhost:{}", port))
+        .await
+        .is_ok()
+}
+
+fn find_ntd_binary() -> Option<String> {
+    // Check if ntd is in PATH
+    if std::process::Command::new("which")
+        .arg("ntd")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        return Some("ntd".to_string());
+    }
+
+    // Check common installation locations
+    let candidates = [".local/bin/ntd", "bin/ntd"];
+
+    if let Some(home) = dirs::home_dir() {
+        for candidate in &candidates {
+            let path = home.join(candidate);
+            if path.exists() {
+                return Some(path.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    None
+}
+
+/// Check ntd installation and running status
+pub async fn check_ntd_status() -> NtdStatus {
+    let port = read_port_from_config();
+
+    if find_ntd_binary().is_none() {
+        return NtdStatus::NotInstalled;
+    }
+
+    if is_ntd_running(port).await {
+        NtdStatus::Installed { running: true, port }
+    } else {
+        NtdStatus::Installed { running: false, port }
+    }
+}
+
+/// Start ntd daemon
+pub async fn start_ntd_daemon(port: u16) -> Result<u16, String> {
+    let ntd_bin = find_ntd_binary().ok_or("ntd binary not found")?;
+
+    TokioCommand::new(&ntd_bin)
+        .args(["daemon", "start"])
         .spawn()
-        .map_err(|e| format!("Failed to spawn backend: {}", e))?;
+        .map_err(|e| format!("Failed to spawn ntd daemon: {}", e))?;
 
-    // Wait for backend to be ready
+    // Wait for ntd to be ready
     let start = std::time::Instant::now();
-
     while start.elapsed() < Duration::from_secs(10) {
-        if tokio::net::TcpStream::connect(format!("localhost:{}", port))
-            .await
-            .is_ok()
-        {
+        if is_ntd_running(port).await {
             return Ok(port);
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-    let _ = child.kill().await;
-    Err("Backend failed to start".to_string())
-}
-
-fn find_backend_binary(exe_path: &PathBuf) -> Result<PathBuf, String> {
-    // Development: use locally-built binary (relative to src-tauri/)
-    let dev_path = PathBuf::from("../../backend/target/release/ntd");
-    if dev_path.exists() {
-        return Ok(dev_path);
-    }
-
-    // Release: binary is bundled alongside Tauri app
-    // Check both with and without .exe suffix for cross-platform compatibility
-    if let Some(parent) = exe_path.parent() {
-        let candidates = if cfg!(windows) {
-            vec![parent.join("ntd.exe"), parent.join("ntd")]
-        } else {
-            vec![parent.join("ntd")]
-        };
-
-        for candidate in candidates {
-            if candidate.exists() {
-                return Ok(candidate);
-            }
-        }
-    }
-
-    Err("Could not find ntd backend binary".to_string())
-}
-
-/// Find an available port in range 8089-8189.
-/// Note: This is best-effort due to TOCTOU race condition - another process
-/// may bind the port between our check and actual use. The spawn_backend()
-/// function validates by waiting for the server to actually start.
-async fn find_available_port() -> Result<u16, String> {
-    for port in 8089..8189 {
-        if tokio::net::TcpStream::connect(format!("localhost:{}", port))
-            .await
-            .is_err()
-        {
-            return Ok(port);
-        }
-    }
-    Err("No available port found".to_string())
+    Err("ntd daemon failed to start".to_string())
 }

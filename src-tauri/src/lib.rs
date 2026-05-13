@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -8,24 +9,131 @@ use tauri::{
 mod backend;
 
 pub struct AppState {
-    pub backend_port: Mutex<u16>,
+    pub backend_url: Mutex<String>,
 }
 
 #[tauri::command]
 fn get_backend_url(state: tauri::State<Arc<AppState>>) -> String {
-    let port = *state.backend_port.lock().expect("backend_port mutex poisoned");
-    format!("http://localhost:{}", port)
+    state.backend_url.lock().expect("backend_url mutex poisoned").clone()
 }
+
+const INSTALL_PAGE: &str = r#"<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ntd - 安装</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      background: white;
+      border-radius: 16px;
+      padding: 48px;
+      max-width: 500px;
+      text-align: center;
+      box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+    }
+    h1 {
+      color: #1a1a2e;
+      margin-bottom: 16px;
+      font-size: 28px;
+    }
+    p {
+      color: #64748b;
+      margin-bottom: 24px;
+      line-height: 1.6;
+    }
+    .command {
+      background: #1a1a2e;
+      color: #a5f3fc;
+      padding: 16px 24px;
+      border-radius: 8px;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 14px;
+      margin-bottom: 24px;
+      word-break: break-all;
+    }
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 16px;
+      text-align: left;
+    }
+    .step-num {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: #667eea;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+    .step-text {
+      color: #334155;
+    }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #e2e8f0;
+      border-top-color: #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 24px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div id="install-section">
+      <h1>欢迎使用 ntd</h1>
+      <p>看起来你还没有安装 ntd，请按照以下步骤安装：</p>
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-text">安装 ntd</div>
+      </div>
+      <div class="command">npm install -g @weibaohui/nothing-todo@latest</div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-text">启动 ntd 服务</div>
+      </div>
+      <div class="command">ntd daemon start</div>
+      <p style="color: #94a3b8; font-size: 14px; margin-top: 24px;">
+        安装并启动后，关闭此窗口重新打开即可。
+      </p>
+    </div>
+    <div id="loading-section" class="hidden">
+      <div class="spinner"></div>
+      <h1>正在启动...</h1>
+      <p>请稍候，正在启动 ntd 服务</p>
+    </div>
+  </div>
+</body>
+</html>
+"#;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Create the shared state before setup
     let app_state = Arc::new(AppState {
-        backend_port: Mutex::new(0),
+        backend_url: Mutex::new(String::new()),
     });
 
-    // Clone for the spawned task
-    let state_for_task = app_state.clone();
+    let state_for_setup = app_state.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -37,16 +145,52 @@ pub fn run() {
             }
         }))
         .manage(app_state)
-        .setup(move |_app| {
-            // Spawn backend using Tauri's async runtime to avoid "runtime within runtime" panic
+        .setup(move |app| {
+            let main_window = app.get_webview_window("main").unwrap();
+
             tauri::async_runtime::spawn(async move {
-                match backend::spawn_backend().await {
-                    Ok(port) => {
-                        *state_for_task.backend_port.lock().expect("backend_port mutex poisoned") = port;
-                        log::info!("Backend spawned on port {}", port);
+                match backend::check_ntd_status().await {
+                    backend::NtdStatus::NotInstalled => {
+                        log::info!("ntd not installed, showing install page");
+                        if let Err(e) = main_window.eval(&format!(
+                            "document.write('{}'); document.close()",
+                            INSTALL_PAGE.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n")
+                        )) {
+                            log::error!("Failed to show install page: {}", e);
+                        }
                     }
-                    Err(e) => {
-                        log::error!("Failed to spawn backend: {}", e);
+                    backend::NtdStatus::Installed { running: true, port } => {
+                        let url = format!("http://localhost:{}", port);
+                        *state_for_setup.backend_url.lock().expect("backend_url mutex poisoned") = url.clone();
+                        log::info!("ntd already running on {}, redirecting", port);
+                        if let Err(e) = main_window.eval(&format!("window.location.href = '{}'", url)) {
+                            log::error!("Failed to redirect: {}", e);
+                        }
+                    }
+                    backend::NtdStatus::Installed { running: false, port } => {
+                        log::info!("ntd installed but not running, starting daemon on port {}", port);
+                        // Show loading page first
+                        if let Err(e) = main_window.eval(&format!(
+                            "document.write('{}'); document.close()",
+                            INSTALL_PAGE.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n")
+                        )) {
+                            log::error!("Failed to show loading: {}", e);
+                        }
+
+                        match backend::start_ntd_daemon(port).await {
+                            Ok(port) => {
+                                let url = format!("http://localhost:{}", port);
+                                *state_for_setup.backend_url.lock().expect("backend_url mutex poisoned") = url.clone();
+                                // Small delay then redirect
+                                tokio::time::sleep(Duration::from_secs(1)).await;
+                                if let Err(e) = main_window.eval(&format!("window.location.href = '{}'", url)) {
+                                    log::error!("Failed to redirect: {}", e);
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("Failed to start ntd daemon: {}", e);
+                            }
+                        }
                     }
                 }
             });

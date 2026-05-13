@@ -4,9 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.ntd.desktop",
   "build": {
-    "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "cd ../frontend && npm run dev",
-    "frontendDist": "../frontend/dist"
+    "devUrl": "http://localhost:8088"
   },
   "app": {
     "windows": [{
