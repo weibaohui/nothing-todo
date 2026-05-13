@@ -2019,3 +2019,210 @@ code {
     padding: 12px;
   }
 }
+
+/* ============================================================
+   Memorial Board — 奏折看板
+   ============================================================ */
+
+.memorial-board {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.memorial-header {
+  flex-shrink: 0;
+  padding: var(--space-lg);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.memorial-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-sm);
+}
+
+.memorial-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: 1px;
+}
+
+.memorial-summary {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.memorial-summary-item strong {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.memorial-summary-success {
+  color: var(--color-success);
+}
+
+.memorial-summary-failed {
+  color: var(--color-error);
+}
+
+.memorial-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.memorial-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-md) var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.memorial-card {
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-base), transform var(--transition-fast);
+  cursor: pointer;
+}
+
+.memorial-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.memorial-card.expanded {
+  box-shadow: var(--shadow-md);
+}
+
+.memorial-card .ant-card-body {
+  padding: var(--space-md) var(--space-lg) !important;
+}
+
+.memorial-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.memorial-card-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.memorial-card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+  word-break: break-word;
+}
+
+.memorial-card-title:hover {
+  color: var(--color-primary);
+}
+
+.memorial-card-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.memorial-card-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.memorial-info-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.memorial-info-tokens {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.memorial-info-cost {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-warning);
+}
+
+.memorial-card-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.memorial-card-result {
+  margin-top: var(--space-xs);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border-light);
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+}
+
+.memorial-result .ant-typography {
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.memorial-expand-hint {
+  display: inline-block;
+  margin-top: var(--space-xs);
+  font-size: 12px;
+  color: var(--color-primary);
+  cursor: pointer;
+  user-select: none;
+  transition: opacity var(--transition-fast);
+}
+
+.memorial-expand-hint:hover {
+  opacity: 0.8;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .memorial-header {
+    padding: var(--space-sm);
+  }
+
+  .memorial-title {
+    font-size: 16px;
+  }
+
+  .memorial-list {
+    padding: var(--space-sm);
+    gap: var(--space-sm);
+  }
+
+  .memorial-card .ant-card-body {
+    padding: var(--space-sm) var(--space-md) !important;
+  }
+
+  .memorial-card-title {
+    font-size: 15px;
+  }
+}
