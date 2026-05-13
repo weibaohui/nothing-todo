@@ -86,6 +86,7 @@ npm install -g @weibaohui/nothing-todo@latest
 
 ![detail](docs/detail.png)
 ![dashboard](docs/dashboard.png)
+![kanban](docs/kanban.png)
 
 ---
 
