@@ -45,7 +45,7 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           run-id: ${{ github.event.workflow_run.id }}
-          token: ${{ github.token }}
+          github-token: ${{ github.token }}
 
       - name: Verify backend binary
         shell: bash
