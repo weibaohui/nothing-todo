@@ -1,4 +1,7 @@
-use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter,
+    QueryOrder, Statement,
+};
 
 use crate::db::entity::tags;
 use crate::db::entity::{todo_tags, todos};
@@ -679,5 +682,77 @@ impl Database {
 
         txn.commit().await?;
         Ok((created, updated))
+    }
+
+    pub async fn get_recent_completed_todos(
+        &self,
+        hours: u32,
+    ) -> Result<Vec<crate::models::RecentCompletedTodo>, sea_orm::DbErr> {
+        let backend = self.conn.get_database_backend();
+        let time_filter = format!("datetime('now', '-{} hours')", hours);
+
+        let sql = format!(
+            "SELECT t.id as todo_id, t.title, t.executor, \
+             er.status as execution_status, er.finished_at, er.result, er.model, er.usage, \
+             er.trigger_type, er.id as record_id \
+             FROM todos t \
+             JOIN execution_records er ON er.id = ( \
+                 SELECT er2.id FROM execution_records er2 \
+                 WHERE er2.todo_id = t.id \
+                 ORDER BY er2.finished_at DESC LIMIT 1 \
+             ) \
+             WHERE t.deleted_at IS NULL \
+               AND t.status IN ('completed', 'failed') \
+               AND er.finished_at >= {} \
+             ORDER BY er.finished_at DESC",
+            time_filter
+        );
+
+        let rows = self
+            .conn
+            .query_all(Statement::from_string(backend, sql))
+            .await?;
+
+        let todo_ids: Vec<i64> = rows
+            .iter()
+            .filter_map(|r| r.try_get_by("todo_id").ok())
+            .collect();
+        let tag_map = self.fetch_tag_ids_for_many(&todo_ids).await?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| {
+                let todo_id: i64 = row.try_get_by("todo_id").ok()?;
+                let title: String = row.try_get_by("title").ok()?;
+                let executor: Option<String> = row.try_get_by("executor").ok().flatten();
+                let completed_at: String =
+                    row.try_get_by("finished_at").ok().flatten().unwrap_or_default();
+                let result: Option<String> = row.try_get_by("result").ok().flatten();
+                let model: Option<String> = row.try_get_by("model").ok().flatten();
+                let usage: Option<String> = row.try_get_by("usage").ok().flatten();
+                let trigger_type: String =
+                    row.try_get_by("trigger_type").ok().flatten().unwrap_or_default();
+                let execution_status: String =
+                    row.try_get_by("execution_status").ok().flatten().unwrap_or_default();
+                let record_id: i64 = row.try_get_by("record_id").ok()?;
+
+                let usage: Option<crate::models::ExecutionUsage> =
+                    usage.and_then(|u| serde_json::from_str(&u).ok());
+
+                Some(crate::models::RecentCompletedTodo {
+                    todo_id,
+                    title,
+                    executor,
+                    tag_ids: tag_map.get(&todo_id).cloned().unwrap_or_default(),
+                    completed_at,
+                    result,
+                    model,
+                    usage,
+                    execution_status,
+                    trigger_type,
+                    record_id,
+                })
+            })
+            .collect())
     }
 }

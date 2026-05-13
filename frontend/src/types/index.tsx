@@ -411,6 +411,20 @@ export interface FeishuMessageStats {
   unique_chats: number;
 }
 
+export interface RecentCompletedTodo {
+  todo_id: number;
+  title: string;
+  executor: string | null;
+  tag_ids: number[];
+  completed_at: string;
+  result: string | null;
+  model: string | null;
+  usage: ExecutionUsage | null;
+  execution_status: string;
+  trigger_type: string;
+  record_id: number;
+}
+
 export interface FeishuHistoryChat {
   id: number;
   bot_id: number;

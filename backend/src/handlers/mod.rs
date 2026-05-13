@@ -381,6 +381,7 @@ pub fn create_app(
         .route("/xyz/todos/{id}/tags", put(todo::update_todo_tags))
         .route("/xyz/todos/{id}/summary", get(execution::get_execution_summary))
         .route("/xyz/todos/{id}/scheduler", put(scheduler::update_scheduler))
+        .route("/xyz/todos/recent-completed", get(todo::get_recent_completed_todos))
         .route("/xyz/todos/{id}", get(todo::get_todo).put(todo::update_todo).delete(todo::delete_todo))
         .route("/xyz/tags", get(tag::get_tags).post(tag::create_tag))
         .route("/xyz/tags/{id}", delete(tag::delete_tag))
