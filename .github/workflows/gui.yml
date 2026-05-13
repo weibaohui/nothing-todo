@@ -53,9 +53,12 @@ jobs:
           ls -la
 
       - name: Prepare backend binary for bundle
+        working-directory: ${{ github.workspace }}
         shell: bash
         run: |
-          # Tauri expects resources at backend/target/release/ (relative to repo root)
+          echo "Working directory: $(pwd)"
+          echo "Workspace: ${{ github.workspace }}"
+          # Tauri expects resources at backend/target/release/ relative to repo root
           mkdir -p backend/target/release/
           # Find the binary file in the downloaded artifact and copy as 'ntd'
           for f in ntd ntd.exe ntd-*; do
@@ -72,6 +75,7 @@ jobs:
             echo "Created ntd.exe as copy of ntd for Tauri config"
           fi
           ls -la backend/target/release/
+          ls -la backend/target/release/ntd*
 
       - uses: actions/checkout@v4
 
