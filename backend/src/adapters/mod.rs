@@ -166,7 +166,7 @@ impl ExecutorRegistry {
     /// Create an executor instance by name and path.
     pub fn create_executor(name: &str, path: &str) -> Option<Arc<dyn CodeExecutor>> {
         match name {
-            "claude_code" => Some(Arc::new(claude_code::ClaudeCodeExecutor::new(path.to_string()))),
+            "claudecode" => Some(Arc::new(claude_code::ClaudeCodeExecutor::new(path.to_string()))),
             "joinai" => Some(Arc::new(joinai::JoinaiExecutor::new(path.to_string()))),
             "codebuddy" => Some(Arc::new(codebuddy::CodebuddyExecutor::new(path.to_string()))),
             "opencode" => Some(Arc::new(opencode::OpencodeExecutor::new(path.to_string()))),

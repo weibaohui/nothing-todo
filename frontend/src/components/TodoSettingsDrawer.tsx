@@ -229,7 +229,7 @@ export function TodoSettingsDrawer({ open, todo, tags, onClose, onUpdated }: Tod
       </div>
 
       {/* Worktree Switch - Claude Code 和 Hermes 支持 */}
-      {(executor === 'claude_code' || executor === 'hermes') && (
+      {(executor === 'claudecode' || executor === 'hermes') && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ fontWeight: 600, fontSize: 14 }}>

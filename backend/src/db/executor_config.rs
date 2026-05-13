@@ -25,7 +25,7 @@ struct DefaultExecutor {
 }
 
 const DEFAULT_EXECUTORS: &[DefaultExecutor] = &[
-    DefaultExecutor { name: "claude_code", path: "claude", display_name: "Claude Code", session_dir: "~/.claude" },
+    DefaultExecutor { name: "claudecode", path: "claude", display_name: "Claude Code", session_dir: "~/.claude" },
     DefaultExecutor { name: "joinai", path: "joinai", display_name: "JoinAI", session_dir: "" },
     DefaultExecutor { name: "codebuddy", path: "codebuddy", display_name: "CodeBuddy", session_dir: "~/.codebuddy" },
     DefaultExecutor { name: "opencode", path: "opencode", display_name: "Opencode", session_dir: "~/.opencode" },
@@ -109,7 +109,7 @@ impl Database {
 
         for d in DEFAULT_EXECUTORS {
             let path = match d.name {
-                "claude_code" => &cfg_executors.claude_code,
+                "claudecode" => &cfg_executors.claude_code,
                 "joinai" => &cfg_executors.joinai,
                 "codebuddy" => &cfg_executors.codebuddy,
                 "opencode" => &cfg_executors.opencode,
