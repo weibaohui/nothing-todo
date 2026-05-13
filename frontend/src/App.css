@@ -2021,7 +2021,7 @@ code {
 }
 
 /* ============================================================
-   Memorial Board — 奏折看板
+   Kanban Board — 看板
    ============================================================ */
 
 .memorial-board {
@@ -2060,17 +2060,17 @@ code {
   color: var(--color-text-secondary);
 }
 
-.memorial-summary-item strong {
-  font-weight: 600;
-  color: var(--color-text);
+.memorial-stat-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 
-.memorial-summary-success {
-  color: var(--color-success);
-}
-
-.memorial-summary-failed {
-  color: var(--color-error);
+.memorial-stat-success { color: var(--color-success); }
+.memorial-stat-failed { color: var(--color-error); }
+.memorial-stat-success strong,
+.memorial-stat-failed strong {
+  font-weight: 700;
 }
 
 .memorial-empty {
@@ -2080,20 +2080,25 @@ code {
   justify-content: center;
 }
 
-.memorial-list {
+/* ——— Masonry Layout (CSS Columns) ——— */
+.memorial-grid {
   flex: 1;
   overflow-y: auto;
   padding: var(--space-md) var(--space-lg);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
+  column-count: 4;
+  column-gap: var(--space-md);
+  align-content: start;
 }
 
+/* ——— Card ——— */
 .memorial-card {
   border-radius: var(--radius-md) !important;
   box-shadow: var(--shadow-sm);
-  transition: box-shadow var(--transition-base), transform var(--transition-fast);
+  transition: box-shadow var(--transition-base);
   cursor: pointer;
+  overflow: hidden;
+  break-inside: avoid;
+  margin-bottom: var(--space-md);
 }
 
 .memorial-card:hover {
@@ -2104,106 +2109,228 @@ code {
   box-shadow: var(--shadow-md);
 }
 
-.memorial-card .ant-card-body {
-  padding: var(--space-md) var(--space-lg) !important;
-}
-
-.memorial-card-body {
+/* ——— Card Header ——— */
+.memorial-card-header {
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--color-border-light);
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm);
+  gap: var(--space-xs);
 }
 
-.memorial-card-title-row {
+.memorial-card-top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-sm);
-  flex-wrap: wrap;
 }
 
 .memorial-card-title {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--color-text);
   cursor: pointer;
   transition: color var(--transition-fast);
-  overflow-wrap: break-word;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.5;
+  word-break: break-word;
 }
 
 .memorial-card-title:hover {
   color: var(--color-primary);
 }
 
-.memorial-card-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
+.memorial-status-icon {
+  font-size: 16px;
   flex-shrink: 0;
+  margin-top: 2px;
 }
 
-.memorial-card-info {
+.memorial-success { color: var(--color-success); }
+.memorial-failed { color: var(--color-error); }
+
+.memorial-card-meta-row {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-sm);
-  font-size: 12px;
+  font-size: 11px;
   color: var(--color-text-tertiary);
 }
 
-.memorial-info-item {
+.memorial-meta-time,
+.memorial-meta-model {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   white-space: nowrap;
 }
 
-.memorial-info-tokens {
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-
-.memorial-info-cost {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--color-warning);
-}
-
 .memorial-card-tags {
   display: flex;
-  gap: 4px;
   flex-wrap: wrap;
+  gap: 4px;
 }
 
-.memorial-card-result {
-  margin-top: var(--space-xs);
-  padding-top: var(--space-sm);
-  border-top: 1px solid var(--color-border-light);
-  font-size: 14px;
+.memorial-tag {
+  font-size: 11px !important;
+  padding: 0 6px !important;
+  line-height: 18px !important;
+  margin: 0 !important;
+}
+
+/* ——— Card Footer (Result) ——— */
+.memorial-card-footer {
+  padding: var(--space-md) var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.memorial-result {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+  max-height: 160px;
+  overflow: hidden;
+  position: relative;
+}
+
+.memorial-result::after {
+  content: '';
+  display: table;
+}
+
+.memorial-result.expanded {
+  max-height: none;
+}
+
+/* Markdown styles inside card */
+.memorial-result p {
+  margin: 0 0 4px;
+  font-size: 13px;
   line-height: 1.7;
   color: var(--color-text-secondary);
 }
 
-.memorial-result .ant-typography {
-  font-size: 14px;
-  line-height: 1.7;
+.memorial-result p:last-child {
+  margin-bottom: 0;
 }
 
-.memorial-expand-hint {
+.memorial-result strong {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.memorial-result code {
+  background: var(--color-bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-primary);
+}
+
+.memorial-result pre {
+  background: var(--color-bg);
+  padding: 8px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 4px 0;
+}
+
+.memorial-result pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+
+.memorial-result ul,
+.memorial-result ol {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.memorial-result li {
+  margin: 2px 0;
+}
+
+.memorial-copy-btn {
+  float: right;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color var(--transition-fast), background var(--transition-fast);
+  line-height: 1;
+}
+
+.memorial-copy-btn:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-bg);
+}
+
+.memorial-expand-btn {
   display: inline-block;
-  margin-top: var(--space-xs);
+  margin-top: 4px;
   font-size: 12px;
   color: var(--color-primary);
   cursor: pointer;
-  user-select: none;
+  background: none;
+  border: none;
+  padding: 0;
   transition: opacity var(--transition-fast);
 }
 
-.memorial-expand-hint:hover {
-  opacity: 0.8;
+.memorial-expand-btn:hover {
+  opacity: 0.7;
 }
 
-/* Responsive */
+.memorial-no-result {
+  font-size: 13px;
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}
+
+/* ——— Usage Stats Row ——— */
+.memorial-usage-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  padding-top: var(--space-xs);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.memorial-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.memorial-tokens {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.memorial-cost {
+  color: var(--color-warning);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ——— Responsive ——— */
 @media (max-width: 768px) {
   .memorial-header {
     padding: var(--space-sm);
@@ -2213,16 +2340,26 @@ code {
     font-size: 16px;
   }
 
-  .memorial-list {
+  .memorial-grid {
     padding: var(--space-sm);
-    gap: var(--space-sm);
+    column-count: 1;
   }
+}
 
-  .memorial-card .ant-card-body {
-    padding: var(--space-sm) var(--space-md) !important;
+@media (min-width: 769px) {
+  .memorial-grid {
+    column-count: 2;
   }
+}
 
-  .memorial-card-title {
-    font-size: 15px;
+@media (min-width: 1100px) {
+  .memorial-grid {
+    column-count: 3;
+  }
+}
+
+@media (min-width: 1600px) {
+  .memorial-grid {
+    column-count: 4;
   }
 }
