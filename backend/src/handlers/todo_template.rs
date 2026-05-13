@@ -11,14 +11,6 @@ pub async fn get_templates(
     Ok(Json(ApiResponse::ok(templates)))
 }
 
-pub async fn get_templates_by_category(
-    State(state): State<AppState>,
-    Path(category): Path<String>,
-) -> Result<Json<ApiResponse<Vec<TodoTemplate>>>, AppError> {
-    let templates = state.db.get_templates_by_category(&category).await?;
-    Ok(Json(ApiResponse::ok(templates)))
-}
-
 pub async fn create_template(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<CreateTemplateRequest>,
