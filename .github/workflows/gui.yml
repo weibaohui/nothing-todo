@@ -55,24 +55,23 @@ jobs:
       - name: Prepare backend binary for bundle
         shell: bash
         run: |
-          mkdir -p backend/target/${{ matrix.target }}/release/
-          # Find the binary file in the downloaded artifact and rename to 'ntd'
+          # Tauri expects resources at backend/target/release/ (relative to repo root)
+          mkdir -p backend/target/release/
+          # Find the binary file in the downloaded artifact and copy as 'ntd'
           for f in ntd ntd.exe ntd-*; do
             if [ -f "$f" ]; then
-              cp "$f" backend/target/${{ matrix.target }}/release/ntd
-              chmod +x backend/target/${{ matrix.target }}/release/ntd
+              cp "$f" backend/target/release/ntd
+              chmod +x backend/target/release/ntd
               echo "Copied $f as ntd"
               break
             fi
           done
-          # For non-Windows platforms, create a placeholder ntd.exe to satisfy Tauri config
+          # Create placeholder ntd.exe for non-Windows platforms to satisfy Tauri config
           if [ "${{ matrix.target }}" != "x86_64-pc-windows-msvc" ]; then
-            if [ ! -f "backend/target/${{ matrix.target }}/release/ntd.exe" ]; then
-              cp backend/target/${{ matrix.target }}/release/ntd backend/target/${{ matrix.target }}/release/ntd.exe
-              echo "Created ntd.exe as copy of ntd for Tauri config"
-            fi
+            cp backend/target/release/ntd backend/target/release/ntd.exe
+            echo "Created ntd.exe as copy of ntd for Tauri config"
           fi
-          ls -la backend/target/${{ matrix.target }}/release/
+          ls -la backend/target/release/
 
       - uses: actions/checkout@v4
 
