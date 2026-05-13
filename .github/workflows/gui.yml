@@ -67,6 +67,22 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev
 
+      - name: Build backend binary
+        shell: bash
+        run: |
+          cd backend
+          cargo build --release --target ${{ matrix.target }}
+
+      - name: Verify backend binary
+        shell: bash
+        run: |
+          if [ -f "backend/target/${{ matrix.target }}/release/ntd.exe" ]; then
+            echo "Backend binary: ntd.exe"
+          elif [ -f "backend/target/${{ matrix.target }}/release/ntd" ]; then
+            echo "Backend binary: ntd"
+            ls -la backend/target/${{ matrix.target }}/release/ntd
+          fi
+
       - name: Install frontend dependencies
         run: cd frontend && npm ci --legacy-peer-deps
 
