@@ -566,6 +566,38 @@ impl<T> ApiResponse<T> {
 
 pub type ClientResponse<T> = ApiResponse<T>;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TodoTemplate {
+    pub id: i64,
+    pub title: String,
+    pub prompt: Option<String>,
+    pub category: String,
+    pub sort_order: i32,
+    pub is_system: bool,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTemplateRequest {
+    pub title: String,
+    pub prompt: Option<String>,
+    pub category: String,
+    pub sort_order: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateTemplateRequest {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub prompt: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub sort_order: Option<i32>,
+}
+
 /// 导入导出备份数据
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupData {

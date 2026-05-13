@@ -10,6 +10,7 @@ pub mod feishu_group_whitelist;
 pub mod project_directories;
 pub mod tags;
 pub mod todo_tags;
+pub mod todo_templates;
 pub mod todos;
 
 pub mod prelude {
@@ -25,5 +26,6 @@ pub mod prelude {
     pub use super::project_directories::Entity as ProjectDirectories;
     pub use super::tags::Entity as Tags;
     pub use super::todo_tags::Entity as TodoTags;
+    pub use super::todo_templates::Entity as TodoTemplates;
     pub use super::todos::Entity as Todos;
 }
