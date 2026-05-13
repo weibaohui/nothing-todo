@@ -1,10 +1,13 @@
 name: Build GUI (Tauri)
 
-# Trigger on tag pushes (same as rust.yaml)
+# Same trigger conditions as rust.yaml
 on:
   push:
+    branches: [ "main" ]
     tags:
       - 'v*'
+  pull_request:
+    branches: [ "main" ]
 
 permissions:
   contents: write
