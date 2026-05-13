@@ -67,12 +67,6 @@ jobs:
             bundle: dmg
             bin_name: ntd-darwin-arm64
 
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            pkg: ntd-desktop-darwin-x64
-            bundle: dmg
-            bin_name: ntd-darwin-arm64  # Note: no x64 in rust.yaml, use arm64
-
     runs-on: ${{ matrix.os }}
 
     steps:
