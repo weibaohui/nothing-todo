@@ -1,6 +1,6 @@
 name: Build GUI (Tauri)
 
-# Triggered after rust.yaml completes (workflow_run ensures rust.yaml is done first)
+# Triggered after rust.yaml completes
 on:
   workflow_run:
     workflows: ["Build and Release"]
@@ -13,37 +13,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Check if this workflow_run should proceed (only on successful tag builds)
-  check-trigger:
-    if: github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
-    outputs:
-      proceed: ${{ steps.check.outputs.proceed }}
-      tag_name: ${{ steps.check.outputs.tag_name }}
-    steps:
-      - name: Check if this was a tag trigger
-        id: check
-        run: |
-          # Get the workflow run details
-          RUN_ID=${{ github.event.workflow_run.id }}
-          echo "Checking workflow run: $RUN_ID"
-          # Get the head branch/tag of the triggering run
-          HEAD_BRANCH=$(gh api repos/${{ github.repository }}/actions/runs/$RUN_ID --jq '.head_branch')
-          echo "Head branch: $HEAD_BRANCH"
-          TAG_NAME=${HEAD_BRANCH#refs/tags/}
-          echo "Tag name: $TAG_NAME"
-          # Check if this was a tag push (starts with v)
-          if [[ "$TAG_NAME" == v* ]]; then
-            echo "proceed=true" >> $GITHUB_OUTPUT
-            echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
-          else
-            echo "proceed=false" >> $GITHUB_OUTPUT
-            echo "tag_name=" >> $GITHUB_OUTPUT
-          fi
-
   build-gui:
-    needs: check-trigger
-    if: needs.check-trigger.outputs.proceed == 'true'
+    if: github.event.workflow_run.conclusion == 'success'
     strategy:
       matrix:
         include:
@@ -167,6 +138,7 @@ jobs:
 
   release:
     needs: build-gui
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
