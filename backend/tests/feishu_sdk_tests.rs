@@ -131,7 +131,7 @@ mod raw_response_tests {
 
 #[cfg(test)]
 mod create_message_request_builder_tests {
-    use ntd::feishu::sdk::message::{CreateMessageRequest, CreateMessageRequestBuilder, CreateMessageRequestBody, CreateMessageRequestBodyBuilder};
+    use ntd::feishu::sdk::message::{CreateMessageRequestBuilder, CreateMessageRequestBody, CreateMessageRequestBodyBuilder};
 
     #[test]
     fn test_build_request_with_all_fields() {
