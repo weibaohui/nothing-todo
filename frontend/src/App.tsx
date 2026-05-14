@@ -148,15 +148,15 @@ function AppContent() {
     }
   };
 
-  const handleShowDashboard = () => {
-    clearSelection();
-    setActiveView('dashboard');
-    setSelectedPanel('detail');
-  };
-
   const handleShowMemorial = () => {
     clearSelection();
     setActiveView('memorial');
+    setSelectedPanel('detail');
+  };
+
+  const handleShowDashboard = () => {
+    clearSelection();
+    setActiveView('dashboard');
     setSelectedPanel('detail');
   };
 
