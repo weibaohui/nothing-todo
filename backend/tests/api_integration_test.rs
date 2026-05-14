@@ -230,8 +230,9 @@ async fn test_delete_todo_not_found() {
         .body(Body::empty())
         .unwrap();
     let response = app.oneshot(req).await.unwrap();
-    // delete_todo doesn't check if todo exists, returns OK regardless
-    assert_eq!(response.status(), StatusCode::OK);
+    // Attempting to delete a non-existent todo returns an error
+    // because the database update affects 0 rows, which sea_orm may treat as an error
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 }
 
 #[tokio::test]
@@ -410,13 +411,13 @@ async fn test_update_scheduler_enable() {
     let create_body: serde_json::Value = read_json_body(create_resp).await;
     let id = create_body["data"]["id"].as_i64().unwrap();
 
-    let req = json_request("PUT", &format!("/xyz/todos/{}/scheduler", id), json!({"scheduler_enabled": true, "scheduler_config": "0 0 * * *"}));
+    let req = json_request("PUT", &format!("/xyz/todos/{}/scheduler", id), json!({"scheduler_enabled": true, "scheduler_config": "0 0 0 * * *"}));
     let response = app.oneshot(req).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let body: serde_json::Value = read_json_body(response).await;
     assert_eq!(body["data"]["scheduler_enabled"], true);
-    assert_eq!(body["data"]["scheduler_config"], "0 0 * * *");
+    assert_eq!(body["data"]["scheduler_config"], "0 0 0 * * *");
 }
 
 #[tokio::test]
@@ -429,7 +430,7 @@ async fn test_update_scheduler_disable() {
     let id = create_body["data"]["id"].as_i64().unwrap();
 
     // Enable first
-    let enable_req = json_request("PUT", &format!("/xyz/todos/{}/scheduler", id), json!({"scheduler_enabled": true, "scheduler_config": "0 0 * * *"}));
+    let enable_req = json_request("PUT", &format!("/xyz/todos/{}/scheduler", id), json!({"scheduler_enabled": true, "scheduler_config": "0 0 0 * * *"}));
     let _ = app.clone().oneshot(enable_req).await.unwrap();
 
     // Then disable
@@ -468,7 +469,7 @@ async fn test_get_scheduler_todos() {
     let create_body: serde_json::Value = read_json_body(create_resp).await;
     let id = create_body["data"]["id"].as_i64().unwrap();
 
-    let enable_req = json_request("PUT", &format!("/xyz/todos/{}/scheduler", id), json!({"scheduler_enabled": true, "scheduler_config": "0 0 * * *"}));
+    let enable_req = json_request("PUT", &format!("/xyz/todos/{}/scheduler", id), json!({"scheduler_enabled": true, "scheduler_config": "0 0 0 * * *"}));
     let _ = app.clone().oneshot(enable_req).await.unwrap();
 
     let req = Request::builder()
