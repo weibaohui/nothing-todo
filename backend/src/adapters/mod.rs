@@ -8,6 +8,8 @@ use crate::models::{ExecutorType, ParsedLogEntry, ExecutionUsage, TodoItem};
 pub struct ExecutorDef {
     /// Internal name used in database and registry (e.g., "claudecode")
     pub name: &'static str,
+    /// ExecutorType enum variant for this executor
+    pub executor_type: ExecutorType,
     /// Binary name to execute (e.g., "claude")
     pub binary_name: &'static str,
     /// Display name for UI (e.g., "Claude Code")
@@ -32,6 +34,7 @@ impl ExecutorDef {
 pub static EXECUTORS: &[ExecutorDef] = &[
     ExecutorDef {
         name: "claudecode",
+        executor_type: ExecutorType::Claudecode,
         binary_name: "claude",
         display_name: "Claude Code",
         default_path: "claude",
@@ -40,6 +43,7 @@ pub static EXECUTORS: &[ExecutorDef] = &[
     },
     ExecutorDef {
         name: "codebuddy",
+        executor_type: ExecutorType::Codebuddy,
         binary_name: "codebuddy",
         display_name: "CodeBuddy",
         default_path: "codebuddy",
@@ -48,6 +52,7 @@ pub static EXECUTORS: &[ExecutorDef] = &[
     },
     ExecutorDef {
         name: "opencode",
+        executor_type: ExecutorType::Opencode,
         binary_name: "opencode",
         display_name: "Opencode",
         default_path: "opencode",
@@ -56,6 +61,7 @@ pub static EXECUTORS: &[ExecutorDef] = &[
     },
     ExecutorDef {
         name: "atomcode",
+        executor_type: ExecutorType::Atomcode,
         binary_name: "atomcode",
         display_name: "AtomCode",
         default_path: "atomcode",
@@ -64,6 +70,7 @@ pub static EXECUTORS: &[ExecutorDef] = &[
     },
     ExecutorDef {
         name: "hermes",
+        executor_type: ExecutorType::Hermes,
         binary_name: "hermes",
         display_name: "Hermes",
         default_path: "hermes",
@@ -72,6 +79,7 @@ pub static EXECUTORS: &[ExecutorDef] = &[
     },
     ExecutorDef {
         name: "kimi",
+        executor_type: ExecutorType::Kimi,
         binary_name: "kimi",
         display_name: "Kimi",
         default_path: "kimi",
@@ -80,6 +88,7 @@ pub static EXECUTORS: &[ExecutorDef] = &[
     },
     ExecutorDef {
         name: "joinai",
+        executor_type: ExecutorType::Joinai,
         binary_name: "joinai",
         display_name: "JoinAI",
         default_path: "joinai",
@@ -88,6 +97,7 @@ pub static EXECUTORS: &[ExecutorDef] = &[
     },
     ExecutorDef {
         name: "codex",
+        executor_type: ExecutorType::Codex,
         binary_name: "codex",
         display_name: "Codex",
         default_path: "codex",
@@ -104,18 +114,7 @@ pub fn find_executor(name: &str) -> Option<&'static ExecutorDef> {
 /// Parse executor string (with aliases) into `ExecutorType`.
 /// Returns `None` for unrecognized names.
 pub fn parse_executor_type(executor: &str) -> Option<ExecutorType> {
-    let exec = find_executor(executor)?;
-    match exec.name {
-        "claudecode" => Some(ExecutorType::Claudecode),
-        "codebuddy" => Some(ExecutorType::Codebuddy),
-        "opencode" => Some(ExecutorType::Opencode),
-        "atomcode" => Some(ExecutorType::Atomcode),
-        "hermes" => Some(ExecutorType::Hermes),
-        "kimi" => Some(ExecutorType::Kimi),
-        "joinai" => Some(ExecutorType::Joinai),
-        "codex" => Some(ExecutorType::Codex),
-        _ => None,
-    }
+    find_executor(executor).map(|e| e.executor_type)
 }
 
 /// Strip `<think>...</think>` tags from content.

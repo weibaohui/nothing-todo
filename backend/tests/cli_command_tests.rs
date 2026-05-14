@@ -372,6 +372,25 @@ mod config_parsing_tests {
         assert_eq!(paths.paths.get("opencode"), Some(&"custom-opencode".to_string()));
         assert_eq!(paths.paths.get("hermes"), Some(&"custom-hermes".to_string()));
     }
+
+    #[test]
+    fn test_executor_paths_legacy_flat_deserialization() {
+        // Test that legacy flat config shape deserializes correctly
+        let legacy_json = r#"{"claude_code":"/usr/bin/claude","opencode":"/usr/local/bin/opencode","hermes":"hermes"}"#;
+        let paths: ExecutorPaths = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(paths.paths.get("claude_code"), Some(&"/usr/bin/claude".to_string()));
+        assert_eq!(paths.paths.get("opencode"), Some(&"/usr/local/bin/opencode".to_string()));
+        assert_eq!(paths.paths.get("hermes"), Some(&"hermes".to_string()));
+    }
+
+    #[test]
+    fn test_executor_paths_new_wrapper_deserialization() {
+        // Test that new wrapper shape deserializes correctly
+        let new_json = r#"{"paths":{"claudecode":"/custom/claude","opencode":"/custom/opencode"}}"#;
+        let paths: ExecutorPaths = serde_json::from_str(new_json).unwrap();
+        assert_eq!(paths.paths.get("claudecode"), Some(&"/custom/claude".to_string()));
+        assert_eq!(paths.paths.get("opencode"), Some(&"/custom/opencode".to_string()));
+    }
 }
 
 #[cfg(test)]
