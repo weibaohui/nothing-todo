@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutorSkills, SkillComparison, PaginatedInvocations, FeishuHistoryMessagesPage, FeishuHistoryChat, FeishuMessageStats, TodoTemplate } from '../types';
+import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutorSkills, SkillComparison, PaginatedInvocations, FeishuHistoryMessagesPage, FeishuHistoryChat, FeishuMessageStats, TodoTemplate, CustomTemplateStatus } from '../types';
 
 interface ApiResp<T> {
   code: number;
@@ -133,15 +133,6 @@ export async function copyTodoTemplate(id: number): Promise<TodoTemplate> {
 }
 
 // Custom Template APIs (remote URL subscription)
-
-export interface CustomTemplateStatus {
-  subscribed: boolean;
-  source_url: string | null;
-  last_sync_at: string | null;
-  auto_sync_enabled: boolean;
-  auto_sync_cron: string;
-  templates: TodoTemplate[];
-}
 
 export async function getCustomTemplateStatus(): Promise<CustomTemplateStatus> {
   return unwrap(await api.get<ApiResp<CustomTemplateStatus>>('/xyz/custom-templates/status'));

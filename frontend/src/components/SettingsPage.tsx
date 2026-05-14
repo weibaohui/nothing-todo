@@ -60,7 +60,7 @@ import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
 import type { FeishuPushStatus, WhitelistEntry, ProjectDirectory } from '../utils/database';
 import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
-import type { Config, ExecutorConfig, FeishuHistoryMessage, FeishuHistoryChat, SlashCommandRule, ExecutionRecord, TodoTemplate } from '../types';
+import type { Config, ExecutorConfig, FeishuHistoryMessage, FeishuHistoryChat, SlashCommandRule, ExecutionRecord, TodoTemplate, CustomTemplateStatus } from '../types';
 import yaml from 'js-yaml';
 import { CronPresetSelect } from './CronPresetSelect';
 import { SkillsPanel } from './SkillsPanel';
@@ -138,7 +138,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [templateFormSaving, setTemplateFormSaving] = useState(false);
 
   // Custom template state (remote URL subscription)
-  const [customTemplateStatus, setCustomTemplateStatus] = useState<db.CustomTemplateStatus | null>(null);
+  const [customTemplateStatus, setCustomTemplateStatus] = useState<CustomTemplateStatus | null>(null);
   const [customTemplateLoading, setCustomTemplateLoading] = useState(false);
   const [customTemplateSubscribing, setCustomTemplateSubscribing] = useState(false);
   const [customTemplateUrl, setCustomTemplateUrl] = useState('');
@@ -2706,8 +2706,8 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                 {customTemplateAutoSyncEnabled && (
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                     <Cron
-                                      value={customTemplateAutoSyncCron}
-                                      setValue={setCustomTemplateAutoSyncCron}
+                                      value={cronTo5(customTemplateAutoSyncCron)}
+                                      setValue={(val: string) => setCustomTemplateAutoSyncCron(cronTo6(val))}
                                       locale={CRON_ZH_LOCALE}
                                     />
                                     <Button type="primary" size="small" onClick={handleUpdateCustomTemplateAutoSync}>

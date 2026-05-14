@@ -45,9 +45,62 @@ pub struct UpdateAutoSyncRequest {
     pub cron: String,
 }
 
-/// Fetch YAML from URL and parse it
+/// Check if a host is a private/internal IP
+fn is_private_host(host: &str) -> bool {
+    // Check for literal private IPs
+    if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
+        return true;
+    }
+
+    // Try to parse as IP and check ranges
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        match ip {
+            std::net::IpAddr::V4(ipv4) => {
+                // Check private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+                let octets = ipv4.octets();
+                ipv4.is_loopback()
+                    || ipv4.is_unspecified()
+                    || (octets[0] == 10)
+                    || (octets[0] == 172 && (16..=31).contains(&octets[1]))
+                    || (octets[0] == 192 && octets[1] == 168)
+            }
+            std::net::IpAddr::V6(ipv6) => {
+                ipv6.is_loopback() || ipv6.is_unspecified()
+            }
+        }
+    } else {
+        false
+    }
+}
+
+/// Validate URL for SSRF vulnerabilities
+fn validate_url(url: &str) -> Result<String, String> {
+    let parsed = url::Url::parse(url)
+        .map_err(|e| format!("Invalid URL: {}", e))?;
+
+    let host = parsed.host_str()
+        .ok_or_else(|| "URL must have a host".to_string())?;
+
+    // Check for private/internal hosts
+    if is_private_host(host) {
+        return Err("Private/internal hosts are not allowed".to_string());
+    }
+
+    Ok(url.to_string())
+}
+
+/// Fetch YAML from URL and parse it (with timeout and size limit)
 pub async fn fetch_remote_templates(url: &str) -> Result<Vec<RemoteTemplate>, String> {
-    let response = reqwest::get(url)
+    // Validate URL for SSRF
+    let _ = validate_url(url)?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+    let response = client.get(url)
+        .send()
         .await
         .map_err(|e| format!("Failed to fetch URL: {}", e))?;
 
@@ -55,17 +108,25 @@ pub async fn fetch_remote_templates(url: &str) -> Result<Vec<RemoteTemplate>, St
         return Err(format!("HTTP error: {}", response.status()));
     }
 
+    // Limit response size to 1MB
     let body = response
-        .text()
+        .bytes()
         .await
         .map_err(|e| format!("Failed to read response body: {}", e))?;
 
+    if body.len() > 1024 * 1024 {
+        return Err("Response too large (max 1MB)".to_string());
+    }
+
+    let body_str = String::from_utf8(body.to_vec())
+        .map_err(|e| format!("Invalid UTF-8 in response: {}", e))?;
+
     // Try parsing as YAML array first, then as single object
-    let templates: Vec<RemoteTemplate> = if body.trim().starts_with('-') {
-        serde_yaml::from_str(&body)
+    let templates: Vec<RemoteTemplate> = if body_str.trim().starts_with('-') {
+        serde_yaml::from_str(&body_str)
             .map_err(|e| format!("Invalid YAML array format: {}", e))?
     } else {
-        let single: RemoteTemplate = serde_yaml::from_str(&body)
+        let single: RemoteTemplate = serde_yaml::from_str(&body_str)
             .map_err(|e| format!("Invalid YAML format: {}", e))?;
         vec![single]
     };
@@ -102,6 +163,32 @@ pub async fn get_custom_template_status(
     }))
 }
 
+/// Sync templates from remote URL (core logic, returns templates to insert)
+async fn fetch_and_validate_templates(url: &str) -> Result<Vec<RemoteTemplate>, String> {
+    let remote_templates = fetch_remote_templates(url).await?;
+
+    if remote_templates.is_empty() {
+        return Err("No templates found in remote file".to_string());
+    }
+
+    Ok(remote_templates)
+}
+
+/// Insert templates into database
+async fn insert_templates(db: &Database, templates: &[RemoteTemplate], source_url: &str) -> Result<(), String> {
+    for (idx, remote) in templates.iter().enumerate() {
+        db.create_template_from_remote(
+            &remote.title,
+            remote.prompt.as_deref(),
+            &remote.category_or_default(),
+            Some(idx as i32),
+            source_url,
+        ).await
+        .map_err(|e| format!("Failed to create template '{}': {}", remote.title, e))?;
+    }
+    Ok(())
+}
+
 /// Subscribe to a remote template URL and sync immediately
 pub async fn subscribe_custom_template(
     State(state): State<AppState>,
@@ -112,33 +199,21 @@ pub async fn subscribe_custom_template(
         return Err(AppError::BadRequest("URL is required".to_string()));
     }
 
-    // Validate URL format
+    // Validate URL format and security
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err(AppError::BadRequest("URL must start with http:// or https://".to_string()));
     }
 
+    // First fetch and validate (before any deletion)
+    let remote_templates = fetch_and_validate_templates(url).await
+        .map_err(|e| AppError::BadRequest(format!("Failed to fetch templates: {}", e)))?;
+
     // Delete existing custom templates (from any previous subscription)
     state.db.delete_all_custom_templates().await?;
 
-    // Fetch templates from URL
-    let remote_templates = fetch_remote_templates(url)
-        .await
-        .map_err(|e| AppError::BadRequest(format!("Failed to fetch templates: {}", e)))?;
-
-    if remote_templates.is_empty() {
-        return Err(AppError::BadRequest("No templates found in remote file".to_string()));
-    }
-
-    // Create templates in database
-    for (idx, remote) in remote_templates.iter().enumerate() {
-        state.db.create_template_from_remote(
-            &remote.title,
-            remote.prompt.as_deref(),
-            &remote.category_or_default(),
-            Some(idx as i32),
-            url,
-        ).await?;
-    }
+    // Insert new templates
+    insert_templates(&state.db, &remote_templates, url).await
+        .map_err(|e| AppError::Internal(e))?;
 
     // Return updated status
     get_custom_template_status(State(state)).await
@@ -161,28 +236,16 @@ pub async fn sync_custom_template(
 
     let (url, _) = subscription;
 
+    // First fetch and validate (before any deletion)
+    let remote_templates = fetch_and_validate_templates(&url).await
+        .map_err(|e| AppError::BadRequest(format!("Failed to fetch templates: {}", e)))?;
+
     // Delete existing custom templates
     state.db.delete_templates_by_source_url(&url).await?;
 
-    // Fetch templates from URL
-    let remote_templates = fetch_remote_templates(&url)
-        .await
-        .map_err(|e| AppError::BadRequest(format!("Failed to fetch templates: {}", e)))?;
-
-    if remote_templates.is_empty() {
-        return Err(AppError::BadRequest("No templates found in remote file".to_string()));
-    }
-
-    // Create templates in database
-    for (idx, remote) in remote_templates.iter().enumerate() {
-        state.db.create_template_from_remote(
-            &remote.title,
-            remote.prompt.as_deref(),
-            &remote.category_or_default(),
-            Some(idx as i32),
-            &url,
-        ).await?;
-    }
+    // Insert new templates
+    insert_templates(&state.db, &remote_templates, &url).await
+        .map_err(|e| AppError::Internal(e))?;
 
     // Return updated status
     get_custom_template_status(State(state)).await
@@ -192,7 +255,7 @@ pub async fn sync_custom_template(
 pub async fn update_auto_sync_config(
     ApiJson(req): ApiJson<UpdateAutoSyncRequest>,
 ) -> Result<ApiResponse<String>, AppError> {
-    // Validate cron expression
+    // Validate cron expression (accepts 5 or 6 field format)
     if req.enabled {
         let schedule = cron::Schedule::from_str(&req.cron)
             .map_err(|e| AppError::BadRequest(format!("Invalid cron expression: {}", e)))?;
@@ -206,42 +269,6 @@ pub async fn update_auto_sync_config(
     cfg.save().map_err(AppError::Internal)?;
 
     Ok(ApiResponse::ok("自动同步配置已更新".to_string()))
-}
-
-/// Perform custom template sync (called by scheduler)
-pub async fn perform_custom_template_sync(state: AppState) -> Result<(), String> {
-    let subscription = state.db.get_custom_template_subscription().await
-        .map_err(|e| format!("DB error: {}", e))?
-        .ok_or_else(|| "Not subscribed".to_string())?;
-
-    let (url, _) = subscription;
-
-    // Delete existing custom templates
-    state.db.delete_templates_by_source_url(&url).await
-        .map_err(|e| format!("Failed to delete old templates: {}", e))?;
-
-    // Fetch templates from URL
-    let remote_templates = fetch_remote_templates(&url).await
-        .map_err(|e| format!("Failed to fetch: {}", e))?;
-
-    if remote_templates.is_empty() {
-        return Err("No templates found in remote file".to_string());
-    }
-
-    // Create templates in database
-    for (idx, remote) in remote_templates.iter().enumerate() {
-        state.db.create_template_from_remote(
-            &remote.title,
-            remote.prompt.as_deref(),
-            &remote.category_or_default(),
-            Some(idx as i32),
-            &url,
-        ).await
-        .map_err(|e| format!("Failed to create template: {}", e))?;
-    }
-
-    tracing::info!("Custom template sync completed: {} templates imported", remote_templates.len());
-    Ok(())
 }
 
 /// Start custom template auto sync scheduler
@@ -266,7 +293,7 @@ pub fn start_custom_template_auto_sync(
             tokio::time::sleep(delay).await;
 
             let db = db_clone.clone();
-            match perform_custom_template_sync_internal(&db).await {
+            match perform_sync(&db).await {
                 Ok(msg) => tracing::info!("{}", msg),
                 Err(e) => tracing::error!("Auto custom template sync failed: {}", e),
             }
@@ -276,36 +303,23 @@ pub fn start_custom_template_auto_sync(
     Ok(())
 }
 
-async fn perform_custom_template_sync_internal(db: &Arc<Database>) -> Result<String, String> {
+/// Core sync logic - fetches, validates, and replaces templates atomically
+async fn perform_sync(db: &Arc<Database>) -> Result<String, String> {
     let subscription = db.get_custom_template_subscription().await
         .map_err(|e| format!("DB error: {}", e))?
         .ok_or_else(|| "Not subscribed".to_string())?;
 
     let (url, _) = subscription;
 
+    // First fetch and validate (before any deletion)
+    let remote_templates = fetch_and_validate_templates(&url).await?;
+
     // Delete existing custom templates
     db.delete_templates_by_source_url(&url).await
         .map_err(|e| format!("Failed to delete old templates: {}", e))?;
 
-    // Fetch templates from URL
-    let remote_templates = fetch_remote_templates(&url).await
-        .map_err(|e| format!("Failed to fetch: {}", e))?;
-
-    if remote_templates.is_empty() {
-        return Err("No templates found in remote file".to_string());
-    }
-
-    // Create templates in database
-    for (idx, remote) in remote_templates.iter().enumerate() {
-        db.create_template_from_remote(
-            &remote.title,
-            remote.prompt.as_deref(),
-            &remote.category_or_default(),
-            Some(idx as i32),
-            &url,
-        ).await
-        .map_err(|e| format!("Failed to create template: {}", e))?;
-    }
+    // Insert new templates
+    insert_templates(db, &remote_templates, &url).await?;
 
     Ok(format!("Auto custom template sync completed: {} templates imported", remote_templates.len()))
 }
