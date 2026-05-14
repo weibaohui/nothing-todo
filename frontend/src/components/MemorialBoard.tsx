@@ -1,22 +1,19 @@
-import { useEffect, useState } from 'react';
-import { Card, Tag, Segmented, Skeleton, Empty, Badge, message, Button } from 'antd';
+import { useEffect, useState, useMemo } from 'react';
+import { Card, Segmented, Skeleton, Empty, Button, Input } from 'antd';
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
-  ClockCircleOutlined,
-  RobotOutlined,
-  CopyOutlined,
   LeftOutlined,
   AppstoreOutlined,
   ProfileOutlined,
+  SearchOutlined,
 } from '@ant-design/icons';
-import XMarkdown from '@ant-design/x-markdown';
 import { useApp } from '../hooks/useApp';
-import { ExecutorBadge } from './ExecutorBadge';
 import { KanbanBoard } from './KanbanBoard';
+import { TodoCard } from './TodoCard';
 import * as db from '../utils/database';
 import { formatRelativeTime } from '../utils/datetime';
-import type { RecentCompletedTodo } from '../types';
+import type { RecentCompletedTodo, Tag } from '../types';
 
 const TIME_OPTIONS: { label: string; value: number }[] = [
   { label: '6h', value: 6 },
@@ -26,18 +23,6 @@ const TIME_OPTIONS: { label: string; value: number }[] = [
   { label: '7d', value: 168 },
 ];
 
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1_000) return `${ms}ms`;
-  if (ms < 60_000) return `${(ms / 1_000).toFixed(0)}s`;
-  return `${(ms / 60_000).toFixed(1)}m`;
-}
-
 interface MemorialBoardProps {
   onBack?: () => void;
 }
@@ -46,14 +31,13 @@ type BoardMode = 'memorial' | 'kanban';
 
 export function MemorialBoard({ onBack }: MemorialBoardProps) {
   const { state, dispatch } = useApp();
-  const { onSelectTodo } = { onSelectTodo: (todoId: number) => {
-    dispatch({ type: 'SELECT_TODO', payload: todoId });
-  } };
   const [boardMode, setBoardMode] = useState<BoardMode>('memorial');
   const [items, setItems] = useState<RecentCompletedTodo[]>([]);
   const [loading, setLoading] = useState(true);
   const [hours, setHours] = useState(24);
+  const [searchText, setSearchText] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [promptExpandedIds, setPromptExpandedIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     if (boardMode !== 'memorial') return;
@@ -84,121 +68,87 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
     });
   };
 
+  const togglePromptExpand = (todoId: number) => {
+    setPromptExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(todoId)) {
+        next.delete(todoId);
+      } else {
+        next.add(todoId);
+      }
+      return next;
+    });
+  };
+
   const handleSelectTodo = (todoId: number, e: React.MouseEvent) => {
     e.stopPropagation();
     dispatch({ type: 'SELECT_TODO', payload: todoId });
   };
 
-  const successCount = items.filter(i => i.execution_status === 'success').length;
-  const failedCount = items.filter(i => i.execution_status === 'failed').length;
+  const filteredItems = useMemo(() => {
+    if (!searchText.trim()) return items;
+    const q = searchText.toLowerCase();
+    return items.filter(i =>
+      i.title.toLowerCase().includes(q) ||
+      (i.prompt && i.prompt.toLowerCase().includes(q))
+    );
+  }, [items, searchText]);
+
+  const successCount = filteredItems.filter(i => i.execution_status === 'success').length;
+  const failedCount = filteredItems.filter(i => i.execution_status === 'failed').length;
+
+  const kanbanStats = useMemo(() => {
+    const cutoff = hours ? Date.now() - hours * 3600 * 1000 : 0;
+    return state.todos.filter(t => {
+      if ((t.status === 'completed' || t.status === 'failed') && cutoff > 0) {
+        const tUpdated = new Date(t.updated_at).getTime();
+        if (isNaN(tUpdated) || tUpdated < cutoff) return false;
+      }
+      if (searchText.trim()) {
+        const q = searchText.toLowerCase();
+        return t.title.toLowerCase().includes(q) || (t.prompt && t.prompt.toLowerCase().includes(q));
+      }
+      return true;
+    });
+  }, [state.todos, searchText, hours]);
+  const kanbanStatsCount = { pending: 0, running: 0, completed: 0, failed: 0 };
+  kanbanStats.forEach(t => { if (kanbanStatsCount[t.status] !== undefined) kanbanStatsCount[t.status]++; });
 
   const renderCard = (item: RecentCompletedTodo) => {
     const isSuccess = item.execution_status === 'success';
     const expanded = expandedIds.has(item.todo_id);
     const result = item.result || '';
-    const previewMd = result.length > 200 && !expanded ? result.slice(0, 200) + '…' : result;
+    const resolvedTags = item.tag_ids.map(tid => state.tags.find(t => t.id === tid)).filter(Boolean) as Tag[];
 
     return (
       <Card
         key={item.todo_id}
         className={`memorial-card ${expanded ? 'expanded' : ''}`}
-        size="small"
+        size='small'
         onClick={() => toggleExpand(item.todo_id)}
         style={{
           borderTop: `3px solid ${isSuccess ? '#22c55e' : '#ef4444'}`,
         }}
         bodyStyle={{ padding: 0 }}
       >
-        {/* Card Header */}
-        <div className="memorial-card-header">
-          <div className="memorial-card-top">
-            <span
-              className="memorial-card-title"
-              onClick={e => handleSelectTodo(item.todo_id, e)}
-              title={item.title}
-            >
-              {item.title}
-            </span>
-            {isSuccess ? (
-              <CheckCircleOutlined className="memorial-status-icon memorial-success" />
-            ) : (
-              <CloseCircleOutlined className="memorial-status-icon memorial-failed" />
-            )}
-          </div>
-          <div className="memorial-card-meta-row">
-            {item.executor && <ExecutorBadge executor={item.executor} />}
-            <span className="memorial-meta-time">
-              <ClockCircleOutlined /> {formatRelativeTime(item.completed_at)}
-            </span>
-            {item.model && (
-              <span className="memorial-meta-model">
-                <RobotOutlined /> {item.model}
-              </span>
-            )}
-          </div>
-          {item.tag_ids.length > 0 && (
-            <div className="memorial-card-tags">
-              {item.tag_ids.map(tid => {
-                const tag = state.tags.find(t => t.id === tid);
-                if (!tag) return null;
-                return (
-                  <Tag key={tid} color={tag.color} className="memorial-tag">
-                    {tag.name}
-                  </Tag>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Card Footer — Result */}
-        <div className="memorial-card-footer">
-          {result ? (
-            <div className={`memorial-result ${expanded ? 'expanded' : ''}`}>
-              <button
-                className="memorial-copy-btn"
-                onClick={e => {
-                  e.stopPropagation();
-                  navigator.clipboard.writeText(result).then(() => message.success('已复制'));
-                }}
-                title="复制结论"
-              >
-                <CopyOutlined />
-              </button>
-              <XMarkdown content={previewMd} />
-              {result.length > 200 && (
-                <button className="memorial-expand-btn" onClick={e => { e.stopPropagation(); toggleExpand(item.todo_id); }}>
-                  {expanded ? '收起' : '展开'}
-                </button>
-              )}
-            </div>
-          ) : (
-            <span className="memorial-no-result">暂无结论</span>
-          )}
-
-          {/* Usage stats */}
-          {item.usage && (
-            <div className="memorial-usage-row">
-              {item.usage.duration_ms != null && (
-                <span className="memorial-stat">{formatDuration(item.usage.duration_ms)}</span>
-              )}
-              <span className="memorial-stat memorial-tokens">
-                {formatTokens(item.usage.input_tokens)} + {formatTokens(item.usage.output_tokens)} tokens
-              </span>
-              {item.usage.total_cost_usd != null && item.usage.total_cost_usd > 0 && (
-                <span className="memorial-stat memorial-cost">
-                  ${item.usage.total_cost_usd.toFixed(4)}
-                </span>
-              )}
-              {item.trigger_type && item.trigger_type !== 'manual' && (
-                <Badge
-                  count={item.trigger_type === 'scheduler' ? '定时' : item.trigger_type}
-                  style={{ fontSize: 10, height: 16, lineHeight: '16px' }}
-                />
-              )}
-            </div>
-          )}
-        </div>
+        <TodoCard
+          title={item.title}
+          prompt={item.prompt}
+          resultText={result}
+          isSuccess={isSuccess}
+          showResultSection={true}
+          executor={item.executor}
+          time={formatRelativeTime(item.completed_at)}
+          model={item.model}
+          tags={resolvedTags}
+          usage={item.usage}
+          triggerType={item.trigger_type}
+          promptExpanded={promptExpandedIds.has(item.todo_id)}
+          resultExpanded={expanded}
+          onTogglePrompt={() => togglePromptExpand(item.todo_id)}
+          onToggleResult={() => toggleExpand(item.todo_id)}
+          onSelectTodo={(e) => handleSelectTodo(item.todo_id, e)}
+        />
       </Card>
     );
   };
@@ -227,33 +177,50 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
               { label: <span><AppstoreOutlined /> 飞书看板</span>, value: 'kanban' },
             ]}
           />
-          {boardMode === 'memorial' && (
-            <Segmented
-              size="small"
-              options={TIME_OPTIONS.map(o => ({ label: o.label, value: o.label }))}
-              value={TIME_OPTIONS.find(o => o.value === hours)?.label || '24h'}
-              onChange={label => {
-                const opt = TIME_OPTIONS.find(o => o.label === label);
-                if (opt) setHours(opt.value);
-              }}
-            />
+        </div>
+        <div className="memorial-toolbar">
+          <Input
+            placeholder="搜索任务…"
+            prefix={<SearchOutlined />}
+            value={searchText}
+            onChange={e => setSearchText(e.target.value)}
+            allowClear
+            size="small"
+            style={{ width: 200 }}
+          />
+          <Segmented
+            size="small"
+            options={TIME_OPTIONS.map(o => ({ label: o.label, value: o.label }))}
+            value={TIME_OPTIONS.find(o => o.value === hours)?.label || '24h'}
+            onChange={label => {
+              const opt = TIME_OPTIONS.find(o => o.label === label);
+              if (opt) setHours(opt.value);
+            }}
+          />
+          {boardMode === 'memorial' ? (
+            <div className="memorial-summary">
+              <span className="memorial-stat-dot memorial-stat-all">共 <strong>{filteredItems.length}</strong> 条</span>
+              <span className="memorial-stat-dot memorial-stat-success">
+                <CheckCircleOutlined /> <strong>{successCount}</strong> 成功
+              </span>
+              <span className="memorial-stat-dot memorial-stat-failed">
+                <CloseCircleOutlined /> <strong>{failedCount}</strong> 失败
+              </span>
+            </div>
+          ) : (
+            <div className="memorial-summary">
+              <span className="memorial-stat-dot memorial-stat-all">共 <strong>{kanbanStats.length}</strong> 条</span>
+              <span className="memorial-stat-dot" style={{ color: '#3b82f6' }}>待办 <strong>{kanbanStatsCount.pending}</strong></span>
+              <span className="memorial-stat-dot" style={{ color: '#f59e0b' }}>进行中 <strong>{kanbanStatsCount.running}</strong></span>
+              <span className="memorial-stat-dot" style={{ color: '#22c55e' }}>已完成 <strong>{kanbanStatsCount.completed}</strong></span>
+              <span className="memorial-stat-dot" style={{ color: '#ef4444' }}>失败 <strong>{kanbanStatsCount.failed}</strong></span>
+            </div>
           )}
         </div>
-        {boardMode === 'memorial' && (
-          <div className="memorial-summary">
-            <span className="memorial-stat-dot memorial-stat-all">共 <strong>{items.length}</strong> 条</span>
-            <span className="memorial-stat-dot memorial-stat-success">
-              <CheckCircleOutlined /> <strong>{successCount}</strong> 成功
-            </span>
-            <span className="memorial-stat-dot memorial-stat-failed">
-              <CloseCircleOutlined /> <strong>{failedCount}</strong> 失败
-            </span>
-          </div>
-        )}
       </div>
 
       {boardMode === 'kanban' ? (
-        <KanbanBoard onSelectTodo={onSelectTodo} />
+        <KanbanBoard searchText={searchText} hours={hours} onSearchChange={setSearchText} onHoursChange={setHours} />
       ) : loading ? (
         <div className="memorial-grid">
           {[1, 2, 3, 4].map(i => (
@@ -268,7 +235,7 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
         </div>
       ) : (
         <div className="memorial-grid">
-          {items.map(renderCard)}
+          {filteredItems.map(renderCard)}
         </div>
       )}
     </div>

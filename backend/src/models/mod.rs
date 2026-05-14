@@ -428,6 +428,7 @@ pub struct DashboardStats {
 pub struct RecentCompletedTodo {
     pub todo_id: i64,
     pub title: String,
+    pub prompt: Option<String>,
     pub executor: Option<String>,
     pub tag_ids: Vec<i64>,
     pub completed_at: String,
