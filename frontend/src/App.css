@@ -2364,7 +2364,8 @@ code {
     align-items: center;
   }
 
-  .memorial-back-btn {
+  .memorial-back-btn,
+  .settings-back-btn {
     margin-right: 8px;
     padding: 4px 8px;
   }

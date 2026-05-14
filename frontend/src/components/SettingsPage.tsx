@@ -51,6 +51,7 @@ import {
   FolderOutlined,
   EditOutlined,
   FileTextOutlined,
+  LeftOutlined,
 } from '@ant-design/icons';
 import { Cron } from 'react-js-cron';
 import QRCode from 'qrcode';
@@ -2667,29 +2668,17 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     >
       <div className="settings-header-card detail-card header-card">
         {onBack && (
-          <button
+          <Button
+            type="text"
+            size="small"
+            icon={<LeftOutlined />}
             onClick={onBack}
-            style={{
-              background: 'var(--color-bg-elevated)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 8,
-              padding: '6px 12px',
-              cursor: 'pointer',
-              color: 'var(--color-text)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              flexShrink: 0,
-            }}
-          >
-            ← 返回
-          </button>
+            className="settings-back-btn"
+            aria-label="返回"
+          />
         )}
         <div style={{ minWidth: 0 }}>
           <h2 className="card-title">配置管理</h2>
-          <Paragraph type="secondary" style={{ marginTop: 4, fontSize: 13 }}>
-            管理系统配置、执行器路径、标签、备份和消息智能体
-          </Paragraph>
         </div>
       </div>
       <Tabs className="settings-tabs" items={tabItems} type="card" size="small" />
