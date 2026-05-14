@@ -4,20 +4,117 @@ use std::sync::{Arc, RwLock};
 
 use crate::models::{ExecutorType, ParsedLogEntry, ExecutionUsage, TodoItem};
 
+/// Unified executor definition - single source of truth for all executor metadata.
+pub struct ExecutorDef {
+    /// Internal name used in database and registry (e.g., "claudecode")
+    pub name: &'static str,
+    /// ExecutorType enum variant for this executor
+    pub executor_type: ExecutorType,
+    /// Binary name to execute (e.g., "claude")
+    pub binary_name: &'static str,
+    /// Display name for UI (e.g., "Claude Code")
+    pub display_name: &'static str,
+    /// Default binary path
+    pub default_path: &'static str,
+    /// Session directory (can be empty)
+    pub session_dir: &'static str,
+    /// Aliases that can be used to refer to this executor
+    pub aliases: &'static [&'static str],
+}
+
+impl ExecutorDef {
+    /// Check if this executor matches the given name (name or alias)
+    pub fn matches(&self, name: &str) -> bool {
+        let name = name.trim().to_lowercase();
+        self.name == name || self.aliases.iter().any(|&a| a == name)
+    }
+}
+
+/// All supported executors - single source of truth
+pub static EXECUTORS: &[ExecutorDef] = &[
+    ExecutorDef {
+        name: "claudecode",
+        executor_type: ExecutorType::Claudecode,
+        binary_name: "claude",
+        display_name: "Claude Code",
+        default_path: "claude",
+        session_dir: "~/.claude",
+        aliases: &["claude", "claude_code"],
+    },
+    ExecutorDef {
+        name: "codebuddy",
+        executor_type: ExecutorType::Codebuddy,
+        binary_name: "codebuddy",
+        display_name: "CodeBuddy",
+        default_path: "codebuddy",
+        session_dir: "~/.codebuddy",
+        aliases: &["cbc"],
+    },
+    ExecutorDef {
+        name: "opencode",
+        executor_type: ExecutorType::Opencode,
+        binary_name: "opencode",
+        display_name: "Opencode",
+        default_path: "opencode",
+        session_dir: "~/.opencode",
+        aliases: &[],
+    },
+    ExecutorDef {
+        name: "atomcode",
+        executor_type: ExecutorType::Atomcode,
+        binary_name: "atomcode",
+        display_name: "AtomCode",
+        default_path: "atomcode",
+        session_dir: "~/.atomcode",
+        aliases: &["atom"],
+    },
+    ExecutorDef {
+        name: "hermes",
+        executor_type: ExecutorType::Hermes,
+        binary_name: "hermes",
+        display_name: "Hermes",
+        default_path: "hermes",
+        session_dir: "~/.hermes",
+        aliases: &[],
+    },
+    ExecutorDef {
+        name: "kimi",
+        executor_type: ExecutorType::Kimi,
+        binary_name: "kimi",
+        display_name: "Kimi",
+        default_path: "kimi",
+        session_dir: "~/.kimi",
+        aliases: &[],
+    },
+    ExecutorDef {
+        name: "joinai",
+        executor_type: ExecutorType::Joinai,
+        binary_name: "joinai",
+        display_name: "JoinAI",
+        default_path: "joinai",
+        session_dir: "",
+        aliases: &[],
+    },
+    ExecutorDef {
+        name: "codex",
+        executor_type: ExecutorType::Codex,
+        binary_name: "codex",
+        display_name: "Codex",
+        default_path: "codex",
+        session_dir: "~/.codex",
+        aliases: &[],
+    },
+];
+
+/// Find executor definition by name or alias
+pub fn find_executor(name: &str) -> Option<&'static ExecutorDef> {
+    EXECUTORS.iter().find(|e| e.matches(name))
+}
+
 /// Parse executor string (with aliases) into `ExecutorType`.
 /// Returns `None` for unrecognized names.
 pub fn parse_executor_type(executor: &str) -> Option<ExecutorType> {
-    match executor.trim().to_lowercase().as_str() {
-        "claudecode" | "claude" => Some(ExecutorType::Claudecode),
-        "codebuddy" | "cbc" => Some(ExecutorType::Codebuddy),
-        "opencode" => Some(ExecutorType::Opencode),
-        "atomcode" | "atom" => Some(ExecutorType::Atomcode),
-        "hermes" => Some(ExecutorType::Hermes),
-        "kimi" => Some(ExecutorType::Kimi),
-        "joinai" => Some(ExecutorType::Joinai),
-        "codex" => Some(ExecutorType::Codex),
-        _ => None,
-    }
+    find_executor(executor).map(|e| e.executor_type)
 }
 
 /// Strip `<think>...</think>` tags from content.
@@ -165,17 +262,19 @@ impl ExecutorRegistry {
 
     /// Create an executor instance by name and path.
     pub fn create_executor(name: &str, path: &str) -> Option<Arc<dyn CodeExecutor>> {
-        match name {
-            "claudecode" => Some(Arc::new(claude_code::ClaudeCodeExecutor::new(path.to_string()))),
-            "joinai" => Some(Arc::new(joinai::JoinaiExecutor::new(path.to_string()))),
-            "codebuddy" => Some(Arc::new(codebuddy::CodebuddyExecutor::new(path.to_string()))),
-            "opencode" => Some(Arc::new(opencode::OpencodeExecutor::new(path.to_string()))),
-            "atomcode" => Some(Arc::new(atomcode::AtomcodeExecutor::new(path.to_string()))),
-            "hermes" => Some(Arc::new(hermes::HermesExecutor::new(path.to_string()))),
-            "kimi" => Some(Arc::new(kimi::KimiExecutor::new(path.to_string()))),
-            "codex" => Some(Arc::new(codex::CodexExecutor::new(path.to_string()))),
-            _ => None,
-        }
+        let exec = find_executor(name)?;
+        let executor: Arc<dyn CodeExecutor> = match exec.name {
+            "claudecode" => Arc::new(claude_code::ClaudeCodeExecutor::new(path.to_string())),
+            "joinai" => Arc::new(joinai::JoinaiExecutor::new(path.to_string())),
+            "codebuddy" => Arc::new(codebuddy::CodebuddyExecutor::new(path.to_string())),
+            "opencode" => Arc::new(opencode::OpencodeExecutor::new(path.to_string())),
+            "atomcode" => Arc::new(atomcode::AtomcodeExecutor::new(path.to_string())),
+            "hermes" => Arc::new(hermes::HermesExecutor::new(path.to_string())),
+            "kimi" => Arc::new(kimi::KimiExecutor::new(path.to_string())),
+            "codex" => Arc::new(codex::CodexExecutor::new(path.to_string())),
+            _ => return None,
+        };
+        Some(executor)
     }
 
     /// Register an executor by name and path (convenience method).

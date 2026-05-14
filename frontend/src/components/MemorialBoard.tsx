@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Card, Tag, Segmented, Skeleton, Empty, Badge, message } from 'antd';
+import { Card, Tag, Segmented, Skeleton, Empty, Badge, message, Button } from 'antd';
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   ClockCircleOutlined,
   RobotOutlined,
   CopyOutlined,
+  LeftOutlined,
 } from '@ant-design/icons';
 import XMarkdown from '@ant-design/x-markdown';
 import { useApp } from '../hooks/useApp';
@@ -38,7 +39,7 @@ interface MemorialBoardProps {
   onBack?: () => void;
 }
 
-export function MemorialBoard({ onBack: _onBack }: MemorialBoardProps) {
+export function MemorialBoard({ onBack }: MemorialBoardProps) {
   const { state, dispatch } = useApp();
   const [items, setItems] = useState<RecentCompletedTodo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -196,6 +197,16 @@ export function MemorialBoard({ onBack: _onBack }: MemorialBoardProps) {
     <div className="memorial-board">
       <div className="memorial-header">
         <div className="memorial-header-top">
+          {onBack && (
+            <Button
+              type="text"
+              size="small"
+              icon={<LeftOutlined />}
+              onClick={onBack}
+              className="memorial-back-btn"
+              aria-label="返回"
+            />
+          )}
           <h2 className="memorial-title">看板</h2>
           <Segmented
             size="small"

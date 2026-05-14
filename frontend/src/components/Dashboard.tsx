@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Card, Table, Badge, Tag, Empty, Masonry, App, Button, Segmented, DatePicker } from 'antd';
 import {
-  ArrowLeftOutlined,
+  LeftOutlined,
   FileTextOutlined,
   PlayCircleOutlined,
   CheckCircleOutlined,
@@ -973,12 +973,12 @@ export function Dashboard({ onBack }: DashboardProps) {
       {onBack && (
         <Button
           type="text"
-          icon={<ArrowLeftOutlined />}
+          size="small"
+          icon={<LeftOutlined />}
           onClick={onBack}
           style={{ marginBottom: 12, marginLeft: -4 }}
-        >
-          返回任务列表
-        </Button>
+          aria-label="返回"
+        />
       )}
       {/* Time Range Selector */}
       <div style={{ marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
