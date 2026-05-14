@@ -425,6 +425,7 @@ export interface FeishuMessageStats {
 export interface RecentCompletedTodo {
   todo_id: number;
   title: string;
+  prompt: string | null;
   executor: string | null;
   tag_ids: number[];
   completed_at: string;

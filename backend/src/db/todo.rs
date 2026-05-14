@@ -692,7 +692,7 @@ impl Database {
         let time_filter = format!("datetime('now', '-{} hours')", hours);
 
         let sql = format!(
-            "SELECT t.id as todo_id, t.title, t.executor, \
+            "SELECT t.id as todo_id, t.title, t.prompt, t.executor, \
              er.status as execution_status, er.finished_at, er.result, er.model, er.usage, \
              er.trigger_type, er.id as record_id \
              FROM todos t \
@@ -734,6 +734,7 @@ impl Database {
                     row.try_get_by("trigger_type").ok().flatten().unwrap_or_default();
                 let execution_status: String =
                     row.try_get_by("execution_status").ok().flatten().unwrap_or_default();
+                let prompt: Option<String> = row.try_get_by("prompt").ok().flatten();
                 let record_id: i64 = row.try_get_by("record_id").ok()?;
 
                 let usage: Option<crate::models::ExecutionUsage> =
@@ -742,6 +743,7 @@ impl Database {
                 Some(crate::models::RecentCompletedTodo {
                     todo_id,
                     title,
+                    prompt,
                     executor,
                     tag_ids: tag_map.get(&todo_id).cloned().unwrap_or_default(),
                     completed_at,

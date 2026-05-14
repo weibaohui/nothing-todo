@@ -51,6 +51,7 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
   const [loading, setLoading] = useState(true);
   const [hours, setHours] = useState(24);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [promptExpandedIds, setPromptExpandedIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     if (boardMode !== 'memorial') return;
@@ -81,6 +82,18 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
     });
   };
 
+  const togglePromptExpand = (todoId: number) => {
+    setPromptExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(todoId)) {
+        next.delete(todoId);
+      } else {
+        next.add(todoId);
+      }
+      return next;
+    });
+  };
+
   const handleSelectTodo = (todoId: number, e: React.MouseEvent) => {
     e.stopPropagation();
     dispatch({ type: 'SELECT_TODO', payload: todoId });
@@ -93,7 +106,6 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
     const isSuccess = item.execution_status === 'success';
     const expanded = expandedIds.has(item.todo_id);
     const result = item.result || '';
-    const previewMd = result.length > 200 && !expanded ? result.slice(0, 200) + '…' : result;
 
     return (
       <Card
@@ -148,34 +160,72 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
           )}
         </div>
 
-        {/* Card Footer — Result */}
-        <div className="memorial-card-footer">
-          {result ? (
-            <div className={`memorial-result ${expanded ? 'expanded' : ''}`}>
-              <button
-                className="memorial-copy-btn"
-                onClick={e => {
-                  e.stopPropagation();
-                  navigator.clipboard.writeText(result).then(() => message.success('已复制'));
-                }}
-                title="复制结论"
-              >
-                <CopyOutlined />
-              </button>
-              <XMarkdown content={previewMd} />
-              {result.length > 200 && (
-                <button className="memorial-expand-btn" onClick={e => { e.stopPropagation(); toggleExpand(item.todo_id); }}>
-                  {expanded ? '收起' : '展开'}
+        {/* Card Body — Sectioned prompt & result */}
+        <div className="kanban-card-body">
+          {/* Prompt Section */}
+          <div className="kanban-card-section">
+            <div className="kanban-card-section-header" onClick={e => { e.stopPropagation(); togglePromptExpand(item.todo_id); }}>
+              <span className="kanban-card-section-label">📋 Prompt</span>
+              {item.prompt && (
+                <button
+                  className="kanban-copy-btn"
+                  onClick={e => {
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(item.prompt!).then(() => message.success('已复制'));
+                  }}
+                  title="复制 Prompt"
+                >
+                  <CopyOutlined />
                 </button>
               )}
+              <span className="kanban-card-section-toggle">
+                {promptExpandedIds.has(item.todo_id) ? '收起' : '展开'}
+              </span>
             </div>
-          ) : (
-            <span className="memorial-no-result">暂无结论</span>
-          )}
+            {promptExpandedIds.has(item.todo_id) && item.prompt && (
+              <div className="kanban-card-section-content">
+                <XMarkdown content={item.prompt} />
+              </div>
+            )}
+          </div>
+
+          {/* Result Section */}
+          <div className="kanban-card-section">
+            <div className="kanban-card-section-header" onClick={e => { e.stopPropagation(); toggleExpand(item.todo_id); }}>
+              <span className="kanban-card-section-label">
+                {isSuccess ? <CheckCircleOutlined /> : <CloseCircleOutlined />} 结论
+              </span>
+              {result && (
+                <button
+                  className="kanban-copy-btn"
+                  onClick={e => {
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(result).then(() => message.success('已复制'));
+                  }}
+                  title="复制结论"
+                >
+                  <CopyOutlined />
+                </button>
+              )}
+              <span className="kanban-card-section-toggle">
+                {expanded ? '收起' : '展开'}
+              </span>
+            </div>
+            {expanded && result && (
+              <div className="kanban-card-section-content">
+                <XMarkdown content={result} />
+              </div>
+            )}
+            {!result && (
+              <div className="kanban-card-section-content" style={{ color: 'var(--color-text-tertiary)', paddingBottom: 'var(--space-sm)' }}>
+                暂无结论
+              </div>
+            )}
+          </div>
 
           {/* Usage stats */}
           {item.usage && (
-            <div className="memorial-usage-row">
+            <div className="memorial-usage-row" style={{ borderTop: '1px solid var(--color-border-light)', padding: '6px 0', margin: '0' }}>
               {item.usage.duration_ms != null && (
                 <span className="memorial-stat">{formatDuration(item.usage.duration_ms)}</span>
               )}
