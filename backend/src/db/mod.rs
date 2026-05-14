@@ -657,6 +657,7 @@ mod tests {
             scheduler_enabled: None,
             scheduler_config: None,
             workspace: None,
+            worktree_enabled: None,
         })
         .await
         .unwrap();
@@ -799,6 +800,7 @@ mod tests {
             scheduler_enabled: Some(true),
             scheduler_config: Some("0 0 * * *"),
             workspace: Some("/tmp/workspace"),
+            worktree_enabled: None,
         })
         .await
         .unwrap();
