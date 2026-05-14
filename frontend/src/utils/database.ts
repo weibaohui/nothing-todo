@@ -7,15 +7,6 @@ interface ApiResp<T> {
   message: string;
 }
 
-export async function checkBackendHealth(): Promise<boolean> {
-  try {
-    const res = await api.get('/health', { timeout: 3000 });
-    return res.status === 200;
-  } catch {
-    return false;
-  }
-}
-
 const api = axios.create({
   baseURL: '',
   headers: { 'Content-Type': 'application/json' },
