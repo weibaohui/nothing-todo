@@ -2673,7 +2673,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                 {customTemplateStatus.last_sync_at && (
                                   <div>
                                     <Typography.Text type="secondary">最后同步：</Typography.Text>
-                                    <Typography.Text>{customTemplateStatus.last_sync_at}</Typography.Text>
+                                    <Typography.Text>{new Date(customTemplateStatus.last_sync_at).toLocaleString()}</Typography.Text>
                                   </div>
                                 )}
                                 <Space>
