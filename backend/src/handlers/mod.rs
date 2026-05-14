@@ -154,6 +154,7 @@ mod feishu_history;
 mod session;
 pub mod project_directory;
 pub(crate) mod todo_template;
+pub mod custom_template;
 
 // WebSocket handler
 pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
@@ -441,6 +442,11 @@ pub fn create_app(
         .route("/xyz/todo-templates", get(todo_template::get_templates).post(todo_template::create_template))
         .route("/xyz/todo-templates/{id}", put(todo_template::update_template).delete(todo_template::delete_template))
         .route("/xyz/todo-templates/{id}/copy", post(todo_template::copy_template))
+        .route("/xyz/custom-templates/status", get(custom_template::get_custom_template_status))
+        .route("/xyz/custom-templates/subscribe", post(custom_template::subscribe_custom_template))
+        .route("/xyz/custom-templates/unsubscribe", post(custom_template::unsubscribe_custom_template))
+        .route("/xyz/custom-templates/sync", post(custom_template::sync_custom_template))
+        .route("/xyz/custom-templates/auto-sync", put(custom_template::update_auto_sync_config))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
         .layer(CompressionLayer::new())
         .layer(

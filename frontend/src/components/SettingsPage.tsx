@@ -60,7 +60,7 @@ import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
 import type { FeishuPushStatus, WhitelistEntry, ProjectDirectory } from '../utils/database';
 import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../utils/cron';
-import type { Config, ExecutorConfig, FeishuHistoryMessage, FeishuHistoryChat, SlashCommandRule, ExecutionRecord, TodoTemplate } from '../types';
+import type { Config, ExecutorConfig, FeishuHistoryMessage, FeishuHistoryChat, SlashCommandRule, ExecutionRecord, TodoTemplate, CustomTemplateStatus } from '../types';
 import yaml from 'js-yaml';
 import { CronPresetSelect } from './CronPresetSelect';
 import { SkillsPanel } from './SkillsPanel';
@@ -136,6 +136,14 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [templateFormPrompt, setTemplateFormPrompt] = useState('');
   const [templateFormCategory, setTemplateFormCategory] = useState('');
   const [templateFormSaving, setTemplateFormSaving] = useState(false);
+
+  // Custom template state (remote URL subscription)
+  const [customTemplateStatus, setCustomTemplateStatus] = useState<CustomTemplateStatus | null>(null);
+  const [customTemplateLoading, setCustomTemplateLoading] = useState(false);
+  const [customTemplateSubscribing, setCustomTemplateSubscribing] = useState(false);
+  const [customTemplateUrl, setCustomTemplateUrl] = useState('');
+  const [customTemplateAutoSyncEnabled, setCustomTemplateAutoSyncEnabled] = useState(false);
+  const [customTemplateAutoSyncCron, setCustomTemplateAutoSyncCron] = useState('0 0 4 * * *');
 
   // Agent Bots state
   const [agentBots, setAgentBots] = useState<db.AgentBot[]>([]);
@@ -284,6 +292,25 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         message.error('加载模板失败: ' + (err?.message || String(err)));
       })
       .finally(() => setTemplatesLoading(false));
+  }, []);
+
+  // Load custom template status
+  const loadCustomTemplateStatus = () => {
+    setCustomTemplateLoading(true);
+    db.getCustomTemplateStatus()
+      .then((status) => {
+        setCustomTemplateStatus(status);
+        setCustomTemplateAutoSyncEnabled(status.auto_sync_enabled);
+        setCustomTemplateAutoSyncCron(status.auto_sync_cron);
+      })
+      .catch((err) => {
+        console.error('加载自定义模板状态失败:', err);
+      })
+      .finally(() => setCustomTemplateLoading(false));
+  };
+
+  useEffect(() => {
+    loadCustomTemplateStatus();
   }, []);
 
   // Load agent bots
@@ -607,6 +634,66 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       message.success('模板已复制');
     } catch (err: any) {
       message.error('复制失败: ' + (err?.message || String(err)));
+    }
+  };
+
+  // Custom template handlers
+  const handleSubscribeCustomTemplate = async () => {
+    if (!customTemplateUrl.trim()) {
+      message.error('请输入模板地址');
+      return;
+    }
+    setCustomTemplateSubscribing(true);
+    try {
+      const status = await db.subscribeCustomTemplate(customTemplateUrl.trim());
+      setCustomTemplateStatus(status);
+      // Reload templates to include new custom templates
+      const list = await db.getTodoTemplates();
+      setTemplates(list);
+      message.success('订阅成功');
+    } catch (err: any) {
+      message.error('订阅失败: ' + (err?.message || String(err)));
+    } finally {
+      setCustomTemplateSubscribing(false);
+    }
+  };
+
+  const handleUnsubscribeCustomTemplate = async () => {
+    try {
+      await db.unsubscribeCustomTemplate();
+      setCustomTemplateStatus(null);
+      setCustomTemplateUrl('');
+      // Reload templates to remove custom templates
+      const list = await db.getTodoTemplates();
+      setTemplates(list);
+      message.success('已取消订阅');
+    } catch (err: any) {
+      message.error('取消订阅失败: ' + (err?.message || String(err)));
+    }
+  };
+
+  const handleSyncCustomTemplate = async () => {
+    setCustomTemplateLoading(true);
+    try {
+      const status = await db.syncCustomTemplate();
+      setCustomTemplateStatus(status);
+      // Reload templates to include updated custom templates
+      const list = await db.getTodoTemplates();
+      setTemplates(list);
+      message.success('同步成功');
+    } catch (err: any) {
+      message.error('同步失败: ' + (err?.message || String(err)));
+    } finally {
+      setCustomTemplateLoading(false);
+    }
+  };
+
+  const handleUpdateCustomTemplateAutoSync = async () => {
+    try {
+      await db.updateCustomTemplateAutoSync(customTemplateAutoSyncEnabled, customTemplateAutoSyncCron);
+      message.success('自动同步配置已更新');
+    } catch (err: any) {
+      message.error('更新失败: ' + (err?.message || String(err)));
     }
   };
 
@@ -2566,6 +2653,115 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                           </Card>
                         ))
                       )}
+                    </div>
+                  ),
+                },
+                {
+                  key: 'custom',
+                  label: '自定义',
+                  children: (
+                    <div>
+                      <Spin spinning={customTemplateLoading}>
+                        {customTemplateStatus?.subscribed ? (
+                          <div>
+                            <Card size="small" style={{ marginBottom: 12 }}>
+                              <Space direction="vertical" style={{ width: '100%' }}>
+                                <div>
+                                  <Typography.Text type="secondary">订阅地址：</Typography.Text>
+                                  <Typography.Text copyable>{customTemplateStatus.source_url}</Typography.Text>
+                                </div>
+                                {customTemplateStatus.last_sync_at && (
+                                  <div>
+                                    <Typography.Text type="secondary">最后同步：</Typography.Text>
+                                    <Typography.Text>{customTemplateStatus.last_sync_at}</Typography.Text>
+                                  </div>
+                                )}
+                                <Space>
+                                  <Button icon={<ReloadOutlined />} onClick={handleSyncCustomTemplate}>
+                                    立即同步
+                                  </Button>
+                                  <Popconfirm
+                                    title="取消订阅"
+                                    description="确定要取消订阅吗？订阅的模板将被删除。"
+                                    onConfirm={handleUnsubscribeCustomTemplate}
+                                  >
+                                    <Button danger>取消订阅</Button>
+                                  </Popconfirm>
+                                </Space>
+                              </Space>
+                            </Card>
+
+                            <div style={{ marginBottom: 8 }}>
+                              <Typography.Text strong>自动同步</Typography.Text>
+                            </div>
+                            <Card size="small" style={{ marginBottom: 12 }}>
+                              <Space direction="vertical" style={{ width: '100%' }}>
+                                <div>
+                                  <Switch
+                                    checked={customTemplateAutoSyncEnabled}
+                                    onChange={(checked) => setCustomTemplateAutoSyncEnabled(checked)}
+                                  />
+                                  <Typography.Text style={{ marginLeft: 8 }}>启用自动同步</Typography.Text>
+                                </div>
+                                {customTemplateAutoSyncEnabled && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <Cron
+                                      value={cronTo5(customTemplateAutoSyncCron)}
+                                      setValue={(val: string) => setCustomTemplateAutoSyncCron(cronTo6(val))}
+                                      locale={CRON_ZH_LOCALE}
+                                    />
+                                    <Button type="primary" size="small" onClick={handleUpdateCustomTemplateAutoSync}>
+                                      保存
+                                    </Button>
+                                  </div>
+                                )}
+                              </Space>
+                            </Card>
+
+                            <div style={{ marginBottom: 8 }}>
+                              <Typography.Text strong>模板列表</Typography.Text>
+                            </div>
+                            {customTemplateStatus.templates.length === 0 ? (
+                              <Empty description="暂无自定义模板" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                            ) : (
+                              Array.from(new Set(customTemplateStatus.templates.map(t => t.category))).sort().map(category => (
+                                <Card key={category} title={category || '未分类'} size="small" style={{ marginBottom: 12 }}>
+                                  <List
+                                    dataSource={customTemplateStatus.templates.filter(t => t.category === category)}
+                                    renderItem={(template) => (
+                                      <List.Item style={{ padding: '8px 0' }}>
+                                        <List.Item.Meta
+                                          title={template.title}
+                                          description={template.prompt || '(无内容)'}
+                                        />
+                                      </List.Item>
+                                    )}
+                                  />
+                                </Card>
+                              ))
+                            )}
+                          </div>
+                        ) : (
+                          <Card size="small">
+                            <Space direction="vertical" style={{ width: '100%' }}>
+                              <Typography.Text>订阅一个在线模板地址，获取实时更新的自定义模板。</Typography.Text>
+                              <Input
+                                placeholder="输入模板地址，例如 https://example.com/templates.yaml"
+                                value={customTemplateUrl}
+                                onChange={(e) => setCustomTemplateUrl(e.target.value)}
+                                onPressEnter={handleSubscribeCustomTemplate}
+                              />
+                              <Button
+                                type="primary"
+                                loading={customTemplateSubscribing}
+                                onClick={handleSubscribeCustomTemplate}
+                              >
+                                订阅
+                              </Button>
+                            </Space>
+                          </Card>
+                        )}
+                      </Spin>
                     </div>
                   ),
                 },

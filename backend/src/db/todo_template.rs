@@ -18,6 +18,8 @@ impl Database {
             category: m.category,
             sort_order: m.sort_order.unwrap_or(0),
             is_system: m.is_system,
+            source_url: m.source_url,
+            last_sync_at: m.last_sync_at,
             created_at: m.created_at,
             updated_at: m.updated_at,
         }))
@@ -38,6 +40,8 @@ impl Database {
                 category: m.category,
                 sort_order: m.sort_order.unwrap_or(0),
                 is_system: m.is_system,
+                source_url: m.source_url,
+                last_sync_at: m.last_sync_at,
                 created_at: m.created_at,
                 updated_at: m.updated_at,
             })
@@ -60,6 +64,8 @@ impl Database {
                 category: m.category,
                 sort_order: m.sort_order.unwrap_or(0),
                 is_system: m.is_system,
+                source_url: m.source_url,
+                last_sync_at: m.last_sync_at,
                 created_at: m.created_at,
                 updated_at: m.updated_at,
             })
@@ -81,12 +87,68 @@ impl Database {
             category: ActiveValue::Set(category.to_string()),
             sort_order: ActiveValue::Set(sort_order),
             is_system: ActiveValue::Set(is_system),
+            source_url: ActiveValue::Set(None),
+            last_sync_at: ActiveValue::Set(None),
             created_at: ActiveValue::Set(Some(now.clone())),
             updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
         let inserted = am.insert(&self.conn).await?;
         Ok(inserted.id)
+    }
+
+    /// Create a custom template from remote URL sync
+    pub async fn create_template_from_remote(
+        &self,
+        title: &str,
+        prompt: Option<&str>,
+        category: &str,
+        sort_order: Option<i32>,
+        source_url: &str,
+    ) -> Result<i64, sea_orm::DbErr> {
+        let now = crate::models::utc_timestamp();
+        let am = todo_templates::ActiveModel {
+            title: ActiveValue::Set(title.to_string()),
+            prompt: ActiveValue::Set(prompt.map(String::from)),
+            category: ActiveValue::Set(category.to_string()),
+            sort_order: ActiveValue::Set(sort_order),
+            is_system: ActiveValue::Set(false),
+            source_url: ActiveValue::Set(Some(source_url.to_string())),
+            last_sync_at: ActiveValue::Set(Some(now.clone())),
+            created_at: ActiveValue::Set(Some(now.clone())),
+            updated_at: ActiveValue::Set(Some(now)),
+            ..Default::default()
+        };
+        let inserted = am.insert(&self.conn).await?;
+        Ok(inserted.id)
+    }
+
+    /// Get custom template subscription info (templates with source_url set)
+    pub async fn get_custom_template_subscription(&self) -> Result<Option<(String, Option<String>)>, sea_orm::DbErr> {
+        let model = todo_templates::Entity::find()
+            .filter(todo_templates::Column::SourceUrl.is_not_null())
+            .order_by_desc(todo_templates::Column::UpdatedAt)
+            .one(&self.conn)
+            .await?;
+        Ok(model.map(|m| (m.source_url.unwrap(), m.last_sync_at)))
+    }
+
+    /// Delete all templates that came from a specific remote URL (for re-sync)
+    pub async fn delete_templates_by_source_url(&self, source_url: &str) -> Result<u64, sea_orm::DbErr> {
+        let count = todo_templates::Entity::delete_many()
+            .filter(todo_templates::Column::SourceUrl.eq(source_url.to_string()))
+            .exec(&self.conn)
+            .await?;
+        Ok(count.rows_affected)
+    }
+
+    /// Delete all custom templates (where source_url is not null)
+    pub async fn delete_all_custom_templates(&self) -> Result<u64, sea_orm::DbErr> {
+        let count = todo_templates::Entity::delete_many()
+            .filter(todo_templates::Column::SourceUrl.is_not_null())
+            .exec(&self.conn)
+            .await?;
+        Ok(count.rows_affected)
     }
 
     pub async fn update_template(

@@ -590,6 +590,8 @@ pub struct TodoTemplate {
     pub category: String,
     pub sort_order: i32,
     pub is_system: bool,
+    pub source_url: Option<String>,
+    pub last_sync_at: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
