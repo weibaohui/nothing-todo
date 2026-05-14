@@ -2592,13 +2592,13 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                           新建模板
                         </Button>
                       </div>
-                      {templates.filter(t => !t.is_system).length === 0 ? (
+                      {templates.filter(t => !t.is_system && !t.source_url).length === 0 ? (
                         <Empty description="暂无用户模板" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                       ) : (
-                        Array.from(new Set(templates.filter(t => !t.is_system).map(t => t.category))).sort().map(category => (
+                        Array.from(new Set(templates.filter(t => !t.is_system && !t.source_url).map(t => t.category))).sort().map(category => (
                           <Card key={category} title={category || '未分类'} size="small" style={{ marginBottom: 12 }}>
                             <List
-                              dataSource={templates.filter(t => !t.is_system && t.category === category)}
+                              dataSource={templates.filter(t => !t.is_system && !t.source_url && t.category === category)}
                               renderItem={(template) => (
                                 <List.Item
                                   style={{ padding: '8px 0' }}
