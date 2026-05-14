@@ -1,11 +1,19 @@
-import { useState, useMemo, useCallback } from 'react';
-import { Input, App } from 'antd';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { Input, Segmented, App } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useApp } from '../hooks/useApp';
-import { ExecutorBadge } from './ExecutorBadge';
+import { TodoCard } from './TodoCard';
 import * as db from '../utils/database';
 import { formatRelativeTime } from '../utils/datetime';
-import type { Todo } from '../types';
+import type { Todo, ExecutionRecord } from '../types';
+
+const TIME_OPTIONS: { label: string; value: number }[] = [
+  { label: '6h',  value: 6 },
+  { label: '12h', value: 12 },
+  { label: '24h', value: 24 },
+  { label: '3d',  value: 72 },
+  { label: '7d',  value: 168 },
+];
 
 /* ─── Column Definitions ─── */
 
@@ -28,32 +36,71 @@ function getColumnForStatus(status: Todo['status']): ColumnDef {
   return COLUMNS.find(c => c.status === status) || COLUMNS[0];
 }
 
-/* ─── Props ─── */
-
-interface KanbanBoardProps {
-  onSelectTodo?: (todoId: number) => void;
-}
-
 /* ─── Component ─── */
 
-export function KanbanBoard({ onSelectTodo }: KanbanBoardProps) {
+export function KanbanBoard({ searchText: externalSearch, hours: externalHours, onSearchChange, onHoursChange }: { searchText?: string; hours?: number; onSearchChange?: (v: string) => void; onHoursChange?: (h: number) => void } = {}) {
   const { state, dispatch } = useApp();
   const { message } = App.useApp();
   const { todos, tags, selectedTodoId } = state;
 
-  const [searchText, setSearchText] = useState('');
+  const [internalSearch, setInternalSearch] = useState('');
+  const [internalHours, setInternalHours] = useState(24);
+  const searchText = externalSearch ?? internalSearch;
+  const hours = externalHours ?? internalHours;
+  const handleSearchChange = (v: string) => { if (onSearchChange) onSearchChange(v); else setInternalSearch(v); };
+  const handleHoursChange = (h: number) => { if (onHoursChange) onHoursChange(h); else setInternalHours(h); };
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<Todo['status'] | null>(null);
+  const [expandedPromptIds, setExpandedPromptIds] = useState<Set<number>>(new Set());
+  const [expandedResultIds, setExpandedResultIds] = useState<Set<number>>(new Set());
+  const [todoResults, setTodoResults] = useState<Record<number, string>>({});
+  const [loadingResults, setLoadingResults] = useState<Set<number>>(new Set());
 
-  /* ─── Filter by search ─── */
+  /* ─── Eagerly fetch execution records for completed/failed todos ─── */
+  const [execRecordCache, setExecRecordCache] = useState<Record<number, ExecutionRecord>>({});
+  const fetchAttempted = useRef<Set<number>>(new Set());
+
+  useEffect(() => {
+    const finished = todos.filter(t => t.status === 'completed' || t.status === 'failed');
+    for (const todo of finished) {
+      if (fetchAttempted.current.has(todo.id)) continue;
+      fetchAttempted.current.add(todo.id);
+
+      // Already in global state? copy to local cache
+      const global = state.executionRecords[todo.id];
+      if (global?.length) {
+        if (!execRecordCache[todo.id]) {
+          setExecRecordCache(prev => ({ ...prev, [todo.id]: global[0] }));
+        }
+        continue;
+      }
+      // Lazy-fetch from API
+      db.getExecutionRecords(todo.id, 1, 1).then(page => {
+        if (page.records.length > 0) {
+          setExecRecordCache(prev => ({ ...prev, [todo.id]: page.records[0] }));
+        }
+      }).catch(() => {});
+    }
+  }, [todos, state.executionRecords, execRecordCache]);
+
+  /* ─── Filter by search + time ─── */
   const filteredTodos = useMemo(() => {
-    if (!searchText.trim()) return todos;
-    const q = searchText.toLowerCase();
-    return todos.filter(t =>
-      t.title.toLowerCase().includes(q) ||
-      (t.prompt && t.prompt.toLowerCase().includes(q))
-    );
-  }, [todos, searchText]);
+    const cutoff = hours ? Date.now() - hours * 3600 * 1000 : 0;
+    return todos.filter(t => {
+      // Time filter: only for completed/failed todos
+      if ((t.status === 'completed' || t.status === 'failed') && cutoff > 0) {
+        const tUpdated = new Date(t.updated_at).getTime();
+        if (isNaN(tUpdated) || tUpdated < cutoff) return false;
+      }
+      // Search filter
+      if (searchText.trim()) {
+        const q = searchText.toLowerCase();
+        return t.title.toLowerCase().includes(q) ||
+          (t.prompt && t.prompt.toLowerCase().includes(q));
+      }
+      return true;
+    });
+  }, [todos, searchText, hours]);
 
   /* ─── Group by status ─── */
   const grouped = useMemo(() => {
@@ -132,77 +179,94 @@ export function KanbanBoard({ onSelectTodo }: KanbanBoardProps) {
     }
   }, [todos, dispatch, message]);
 
-  /* ─── Click to select ─── */
-  const handleCardClick = useCallback((todoId: number) => {
-    if (onSelectTodo) {
-      onSelectTodo(todoId);
-    } else {
-      dispatch({ type: 'SELECT_TODO', payload: todoId });
+  /* ─── Toggle expand prompt ─── */
+  const togglePrompt = useCallback((todoId: number) => {
+    setExpandedPromptIds(prev => {
+      const next = new Set(prev);
+      if (next.has(todoId)) next.delete(todoId); else next.add(todoId);
+      return next;
+    });
+  }, []);
+
+  /* ─── Toggle expand result & lazy-fetch ─── */
+  const toggleResult = useCallback(async (todo: Todo) => {
+    const todoId = todo.id;
+
+    // If not expanded yet and no cached result, try to fetch
+    if (!expandedResultIds.has(todoId) && !todoResults[todoId]) {
+      // Check state cache first
+      const records = state.executionRecords[todoId];
+      if (records && records.length > 0) {
+        const latest = records[0];
+        if (latest.result) {
+          setTodoResults(prev => ({ ...prev, [todoId]: latest.result! }));
+        }
+      } else {
+        // Lazy-fetch from API
+        if (loadingResults.has(todoId)) return;
+        setLoadingResults(prev => new Set(prev).add(todoId));
+        try {
+          const page = await db.getExecutionRecords(todoId, 1, 1);
+          if (page.records.length > 0 && page.records[0].result) {
+            setTodoResults(prev => ({ ...prev, [todoId]: page.records[0].result! }));
+          }
+        } catch {
+          // silently ignore
+        } finally {
+          setLoadingResults(prev => { const n = new Set(prev); n.delete(todoId); return n; });
+        }
+      }
     }
-  }, [dispatch, onSelectTodo]);
+
+    setExpandedResultIds(prev => {
+      const next = new Set(prev);
+      if (next.has(todoId)) next.delete(todoId); else next.add(todoId);
+      return next;
+    });
+  }, [expandedResultIds, todoResults, loadingResults, state.executionRecords]);
 
   /* ─── Render Card ─── */
   const renderCard = (todo: Todo) => {
     const column = getColumnForStatus(todo.status);
     const todoTags = tags.filter(t => todo.tag_ids?.includes(t.id));
     const isDragging = draggingId === todo.id;
+    const isSuccess = todo.status === 'completed';
+    const isFinished = todo.status === 'completed' || todo.status === 'failed';
+    const promptExpanded = expandedPromptIds.has(todo.id);
+    const resultExpanded = expandedResultIds.has(todo.id);
+    const resultText = todoResults[todo.id] || '';
+    const isLoadingResult = loadingResults.has(todo.id);
+    const records = state.executionRecords[todo.id] || [];
+    const todoExecutionRecord: ExecutionRecord | undefined =
+      records.length > 0 ? records[0] : execRecordCache[todo.id];
 
     return (
       <div
         key={todo.id}
-        className={`kanban-card ${selectedTodoId === todo.id ? 'selected' : ''} ${isDragging ? 'dragging' : ''}`}
+        className={`kanban-card ${selectedTodoId === todo.id ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isFinished && resultText ? 'has-result' : ''}`}
         draggable
         onDragStart={e => handleDragStart(todo.id, e)}
         onDragEnd={handleDragEnd}
-        onClick={() => handleCardClick(todo.id)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={e => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            handleCardClick(todo.id);
-          }
-        }}
-        style={{ borderLeftColor: column.color }}
+        style={{ borderTop: `3px solid ${column.color}` }}
       >
-        {/* Title */}
-        <div className="kanban-card-title" title={todo.title}>
-          {todo.title}
-        </div>
-
-        {/* Prompt preview */}
-        {todo.prompt && todo.prompt !== todo.title && (
-          <div className="kanban-card-desc">
-            {todo.prompt.length > 50 ? todo.prompt.slice(0, 50) + '…' : todo.prompt}
-          </div>
-        )}
-
-        {/* Tags */}
-        {todoTags.length > 0 && (
-          <div className="kanban-card-tags">
-            {todoTags.map(tag => (
-              <span
-                key={tag.id}
-                className="kanban-tag-badge"
-                style={{
-                  backgroundColor: tag.color + '18',
-                  color: tag.color,
-                  border: `1px solid ${tag.color}30`,
-                }}
-              >
-                {tag.name}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Footer */}
-        <div className="kanban-card-footer">
-          {todo.executor && <ExecutorBadge executor={todo.executor} />}
-          <span className="kanban-card-time">
-            {formatRelativeTime(todo.updated_at)}
-          </span>
-        </div>
+        <TodoCard
+          title={todo.title}
+          prompt={todo.prompt}
+          resultText={resultText}
+          isSuccess={isSuccess}
+          showResultSection={isFinished}
+          executor={todo.executor}
+          time={formatRelativeTime(todo.updated_at)}
+          model={todoExecutionRecord?.model}
+          tags={todoTags}
+          usage={todoExecutionRecord?.usage}
+          triggerType={todoExecutionRecord?.trigger_type}
+          promptExpanded={promptExpanded}
+          resultExpanded={resultExpanded}
+          onTogglePrompt={() => togglePrompt(todo.id)}
+          onToggleResult={() => toggleResult(todo)}
+          isLoadingResult={isLoadingResult}
+        />
       </div>
     );
   };
@@ -249,42 +313,54 @@ export function KanbanBoard({ onSelectTodo }: KanbanBoardProps) {
   /* ─── Render ─── */
   return (
     <div className="kanban-board">
-      {/* Top Bar */}
-      <div className="kanban-topbar">
-        <div className="kanban-topbar-left">
-          <Input
-            className="kanban-search"
-            placeholder="搜索任务…"
-            prefix={<SearchOutlined style={{ color: 'var(--color-text-tertiary)' }} />}
-            value={searchText}
-            onChange={e => setSearchText(e.target.value)}
-            allowClear
-            size="small"
-            style={{ width: 220 }}
-          />
+      {/* Top Bar — hidden when parent controls filters */}
+      {externalSearch === undefined ? (
+        <div className="kanban-topbar">
+          <div className="kanban-topbar-left">
+            <Input
+              className="kanban-search"
+              placeholder="搜索任务…"
+              prefix={<SearchOutlined style={{ color: 'var(--color-text-tertiary)' }} />}
+              value={searchText}
+              onChange={e => handleSearchChange(e.target.value)}
+              allowClear
+              size="small"
+              style={{ width: 220 }}
+            />
+            <Segmented
+              size="small"
+              options={TIME_OPTIONS.map(o => ({ label: o.label, value: o.label }))}
+              value={TIME_OPTIONS.find(o => o.value === hours)?.label || '24h'}
+              onChange={label => {
+                const opt = TIME_OPTIONS.find(o => o.label === label);
+                if (opt) handleHoursChange(opt.value);
+              }}
+              style={{ marginLeft: 8 }}
+            />
+          </div>
+          <div className="kanban-topbar-right">
+            <span className="kanban-summary-item" style={{ color: '#3b82f6' }}>
+              待办 <strong>{stats.pending}</strong>
+            </span>
+            <span className="kanban-summary-divider" />
+            <span className="kanban-summary-item" style={{ color: '#f59e0b' }}>
+              进行中 <strong>{stats.running}</strong>
+            </span>
+            <span className="kanban-summary-divider" />
+            <span className="kanban-summary-item" style={{ color: '#22c55e' }}>
+              已完成 <strong>{stats.completed}</strong>
+            </span>
+            <span className="kanban-summary-divider" />
+            <span className="kanban-summary-item" style={{ color: '#ef4444' }}>
+              失败 <strong>{stats.failed}</strong>
+            </span>
+            <span className="kanban-summary-divider" />
+            <span className="kanban-summary-item" style={{ color: 'var(--color-text-secondary)' }}>
+              共 <strong>{totalCount}</strong>
+            </span>
+          </div>
         </div>
-        <div className="kanban-topbar-right">
-          <span className="kanban-summary-item" style={{ color: '#3b82f6' }}>
-            待办 <strong>{stats.pending}</strong>
-          </span>
-          <span className="kanban-summary-divider" />
-          <span className="kanban-summary-item" style={{ color: '#f59e0b' }}>
-            进行中 <strong>{stats.running}</strong>
-          </span>
-          <span className="kanban-summary-divider" />
-          <span className="kanban-summary-item" style={{ color: '#22c55e' }}>
-            已完成 <strong>{stats.completed}</strong>
-          </span>
-          <span className="kanban-summary-divider" />
-          <span className="kanban-summary-item" style={{ color: '#ef4444' }}>
-            失败 <strong>{stats.failed}</strong>
-          </span>
-          <span className="kanban-summary-divider" />
-          <span className="kanban-summary-item" style={{ color: 'var(--color-text-secondary)' }}>
-            共 <strong>{totalCount}</strong>
-          </span>
-        </div>
-      </div>
+      ) : null}
 
       {/* Columns */}
       <div className="kanban-columns-container">

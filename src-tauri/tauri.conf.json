@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.ntd.desktop",
   "build": {
+    "frontendDist": "../frontend/dist",
     "devUrl": "http://localhost:8088"
   },
   "app": {

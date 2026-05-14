@@ -140,10 +140,14 @@ cross-list:
 	@echo "Built binaries: backend/target/cross/"
 
 # Tauri desktop app
-TAURI_CLI ?= tauri
+TAURI_CLI ?= cargo tauri
 
 tauri-dev:
-	export PATH="$$HOME/.cargo/bin:$$PATH" && cd src-tauri && $(TAURI_CLI) dev
+	export PATH="$$HOME/.cargo/bin:$$PATH" && \
+	(cd frontend && npm run build) && \
+	(cd backend && cargo run &) && \
+	sleep 3 && \
+	cd src-tauri && $(TAURI_CLI) dev
 
 tauri-build:
 	export PATH="$$HOME/.cargo/bin:$$PATH" && cd src-tauri && $(TAURI_CLI) build
