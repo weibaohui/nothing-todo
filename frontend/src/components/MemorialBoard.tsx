@@ -7,10 +7,13 @@ import {
   RobotOutlined,
   CopyOutlined,
   LeftOutlined,
+  AppstoreOutlined,
+  ProfileOutlined,
 } from '@ant-design/icons';
 import XMarkdown from '@ant-design/x-markdown';
 import { useApp } from '../hooks/useApp';
 import { ExecutorBadge } from './ExecutorBadge';
+import { KanbanBoard } from './KanbanBoard';
 import * as db from '../utils/database';
 import { formatRelativeTime } from '../utils/datetime';
 import type { RecentCompletedTodo } from '../types';
@@ -39,14 +42,21 @@ interface MemorialBoardProps {
   onBack?: () => void;
 }
 
+type BoardMode = 'memorial' | 'kanban';
+
 export function MemorialBoard({ onBack }: MemorialBoardProps) {
   const { state, dispatch } = useApp();
+  const { onSelectTodo } = { onSelectTodo: (todoId: number) => {
+    dispatch({ type: 'SELECT_TODO', payload: todoId });
+  } };
+  const [boardMode, setBoardMode] = useState<BoardMode>('memorial');
   const [items, setItems] = useState<RecentCompletedTodo[]>([]);
   const [loading, setLoading] = useState(true);
   const [hours, setHours] = useState(24);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
+    if (boardMode !== 'memorial') return;
     let cancelled = false;
     setLoading(true);
     db.getRecentCompletedTodos(hours)
@@ -60,7 +70,7 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [hours]);
+  }, [hours, boardMode]);
 
   const toggleExpand = (todoId: number) => {
     setExpandedIds(prev => {
@@ -210,26 +220,41 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
           <h2 className="memorial-title">看板</h2>
           <Segmented
             size="small"
-            options={TIME_OPTIONS.map(o => ({ label: o.label, value: o.label }))}
-            value={TIME_OPTIONS.find(o => o.value === hours)?.label || '24h'}
-            onChange={label => {
-              const opt = TIME_OPTIONS.find(o => o.label === label);
-              if (opt) setHours(opt.value);
-            }}
+            value={boardMode}
+            onChange={value => setBoardMode(value as BoardMode)}
+            options={[
+              { label: <span><ProfileOutlined /> 执行结论</span>, value: 'memorial' },
+              { label: <span><AppstoreOutlined /> 飞书看板</span>, value: 'kanban' },
+            ]}
           />
+          {boardMode === 'memorial' && (
+            <Segmented
+              size="small"
+              options={TIME_OPTIONS.map(o => ({ label: o.label, value: o.label }))}
+              value={TIME_OPTIONS.find(o => o.value === hours)?.label || '24h'}
+              onChange={label => {
+                const opt = TIME_OPTIONS.find(o => o.label === label);
+                if (opt) setHours(opt.value);
+              }}
+            />
+          )}
         </div>
-        <div className="memorial-summary">
-          <span className="memorial-stat-dot memorial-stat-all">共 <strong>{items.length}</strong> 条</span>
-          <span className="memorial-stat-dot memorial-stat-success">
-            <CheckCircleOutlined /> <strong>{successCount}</strong> 成功
-          </span>
-          <span className="memorial-stat-dot memorial-stat-failed">
-            <CloseCircleOutlined /> <strong>{failedCount}</strong> 失败
-          </span>
-        </div>
+        {boardMode === 'memorial' && (
+          <div className="memorial-summary">
+            <span className="memorial-stat-dot memorial-stat-all">共 <strong>{items.length}</strong> 条</span>
+            <span className="memorial-stat-dot memorial-stat-success">
+              <CheckCircleOutlined /> <strong>{successCount}</strong> 成功
+            </span>
+            <span className="memorial-stat-dot memorial-stat-failed">
+              <CloseCircleOutlined /> <strong>{failedCount}</strong> 失败
+            </span>
+          </div>
+        )}
       </div>
 
-      {loading ? (
+      {boardMode === 'kanban' ? (
+        <KanbanBoard onSelectTodo={onSelectTodo} />
+      ) : loading ? (
         <div className="memorial-grid">
           {[1, 2, 3, 4].map(i => (
             <Card key={i} className="memorial-card" size="small" bodyStyle={{ padding: 12 }}>
