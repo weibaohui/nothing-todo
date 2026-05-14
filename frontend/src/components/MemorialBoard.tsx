@@ -56,6 +56,7 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
+    if (boardMode !== 'memorial') return;
     let cancelled = false;
     setLoading(true);
     db.getRecentCompletedTodos(hours)
@@ -69,7 +70,7 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [hours]);
+  }, [hours, boardMode]);
 
   const toggleExpand = (todoId: number) => {
     setExpandedIds(prev => {

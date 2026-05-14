@@ -134,8 +134,11 @@ export function KanbanBoard({ onSelectTodo }: KanbanBoardProps) {
 
   /* ─── Click to select ─── */
   const handleCardClick = useCallback((todoId: number) => {
-    dispatch({ type: 'SELECT_TODO', payload: todoId });
-    onSelectTodo?.(todoId);
+    if (onSelectTodo) {
+      onSelectTodo(todoId);
+    } else {
+      dispatch({ type: 'SELECT_TODO', payload: todoId });
+    }
   }, [dispatch, onSelectTodo]);
 
   /* ─── Render Card ─── */
