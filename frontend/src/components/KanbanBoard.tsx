@@ -1,6 +1,13 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Input, App } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
+import { Input, App, Tag } from 'antd';
+import {
+  SearchOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  ClockCircleOutlined,
+  CopyOutlined,
+} from '@ant-design/icons';
+import XMarkdown from '@ant-design/x-markdown';
 import { useApp } from '../hooks/useApp';
 import { ExecutorBadge } from './ExecutorBadge';
 import * as db from '../utils/database';
@@ -44,6 +51,10 @@ export function KanbanBoard({ onSelectTodo }: KanbanBoardProps) {
   const [searchText, setSearchText] = useState('');
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<Todo['status'] | null>(null);
+  const [expandedPromptIds, setExpandedPromptIds] = useState<Set<number>>(new Set());
+  const [expandedResultIds, setExpandedResultIds] = useState<Set<number>>(new Set());
+  const [todoResults, setTodoResults] = useState<Record<number, string>>({});
+  const [loadingResults, setLoadingResults] = useState<Set<number>>(new Set());
 
   /* ─── Filter by search ─── */
   const filteredTodos = useMemo(() => {
@@ -141,16 +152,68 @@ export function KanbanBoard({ onSelectTodo }: KanbanBoardProps) {
     }
   }, [dispatch, onSelectTodo]);
 
+  /* ─── Toggle expand prompt ─── */
+  const togglePrompt = useCallback((todoId: number) => {
+    setExpandedPromptIds(prev => {
+      const next = new Set(prev);
+      if (next.has(todoId)) next.delete(todoId); else next.add(todoId);
+      return next;
+    });
+  }, []);
+
+  /* ─── Toggle expand result & lazy-fetch ─── */
+  const toggleResult = useCallback(async (todo: Todo) => {
+    const todoId = todo.id;
+
+    // If not expanded yet and no cached result, try to fetch
+    if (!expandedResultIds.has(todoId) && !todoResults[todoId]) {
+      // Check state cache first
+      const records = state.executionRecords[todoId];
+      if (records && records.length > 0) {
+        const latest = records[0];
+        if (latest.result) {
+          setTodoResults(prev => ({ ...prev, [todoId]: latest.result! }));
+        }
+      } else {
+        // Lazy-fetch from API
+        if (loadingResults.has(todoId)) return;
+        setLoadingResults(prev => new Set(prev).add(todoId));
+        try {
+          const page = await db.getExecutionRecords(todoId, 1, 1);
+          if (page.records.length > 0 && page.records[0].result) {
+            setTodoResults(prev => ({ ...prev, [todoId]: page.records[0].result! }));
+          }
+        } catch {
+          // silently ignore
+        } finally {
+          setLoadingResults(prev => { const n = new Set(prev); n.delete(todoId); return n; });
+        }
+      }
+    }
+
+    setExpandedResultIds(prev => {
+      const next = new Set(prev);
+      if (next.has(todoId)) next.delete(todoId); else next.add(todoId);
+      return next;
+    });
+  }, [expandedResultIds, todoResults, loadingResults, state.executionRecords]);
+
   /* ─── Render Card ─── */
   const renderCard = (todo: Todo) => {
     const column = getColumnForStatus(todo.status);
     const todoTags = tags.filter(t => todo.tag_ids?.includes(t.id));
     const isDragging = draggingId === todo.id;
+    const isSuccess = todo.status === 'completed';
+    const isFinished = todo.status === 'completed' || todo.status === 'failed';
+    const promptExpanded = expandedPromptIds.has(todo.id);
+    const resultExpanded = expandedResultIds.has(todo.id);
+    const resultText = todoResults[todo.id] || '';
+    const isLoadingResult = loadingResults.has(todo.id);
 
     return (
       <div
         key={todo.id}
-        className={`kanban-card ${selectedTodoId === todo.id ? 'selected' : ''} ${isDragging ? 'dragging' : ''}`}
+        className={`kanban-card ${selectedTodoId === todo.id ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isFinished && resultText ? 'has-result' : ''}`}
         draggable
         onDragStart={e => handleDragStart(todo.id, e)}
         onDragEnd={handleDragEnd}
@@ -163,42 +226,112 @@ export function KanbanBoard({ onSelectTodo }: KanbanBoardProps) {
             handleCardClick(todo.id);
           }
         }}
-        style={{ borderLeftColor: column.color }}
+        style={{ borderTop: `3px solid ${column.color}` }}
       >
-        {/* Title */}
-        <div className="kanban-card-title" title={todo.title}>
-          {todo.title}
+        {/* Card Header — Title + Status Icon */}
+        <div className="kanban-card-header">
+          <div className="kanban-card-top">
+            <span className="kanban-card-title" title={todo.title}>
+              {todo.title}
+            </span>
+            {isFinished && (
+              isSuccess ? (
+                <CheckCircleOutlined className="kanban-status-icon kanban-status-success" />
+              ) : (
+                <CloseCircleOutlined className="kanban-status-icon kanban-status-failed" />
+              )
+            )}
+          </div>
+
+          {/* Meta Row */}
+          <div className="kanban-card-meta-row">
+            {todo.executor && <ExecutorBadge executor={todo.executor} />}
+            <span className="kanban-card-meta-time">
+              <ClockCircleOutlined /> {formatRelativeTime(todo.updated_at)}
+            </span>
+          </div>
+
+          {/* Tags */}
+          {todoTags.length > 0 && (
+            <div className="kanban-card-tags">
+              {todoTags.map(tag => (
+                <Tag key={tag.id} color={tag.color} className="kanban-tag-badge">
+                  {tag.name}
+                </Tag>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Prompt preview */}
-        {todo.prompt && todo.prompt !== todo.title && (
-          <div className="kanban-card-desc">
-            {todo.prompt.length > 50 ? todo.prompt.slice(0, 50) + '…' : todo.prompt}
-          </div>
-        )}
-
-        {/* Tags */}
-        {todoTags.length > 0 && (
-          <div className="kanban-card-tags">
-            {todoTags.map(tag => (
-              <span
-                key={tag.id}
-                className="kanban-tag-badge"
-                style={{
-                  backgroundColor: tag.color + '18',
-                  color: tag.color,
-                  border: `1px solid ${tag.color}30`,
-                }}
+        {/* Card Body — Expandable Sections */}
+        <div className="kanban-card-body">
+          {/* Prompt Section */}
+          {todo.prompt && todo.prompt !== todo.title && (
+            <div className="kanban-card-section">
+              <div
+                className="kanban-card-section-header kanban-section-prompt"
+                onClick={e => { e.stopPropagation(); togglePrompt(todo.id); }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); togglePrompt(todo.id); } }}
               >
-                {tag.name}
-              </span>
-            ))}
-          </div>
-        )}
+                <span className="kanban-card-section-label">📋 Prompt</span>
+                <span className="kanban-card-section-toggle">
+                  {promptExpanded ? '收起' : '展开'}
+                </span>
+              </div>
+              {promptExpanded && (
+                <div className="kanban-card-section-content">
+                  <XMarkdown content={todo.prompt} />
+                </div>
+              )}
+            </div>
+          )}
 
-        {/* Footer */}
+          {/* Result Section (completed/failed only) */}
+          {isFinished && (
+            <div className="kanban-card-section">
+              <div
+                className={`kanban-card-section-header kanban-section-result ${isSuccess ? 'result-success' : 'result-failed'}`}
+                onClick={e => { e.stopPropagation(); toggleResult(todo); }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleResult(todo); } }}
+              >
+                <span className="kanban-card-section-label">✅ 结论</span>
+                {resultText && (
+                  <button
+                    className="kanban-copy-btn"
+                    onClick={e => {
+                      e.stopPropagation();
+                      navigator.clipboard.writeText(resultText).then(() => message.success('已复制'));
+                    }}
+                    title="复制结论"
+                  >
+                    <CopyOutlined />
+                  </button>
+                )}
+                <span className="kanban-card-section-toggle">
+                  {isLoadingResult ? '加载中…' : (resultExpanded ? '收起' : '展开')}
+                </span>
+              </div>
+              {resultExpanded && (
+                <div className="kanban-card-section-content">
+                  {isLoadingResult ? (
+                    <span className="kanban-loading-text">加载中…</span>
+                  ) : resultText ? (
+                    <XMarkdown content={resultText} />
+                  ) : (
+                    <span className="kanban-no-result">暂无结论</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer — Usage time */}
         <div className="kanban-card-footer">
-          {todo.executor && <ExecutorBadge executor={todo.executor} />}
           <span className="kanban-card-time">
             {formatRelativeTime(todo.updated_at)}
           </span>
