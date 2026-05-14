@@ -2875,4 +2875,25 @@ code {
     min-width: 200px;
     max-width: 260px;
   }
+
+  .kanban-mobile-tabs {
+    padding: 0;
+  }
+
+  .kanban-mobile-tabs .ant-tabs-nav {
+    margin-bottom: 0;
+  }
+
+  .kanban-mobile-tabs .ant-tabs-tab {
+    font-size: 13px;
+  }
+
+  .kanban-mobile-list {
+    padding: var(--space-sm);
+  }
+
+  .kanban-mobile-list .kanban-card {
+    margin-bottom: var(--space-sm);
+    cursor: default;
+  }
 }

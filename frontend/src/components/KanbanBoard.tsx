@@ -1,7 +1,8 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Input, Segmented, App } from 'antd';
+import { Input, Segmented, App, Tabs } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useApp } from '../hooks/useApp';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { TodoCard } from './TodoCard';
 import * as db from '../utils/database';
 import { formatRelativeTime } from '../utils/datetime';
@@ -55,6 +56,7 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
   const [expandedResultIds, setExpandedResultIds] = useState<Set<number>>(new Set());
   const [todoResults, setTodoResults] = useState<Record<number, string>>({});
   const [loadingResults, setLoadingResults] = useState<Set<number>>(new Set());
+  const isMobile = useIsMobile();
 
   /* ─── Eagerly fetch execution records for completed/failed todos ─── */
   const [execRecordCache, setExecRecordCache] = useState<Record<number, ExecutionRecord>>({});
@@ -362,10 +364,32 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
         </div>
       ) : null}
 
-      {/* Columns */}
-      <div className="kanban-columns-container">
-        {COLUMNS.map(renderColumn)}
-      </div>
+      {/* Desktop: Columns */}
+      {!isMobile && (
+        <div className="kanban-columns-container">
+          {COLUMNS.map(renderColumn)}
+        </div>
+      )}
+
+      {/* Mobile: Swipeable Tabs */}
+      {isMobile && (
+        <Tabs
+          className="kanban-mobile-tabs"
+          items={COLUMNS.map(col => ({
+            key: col.status,
+            label: `${col.label} (${grouped[col.status].length})`,
+            children: (
+              <div className="kanban-mobile-list">
+                {grouped[col.status].length === 0 ? (
+                  <div className="kanban-column-empty">暂无任务</div>
+                ) : (
+                  grouped[col.status].map(renderCard)
+                )}
+              </div>
+            ),
+          }))}
+        />
+      )}
     </div>
   );
 }
