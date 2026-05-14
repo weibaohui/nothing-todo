@@ -35,15 +35,9 @@ function getColumnForStatus(status: Todo['status']): ColumnDef {
   return COLUMNS.find(c => c.status === status) || COLUMNS[0];
 }
 
-/* ─── Props ─── */
-
-interface KanbanBoardProps {
-  onSelectTodo?: (todoId: number) => void;
-}
-
 /* ─── Component ─── */
 
-export function KanbanBoard({ onSelectTodo }: KanbanBoardProps) {
+export function KanbanBoard() {
   const { state, dispatch } = useApp();
   const { message } = App.useApp();
   const { todos, tags, selectedTodoId } = state;
@@ -143,15 +137,6 @@ export function KanbanBoard({ onSelectTodo }: KanbanBoardProps) {
     }
   }, [todos, dispatch, message]);
 
-  /* ─── Click to select ─── */
-  const handleCardClick = useCallback((todoId: number) => {
-    if (onSelectTodo) {
-      onSelectTodo(todoId);
-    } else {
-      dispatch({ type: 'SELECT_TODO', payload: todoId });
-    }
-  }, [dispatch, onSelectTodo]);
-
   /* ─── Toggle expand prompt ─── */
   const togglePrompt = useCallback((todoId: number) => {
     setExpandedPromptIds(prev => {
@@ -217,15 +202,6 @@ export function KanbanBoard({ onSelectTodo }: KanbanBoardProps) {
         draggable
         onDragStart={e => handleDragStart(todo.id, e)}
         onDragEnd={handleDragEnd}
-        onClick={() => handleCardClick(todo.id)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={e => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            handleCardClick(todo.id);
-          }
-        }}
         style={{ borderTop: `3px solid ${column.color}` }}
       >
         {/* Card Header — Title + Status Icon */}

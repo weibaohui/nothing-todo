@@ -46,9 +46,6 @@ type BoardMode = 'memorial' | 'kanban';
 
 export function MemorialBoard({ onBack }: MemorialBoardProps) {
   const { state, dispatch } = useApp();
-  const { onSelectTodo } = { onSelectTodo: (todoId: number) => {
-    dispatch({ type: 'SELECT_TODO', payload: todoId });
-  } };
   const [boardMode, setBoardMode] = useState<BoardMode>('memorial');
   const [items, setItems] = useState<RecentCompletedTodo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -253,7 +250,7 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
       </div>
 
       {boardMode === 'kanban' ? (
-        <KanbanBoard onSelectTodo={onSelectTodo} />
+        <KanbanBoard />
       ) : loading ? (
         <div className="memorial-grid">
           {[1, 2, 3, 4].map(i => (
