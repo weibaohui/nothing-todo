@@ -2360,6 +2360,15 @@ code {
     padding: var(--space-sm);
   }
 
+  .memorial-header-top {
+    align-items: center;
+  }
+
+  .memorial-back-btn {
+    margin-right: 8px;
+    padding: 4px 8px;
+  }
+
   .memorial-title {
     font-size: 16px;
   }
