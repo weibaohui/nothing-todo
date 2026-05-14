@@ -59,6 +59,11 @@ const { Text, Paragraph } = Typography;
 
 const EXECUTOR_COLORS: Record<string, string> = {};
 EXECUTORS.forEach(e => { EXECUTOR_COLORS[e.value] = e.color; });
+// Aliases for backward compatibility
+EXECUTOR_COLORS['claude_code'] = EXECUTOR_COLORS['claudecode'];
+EXECUTOR_COLORS['claude'] = EXECUTOR_COLORS['claudecode'];
+EXECUTOR_COLORS['cbc'] = EXECUTOR_COLORS['codebuddy'];
+EXECUTOR_COLORS['atom'] = EXECUTOR_COLORS['atomcode'];
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

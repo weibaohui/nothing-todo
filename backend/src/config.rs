@@ -5,6 +5,7 @@
 //! All components (server, CLI, executors) read their settings from this module.
 //! No direct environment variable reads — route everything through Config.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
@@ -45,17 +46,40 @@ pub struct Config {
 }
 
 /// Paths for each supported executor binary.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Key is the executor name (e.g., "claudecode"), value is the binary path.
+#[derive(Debug, Clone, Serialize)]
 #[serde(default)]
 pub struct ExecutorPaths {
-    pub opencode: String,
-    pub hermes: String,
-    pub joinai: String,
-    pub claude_code: String,
-    pub codebuddy: String,
-    pub kimi: String,
-    pub atomcode: String,
-    pub codex: String,
+    pub paths: HashMap<String, String>,
+}
+
+impl<'de> Deserialize<'de> for ExecutorPaths {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum RawExecutorPaths {
+            New { paths: HashMap<String, String> },
+            Legacy(HashMap<String, String>),
+        }
+
+        let raw = RawExecutorPaths::deserialize(deserializer)?;
+        let paths = match raw {
+            RawExecutorPaths::New { paths } => paths,
+            RawExecutorPaths::Legacy(legacy) => legacy,
+        };
+        Ok(ExecutorPaths { paths })
+    }
+}
+
+impl Default for ExecutorPaths {
+    fn default() -> Self {
+        Self {
+            paths: HashMap::new(),
+        }
+    }
 }
 
 /// 全局斜杠命令规则。
@@ -64,21 +88,6 @@ pub struct SlashCommandRule {
     pub slash_command: String,
     pub todo_id: i64,
     pub enabled: bool,
-}
-
-impl Default for ExecutorPaths {
-    fn default() -> Self {
-        Self {
-            opencode: "opencode".to_string(),
-            hermes: "hermes".to_string(),
-            joinai: "joinai".to_string(),
-            claude_code: "claude".to_string(),
-            codebuddy: "codebuddy".to_string(),
-            kimi: "kimi".to_string(),
-            atomcode: "atomcode".to_string(),
-            codex: "codex".to_string(),
-        }
-    }
 }
 
 impl Default for SlashCommandRule {
@@ -146,14 +155,11 @@ impl Config {
     /// Normalize paths: convert ~ and relative paths to absolute paths.
     pub fn normalize_paths(&mut self) {
         self.db_path = Self::normalize_single_path(&self.db_path);
-        self.executors.opencode = Self::normalize_single_path(&self.executors.opencode);
-        self.executors.hermes = Self::normalize_single_path(&self.executors.hermes);
-        self.executors.joinai = Self::normalize_single_path(&self.executors.joinai);
-        self.executors.claude_code = Self::normalize_single_path(&self.executors.claude_code);
-        self.executors.codebuddy = Self::normalize_single_path(&self.executors.codebuddy);
-        self.executors.kimi = Self::normalize_single_path(&self.executors.kimi);
-        self.executors.atomcode = Self::normalize_single_path(&self.executors.atomcode);
-        self.executors.codex = Self::normalize_single_path(&self.executors.codex);
+        // Normalize executor paths
+        let normalized: HashMap<String, String> = self.executors.paths.iter()
+            .map(|(k, v)| (k.clone(), Self::normalize_single_path(v)))
+            .collect();
+        self.executors.paths = normalized;
     }
 
     fn normalize_single_path(path: &str) -> String {

@@ -345,18 +345,13 @@ mod todo_update_command_tests {
 #[cfg(test)]
 mod config_parsing_tests {
     use ntd::config::{Config, ExecutorPaths};
+    use std::collections::HashMap;
 
     #[test]
     fn test_executor_paths_default() {
         let paths = ExecutorPaths::default();
-        assert_eq!(paths.opencode, "opencode");
-        assert_eq!(paths.hermes, "hermes");
-        assert_eq!(paths.joinai, "joinai");
-        assert_eq!(paths.claude_code, "claude");
-        assert_eq!(paths.codebuddy, "codebuddy");
-        assert_eq!(paths.kimi, "kimi");
-        assert_eq!(paths.atomcode, "atomcode");
-        assert_eq!(paths.codex, "codex");
+        // Default is empty HashMap - actual defaults come from EXECUTORS
+        assert!(paths.paths.is_empty());
     }
 
     #[test]
@@ -369,18 +364,32 @@ mod config_parsing_tests {
 
     #[test]
     fn test_config_executor_paths() {
-        let paths = ExecutorPaths {
-            opencode: "custom-opencode".to_string(),
-            hermes: "custom-hermes".to_string(),
-            joinai: "joinai".to_string(),
-            claude_code: "claude".to_string(),
-            codebuddy: "codebuddy".to_string(),
-            kimi: "kimi".to_string(),
-            atomcode: "atomcode".to_string(),
-            codex: "codex".to_string(),
-        };
-        assert_eq!(paths.opencode, "custom-opencode");
-        assert_eq!(paths.hermes, "custom-hermes");
+        let mut paths_map = HashMap::new();
+        paths_map.insert("opencode".to_string(), "custom-opencode".to_string());
+        paths_map.insert("hermes".to_string(), "custom-hermes".to_string());
+        paths_map.insert("claudecode".to_string(), "claude".to_string());
+        let paths = ExecutorPaths { paths: paths_map };
+        assert_eq!(paths.paths.get("opencode"), Some(&"custom-opencode".to_string()));
+        assert_eq!(paths.paths.get("hermes"), Some(&"custom-hermes".to_string()));
+    }
+
+    #[test]
+    fn test_executor_paths_legacy_flat_deserialization() {
+        // Test that legacy flat config shape deserializes correctly
+        let legacy_json = r#"{"claude_code":"/usr/bin/claude","opencode":"/usr/local/bin/opencode","hermes":"hermes"}"#;
+        let paths: ExecutorPaths = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(paths.paths.get("claude_code"), Some(&"/usr/bin/claude".to_string()));
+        assert_eq!(paths.paths.get("opencode"), Some(&"/usr/local/bin/opencode".to_string()));
+        assert_eq!(paths.paths.get("hermes"), Some(&"hermes".to_string()));
+    }
+
+    #[test]
+    fn test_executor_paths_new_wrapper_deserialization() {
+        // Test that new wrapper shape deserializes correctly
+        let new_json = r#"{"paths":{"claudecode":"/custom/claude","opencode":"/custom/opencode"}}"#;
+        let paths: ExecutorPaths = serde_json::from_str(new_json).unwrap();
+        assert_eq!(paths.paths.get("claudecode"), Some(&"/custom/claude".to_string()));
+        assert_eq!(paths.paths.get("opencode"), Some(&"/custom/opencode".to_string()));
     }
 }
 

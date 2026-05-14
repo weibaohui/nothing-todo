@@ -1,5 +1,6 @@
 use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder};
 
+use crate::adapters::EXECUTORS;
 use crate::db::entity::executors;
 use crate::db::Database;
 use crate::models::ExecutorConfig;
@@ -16,24 +17,6 @@ fn map_executor(m: executors::Model) -> ExecutorConfig {
         updated_at: m.updated_at,
     }
 }
-
-struct DefaultExecutor {
-    name: &'static str,
-    path: &'static str,
-    display_name: &'static str,
-    session_dir: &'static str,
-}
-
-const DEFAULT_EXECUTORS: &[DefaultExecutor] = &[
-    DefaultExecutor { name: "claudecode", path: "claude", display_name: "Claude Code", session_dir: "~/.claude" },
-    DefaultExecutor { name: "joinai", path: "joinai", display_name: "JoinAI", session_dir: "" },
-    DefaultExecutor { name: "codebuddy", path: "codebuddy", display_name: "CodeBuddy", session_dir: "~/.codebuddy" },
-    DefaultExecutor { name: "opencode", path: "opencode", display_name: "Opencode", session_dir: "~/.opencode" },
-    DefaultExecutor { name: "atomcode", path: "atomcode", display_name: "AtomCode", session_dir: "~/.atomcode" },
-    DefaultExecutor { name: "hermes", path: "hermes", display_name: "Hermes", session_dir: "~/.hermes" },
-    DefaultExecutor { name: "kimi", path: "kimi", display_name: "Kimi", session_dir: "~/.kimi" },
-    DefaultExecutor { name: "codex", path: "codex", display_name: "Codex", session_dir: "~/.codex" },
-];
 
 impl Database {
     pub async fn get_executors(&self) -> Result<Vec<ExecutorConfig>, sea_orm::DbErr> {
@@ -107,24 +90,21 @@ impl Database {
 
         let now = crate::models::utc_timestamp();
 
-        for d in DEFAULT_EXECUTORS {
-            let path = match d.name {
-                "claudecode" => &cfg_executors.claude_code,
-                "joinai" => &cfg_executors.joinai,
-                "codebuddy" => &cfg_executors.codebuddy,
-                "opencode" => &cfg_executors.opencode,
-                "atomcode" => &cfg_executors.atomcode,
-                "hermes" => &cfg_executors.hermes,
-                "kimi" => &cfg_executors.kimi,
-                "codex" => &cfg_executors.codex,
-                _ => continue,
-            };
+        for exec in EXECUTORS {
+            // Try primary name first, then aliases (for backward compatibility with legacy config keys)
+            let path = cfg_executors.paths.get(exec.name)
+                .or_else(|| {
+                    exec.aliases.iter()
+                        .find_map(|alias| cfg_executors.paths.get(*alias))
+                })
+                .map(|s| s.as_str())
+                .unwrap_or(exec.default_path);
             let am = executors::ActiveModel {
-                name: ActiveValue::Set(d.name.to_string()),
+                name: ActiveValue::Set(exec.name.to_string()),
                 path: ActiveValue::Set(path.to_string()),
                 enabled: ActiveValue::Set(true),
-                display_name: ActiveValue::Set(d.display_name.to_string()),
-                session_dir: ActiveValue::Set(d.session_dir.to_string()),
+                display_name: ActiveValue::Set(exec.display_name.to_string()),
+                session_dir: ActiveValue::Set(exec.session_dir.to_string()),
                 created_at: ActiveValue::Set(Some(now.clone())),
                 updated_at: ActiveValue::Set(Some(now.clone())),
                 ..Default::default()
@@ -144,13 +124,13 @@ impl Database {
         }
 
         let now = crate::models::utc_timestamp();
-        for d in DEFAULT_EXECUTORS {
+        for exec in EXECUTORS {
             let am = executors::ActiveModel {
-                name: ActiveValue::Set(d.name.to_string()),
-                path: ActiveValue::Set(d.path.to_string()),
+                name: ActiveValue::Set(exec.name.to_string()),
+                path: ActiveValue::Set(exec.default_path.to_string()),
                 enabled: ActiveValue::Set(true),
-                display_name: ActiveValue::Set(d.display_name.to_string()),
-                session_dir: ActiveValue::Set(d.session_dir.to_string()),
+                display_name: ActiveValue::Set(exec.display_name.to_string()),
+                session_dir: ActiveValue::Set(exec.session_dir.to_string()),
                 created_at: ActiveValue::Set(Some(now.clone())),
                 updated_at: ActiveValue::Set(Some(now.clone())),
                 ..Default::default()
@@ -167,14 +147,12 @@ impl Database {
         let models = executors::Entity::find().all(&self.conn).await?;
         for m in models {
             if m.session_dir.is_empty() {
-                let default_dir = DEFAULT_EXECUTORS.iter()
-                    .find(|d| d.name == m.name)
-                    .map(|d| d.session_dir)
-                    .unwrap_or("");
-                if !default_dir.is_empty() {
-                    let mut am: executors::ActiveModel = m.into();
-                    am.session_dir = ActiveValue::Set(default_dir.to_string());
-                    am.update(&self.conn).await?;
+                if let Some(exec) = EXECUTORS.iter().find(|e| e.name == m.name) {
+                    if !exec.session_dir.is_empty() {
+                        let mut am: executors::ActiveModel = m.into();
+                        am.session_dir = ActiveValue::Set(exec.session_dir.to_string());
+                        am.update(&self.conn).await?;
+                    }
                 }
             }
         }
