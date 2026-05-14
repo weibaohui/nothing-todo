@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutorSkills, SkillComparison, PaginatedInvocations, FeishuHistoryMessagesPage, FeishuHistoryChat, FeishuMessageStats, TodoTemplate } from '../types';
+import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutorSkills, SkillComparison, PaginatedInvocations, FeishuHistoryMessagesPage, FeishuHistoryChat, FeishuMessageStats, TodoTemplate, CustomTemplateStatus } from '../types';
 
 interface ApiResp<T> {
   code: number;
@@ -130,6 +130,28 @@ export async function deleteTodoTemplate(id: number): Promise<void> {
 
 export async function copyTodoTemplate(id: number): Promise<TodoTemplate> {
   return unwrap(await api.post<ApiResp<TodoTemplate>>(`/xyz/todo-templates/${id}/copy`, {}));
+}
+
+// Custom Template APIs (remote URL subscription)
+
+export async function getCustomTemplateStatus(): Promise<CustomTemplateStatus> {
+  return unwrap(await api.get<ApiResp<CustomTemplateStatus>>('/xyz/custom-templates/status'));
+}
+
+export async function subscribeCustomTemplate(url: string): Promise<CustomTemplateStatus> {
+  return unwrap(await api.post<ApiResp<CustomTemplateStatus>>('/xyz/custom-templates/subscribe', { url }));
+}
+
+export async function unsubscribeCustomTemplate(): Promise<void> {
+  await api.post('/xyz/custom-templates/unsubscribe', {});
+}
+
+export async function syncCustomTemplate(): Promise<CustomTemplateStatus> {
+  return unwrap(await api.post<ApiResp<CustomTemplateStatus>>('/xyz/custom-templates/sync', {}));
+}
+
+export async function updateCustomTemplateAutoSync(enabled: boolean, cron: string): Promise<void> {
+  await api.put('/xyz/custom-templates/auto-sync', { enabled, cron });
 }
 
 // Project Directory APIs
