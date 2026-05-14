@@ -314,6 +314,20 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
   };
 
   /* ─── Touch Swipe Handlers for Mobile Tabs ─── */
+  const mobileTabItems = useMemo(() => COLUMNS.map(col => ({
+    key: col.status,
+    label: `${col.label} (${grouped[col.status].length})`,
+    children: (
+      <div className="kanban-mobile-list">
+        {grouped[col.status].length === 0 ? (
+          <div className="kanban-column-empty">暂无任务</div>
+        ) : (
+          grouped[col.status].map(renderCard)
+        )}
+      </div>
+    ),
+  })), [grouped]);
+
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -423,19 +437,7 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
             className="kanban-mobile-tabs"
             activeKey={activeKey}
             onChange={(key) => setActiveKey(key as Todo['status'])}
-            items={COLUMNS.map(col => ({
-              key: col.status,
-              label: `${col.label} (${grouped[col.status].length})`,
-              children: (
-                <div className="kanban-mobile-list">
-                  {grouped[col.status].length === 0 ? (
-                    <div className="kanban-column-empty">暂无任务</div>
-                  ) : (
-                    grouped[col.status].map(renderCard)
-                  )}
-                </div>
-              ),
-            }))}
+            items={mobileTabItems}
           />
         </div>
       )}
