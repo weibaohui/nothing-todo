@@ -527,6 +527,33 @@ impl Database {
                 .await?;
         }
 
+        // Migration: add source_url and last_sync_at columns if missing (custom template subscription)
+        let has_source_url: i64 = self.conn
+            .query_one(Statement::from_string(
+                sea_orm::DatabaseBackend::Sqlite,
+                "SELECT COUNT(*) FROM pragma_table_info('todo_templates') WHERE name='source_url'".to_string(),
+            ))
+            .await?
+            .map(|r| r.try_get::<i64>("", "COUNT(*)").unwrap_or(0))
+            .unwrap_or(0);
+        if has_source_url == 0 {
+            self.exec("ALTER TABLE todo_templates ADD COLUMN source_url TEXT")
+                .await?;
+        }
+
+        let has_last_sync_at: i64 = self.conn
+            .query_one(Statement::from_string(
+                sea_orm::DatabaseBackend::Sqlite,
+                "SELECT COUNT(*) FROM pragma_table_info('todo_templates') WHERE name='last_sync_at'".to_string(),
+            ))
+            .await?
+            .map(|r| r.try_get::<i64>("", "COUNT(*)").unwrap_or(0))
+            .unwrap_or(0);
+        if has_last_sync_at == 0 {
+            self.exec("ALTER TABLE todo_templates ADD COLUMN last_sync_at TEXT")
+                .await?;
+        }
+
         // Todo templates timestamps triggers
         self.exec(
             "CREATE TRIGGER IF NOT EXISTS set_todo_templates_created_at_utc AFTER INSERT ON todo_templates

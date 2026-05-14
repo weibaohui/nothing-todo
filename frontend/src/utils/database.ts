@@ -132,6 +132,37 @@ export async function copyTodoTemplate(id: number): Promise<TodoTemplate> {
   return unwrap(await api.post<ApiResp<TodoTemplate>>(`/xyz/todo-templates/${id}/copy`, {}));
 }
 
+// Custom Template APIs (remote URL subscription)
+
+export interface CustomTemplateStatus {
+  subscribed: boolean;
+  source_url: string | null;
+  last_sync_at: string | null;
+  auto_sync_enabled: boolean;
+  auto_sync_cron: string;
+  templates: TodoTemplate[];
+}
+
+export async function getCustomTemplateStatus(): Promise<CustomTemplateStatus> {
+  return unwrap(await api.get<ApiResp<CustomTemplateStatus>>('/xyz/custom-templates/status'));
+}
+
+export async function subscribeCustomTemplate(url: string): Promise<CustomTemplateStatus> {
+  return unwrap(await api.post<ApiResp<CustomTemplateStatus>>('/xyz/custom-templates/subscribe', { url }));
+}
+
+export async function unsubscribeCustomTemplate(): Promise<void> {
+  await api.post('/xyz/custom-templates/unsubscribe', {});
+}
+
+export async function syncCustomTemplate(): Promise<CustomTemplateStatus> {
+  return unwrap(await api.post<ApiResp<CustomTemplateStatus>>('/xyz/custom-templates/sync', {}));
+}
+
+export async function updateCustomTemplateAutoSync(enabled: boolean, cron: string): Promise<void> {
+  await api.put('/xyz/custom-templates/auto-sync', { enabled, cron });
+}
+
 // Project Directory APIs
 
 export interface ProjectDirectory {

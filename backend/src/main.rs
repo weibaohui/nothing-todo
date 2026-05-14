@@ -233,6 +233,15 @@ async fn run_server(cli_port: Option<u16>) {
             }
         }
 
+        // 注册自定义模板自动同步定时任务
+        if cfg.auto_sync_custom_templates_enabled {
+            let db = Arc::clone(&db);
+            match handlers::custom_template::start_custom_template_auto_sync(&cfg.auto_sync_custom_templates_cron, db) {
+                Ok(()) => info!("Auto custom template sync enabled, cron: {}", cfg.auto_sync_custom_templates_cron),
+                Err(e) => tracing::warn!("Failed to start custom template auto sync: {}", e),
+            }
+        }
+
         sched
     });
 
