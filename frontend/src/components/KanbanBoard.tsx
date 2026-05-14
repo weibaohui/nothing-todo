@@ -1,10 +1,11 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Input, App, Tag } from 'antd';
+import { Input, App, Tag, Badge } from 'antd';
 import {
   SearchOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
   ClockCircleOutlined,
+  RobotOutlined,
   CopyOutlined,
 } from '@ant-design/icons';
 import XMarkdown from '@ant-design/x-markdown';
@@ -12,7 +13,7 @@ import { useApp } from '../hooks/useApp';
 import { ExecutorBadge } from './ExecutorBadge';
 import * as db from '../utils/database';
 import { formatRelativeTime } from '../utils/datetime';
-import type { Todo } from '../types';
+import type { Todo, ExecutionRecord } from '../types';
 
 /* ─── Column Definitions ─── */
 
@@ -33,6 +34,20 @@ const COLUMNS: ColumnDef[] = [
 
 function getColumnForStatus(status: Todo['status']): ColumnDef {
   return COLUMNS.find(c => c.status === status) || COLUMNS[0];
+}
+
+/* ─── Format helpers ─── */
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1_000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1_000).toFixed(0)}s`;
+  return `${(ms / 60_000).toFixed(1)}m`;
 }
 
 /* ─── Component ─── */
@@ -194,6 +209,8 @@ export function KanbanBoard() {
     const resultExpanded = expandedResultIds.has(todo.id);
     const resultText = todoResults[todo.id] || '';
     const isLoadingResult = loadingResults.has(todo.id);
+    const records = state.executionRecords[todo.id];
+    const todoExecutionRecord: ExecutionRecord | undefined = records?.length > 0 ? records[0] : undefined;
 
     return (
       <div
@@ -225,6 +242,11 @@ export function KanbanBoard() {
             <span className="kanban-card-meta-time">
               <ClockCircleOutlined /> {formatRelativeTime(todo.updated_at)}
             </span>
+            {todoExecutionRecord?.model && (
+              <span className="kanban-card-meta-model">
+                <RobotOutlined /> {todoExecutionRecord.model}
+              </span>
+            )}
           </div>
 
           {/* Tags */}
@@ -318,11 +340,27 @@ export function KanbanBoard() {
           )}
         </div>
 
-        {/* Footer — Usage time */}
+        {/* Footer — Usage stats */}
         <div className="kanban-card-footer">
-          <span className="kanban-card-time">
-            {formatRelativeTime(todo.updated_at)}
-          </span>
+          {todoExecutionRecord?.usage && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+              {todoExecutionRecord.usage.duration_ms != null && (
+                <span>{formatDuration(todoExecutionRecord.usage.duration_ms)}</span>
+              )}
+              <span>
+                {formatTokens(todoExecutionRecord.usage.input_tokens)} + {formatTokens(todoExecutionRecord.usage.output_tokens)} tokens
+              </span>
+              {todoExecutionRecord.usage.total_cost_usd != null && todoExecutionRecord.usage.total_cost_usd > 0 && (
+                <span>${todoExecutionRecord.usage.total_cost_usd.toFixed(4)}</span>
+              )}
+              {todoExecutionRecord.trigger_type && todoExecutionRecord.trigger_type !== 'manual' && (
+                <Badge
+                  count={todoExecutionRecord.trigger_type === 'scheduler' ? '定时' : todoExecutionRecord.trigger_type}
+                  style={{ fontSize: 10, height: 16, lineHeight: '16px' }}
+                />
+              )}
+            </div>
+          )}
         </div>
       </div>
     );
