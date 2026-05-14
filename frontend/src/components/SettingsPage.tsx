@@ -2754,9 +2754,14 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                         ) : (
                           <Card size="small">
                             <Space direction="vertical" style={{ width: '100%' }}>
-                              <Typography.Text>订阅一个在线模板地址，获取实时更新的自定义模板。</Typography.Text>
+                              <Space>
+                                <Typography.Text>订阅一个在线模板地址</Typography.Text>
+                                <Tooltip title={<span>填写在线 YAML 地址，格式参考 <a href="https://raw.githubusercontent.com/weibaohui/nothing-todo/refs/heads/main/templates.example.yaml" target="_blank">示例</a></span>}>
+                                  <span style={{ cursor: 'help' }}><QuestionCircleOutlined /></span>
+                                </Tooltip>
+                              </Space>
                               <Input
-                                placeholder="输入模板地址，例如 https://example.com/templates.yaml"
+                                placeholder="输入模板地址"
                                 value={customTemplateUrl}
                                 onChange={(e) => setCustomTemplateUrl(e.target.value)}
                                 onPressEnter={handleSubscribeCustomTemplate}
