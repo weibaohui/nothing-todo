@@ -121,14 +121,15 @@ pub async fn fetch_remote_templates(url: &str) -> Result<Vec<RemoteTemplate>, St
     let body_str = String::from_utf8(body.to_vec())
         .map_err(|e| format!("Invalid UTF-8 in response: {}", e))?;
 
-    // Try parsing as YAML array first, then as single object
-    let templates: Vec<RemoteTemplate> = if body_str.trim().starts_with('-') {
-        serde_yaml::from_str(&body_str)
-            .map_err(|e| format!("Invalid YAML array format: {}", e))?
-    } else {
-        let single: RemoteTemplate = serde_yaml::from_str(&body_str)
-            .map_err(|e| format!("Invalid YAML format: {}", e))?;
-        vec![single]
+    // Try parsing as YAML array first, handling comments at the start
+    let templates: Vec<RemoteTemplate> = match serde_yaml::from_str::<Vec<RemoteTemplate>>(&body_str) {
+        Ok(templates) => templates,
+        Err(_) => {
+            // If array parse fails, try single object
+            let single: RemoteTemplate = serde_yaml::from_str(&body_str)
+                .map_err(|e| format!("Invalid YAML format: {}", e))?;
+            vec![single]
+        }
     };
 
     Ok(templates)
