@@ -1,11 +1,19 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Input, App } from 'antd';
+import { Input, Segmented, App } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useApp } from '../hooks/useApp';
 import { TodoCard } from './TodoCard';
 import * as db from '../utils/database';
 import { formatRelativeTime } from '../utils/datetime';
 import type { Todo, ExecutionRecord } from '../types';
+
+const TIME_OPTIONS: { label: string; value: number }[] = [
+  { label: '6h',  value: 6 },
+  { label: '12h', value: 12 },
+  { label: '24h', value: 24 },
+  { label: '3d',  value: 72 },
+  { label: '7d',  value: 168 },
+];
 
 /* ─── Column Definitions ─── */
 
@@ -36,6 +44,7 @@ export function KanbanBoard() {
   const { todos, tags, selectedTodoId } = state;
 
   const [searchText, setSearchText] = useState('');
+  const [hours, setHours] = useState(24);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<Todo['status'] | null>(null);
   const [expandedPromptIds, setExpandedPromptIds] = useState<Set<number>>(new Set());
@@ -70,15 +79,24 @@ export function KanbanBoard() {
     }
   }, [todos, state.executionRecords, execRecordCache]);
 
-  /* ─── Filter by search ─── */
+  /* ─── Filter by search + time ─── */
   const filteredTodos = useMemo(() => {
-    if (!searchText.trim()) return todos;
-    const q = searchText.toLowerCase();
-    return todos.filter(t =>
-      t.title.toLowerCase().includes(q) ||
-      (t.prompt && t.prompt.toLowerCase().includes(q))
-    );
-  }, [todos, searchText]);
+    const cutoff = hours ? Date.now() - hours * 3600 * 1000 : 0;
+    return todos.filter(t => {
+      // Time filter: only for completed/failed todos
+      if ((t.status === 'completed' || t.status === 'failed') && cutoff > 0) {
+        const tUpdated = new Date(t.updated_at).getTime();
+        if (isNaN(tUpdated) || tUpdated < cutoff) return false;
+      }
+      // Search filter
+      if (searchText.trim()) {
+        const q = searchText.toLowerCase();
+        return t.title.toLowerCase().includes(q) ||
+          (t.prompt && t.prompt.toLowerCase().includes(q));
+      }
+      return true;
+    });
+  }, [todos, searchText, hours]);
 
   /* ─── Group by status ─── */
   const grouped = useMemo(() => {
@@ -303,6 +321,16 @@ export function KanbanBoard() {
             allowClear
             size="small"
             style={{ width: 220 }}
+          />
+          <Segmented
+            size="small"
+            options={TIME_OPTIONS.map(o => ({ label: o.label, value: o.label }))}
+            value={TIME_OPTIONS.find(o => o.value === hours)?.label || '24h'}
+            onChange={label => {
+              const opt = TIME_OPTIONS.find(o => o.label === label);
+              if (opt) setHours(opt.value);
+            }}
+            style={{ marginLeft: 8 }}
           />
         </div>
         <div className="kanban-topbar-right">
