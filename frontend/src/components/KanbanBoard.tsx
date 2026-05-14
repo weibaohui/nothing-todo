@@ -1,7 +1,8 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Input, Segmented, App } from 'antd';
+import { Input, Segmented, App, Tabs } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useApp } from '../hooks/useApp';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { TodoCard } from './TodoCard';
 import * as db from '../utils/database';
 import { formatRelativeTime } from '../utils/datetime';
@@ -55,6 +56,8 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
   const [expandedResultIds, setExpandedResultIds] = useState<Set<number>>(new Set());
   const [todoResults, setTodoResults] = useState<Record<number, string>>({});
   const [loadingResults, setLoadingResults] = useState<Set<number>>(new Set());
+  const isMobile = useIsMobile();
+  const [activeKey, setActiveKey] = useState<Todo['status']>('pending');
 
   /* ─── Eagerly fetch execution records for completed/failed todos ─── */
   const [execRecordCache, setExecRecordCache] = useState<Record<number, ExecutionRecord>>({});
@@ -310,6 +313,47 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
     );
   };
 
+  /* ─── Touch Swipe Handlers for Mobile Tabs ─── */
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      time: Date.now(),
+    };
+  }, []);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!touchStartRef.current) return;
+
+    const touch = e.changedTouches[0];
+    const deltaX = touch.clientX - touchStartRef.current.x;
+    const deltaY = touch.clientY - touchStartRef.current.y;
+    const deltaTime = Date.now() - touchStartRef.current.time;
+
+    // Detect horizontal swipe: threshold 50px, max time 300ms, and horizontal movement > vertical
+    if (Math.abs(deltaX) > 50 && deltaTime < 300 && Math.abs(deltaX) > Math.abs(deltaY)) {
+      const currentIndex = COLUMNS.findIndex(col => col.status === activeKey);
+      let nextIndex = currentIndex;
+
+      if (deltaX > 0 && currentIndex > 0) {
+        // Swipe right -> go to previous tab
+        nextIndex = currentIndex - 1;
+      } else if (deltaX < 0 && currentIndex < COLUMNS.length - 1) {
+        // Swipe left -> go to next tab
+        nextIndex = currentIndex + 1;
+      }
+
+      if (nextIndex !== currentIndex) {
+        setActiveKey(COLUMNS[nextIndex].status);
+      }
+    }
+
+    touchStartRef.current = null;
+  }, [activeKey]);
+
   /* ─── Render ─── */
   return (
     <div className="kanban-board">
@@ -362,10 +406,39 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
         </div>
       ) : null}
 
-      {/* Columns */}
-      <div className="kanban-columns-container">
-        {COLUMNS.map(renderColumn)}
-      </div>
+      {/* Desktop: Columns */}
+      {!isMobile && (
+        <div className="kanban-columns-container">
+          {COLUMNS.map(renderColumn)}
+        </div>
+      )}
+
+      {/* Mobile: Swipeable Tabs */}
+      {isMobile && (
+        <div
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+        >
+          <Tabs
+            className="kanban-mobile-tabs"
+            activeKey={activeKey}
+            onChange={(key) => setActiveKey(key as Todo['status'])}
+            items={COLUMNS.map(col => ({
+              key: col.status,
+              label: `${col.label} (${grouped[col.status].length})`,
+              children: (
+                <div className="kanban-mobile-list">
+                  {grouped[col.status].length === 0 ? (
+                    <div className="kanban-column-empty">暂无任务</div>
+                  ) : (
+                    grouped[col.status].map(renderCard)
+                  )}
+                </div>
+              ),
+            }))}
+          />
+        </div>
+      )}
     </div>
   );
 }
