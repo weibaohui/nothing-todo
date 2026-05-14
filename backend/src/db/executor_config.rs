@@ -91,7 +91,12 @@ impl Database {
         let now = crate::models::utc_timestamp();
 
         for exec in EXECUTORS {
+            // Try primary name first, then aliases (for backward compatibility with legacy config keys)
             let path = cfg_executors.paths.get(exec.name)
+                .or_else(|| {
+                    exec.aliases.iter()
+                        .find_map(|alias| cfg_executors.paths.get(*alias))
+                })
                 .map(|s| s.as_str())
                 .unwrap_or(exec.default_path);
             let am = executors::ActiveModel {

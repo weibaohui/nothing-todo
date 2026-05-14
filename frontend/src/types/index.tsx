@@ -271,7 +271,18 @@ export const EXECUTOR_COLORS: Record<string, string> = {
   hermes: '#0984e3',
   kimi: '#d63031',
   codex: '#488597',
+  // Aliases for backward compatibility with database names
+  'claude_code': '#e17055', // alias for claudecode
+  'claude': '#e17055',       // alias for claudecode
+  'cbc': '#00b894',          // alias for codebuddy
+  'atom': '#e84393',         // alias for atomcode
 };
+
+// Get executor color with alias support
+export function getExecutorColor(name: string | undefined | null): string {
+  if (!name) return '#999';
+  return EXECUTOR_COLORS[name] || '#999';
+}
 
 export interface ExecutorConfig {
   id: number;
@@ -285,7 +296,7 @@ export interface ExecutorConfig {
 }
 
 export function executorConfigToOption(ec: ExecutorConfig): ExecutorOption {
-  const color = EXECUTOR_COLORS[ec.name] || '#999';
+  const color = getExecutorColor(ec.name);
   return {
     value: ec.name,
     label: ec.display_name || ec.name,

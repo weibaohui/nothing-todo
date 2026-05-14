@@ -47,18 +47,31 @@ pub struct Config {
 
 /// Paths for each supported executor binary.
 /// Key is the executor name (e.g., "claudecode"), value is the binary path.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(default)]
 pub struct ExecutorPaths {
     pub paths: HashMap<String, String>,
 }
 
-/// 全局斜杠命令规则。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SlashCommandRule {
-    pub slash_command: String,
-    pub todo_id: i64,
-    pub enabled: bool,
+impl<'de> Deserialize<'de> for ExecutorPaths {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum RawExecutorPaths {
+            New { paths: HashMap<String, String> },
+            Legacy(HashMap<String, String>),
+        }
+
+        let raw = RawExecutorPaths::deserialize(deserializer)?;
+        let paths = match raw {
+            RawExecutorPaths::New { paths } => paths,
+            RawExecutorPaths::Legacy(legacy) => legacy,
+        };
+        Ok(ExecutorPaths { paths })
+    }
 }
 
 impl Default for ExecutorPaths {
@@ -67,6 +80,14 @@ impl Default for ExecutorPaths {
             paths: HashMap::new(),
         }
     }
+}
+
+/// 全局斜杠命令规则。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SlashCommandRule {
+    pub slash_command: String,
+    pub todo_id: i64,
+    pub enabled: bool,
 }
 
 impl Default for SlashCommandRule {
