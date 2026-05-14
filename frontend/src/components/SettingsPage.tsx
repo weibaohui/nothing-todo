@@ -1874,6 +1874,9 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                                 { value: 'chat_id', label: '群聊' },
                                               ]}
                                             />
+                                            <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginLeft: 84 }}>
+                                              提示：向机器人发送 \set home 可快速设置当前对话的 ID
+                                            </span>
                                           </div>
                                         </div>
                                       </div>
