@@ -2691,32 +2691,35 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                               </Space>
                             </Card>
 
-                            <div style={{ marginBottom: 8 }}>
-                              <Typography.Text strong>自动同步</Typography.Text>
-                            </div>
-                            <Card size="small" style={{ marginBottom: 12 }}>
-                              <Space direction="vertical" style={{ width: '100%' }}>
-                                <div>
-                                  <Switch
-                                    checked={customTemplateAutoSyncEnabled}
-                                    onChange={(checked) => setCustomTemplateAutoSyncEnabled(checked)}
-                                  />
-                                  <Typography.Text style={{ marginLeft: 8 }}>启用自动同步</Typography.Text>
+                            <div style={{ borderTop: '1px solid var(--color-border-light)', paddingTop: 12, marginTop: 4 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                <span style={{ fontWeight: 600 }}><ClockCircleOutlined style={{ marginRight: 6 }} />自动同步</span>
+                                <Switch checked={customTemplateAutoSyncEnabled} onChange={setCustomTemplateAutoSyncEnabled} />
+                              </div>
+                              {customTemplateAutoSyncEnabled && (
+                                <CronPresetSelect
+                                  value={customTemplateAutoSyncCron}
+                                  onChange={(val) => setCustomTemplateAutoSyncCron(val)}
+                                />
+                              )}
+                              {customTemplateAutoSyncEnabled && (
+                                <Cron
+                                  value={cronTo5(customTemplateAutoSyncCron)}
+                                  setValue={(val: string) => setCustomTemplateAutoSyncCron(cronTo6(val))}
+                                  locale={CRON_ZH_LOCALE}
+                                  defaultPeriod="day"
+                                  humanizeLabels
+                                  allowClear={false}
+                                />
+                              )}
+                              {customTemplateAutoSyncEnabled && (
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                                  <Button size="small" type="primary" onClick={handleUpdateCustomTemplateAutoSync}>
+                                    保存
+                                  </Button>
                                 </div>
-                                {customTemplateAutoSyncEnabled && (
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <Cron
-                                      value={cronTo5(customTemplateAutoSyncCron)}
-                                      setValue={(val: string) => setCustomTemplateAutoSyncCron(cronTo6(val))}
-                                      locale={CRON_ZH_LOCALE}
-                                    />
-                                    <Button type="primary" size="small" onClick={handleUpdateCustomTemplateAutoSync}>
-                                      保存
-                                    </Button>
-                                  </div>
-                                )}
-                              </Space>
-                            </Card>
+                              )}
+                            </div>
 
                             <div style={{ marginBottom: 8 }}>
                               <Typography.Text strong>模板列表</Typography.Text>
@@ -2729,7 +2732,14 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                   <List
                                     dataSource={customTemplateStatus.templates.filter(t => t.category === category)}
                                     renderItem={(template) => (
-                                      <List.Item style={{ padding: '8px 0' }}>
+                                      <List.Item
+                                        style={{ padding: '8px 0' }}
+                                        actions={[
+                                          <Button key="copy" type="text" icon={<CopyOutlined />} size="small" onClick={() => handleCopyTemplate(template.id)}>
+                                            复制
+                                          </Button>,
+                                        ]}
+                                      >
                                         <List.Item.Meta
                                           title={template.title}
                                           description={template.prompt || '(无内容)'}
