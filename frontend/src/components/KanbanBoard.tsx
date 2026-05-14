@@ -252,6 +252,18 @@ export function KanbanBoard() {
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); togglePrompt(todo.id); } }}
               >
                 <span className="kanban-card-section-label">📋 Prompt</span>
+                {todo.prompt && (
+                  <button
+                    className="kanban-copy-btn"
+                    onClick={e => {
+                      e.stopPropagation();
+                      navigator.clipboard.writeText(todo.prompt).then(() => message.success('已复制'));
+                    }}
+                    title="复制 Prompt"
+                  >
+                    <CopyOutlined />
+                  </button>
+                )}
                 <span className="kanban-card-section-toggle">
                   {promptExpanded ? '收起' : '展开'}
                 </span>
