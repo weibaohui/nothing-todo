@@ -2045,6 +2045,14 @@ code {
   margin-bottom: var(--space-sm);
 }
 
+.memorial-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: var(--space-sm);
+  flex-wrap: wrap;
+}
+
 .memorial-title {
   margin: 0;
   font-size: 18px;

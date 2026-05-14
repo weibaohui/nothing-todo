@@ -38,13 +38,17 @@ function getColumnForStatus(status: Todo['status']): ColumnDef {
 
 /* ─── Component ─── */
 
-export function KanbanBoard() {
+export function KanbanBoard({ searchText: externalSearch, hours: externalHours, onSearchChange, onHoursChange }: { searchText?: string; hours?: number; onSearchChange?: (v: string) => void; onHoursChange?: (h: number) => void } = {}) {
   const { state, dispatch } = useApp();
   const { message } = App.useApp();
   const { todos, tags, selectedTodoId } = state;
 
-  const [searchText, setSearchText] = useState('');
-  const [hours, setHours] = useState(24);
+  const [internalSearch, setInternalSearch] = useState('');
+  const [internalHours, setInternalHours] = useState(24);
+  const searchText = externalSearch ?? internalSearch;
+  const hours = externalHours ?? internalHours;
+  const handleSearchChange = (v: string) => { if (onSearchChange) onSearchChange(v); else setInternalSearch(v); };
+  const handleHoursChange = (h: number) => { if (onHoursChange) onHoursChange(h); else setInternalHours(h); };
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<Todo['status'] | null>(null);
   const [expandedPromptIds, setExpandedPromptIds] = useState<Set<number>>(new Set());
@@ -309,52 +313,54 @@ export function KanbanBoard() {
   /* ─── Render ─── */
   return (
     <div className="kanban-board">
-      {/* Top Bar */}
-      <div className="kanban-topbar">
-        <div className="kanban-topbar-left">
-          <Input
-            className="kanban-search"
-            placeholder="搜索任务…"
-            prefix={<SearchOutlined style={{ color: 'var(--color-text-tertiary)' }} />}
-            value={searchText}
-            onChange={e => setSearchText(e.target.value)}
-            allowClear
-            size="small"
-            style={{ width: 220 }}
-          />
-          <Segmented
-            size="small"
-            options={TIME_OPTIONS.map(o => ({ label: o.label, value: o.label }))}
-            value={TIME_OPTIONS.find(o => o.value === hours)?.label || '24h'}
-            onChange={label => {
-              const opt = TIME_OPTIONS.find(o => o.label === label);
-              if (opt) setHours(opt.value);
-            }}
-            style={{ marginLeft: 8 }}
-          />
+      {/* Top Bar — hidden when parent controls filters */}
+      {externalSearch === undefined ? (
+        <div className="kanban-topbar">
+          <div className="kanban-topbar-left">
+            <Input
+              className="kanban-search"
+              placeholder="搜索任务…"
+              prefix={<SearchOutlined style={{ color: 'var(--color-text-tertiary)' }} />}
+              value={searchText}
+              onChange={e => handleSearchChange(e.target.value)}
+              allowClear
+              size="small"
+              style={{ width: 220 }}
+            />
+            <Segmented
+              size="small"
+              options={TIME_OPTIONS.map(o => ({ label: o.label, value: o.label }))}
+              value={TIME_OPTIONS.find(o => o.value === hours)?.label || '24h'}
+              onChange={label => {
+                const opt = TIME_OPTIONS.find(o => o.label === label);
+                if (opt) handleHoursChange(opt.value);
+              }}
+              style={{ marginLeft: 8 }}
+            />
+          </div>
+          <div className="kanban-topbar-right">
+            <span className="kanban-summary-item" style={{ color: '#3b82f6' }}>
+              待办 <strong>{stats.pending}</strong>
+            </span>
+            <span className="kanban-summary-divider" />
+            <span className="kanban-summary-item" style={{ color: '#f59e0b' }}>
+              进行中 <strong>{stats.running}</strong>
+            </span>
+            <span className="kanban-summary-divider" />
+            <span className="kanban-summary-item" style={{ color: '#22c55e' }}>
+              已完成 <strong>{stats.completed}</strong>
+            </span>
+            <span className="kanban-summary-divider" />
+            <span className="kanban-summary-item" style={{ color: '#ef4444' }}>
+              失败 <strong>{stats.failed}</strong>
+            </span>
+            <span className="kanban-summary-divider" />
+            <span className="kanban-summary-item" style={{ color: 'var(--color-text-secondary)' }}>
+              共 <strong>{totalCount}</strong>
+            </span>
+          </div>
         </div>
-        <div className="kanban-topbar-right">
-          <span className="kanban-summary-item" style={{ color: '#3b82f6' }}>
-            待办 <strong>{stats.pending}</strong>
-          </span>
-          <span className="kanban-summary-divider" />
-          <span className="kanban-summary-item" style={{ color: '#f59e0b' }}>
-            进行中 <strong>{stats.running}</strong>
-          </span>
-          <span className="kanban-summary-divider" />
-          <span className="kanban-summary-item" style={{ color: '#22c55e' }}>
-            已完成 <strong>{stats.completed}</strong>
-          </span>
-          <span className="kanban-summary-divider" />
-          <span className="kanban-summary-item" style={{ color: '#ef4444' }}>
-            失败 <strong>{stats.failed}</strong>
-          </span>
-          <span className="kanban-summary-divider" />
-          <span className="kanban-summary-item" style={{ color: 'var(--color-text-secondary)' }}>
-            共 <strong>{totalCount}</strong>
-          </span>
-        </div>
-      </div>
+      ) : null}
 
       {/* Columns */}
       <div className="kanban-columns-container">

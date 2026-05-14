@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
-import { Card, Segmented, Skeleton, Empty, Button } from 'antd';
+import { useEffect, useState, useMemo } from 'react';
+import { Card, Segmented, Skeleton, Empty, Button, Input } from 'antd';
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   LeftOutlined,
   AppstoreOutlined,
   ProfileOutlined,
+  SearchOutlined,
 } from '@ant-design/icons';
 import { useApp } from '../hooks/useApp';
 import { KanbanBoard } from './KanbanBoard';
@@ -34,6 +35,7 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
   const [items, setItems] = useState<RecentCompletedTodo[]>([]);
   const [loading, setLoading] = useState(true);
   const [hours, setHours] = useState(24);
+  const [searchText, setSearchText] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [promptExpandedIds, setPromptExpandedIds] = useState<Set<number>>(new Set());
 
@@ -83,8 +85,31 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
     dispatch({ type: 'SELECT_TODO', payload: todoId });
   };
 
-  const successCount = items.filter(i => i.execution_status === 'success').length;
-  const failedCount = items.filter(i => i.execution_status === 'failed').length;
+  const filteredItems = useMemo(() => {
+    if (!searchText.trim()) return items;
+    const q = searchText.toLowerCase();
+    return items.filter(i => i.title.toLowerCase().includes(q));
+  }, [items, searchText]);
+
+  const successCount = filteredItems.filter(i => i.execution_status === 'success').length;
+  const failedCount = filteredItems.filter(i => i.execution_status === 'failed').length;
+
+  const kanbanStats = useMemo(() => {
+    const cutoff = hours ? Date.now() - hours * 3600 * 1000 : 0;
+    return state.todos.filter(t => {
+      if ((t.status === 'completed' || t.status === 'failed') && cutoff > 0) {
+        const tUpdated = new Date(t.updated_at).getTime();
+        if (isNaN(tUpdated) || tUpdated < cutoff) return false;
+      }
+      if (searchText.trim()) {
+        const q = searchText.toLowerCase();
+        return t.title.toLowerCase().includes(q) || (t.prompt && t.prompt.toLowerCase().includes(q));
+      }
+      return true;
+    });
+  }, [state.todos, searchText, hours]);
+  const kanbanStatsCount = { pending: 0, running: 0, completed: 0, failed: 0 };
+  kanbanStats.forEach(t => { if (kanbanStatsCount[t.status] !== undefined) kanbanStatsCount[t.status]++; });
 
   const renderCard = (item: RecentCompletedTodo) => {
     const isSuccess = item.execution_status === 'success';
@@ -149,33 +174,50 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
               { label: <span><AppstoreOutlined /> 飞书看板</span>, value: 'kanban' },
             ]}
           />
-          {boardMode === 'memorial' && (
-            <Segmented
-              size="small"
-              options={TIME_OPTIONS.map(o => ({ label: o.label, value: o.label }))}
-              value={TIME_OPTIONS.find(o => o.value === hours)?.label || '24h'}
-              onChange={label => {
-                const opt = TIME_OPTIONS.find(o => o.label === label);
-                if (opt) setHours(opt.value);
-              }}
-            />
+        </div>
+        <div className="memorial-toolbar">
+          <Input
+            placeholder="搜索任务…"
+            prefix={<SearchOutlined />}
+            value={searchText}
+            onChange={e => setSearchText(e.target.value)}
+            allowClear
+            size="small"
+            style={{ width: 200 }}
+          />
+          <Segmented
+            size="small"
+            options={TIME_OPTIONS.map(o => ({ label: o.label, value: o.label }))}
+            value={TIME_OPTIONS.find(o => o.value === hours)?.label || '24h'}
+            onChange={label => {
+              const opt = TIME_OPTIONS.find(o => o.label === label);
+              if (opt) setHours(opt.value);
+            }}
+          />
+          {boardMode === 'memorial' ? (
+            <div className="memorial-summary">
+              <span className="memorial-stat-dot memorial-stat-all">共 <strong>{filteredItems.length}</strong> 条</span>
+              <span className="memorial-stat-dot memorial-stat-success">
+                <CheckCircleOutlined /> <strong>{successCount}</strong> 成功
+              </span>
+              <span className="memorial-stat-dot memorial-stat-failed">
+                <CloseCircleOutlined /> <strong>{failedCount}</strong> 失败
+              </span>
+            </div>
+          ) : (
+            <div className="memorial-summary">
+              <span className="memorial-stat-dot memorial-stat-all">共 <strong>{kanbanStats.length}</strong> 条</span>
+              <span className="memorial-stat-dot" style={{ color: '#3b82f6' }}>待办 <strong>{kanbanStatsCount.pending}</strong></span>
+              <span className="memorial-stat-dot" style={{ color: '#f59e0b' }}>进行中 <strong>{kanbanStatsCount.running}</strong></span>
+              <span className="memorial-stat-dot" style={{ color: '#22c55e' }}>已完成 <strong>{kanbanStatsCount.completed}</strong></span>
+              <span className="memorial-stat-dot" style={{ color: '#ef4444' }}>失败 <strong>{kanbanStatsCount.failed}</strong></span>
+            </div>
           )}
         </div>
-        {boardMode === 'memorial' && (
-          <div className="memorial-summary">
-            <span className="memorial-stat-dot memorial-stat-all">共 <strong>{items.length}</strong> 条</span>
-            <span className="memorial-stat-dot memorial-stat-success">
-              <CheckCircleOutlined /> <strong>{successCount}</strong> 成功
-            </span>
-            <span className="memorial-stat-dot memorial-stat-failed">
-              <CloseCircleOutlined /> <strong>{failedCount}</strong> 失败
-            </span>
-          </div>
-        )}
       </div>
 
       {boardMode === 'kanban' ? (
-        <KanbanBoard />
+        <KanbanBoard searchText={searchText} hours={hours} onSearchChange={setSearchText} onHoursChange={setHours} />
       ) : loading ? (
         <div className="memorial-grid">
           {[1, 2, 3, 4].map(i => (
