@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Input, App } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useApp } from '../hooks/useApp';
@@ -42,6 +42,33 @@ export function KanbanBoard() {
   const [expandedResultIds, setExpandedResultIds] = useState<Set<number>>(new Set());
   const [todoResults, setTodoResults] = useState<Record<number, string>>({});
   const [loadingResults, setLoadingResults] = useState<Set<number>>(new Set());
+
+  /* ─── Eagerly fetch execution records for completed/failed todos ─── */
+  const [execRecordCache, setExecRecordCache] = useState<Record<number, ExecutionRecord>>({});
+  const fetchAttempted = useRef<Set<number>>(new Set());
+
+  useEffect(() => {
+    const finished = todos.filter(t => t.status === 'completed' || t.status === 'failed');
+    for (const todo of finished) {
+      if (fetchAttempted.current.has(todo.id)) continue;
+      fetchAttempted.current.add(todo.id);
+
+      // Already in global state? copy to local cache
+      const global = state.executionRecords[todo.id];
+      if (global?.length) {
+        if (!execRecordCache[todo.id]) {
+          setExecRecordCache(prev => ({ ...prev, [todo.id]: global[0] }));
+        }
+        continue;
+      }
+      // Lazy-fetch from API
+      db.getExecutionRecords(todo.id, 1, 1).then(page => {
+        if (page.records.length > 0) {
+          setExecRecordCache(prev => ({ ...prev, [todo.id]: page.records[0] }));
+        }
+      }).catch(() => {});
+    }
+  }, [todos, state.executionRecords, execRecordCache]);
 
   /* ─── Filter by search ─── */
   const filteredTodos = useMemo(() => {
@@ -187,8 +214,9 @@ export function KanbanBoard() {
     const resultExpanded = expandedResultIds.has(todo.id);
     const resultText = todoResults[todo.id] || '';
     const isLoadingResult = loadingResults.has(todo.id);
-    const records = state.executionRecords[todo.id];
-    const todoExecutionRecord: ExecutionRecord | undefined = records?.length > 0 ? records[0] : undefined;
+    const records = state.executionRecords[todo.id] || [];
+    const todoExecutionRecord: ExecutionRecord | undefined =
+      records.length > 0 ? records[0] : execRecordCache[todo.id];
 
     return (
       <div
