@@ -2,8 +2,6 @@ import React, { createContext, useContext, useReducer, useEffect, ReactNode } fr
 import { Todo, Tag, ExecutionRecord, RunningTask, LogEntry, TodoItem, ExecutionStats } from '../types';
 import * as db from '../utils/database';
 
-export type BackendStatus = 'checking' | 'available' | 'unavailable';
-
 interface AppState {
   todos: Todo[];
   tags: Tag[];
@@ -13,7 +11,6 @@ interface AppState {
   loading: boolean;
   runningTasks: Record<string, RunningTask>;
   activeTaskId: string | null;
-  backendStatus: BackendStatus;
 }
 
 type Action =
@@ -38,8 +35,7 @@ type Action =
   | { type: 'CLEAR_RUNNING_TASKS' }
   | { type: 'SET_ACTIVE_TASK'; payload: string | null }
   | { type: 'UPDATE_TASK_TODO_PROGRESS'; payload: { taskId: string; progress: TodoItem[] } }
-  | { type: 'UPDATE_TASK_EXECUTION_STATS'; payload: { taskId: string; stats: ExecutionStats } }
-  | { type: 'SET_BACKEND_STATUS'; payload: BackendStatus };
+  | { type: 'UPDATE_TASK_EXECUTION_STATS'; payload: { taskId: string; stats: ExecutionStats } };
 
 const initialState: AppState = {
   todos: [],
@@ -50,7 +46,6 @@ const initialState: AppState = {
   loading: true,
   runningTasks: {},
   activeTaskId: null,
-  backendStatus: 'checking',
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -198,8 +193,6 @@ function reducer(state: AppState, action: Action): AppState {
         },
       };
     }
-    case 'SET_BACKEND_STATUS':
-      return { ...state, backendStatus: action.payload };
     default:
       return state;
   }
@@ -215,14 +208,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     async function loadData() {
-      const available = await db.checkBackendHealth();
-      dispatch({ type: 'SET_BACKEND_STATUS', payload: available ? 'available' : 'unavailable' });
-
-      if (!available) {
-        dispatch({ type: 'SET_LOADING', payload: false });
-        return;
-      }
-
       try {
         const todos = await db.getAllTodos();
         const tags = await db.getAllTags();
