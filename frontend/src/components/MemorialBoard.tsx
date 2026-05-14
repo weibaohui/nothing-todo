@@ -88,7 +88,10 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
   const filteredItems = useMemo(() => {
     if (!searchText.trim()) return items;
     const q = searchText.toLowerCase();
-    return items.filter(i => i.title.toLowerCase().includes(q));
+    return items.filter(i =>
+      i.title.toLowerCase().includes(q) ||
+      (i.prompt && i.prompt.toLowerCase().includes(q))
+    );
   }, [items, searchText]);
 
   const successCount = filteredItems.filter(i => i.execution_status === 'success').length;
@@ -232,7 +235,7 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
         </div>
       ) : (
         <div className="memorial-grid">
-          {items.map(renderCard)}
+          {filteredItems.map(renderCard)}
         </div>
       )}
     </div>
