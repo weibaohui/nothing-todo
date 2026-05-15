@@ -332,7 +332,10 @@ impl Database {
         let backend = self.conn.get_database_backend();
         let hours = hours.unwrap_or(720); // default 30 days = 720 hours (matches frontend)
         let time_filter = format!("datetime('now', '-{} hours')", hours);
-        let daily_limit = (hours / 24).max(1).min(365) as i64;
+
+        // 热力图使用固定时间范围：当年1月1日到12月31日，不受过滤条件影响
+        let heatmap_filter = format!("datetime(strftime('%Y', 'now') || '-01-01 00:00:00')");
+        let heatmap_limit = 366; // 闰年最多366天
 
         let todo_sql = "SELECT \
             COUNT(*) as total, \
@@ -656,7 +659,7 @@ impl Database {
         model_cache_stats.sort_by(|a, b| b.cache_hit_rate.partial_cmp(&a.cache_hit_rate).unwrap_or(std::cmp::Ordering::Equal));
         model_cache_stats.retain(|m| m.total_input_tokens > 0 || m.total_cache_read_tokens > 0);
 
-        // 5. Daily execution stats via SQL
+        // 5. Daily execution stats via SQL (热力图使用固定当年范围)
         let daily_sql = format!(
             "SELECT \
             SUBSTR(COALESCE(started_at, ''), 1, 10) as day, \
@@ -672,7 +675,7 @@ impl Database {
             GROUP BY SUBSTR(started_at, 1, 10) \
             ORDER BY day DESC \
             LIMIT {}",
-            time_filter, daily_limit
+            heatmap_filter, heatmap_limit
         );
 
         let daily_rows = self
