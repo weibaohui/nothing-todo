@@ -146,7 +146,18 @@ tauri-dev:
 	export PATH="$$HOME/.cargo/bin:$$PATH" && \
 	(cd frontend && npm run build) && \
 	(cd backend && cargo run &) && \
-	sleep 3 && \
+	echo "Waiting for backend to be ready..." && \
+	for i in $$(seq 1 30); do \
+		if curl -sf http://localhost:8088/health > /dev/null 2>&1; then \
+			echo "Backend ready after $$((i))s"; \
+			break; \
+		fi; \
+		if [ $$i -eq 30 ]; then \
+			echo "Backend failed to start within 30s"; \
+			exit 1; \
+		fi; \
+		sleep 1; \
+	done && \
 	cd src-tauri && $(TAURI_CLI) dev
 
 tauri-build:
