@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 
 interface BarItem {
   label: string;
@@ -115,7 +115,6 @@ export function TrendChart({ data, height = 160 }: TrendChartProps) {
 
     return (
       <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} style={{ overflow: 'visible' }}>
-        {/* Y axis lines */}
         {yTicks.map((t, i) => {
           const y = padT + chartH - (t / maxVal) * chartH;
           return (
@@ -127,13 +126,8 @@ export function TrendChart({ data, height = 160 }: TrendChartProps) {
             </g>
           );
         })}
-
-        {/* Success line */}
         <path d={successPath} fill="none" stroke="var(--color-success)" strokeWidth={2} strokeLinejoin="round" />
-        {/* Fail line */}
         <path d={failPath} fill="none" stroke="var(--color-error)" strokeWidth={2} strokeLinejoin="round" />
-
-        {/* Dots and date labels */}
         {points.map((p, i) => (
           <g key={i}>
             <circle cx={p.x} cy={p.succY} r={3} fill="var(--color-success)" />
@@ -175,6 +169,150 @@ export function TrendChart({ data, height = 160 }: TrendChartProps) {
         </span>
       </div>
       {svg}
+    </div>
+  );
+}
+
+interface DailyExecution {
+  date: string;
+  success: number;
+  failed: number;
+}
+
+interface ContributionHeatmapProps {
+  data: DailyExecution[];
+}
+
+export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
+  const { weeks } = useMemo(() => {
+    if (data.length === 0) {
+      return { weeks: [] };
+    }
+
+    const dateMap = new Map<string, number>();
+    data.forEach((d) => {
+      dateMap.set(d.date, d.success + d.failed);
+    });
+
+    const currentYear = new Date().getFullYear();
+    const startDate = new Date(currentYear, 0, 1);
+    const endDate = new Date(currentYear, 11, 31);
+    const dayOfWeek = startDate.getDay();
+    startDate.setDate(startDate.getDate() - dayOfWeek);
+
+    const weeksArr: { date: Date; count: number; level: number }[][] = [];
+    let currentDate = new Date(startDate);
+    let currentWeek: { date: Date; count: number; level: number }[] = [];
+
+    while (currentDate <= endDate) {
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth();
+      const dayOfMonth = currentDate.getDate();
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayOfMonth).padStart(2, '0')}`;
+      const count = dateMap.get(dateStr) || 0;
+
+      currentWeek.push({ date: new Date(currentDate), count, level: 0 });
+
+      if (currentDate.getDay() === 6) {
+        weeksArr.push(currentWeek);
+        currentWeek = [];
+      }
+
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    if (currentWeek.length > 0) weeksArr.push(currentWeek);
+
+    let max = 0;
+    weeksArr.forEach((week) => week.forEach((day) => { max = Math.max(max, day.count); }));
+
+    weeksArr.forEach((week) => {
+      week.forEach((day) => {
+        if (max === 0 || day.count === 0) {
+          day.level = 0;
+        } else if (day.count <= max * 0.25) {
+          day.level = 1;
+        } else if (day.count <= max * 0.5) {
+          day.level = 2;
+        } else if (day.count <= max * 0.75) {
+          day.level = 3;
+        } else {
+          day.level = 4;
+        }
+      });
+    });
+
+    return { weeks: weeksArr };
+  }, [data]);
+
+  // 检测亮色/暗色主题，使用 useState + useEffect 确保主题变化时能及时更新
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return document.documentElement.getAttribute('data-theme') === 'dark';
+  });
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.getAttribute('data-theme') === 'dark');
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => observer.disconnect();
+  }, []);
+
+  // 亮色主题：灰底蓝色系 | 暗色主题：黑底GitHub绿色系
+  const levelColors = isDark
+    ? ['#161b22', '#0e4429', '#006d32', '#26a641', '#39d353']   // GitHub绿
+    : ['#e5e7eb', '#bfdbfe', '#60a5fa', '#3b82f6', '#1d4ed8']; // 蓝色系
+
+  if (data.length === 0) {
+    return <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>暂无数据</div>;
+  }
+
+  const cellGap = 1;
+  const weeksCount = weeks.length;
+  const daysCount = 7;
+  const vbWidth = weeksCount * 10;
+  const vbHeight = daysCount * 10;
+  const cellSize = 9;
+  const heightPercent = ((daysCount / weeksCount) * 100).toFixed(1);
+
+  return (
+    <div style={{ width: '100%', paddingBottom: 8 }}>
+      <div style={{ width: '100%', paddingBottom: `${heightPercent}%`, position: 'relative' }}>
+        <svg width="100%" height="100%" viewBox={`0 0 ${vbWidth} ${vbHeight}`} preserveAspectRatio="xMidYMid meet" style={{ position: 'absolute', top: 0, left: 0 }}>
+          {weeks.map((week, weekIndex) =>
+            week.map((day, dayIndex) => (
+              <rect
+                key={`${weekIndex}-${dayIndex}`}
+                x={weekIndex * (cellSize + cellGap)}
+                y={dayIndex * (cellSize + cellGap)}
+                width={cellSize}
+                height={cellSize}
+                rx={Math.max(1, cellSize / 4)}
+                fill={levelColors[day.level]}
+                style={{ cursor: 'pointer', transition: 'opacity 0.15s' }}
+                onMouseEnter={(e) => {
+                  const tooltip = document.getElementById('heatmap-tooltip');
+                  if (tooltip) {
+                    const dateStr = day.date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+                    tooltip.textContent = day.count > 0 ? `${day.count} 次执行 · ${dateStr}` : `无执行 · ${dateStr}`;
+                    tooltip.style.display = 'block';
+                    tooltip.style.left = `${e.clientX + 10}px`;
+                    tooltip.style.top = `${e.clientY - 30}px`;
+                  }
+                }}
+                onMouseLeave={() => { const tooltip = document.getElementById('heatmap-tooltip'); if (tooltip) tooltip.style.display = 'none'; }}
+              />
+            ))
+          )}
+        </svg>
+      </div>
+      <div id="heatmap-tooltip" style={{ display: 'none', position: 'fixed', background: 'var(--color-fill-elevated)', border: '1px solid var(--color-border)', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: 'var(--color-text)', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: 1000, pointerEvents: 'none' }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8, justifyContent: 'flex-end' }}>
+        <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginRight: 4 }}>少</span>
+        {levelColors.map((color, i) => <div key={i} style={{ width: 10, height: 10, borderRadius: 2, background: color, border: isDark && i === 0 ? '1px solid #333' : 'none' }} />)}
+        <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginLeft: 4 }}>多</span>
+      </div>
     </div>
   );
 }
