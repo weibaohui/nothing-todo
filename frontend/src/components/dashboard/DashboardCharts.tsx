@@ -194,14 +194,10 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
       dateMap.set(d.date, d.success + d.failed);
     });
 
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
-    const currentDay = now.getDate();
-
-    const endDate = new Date(currentYear, currentMonth, currentDay);
-    const startDate = new Date(endDate);
-    startDate.setDate(startDate.getDate() - 364);
+    // 2026年全年：1月1日到12月31日
+    const startDate = new Date(2026, 0, 1); // 2026-01-01
+    const endDate = new Date(2026, 11, 31); // 2026-12-31
+    // 从周日开始对齐
     const dayOfWeek = startDate.getDay();
     startDate.setDate(startDate.getDate() - dayOfWeek);
 
