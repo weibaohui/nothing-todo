@@ -202,43 +202,52 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
       dateMap.set(d.date, d.success + d.failed);
     });
 
-    // Find the start date (Sunday of the first week with data, or 52 weeks ago)
-    const today = new Date();
-    const endDate = new Date(today);
-    endDate.setHours(0, 0, 0, 0);
+    // Get current date in local timezone
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const currentDay = now.getDate();
 
+    // End date: today in local timezone
+    const endDate = new Date(currentYear, currentMonth, currentDay);
+
+    // Start date: 52 weeks ago, aligned to Sunday
     const startDate = new Date(endDate);
-    startDate.setDate(startDate.getDate() - 364); // ~52 weeks
-
-    // Adjust to start from Sunday
+    startDate.setDate(startDate.getDate() - 364);
+    // Align to Sunday (day 0)
     const dayOfWeek = startDate.getDay();
     startDate.setDate(startDate.getDate() - dayOfWeek);
 
     // Build weeks array
     const weeksArr: { date: Date; count: number; level: number }[][] = [];
-    const monthsArr: { label: string; weekIndex: number }[] = [];
+    const monthsArr: { label: string; weekIndex: number; year: number }[] = [];
     let currentDate = new Date(startDate);
     let currentWeek: { date: Date; count: number; level: number }[] = [];
     let lastMonth = -1;
+    let lastYear = -1;
 
     while (currentDate <= endDate) {
-      const dateStr = currentDate.toISOString().split('T')[0];
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth();
+      const dayOfMonth = currentDate.getDate();
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayOfMonth).padStart(2, '0')}`;
       const count = dateMap.get(dateStr) || 0;
 
       // Track month changes for labels
-      const month = currentDate.getMonth();
-      if (month !== lastMonth && currentDate.getDay() <= 3) {
+      if ((month !== lastMonth || year !== lastYear) && currentDate.getDay() <= 3) {
         monthsArr.push({
           label: currentDate.toLocaleDateString('en-US', { month: 'short' }),
           weekIndex: weeksArr.length,
+          year,
         });
         lastMonth = month;
+        lastYear = year;
       }
 
       currentWeek.push({
         date: new Date(currentDate),
         count,
-        level: 0, // will be calculated after
+        level: 0,
       });
 
       if (currentDate.getDay() === 6) {
@@ -317,7 +326,7 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
         height={svgHeight}
         style={{ display: 'block', minWidth: svgWidth }}
       >
-        {/* Month labels */}
+        {/* Month labels with year */}
         {months.map((m, i) => (
           <text
             key={i}
@@ -326,7 +335,7 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
             fontSize={10}
             fill="var(--color-text-tertiary)"
           >
-            {m.label}
+            {m.label} {m.year}
           </text>
         ))}
 
