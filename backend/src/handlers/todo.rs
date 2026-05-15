@@ -80,13 +80,10 @@ pub async fn create_todo(
         validate_cron_expression(config)?;
     }
 
-    // Update scheduler if enabled
-    if scheduler_enabled {
-        if let Some(ref config) = scheduler_config {
-            if let Err(e) = state.db.update_todo_scheduler(id, true, Some(config)).await {
-                tracing::warn!("Failed to update scheduler for todo {}: {}", id, e);
-            }
-        }
+    // Update scheduler - always call to ensure consistent state
+    // When scheduler_enabled is false or config is empty, scheduler will be disabled
+    if let Err(e) = state.db.update_todo_scheduler(id, scheduler_enabled, scheduler_config.as_deref()).await {
+        tracing::warn!("Failed to update scheduler for todo {}: {}", id, e);
     }
 
     Ok(ApiResponse::ok(Todo {
