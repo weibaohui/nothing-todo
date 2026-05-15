@@ -271,6 +271,10 @@ struct VersionResponse {
     git_describe: String,
 }
 
+async fn health_handler() -> impl IntoResponse {
+    (StatusCode::OK, axum::Json(serde_json::json!({"status": "ok"})))
+}
+
 async fn version_handler() -> impl IntoResponse {
     let version = option_env!("NTD_VERSION").unwrap_or("unknown");
     let git_sha = option_env!("NTD_GIT_SHA").unwrap_or("unknown");
@@ -433,6 +437,7 @@ pub fn create_app(
         .route("/xyz/feishu/history-chats/{id}", delete(feishu_history::delete_history_chat).put(feishu_history::update_history_chat))
         .route("/xyz/agent-bots/{id}", delete(agent_bot::delete_agent_bot))
         .route("/xyz/agent-bots/{id}/config", put(agent_bot::update_agent_bot_config))
+        .route("/health", get(health_handler))
         .route("/assets/{*path}", get(static_handler))
         .route("/xyz/version", get(version_handler))
         .route("/xyz/sessions", get(session::list_sessions))
