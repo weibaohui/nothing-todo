@@ -250,19 +250,25 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
     return <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>暂无数据</div>;
   }
 
-  // 动态计算格子大小，使热力图铺满容器
-  const containerWidth = 700; // 目标宽度
-  const cellSize = Math.floor((containerWidth - 28) / weeks.length) - 1;
+  // 动态计算格子大小，使热力图铺满容器，保持正方形
   const cellGap = 1;
-  const dayLabelWidth = 0;
-  const svgWidth = weeks.length * (cellSize + cellGap) + dayLabelWidth;
-  const svgHeight = 7 * (cellSize + cellGap);
+  const weeksCount = weeks.length; // 53-54 周
+  const daysCount = 7;
+
+  // 用 viewBox 保持 53:7 比例
+  const vbWidth = weeksCount * 10;
+  const vbHeight = daysCount * 10;
+  const cellSize = 9;
+
+  // 计算高度百分比以保持正方形: 7/53 ≈ 13.2%
+  const heightPercent = ((daysCount / weeksCount) * 100).toFixed(1);
 
   const levelColors = ['var(--color-fill-quaternary)', '#9be9a8', '#40c463', '#30a14e', '#216e39'];
 
   return (
-    <div style={{ width: '100%', overflowX: 'auto', paddingBottom: 8 }}>
-      <svg width="100%" height={svgHeight} viewBox={`0 0 ${svgWidth} ${svgHeight}`} preserveAspectRatio="none">
+    <div style={{ width: '100%', paddingBottom: 8 }}>
+      <div style={{ width: '100%', paddingBottom: `${heightPercent}%`, position: 'relative' }}>
+        <svg width="100%" height="100%" viewBox={`0 0 ${vbWidth} ${vbHeight}`} preserveAspectRatio="xMidYMid meet" style={{ position: 'absolute', top: 0, left: 0 }}>
         {weeks.map((week, weekIndex) =>
           week.map((day, dayIndex) => (
             <rect
@@ -289,6 +295,7 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
           ))
         )}
       </svg>
+      </div>
       <div id="heatmap-tooltip" style={{ display: 'none', position: 'fixed', background: 'var(--color-fill-elevated)', border: '1px solid var(--color-border)', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: 'var(--color-text)', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: 1000, pointerEvents: 'none' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8, justifyContent: 'flex-end' }}>
         <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginRight: 4 }}>少</span>
