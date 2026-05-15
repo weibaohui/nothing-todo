@@ -67,6 +67,28 @@ pub async fn create_todo(
         state.db.add_todo_tag(id, *tag_id).await?;
     }
 
+    // Handle scheduler settings
+    let scheduler_enabled = req.scheduler_enabled.unwrap_or(false);
+    let scheduler_config = req
+        .scheduler_config
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned();
+
+    // Validate cron expression if scheduler config is provided
+    if let Some(ref config) = scheduler_config {
+        validate_cron_expression(config)?;
+    }
+
+    // Update scheduler if enabled
+    if scheduler_enabled {
+        if let Some(ref config) = scheduler_config {
+            if let Err(e) = state.db.update_todo_scheduler(id, true, Some(config)).await {
+                tracing::warn!("Failed to update scheduler for todo {}: {}", id, e);
+            }
+        }
+    }
+
     Ok(ApiResponse::ok(Todo {
         id,
         title: title.to_string(),
@@ -76,8 +98,8 @@ pub async fn create_todo(
         updated_at: now,
         tag_ids: req.tag_ids.clone(),
         executor: Some(executor),
-        scheduler_enabled: false,
-        scheduler_config: None,
+        scheduler_enabled,
+        scheduler_config: scheduler_config.clone(),
         scheduler_next_run_at: None,
         task_id: None,
         workspace: None,

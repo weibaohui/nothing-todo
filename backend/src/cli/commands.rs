@@ -323,8 +323,8 @@ async fn handle_todo(
     fields: &Option<String>,
 ) -> Result<()> {
     match action {
-        TodoAction::Create { title, prompt, file, stdin, executor, workspace, tags, schedule: _ } => {
-            let req = if *stdin {
+        TodoAction::Create { title, prompt, file, stdin, executor, workspace, tags, schedule } => {
+            let mut req = if *stdin {
                 // Read from stdin
                 let value = read_stdin_json()?;
                 let req = serde_json::from_value::<CreateTodoRequest>(value.clone())
@@ -336,6 +336,8 @@ async fn handle_todo(
                             .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
                             .unwrap_or_default(),
                         executor: value.get("executor").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                        scheduler_enabled: None,
+                        scheduler_config: None,
                     });
                 if workspace.is_some() {
                     // workspace is sent separately in the full JSON body
@@ -354,8 +356,18 @@ async fn handle_todo(
                     prompt: prompt_content,
                     tag_ids: parse_tags(tags),
                     executor: executor.clone(),
+                    scheduler_enabled: None,
+                    scheduler_config: None,
                 }
             };
+
+            // Set scheduler options from CLI args
+            if let Some(s) = schedule {
+                if !s.is_empty() {
+                    req.scheduler_enabled = Some(true);
+                    req.scheduler_config = Some(s.clone());
+                }
+            }
 
             let resp: ClientResponse<Todo> = client.post("/todos", &req).await?;
             print_response(resp, output, fields)?;
