@@ -244,6 +244,17 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
     return { weeks: weeksArr };
   }, [data]);
 
+  // 检测亮色/暗色主题
+  const isDark = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return document.documentElement.getAttribute('data-theme') === 'dark';
+  }, []);
+
+  // 亮色主题：灰底蓝色系 | 暗色主题：黑底GitHub绿色系
+  const levelColors = isDark
+    ? ['#161b22', '#0e4429', '#006d32', '#26a641', '#39d353']   // GitHub绿
+    : ['#e5e7eb', '#bfdbfe', '#60a5fa', '#3b82f6', '#1d4ed8']; // 蓝色系
+
   if (data.length === 0) {
     return <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>暂无数据</div>;
   }
@@ -255,9 +266,6 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
   const vbHeight = daysCount * 10;
   const cellSize = 9;
   const heightPercent = ((daysCount / weeksCount) * 100).toFixed(1);
-
-  // 暖色系配色，无活动格子用浅灰色
-  const levelColors = ['#e5e7eb', '#fef3c7', '#fcd34d', '#f59e0b', '#d97706'];
 
   return (
     <div style={{ width: '100%', paddingBottom: 8 }}>
@@ -293,7 +301,7 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
       <div id="heatmap-tooltip" style={{ display: 'none', position: 'fixed', background: 'var(--color-fill-elevated)', border: '1px solid var(--color-border)', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: 'var(--color-text)', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: 1000, pointerEvents: 'none' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8, justifyContent: 'flex-end' }}>
         <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginRight: 4 }}>少</span>
-        {levelColors.map((color, i) => <div key={i} style={{ width: 10, height: 10, borderRadius: 2, background: color }} />)}
+        {levelColors.map((color, i) => <div key={i} style={{ width: 10, height: 10, borderRadius: 2, background: color, border: isDark && i === 0 ? '1px solid #333' : 'none' }} />)}
         <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginLeft: 4 }}>多</span>
       </div>
     </div>
