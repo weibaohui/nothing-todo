@@ -2771,7 +2771,7 @@ code {
   background: var(--color-fill-tertiary);
   padding: 1px 4px;
   border-radius: 3px;
-  font-family: 'SF Mono', 'SFMono-Regular', 'Fira Code', monospace;
+  font-family: 'SF Mono', SFMono-Regular, 'Fira Code', monospace;
 }
 
 .kanban-card-section-content pre {
