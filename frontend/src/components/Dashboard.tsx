@@ -16,7 +16,7 @@ import {
 import dayjs from 'dayjs';
 import { useApp } from '../hooks/useApp';
 import { PieChart, PieChartLegend } from './PieChart';
-import { TrendChart } from './dashboard/DashboardCharts';
+import { TrendChart, ContributionHeatmap } from './dashboard/DashboardCharts';
 import { AnimatedNumber } from './AnimatedNumber';
 import * as db from '../utils/database';
 import { getExecutorOption } from '../types';
@@ -638,6 +638,19 @@ export function Dashboard({ onBack }: DashboardProps) {
         bodyStyle={{ padding: '16px 20px' }}
       >
         <TrendChart data={trendData} height={180} />
+      </Card>
+    ),
+  });
+
+  panels.push({
+    key: 'contribution-heatmap',
+    render: () => (
+      <Card
+        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BarChartOutlined /><span>活动热力图</span></div>}
+        className="dashboard-card" style={{ borderRadius: 12 }}
+        bodyStyle={{ padding: '16px 20px' }}
+      >
+        <ContributionHeatmap data={stats?.daily_executions ?? []} />
       </Card>
     ),
   });

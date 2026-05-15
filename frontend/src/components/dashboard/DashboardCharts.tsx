@@ -1,4 +1,8 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect, useRef } from 'react';
+import CalHeatmapLib from 'cal-heatmap';
+import Tooltip from 'cal-heatmap/plugins/Tooltip';
+import Legend from 'cal-heatmap/plugins/Legend';
+import dayjs from 'dayjs';
 
 interface BarItem {
   label: string;
@@ -175,6 +179,108 @@ export function TrendChart({ data, height = 160 }: TrendChartProps) {
         </span>
       </div>
       {svg}
+    </div>
+  );
+}
+
+interface ContributionHeatmapProps {
+  data: { date: string; success: number; failed: number }[];
+}
+
+export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const legendRef = useRef<HTMLDivElement>(null);
+  const calRef = useRef<ReturnType<typeof CalHeatmapLib> | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current || data.length === 0) return;
+
+    // Destroy previous instance
+    if (calRef.current) {
+      calRef.current.destroy();
+    }
+
+    // Transform data: {date: "2024-01-15", success: 3, failed: 1} -> {timestamp: count}
+    const heatmapData: Record<number, number> = {};
+    data.forEach((d) => {
+      const timestamp = new Date(d.date).getTime() / 1000;
+      heatmapData[timestamp] = d.success + d.failed;
+    });
+
+    const cal = new CalHeatmapLib();
+    calRef.current = cal;
+
+    const startDate = data.length > 0 ? new Date(data[0].date) : new Date();
+
+    cal.paint(
+      {
+        data: {
+          source: heatmapData,
+          type: 'json',
+          x: 't',
+          y: 'v',
+        },
+        date: { start: startDate },
+        range: 4,
+        scale: {
+          color: {
+            type: 'linear',
+            scheme: 'PuBuGn',
+            domain: [0, Math.max(...data.map((d) => d.success + d.failed), 1)],
+          },
+        },
+        domain: {
+          type: 'month',
+          label: { text: null },
+        },
+        subDomain: { type: 'day', radius: 2, label: null },
+        itemSelector: '#heatmap-container',
+      },
+      [
+        [
+          Tooltip,
+          {
+            text: function (date: Date, value: number) {
+              return (
+                (value ? value + ' 次执行' : '无执行') +
+                ' on ' +
+                dayjs(date).format('YYYY-MM-DD')
+              );
+            },
+          },
+        ],
+        [
+          Legend,
+          {
+            tickSize: 0,
+            width: 120,
+            itemSelector: legendRef.current || '#heatmap-legend',
+            label: '执行次数',
+          },
+        ],
+      ]
+    );
+
+    return () => {
+      if (calRef.current) {
+        calRef.current.destroy();
+        calRef.current = null;
+      }
+    };
+  }, [data]);
+
+  if (data.length === 0) {
+    return (
+      <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>
+        暂无数据
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div id="heatmap-container" ref={containerRef} style={{ overflowX: 'auto' }} />
+      <div id="heatmap-legend" ref={legendRef} style={{ marginTop: 8 }} />
     </div>
   );
 }
