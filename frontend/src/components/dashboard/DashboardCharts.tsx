@@ -278,10 +278,10 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
   // 计算高度百分比以保持正方形: 7/53 ≈ 13.2%
   const heightPercent = ((daysCount / weeksCount) * 100).toFixed(1);
 
-  // 暗色主题用绿色系，亮色主题用蓝色系
+  // 暗色主题用绿色系，亮色主题用暖色系
   const levelColors = isDark
     ? ['var(--color-fill-quaternary)', '#9be9a8', '#40c463', '#30a14e', '#216e39']
-    : ['var(--color-fill-quaternary)', '#dbeafe', '#93c5fd', '#3b82f6', '#1d4ed8'];
+    : ['var(--color-fill-quaternary)', '#fef3c7', '#fcd34d', '#f59e0b', '#d97706'];
 
   return (
     <div style={{ width: '100%', paddingBottom: 8 }}>
