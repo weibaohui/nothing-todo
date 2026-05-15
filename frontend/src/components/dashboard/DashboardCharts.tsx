@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 
 interface BarItem {
   label: string;
@@ -244,10 +244,18 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
     return { weeks: weeksArr };
   }, [data]);
 
-  // 检测亮色/暗色主题
-  const isDark = useMemo(() => {
+  // 检测亮色/暗色主题，使用 useState + useEffect 确保主题变化时能及时更新
+  const [isDark, setIsDark] = useState(() => {
     if (typeof window === 'undefined') return false;
     return document.documentElement.getAttribute('data-theme') === 'dark';
+  });
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.getAttribute('data-theme') === 'dark');
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => observer.disconnect();
   }, []);
 
   // 亮色主题：灰底蓝色系 | 暗色主题：黑底GitHub绿色系
