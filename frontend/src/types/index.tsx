@@ -38,8 +38,19 @@ export interface TodoTemplate {
   category: string;
   sort_order: number;
   is_system: boolean;
+  source_url?: string | null;
+  last_sync_at?: string | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+export interface CustomTemplateStatus {
+  subscribed: boolean;
+  source_url: string | null;
+  last_sync_at: string | null;
+  auto_sync_enabled: boolean;
+  auto_sync_cron: string;
+  templates: TodoTemplate[];
 }
 
 export interface LogEntry {

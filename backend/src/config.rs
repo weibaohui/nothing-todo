@@ -37,6 +37,10 @@ pub struct Config {
     pub auto_backup_cron: String,
     /// 自动备份最大保留文件数
     pub auto_backup_max_files: usize,
+    /// 是否开启自定义模板自动同步
+    pub auto_sync_custom_templates_enabled: bool,
+    /// 自定义模板自动同步 cron 表达式（6 字段，含秒）
+    pub auto_sync_custom_templates_cron: String,
     /// 全局斜杠命令规则
     pub slash_command_rules: Vec<SlashCommandRule>,
     /// 默认响应：当没有匹配到斜杠命令时执行的 Todo ID
@@ -111,6 +115,8 @@ impl Default for Config {
             auto_backup_enabled: false,
             auto_backup_cron: "0 0 3 * * *".to_string(),
             auto_backup_max_files: 30,
+            auto_sync_custom_templates_enabled: false,
+            auto_sync_custom_templates_cron: "0 0 4 * * *".to_string(),
             slash_command_rules: Vec::new(),
             default_response_todo_id: None,
             history_message_max_age_secs: 600,

@@ -2563,7 +2563,7 @@ code {
   padding: var(--space-sm);
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm);
+  gap: var(--space-md);
   min-height: 60px;
 }
 
@@ -2624,7 +2624,7 @@ code {
 
 /* ─── Card Header ─── */
 .kanban-card-header {
-  padding: var(--space-md) var(--space-md) var(--space-xs);
+  padding: var(--space-md) var(--space-md) var(--space-sm);
 }
 
 .kanban-card-top {
@@ -2632,7 +2632,7 @@ code {
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-sm);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
 }
 
 .kanban-card-title {
@@ -2677,8 +2677,8 @@ code {
 .kanban-card-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 4px;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
 }
 
 .kanban-tag-badge {
@@ -2691,7 +2691,7 @@ code {
 
 /* ─── Card Body (expandable sections) ─── */
 .kanban-card-body {
-  padding: 0 var(--space-md);
+  padding: var(--space-xs) var(--space-md) 0;
 }
 
 .kanban-card-section {
@@ -2703,7 +2703,7 @@ code {
   align-items: center;
   gap: var(--space-sm);
   font-size: 11px;
-  padding: 6px 0;
+  padding: var(--space-xs) 0;
   cursor: pointer;
   user-select: none;
   transition: background var(--transition-fast);
@@ -2746,7 +2746,7 @@ code {
 }
 
 .kanban-card-section-content {
-  padding: 0 0 var(--space-sm);
+  padding: var(--space-xs) 0 var(--space-sm);
   font-size: 12px;
   color: var(--color-text-secondary);
   line-height: 1.6;
@@ -2829,14 +2829,14 @@ code {
 
 /* ─── Footer ─── */
 .kanban-card-footer {
-  padding: var(--space-xs) var(--space-md);
+  padding: var(--space-sm) var(--space-md);
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-sm);
   font-size: 11px;
   border-top: 1px solid var(--color-border-light);
-  margin-top: var(--space-xs);
+  margin-top: var(--space-sm);
 }
 
 .kanban-card-time {
@@ -2874,5 +2874,26 @@ code {
   .kanban-column {
     min-width: 200px;
     max-width: 260px;
+  }
+
+  .kanban-mobile-tabs {
+    padding: 0;
+  }
+
+  .kanban-mobile-tabs .ant-tabs-nav {
+    margin-bottom: 0;
+  }
+
+  .kanban-mobile-tabs .ant-tabs-tab {
+    font-size: 13px;
+  }
+
+  .kanban-mobile-list {
+    padding: var(--space-sm);
+  }
+
+  .kanban-mobile-list .kanban-card {
+    margin-bottom: var(--space-sm);
+    cursor: default;
   }
 }
