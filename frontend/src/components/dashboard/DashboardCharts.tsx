@@ -194,8 +194,9 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
       dateMap.set(d.date, d.success + d.failed);
     });
 
-    const startDate = new Date(2026, 0, 1);
-    const endDate = new Date(2026, 11, 31);
+    const currentYear = new Date().getFullYear();
+    const startDate = new Date(currentYear, 0, 1);
+    const endDate = new Date(currentYear, 11, 31);
     const dayOfWeek = startDate.getDay();
     startDate.setDate(startDate.getDate() - dayOfWeek);
 
