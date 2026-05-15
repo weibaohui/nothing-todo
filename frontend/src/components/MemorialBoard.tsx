@@ -173,8 +173,8 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
             value={boardMode}
             onChange={value => setBoardMode(value as BoardMode)}
             options={[
-              { label: <span><ProfileOutlined /> 执行结论</span>, value: 'memorial' },
-              { label: <span><AppstoreOutlined /> 飞书看板</span>, value: 'kanban' },
+              { label: <span><ProfileOutlined /> 结论视图</span>, value: 'memorial' },
+              { label: <span><AppstoreOutlined /> 看板视图</span>, value: 'kanban' },
             ]}
           />
         </div>
