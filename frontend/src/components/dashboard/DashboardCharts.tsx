@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo } from 'react';
 
 interface BarItem {
   label: string;
@@ -184,21 +184,6 @@ interface ContributionHeatmapProps {
 }
 
 export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
-  // 检测是否为暗色主题
-  const [isDark, setIsDark] = useState(false);
-  useEffect(() => {
-    const checkTheme = () => {
-      const bgColor = getComputedStyle(document.body).getPropertyValue('--ant-base-background-color').trim();
-      // 如果背景色以 #0 或 rgb(0 开头，则是暗色主题
-      setIsDark(bgColor.startsWith('#0') || bgColor.startsWith('rgb(0'));
-    };
-    checkTheme();
-    // 监听主题变化
-    const observer = new MutationObserver(checkTheme);
-    observer.observe(document.body, { attributes: true, attributeFilter: ['style', 'class'] });
-    return () => observer.disconnect();
-  }, []);
-
   const { weeks } = useMemo(() => {
     if (data.length === 0) {
       return { weeks: [] };
@@ -209,10 +194,8 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
       dateMap.set(d.date, d.success + d.failed);
     });
 
-    // 2026年全年：1月1日到12月31日
-    const startDate = new Date(2026, 0, 1); // 2026-01-01
-    const endDate = new Date(2026, 11, 31); // 2026-12-31
-    // 从周日开始对齐
+    const startDate = new Date(2026, 0, 1);
+    const endDate = new Date(2026, 11, 31);
     const dayOfWeek = startDate.getDay();
     startDate.setDate(startDate.getDate() - dayOfWeek);
 
@@ -265,54 +248,47 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
     return <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>暂无数据</div>;
   }
 
-  // 动态计算格子大小，使热力图铺满容器，保持正方形
   const cellGap = 1;
-  const weeksCount = weeks.length; // 53-54 周
+  const weeksCount = weeks.length;
   const daysCount = 7;
-
-  // 用 viewBox 保持 53:7 比例
   const vbWidth = weeksCount * 10;
   const vbHeight = daysCount * 10;
   const cellSize = 9;
-
-  // 计算高度百分比以保持正方形: 7/53 ≈ 13.2%
   const heightPercent = ((daysCount / weeksCount) * 100).toFixed(1);
 
-  // 暗色主题用绿色系，亮色主题用暖色系
-  const levelColors = isDark
-    ? ['var(--color-fill-quaternary)', '#9be9a8', '#40c463', '#30a14e', '#216e39']
-    : ['var(--color-fill-quaternary)', '#fef3c7', '#fcd34d', '#f59e0b', '#d97706'];
+  // 暖色系配色，无活动格子用浅灰色
+  const levelColors = ['#e5e7eb', '#fef3c7', '#fcd34d', '#f59e0b', '#d97706'];
 
   return (
     <div style={{ width: '100%', paddingBottom: 8 }}>
       <div style={{ width: '100%', paddingBottom: `${heightPercent}%`, position: 'relative' }}>
         <svg width="100%" height="100%" viewBox={`0 0 ${vbWidth} ${vbHeight}`} preserveAspectRatio="xMidYMid meet" style={{ position: 'absolute', top: 0, left: 0 }}>
-        {weeks.map((week, weekIndex) =>
-          week.map((day, dayIndex) => (
-            <rect
-              key={`${weekIndex}-${dayIndex}`}
-              x={weekIndex * (cellSize + cellGap)}
-              y={dayIndex * (cellSize + cellGap)}
-              width={cellSize}
-              height={cellSize}
-              rx={Math.max(1, cellSize / 4)}
-              fill={levelColors[day.level]}
-              style={{ cursor: 'pointer', transition: 'opacity 0.15s' }}
-              onMouseEnter={(e) => {
-                const tooltip = document.getElementById('heatmap-tooltip');
-                if (tooltip) {
-                  const dateStr = day.date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
-                  tooltip.textContent = day.count > 0 ? `${day.count} 次执行 · ${dateStr}` : `无执行 · ${dateStr}`;
-                  tooltip.style.display = 'block';
-                  tooltip.style.left = `${e.clientX + 10}px`;
-                  tooltip.style.top = `${e.clientY - 30}px`;
-                }
-              }}
-              onMouseLeave={() => { const tooltip = document.getElementById('heatmap-tooltip'); if (tooltip) tooltip.style.display = 'none'; }}
-            />
-          ))
-        )}
-      </svg>
+          {weeks.map((week, weekIndex) =>
+            week.map((day, dayIndex) => (
+              <rect
+                key={`${weekIndex}-${dayIndex}`}
+                x={weekIndex * (cellSize + cellGap)}
+                y={dayIndex * (cellSize + cellGap)}
+                width={cellSize}
+                height={cellSize}
+                rx={Math.max(1, cellSize / 4)}
+                fill={levelColors[day.level]}
+                style={{ cursor: 'pointer', transition: 'opacity 0.15s' }}
+                onMouseEnter={(e) => {
+                  const tooltip = document.getElementById('heatmap-tooltip');
+                  if (tooltip) {
+                    const dateStr = day.date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+                    tooltip.textContent = day.count > 0 ? `${day.count} 次执行 · ${dateStr}` : `无执行 · ${dateStr}`;
+                    tooltip.style.display = 'block';
+                    tooltip.style.left = `${e.clientX + 10}px`;
+                    tooltip.style.top = `${e.clientY - 30}px`;
+                  }
+                }}
+                onMouseLeave={() => { const tooltip = document.getElementById('heatmap-tooltip'); if (tooltip) tooltip.style.display = 'none'; }}
+              />
+            ))
+          )}
+        </svg>
       </div>
       <div id="heatmap-tooltip" style={{ display: 'none', position: 'fixed', background: 'var(--color-fill-elevated)', border: '1px solid var(--color-border)', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: 'var(--color-text)', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: 1000, pointerEvents: 'none' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8, justifyContent: 'flex-end' }}>
