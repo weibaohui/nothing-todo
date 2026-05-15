@@ -115,7 +115,6 @@ export function TrendChart({ data, height = 160 }: TrendChartProps) {
 
     return (
       <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} style={{ overflow: 'visible' }}>
-        {/* Y axis lines */}
         {yTicks.map((t, i) => {
           const y = padT + chartH - (t / maxVal) * chartH;
           return (
@@ -127,13 +126,8 @@ export function TrendChart({ data, height = 160 }: TrendChartProps) {
             </g>
           );
         })}
-
-        {/* Success line */}
         <path d={successPath} fill="none" stroke="var(--color-success)" strokeWidth={2} strokeLinejoin="round" />
-        {/* Fail line */}
         <path d={failPath} fill="none" stroke="var(--color-error)" strokeWidth={2} strokeLinejoin="round" />
-
-        {/* Dots and date labels */}
         {points.map((p, i) => (
           <g key={i}>
             <circle cx={p.x} cy={p.succY} r={3} fill="var(--color-success)" />
@@ -189,36 +183,28 @@ interface ContributionHeatmapProps {
   data: DailyExecution[];
 }
 
-// GitHub-style contribution heatmap component
 export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
   const { weeks, months, weekdays } = useMemo(() => {
     if (data.length === 0) {
       return { weeks: [], months: [], weekdays: ['', 'Mon', '', 'Wed', '', 'Fri', ''] };
     }
 
-    // Build a map of date -> count
     const dateMap = new Map<string, number>();
     data.forEach((d) => {
       dateMap.set(d.date, d.success + d.failed);
     });
 
-    // Get current date in local timezone
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth();
     const currentDay = now.getDate();
 
-    // End date: today in local timezone
     const endDate = new Date(currentYear, currentMonth, currentDay);
-
-    // Start date: 52 weeks ago, aligned to Sunday
     const startDate = new Date(endDate);
     startDate.setDate(startDate.getDate() - 364);
-    // Align to Sunday (day 0)
     const dayOfWeek = startDate.getDay();
     startDate.setDate(startDate.getDate() - dayOfWeek);
 
-    // Build weeks array
     const weeksArr: { date: Date; count: number; level: number }[][] = [];
     const monthsArr: { label: string; weekIndex: number; year: number }[] = [];
     let currentDate = new Date(startDate);
@@ -233,7 +219,6 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayOfMonth).padStart(2, '0')}`;
       const count = dateMap.get(dateStr) || 0;
 
-      // Track month changes for labels
       if ((month !== lastMonth || year !== lastYear) && currentDate.getDay() <= 3) {
         monthsArr.push({
           label: currentDate.toLocaleDateString('en-US', { month: 'short' }),
@@ -244,11 +229,7 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
         lastYear = year;
       }
 
-      currentWeek.push({
-        date: new Date(currentDate),
-        count,
-        level: 0,
-      });
+      currentWeek.push({ date: new Date(currentDate), count, level: 0 });
 
       if (currentDate.getDay() === 6) {
         weeksArr.push(currentWeek);
@@ -258,19 +239,11 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
       currentDate.setDate(currentDate.getDate() + 1);
     }
 
-    if (currentWeek.length > 0) {
-      weeksArr.push(currentWeek);
-    }
+    if (currentWeek.length > 0) weeksArr.push(currentWeek);
 
-    // Calculate max for level calculation
     let max = 0;
-    weeksArr.forEach((week) => {
-      week.forEach((day) => {
-        max = Math.max(max, day.count);
-      });
-    });
+    weeksArr.forEach((week) => week.forEach((day) => { max = Math.max(max, day.count); }));
 
-    // Calculate levels (0-4 like GitHub)
     weeksArr.forEach((week) => {
       week.forEach((day) => {
         if (max === 0 || day.count === 0) {
@@ -287,74 +260,31 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
       });
     });
 
-    return {
-      weeks: weeksArr,
-      months: monthsArr,
-      weekdays: ['', 'Mon', '', 'Wed', '', 'Fri', ''] as string[],
-    };
+    return { weeks: weeksArr, months: monthsArr, weekdays: ['', 'Mon', '', 'Wed', '', 'Fri', ''] as string[] };
   }, [data]);
 
   if (data.length === 0) {
-    return (
-      <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>
-        暂无数据
-      </div>
-    );
+    return <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>暂无数据</div>;
   }
 
   const cellSize = 11;
   const cellGap = 2;
   const dayLabelWidth = 28;
   const monthLabelHeight = 18;
-
   const svgWidth = weeks.length * (cellSize + cellGap) + dayLabelWidth;
   const svgHeight = 7 * (cellSize + cellGap) + monthLabelHeight;
 
-  // GitHub color scheme
-  const levelColors = [
-    'var(--color-fill-quaternary)', // 0 - no activity
-    '#9be9a8', // 1 - low
-    '#40c463', // 2 - medium-low
-    '#30a14e', // 3 - medium-high
-    '#216e39', // 4 - high
-  ];
+  const levelColors = ['var(--color-fill-quaternary)', '#9be9a8', '#40c463', '#30a14e', '#216e39'];
 
   return (
     <div style={{ width: '100%', overflowX: 'auto', paddingBottom: 8 }}>
-      <svg
-        width={svgWidth}
-        height={svgHeight}
-        style={{ display: 'block', minWidth: svgWidth }}
-      >
-        {/* Month labels with year */}
+      <svg width={svgWidth} height={svgHeight} style={{ display: 'block', minWidth: svgWidth }}>
         {months.map((m, i) => (
-          <text
-            key={i}
-            x={dayLabelWidth + m.weekIndex * (cellSize + cellGap)}
-            y={12}
-            fontSize={10}
-            fill="var(--color-text-tertiary)"
-          >
-            {m.label} {m.year}
-          </text>
+          <text key={i} x={dayLabelWidth + m.weekIndex * (cellSize + cellGap)} y={12} fontSize={10} fill="var(--color-text-tertiary)">{m.label} {m.year}</text>
         ))}
-
-        {/* Day labels */}
         {weekdays.map((day, i) => (
-          <text
-            key={i}
-            x={0}
-            y={monthLabelHeight + i * (cellSize + cellGap) + cellSize - 1}
-            fontSize={9}
-            fill="var(--color-text-tertiary)"
-            textAnchor="end"
-            style={{ display: day ? 'block' : 'none' }}
-          >
-            {day}
-          </text>
+          <text key={i} x={0} y={monthLabelHeight + i * (cellSize + cellGap) + cellSize - 1} fontSize={9} fill="var(--color-text-tertiary)" textAnchor="end" style={{ display: day ? 'block' : 'none' }}>{day}</text>
         ))}
-
-        {/* Cells */}
         {weeks.map((week, weekIndex) =>
           week.map((day, dayIndex) => (
             <rect
@@ -365,65 +295,26 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
               height={cellSize}
               rx={2}
               fill={levelColors[day.level]}
-              style={{
-                cursor: 'pointer',
-                transition: 'opacity 0.15s',
-              }}
+              style={{ cursor: 'pointer', transition: 'opacity 0.15s' }}
               onMouseEnter={(e) => {
                 const tooltip = document.getElementById('heatmap-tooltip');
                 if (tooltip) {
-                  const dateStr = day.date.toLocaleDateString('zh-CN', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                  });
+                  const dateStr = day.date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
                   tooltip.textContent = day.count > 0 ? `${day.count} 次执行 · ${dateStr}` : `无执行 · ${dateStr}`;
                   tooltip.style.display = 'block';
                   tooltip.style.left = `${e.clientX + 10}px`;
                   tooltip.style.top = `${e.clientY - 30}px`;
                 }
               }}
-              onMouseLeave={() => {
-                const tooltip = document.getElementById('heatmap-tooltip');
-                if (tooltip) tooltip.style.display = 'none';
-              }}
+              onMouseLeave={() => { const tooltip = document.getElementById('heatmap-tooltip'); if (tooltip) tooltip.style.display = 'none'; }}
             />
           ))
         )}
       </svg>
-
-      {/* Tooltip */}
-      <div
-        id="heatmap-tooltip"
-        style={{
-          display: 'none',
-          position: 'fixed',
-          background: 'var(--color-fill-elevated)',
-          border: '1px solid var(--color-border)',
-          borderRadius: 6,
-          padding: '6px 10px',
-          fontSize: 12,
-          color: 'var(--color-text)',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          zIndex: 1000,
-          pointerEvents: 'none',
-        }}
-      />
-
-      {/* Legend */}
+      <div id="heatmap-tooltip" style={{ display: 'none', position: 'fixed', background: 'var(--color-fill-elevated)', border: '1px solid var(--color-border)', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: 'var(--color-text)', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: 1000, pointerEvents: 'none' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8, justifyContent: 'flex-end' }}>
         <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginRight: 4 }}>少</span>
-        {levelColors.map((color, i) => (
-          <div
-            key={i}
-            style={{
-              width: cellSize,
-              height: cellSize,
-              borderRadius: 2,
-              background: color,
-            }}
-          />
-        ))}
+        {levelColors.map((color, i) => <div key={i} style={{ width: cellSize, height: cellSize, borderRadius: 2, background: color }} />)}
         <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginLeft: 4 }}>多</span>
       </div>
     </div>
