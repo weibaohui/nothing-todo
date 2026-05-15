@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 
 interface BarItem {
   label: string;
@@ -184,6 +184,21 @@ interface ContributionHeatmapProps {
 }
 
 export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
+  // 检测是否为暗色主题
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    const checkTheme = () => {
+      const bgColor = getComputedStyle(document.body).getPropertyValue('--ant-base-background-color').trim();
+      // 如果背景色以 #0 或 rgb(0 开头，则是暗色主题
+      setIsDark(bgColor.startsWith('#0') || bgColor.startsWith('rgb(0'));
+    };
+    checkTheme();
+    // 监听主题变化
+    const observer = new MutationObserver(checkTheme);
+    observer.observe(document.body, { attributes: true, attributeFilter: ['style', 'class'] });
+    return () => observer.disconnect();
+  }, []);
+
   const { weeks } = useMemo(() => {
     if (data.length === 0) {
       return { weeks: [] };
@@ -263,7 +278,10 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
   // 计算高度百分比以保持正方形: 7/53 ≈ 13.2%
   const heightPercent = ((daysCount / weeksCount) * 100).toFixed(1);
 
-  const levelColors = ['var(--color-fill-quaternary)', '#9be9a8', '#40c463', '#30a14e', '#216e39'];
+  // 暗色主题用绿色系，亮色主题用蓝色系
+  const levelColors = isDark
+    ? ['var(--color-fill-quaternary)', '#9be9a8', '#40c463', '#30a14e', '#216e39']
+    : ['var(--color-fill-quaternary)', '#dbeafe', '#93c5fd', '#3b82f6', '#1d4ed8'];
 
   return (
     <div style={{ width: '100%', paddingBottom: 8 }}>
