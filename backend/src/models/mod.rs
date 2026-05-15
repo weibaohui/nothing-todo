@@ -281,6 +281,10 @@ pub struct CreateTodoRequest {
     pub tag_ids: Vec<i64>,
     #[serde(default)]
     pub executor: Option<String>,
+    #[serde(default)]
+    pub scheduler_enabled: Option<bool>,
+    #[serde(default)]
+    pub scheduler_config: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
