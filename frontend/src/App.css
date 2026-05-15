@@ -2498,6 +2498,7 @@ code {
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border-light);
   max-height: 100%;
+  min-height: 0;
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
@@ -2560,11 +2561,11 @@ code {
 .kanban-column-body {
   flex: 1;
   overflow-y: auto;
+  min-height: 0;
   padding: var(--space-sm);
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
-  min-height: 60px;
 }
 
 .kanban-column-body::-webkit-scrollbar {
@@ -2602,6 +2603,8 @@ code {
   display: flex;
   flex-direction: column;
   padding: 0;
+  flex-shrink: 0;
+  min-height: 80px;
 }
 
 .kanban-card:hover {
