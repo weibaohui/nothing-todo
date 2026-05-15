@@ -184,9 +184,9 @@ interface ContributionHeatmapProps {
 }
 
 export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
-  const { weeks, months, weekdays } = useMemo(() => {
+  const { weeks } = useMemo(() => {
     if (data.length === 0) {
-      return { weeks: [], months: [], weekdays: ['', 'Mon', '', 'Wed', '', 'Fri', ''] };
+      return { weeks: [] };
     }
 
     const dateMap = new Map<string, number>();
@@ -202,11 +202,8 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
     startDate.setDate(startDate.getDate() - dayOfWeek);
 
     const weeksArr: { date: Date; count: number; level: number }[][] = [];
-    const monthsArr: { label: string; weekIndex: number; year: number }[] = [];
     let currentDate = new Date(startDate);
     let currentWeek: { date: Date; count: number; level: number }[] = [];
-    let lastMonth = -1;
-    let lastYear = -1;
 
     while (currentDate <= endDate) {
       const year = currentDate.getFullYear();
@@ -214,16 +211,6 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
       const dayOfMonth = currentDate.getDate();
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayOfMonth).padStart(2, '0')}`;
       const count = dateMap.get(dateStr) || 0;
-
-      if ((month !== lastMonth || year !== lastYear) && currentDate.getDay() <= 3) {
-        monthsArr.push({
-          label: currentDate.toLocaleDateString('en-US', { month: 'short' }),
-          weekIndex: weeksArr.length,
-          year,
-        });
-        lastMonth = month;
-        lastYear = year;
-      }
 
       currentWeek.push({ date: new Date(currentDate), count, level: 0 });
 
@@ -256,40 +243,35 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
       });
     });
 
-    return { weeks: weeksArr, months: monthsArr, weekdays: ['', 'Mon', '', 'Wed', '', 'Fri', ''] as string[] };
+    return { weeks: weeksArr };
   }, [data]);
 
   if (data.length === 0) {
     return <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>暂无数据</div>;
   }
 
-  const cellSize = 11;
-  const cellGap = 2;
-  const dayLabelWidth = 28;
-  const monthLabelHeight = 18;
+  // 动态计算格子大小，使热力图铺满容器
+  const containerWidth = 700; // 目标宽度
+  const cellSize = Math.floor((containerWidth - 28) / weeks.length) - 1;
+  const cellGap = 1;
+  const dayLabelWidth = 0;
   const svgWidth = weeks.length * (cellSize + cellGap) + dayLabelWidth;
-  const svgHeight = 7 * (cellSize + cellGap) + monthLabelHeight;
+  const svgHeight = 7 * (cellSize + cellGap);
 
   const levelColors = ['var(--color-fill-quaternary)', '#9be9a8', '#40c463', '#30a14e', '#216e39'];
 
   return (
     <div style={{ width: '100%', overflowX: 'auto', paddingBottom: 8 }}>
-      <svg width={svgWidth} height={svgHeight} style={{ display: 'block', minWidth: svgWidth }}>
-        {months.map((m, i) => (
-          <text key={i} x={dayLabelWidth + m.weekIndex * (cellSize + cellGap)} y={12} fontSize={10} fill="var(--color-text-tertiary)">{m.label} {m.year}</text>
-        ))}
-        {weekdays.map((day, i) => (
-          <text key={i} x={0} y={monthLabelHeight + i * (cellSize + cellGap) + cellSize - 1} fontSize={9} fill="var(--color-text-tertiary)" textAnchor="end" style={{ display: day ? 'block' : 'none' }}>{day}</text>
-        ))}
+      <svg width="100%" height={svgHeight} viewBox={`0 0 ${svgWidth} ${svgHeight}`} preserveAspectRatio="none">
         {weeks.map((week, weekIndex) =>
           week.map((day, dayIndex) => (
             <rect
               key={`${weekIndex}-${dayIndex}`}
-              x={dayLabelWidth + weekIndex * (cellSize + cellGap)}
-              y={monthLabelHeight + dayIndex * (cellSize + cellGap)}
+              x={weekIndex * (cellSize + cellGap)}
+              y={dayIndex * (cellSize + cellGap)}
               width={cellSize}
               height={cellSize}
-              rx={2}
+              rx={Math.max(1, cellSize / 4)}
               fill={levelColors[day.level]}
               style={{ cursor: 'pointer', transition: 'opacity 0.15s' }}
               onMouseEnter={(e) => {
@@ -310,7 +292,7 @@ export function ContributionHeatmap({ data }: ContributionHeatmapProps) {
       <div id="heatmap-tooltip" style={{ display: 'none', position: 'fixed', background: 'var(--color-fill-elevated)', border: '1px solid var(--color-border)', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: 'var(--color-text)', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: 1000, pointerEvents: 'none' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8, justifyContent: 'flex-end' }}>
         <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginRight: 4 }}>少</span>
-        {levelColors.map((color, i) => <div key={i} style={{ width: cellSize, height: cellSize, borderRadius: 2, background: color }} />)}
+        {levelColors.map((color, i) => <div key={i} style={{ width: 10, height: 10, borderRadius: 2, background: color }} />)}
         <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginLeft: 4 }}>多</span>
       </div>
     </div>
