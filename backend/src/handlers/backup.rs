@@ -115,10 +115,22 @@ fn backup_dir() -> PathBuf {
 
 /// 手动下载数据库文件
 pub async fn download_database(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
-    let cfg = crate::config::Config::load();
+    let cfg = state.config.read().await;
     let db_path = PathBuf::from(&cfg.db_path);
+
+    // 路径穿越防护：验证数据库路径位于安全目录 ~/.ntd/ 内
+    let canonicalized = std::fs::canonicalize(&db_path)
+        .map_err(|_| AppError::BadRequest("Invalid database path".to_string()))?;
+    let safe_dir = dirs::home_dir()
+        .ok_or_else(|| AppError::Internal("Cannot determine home directory".to_string()))?
+        .join(".ntd");
+    let safe_dir_canonical = std::fs::canonicalize(&safe_dir)
+        .unwrap_or(safe_dir);
+    if !canonicalized.starts_with(&safe_dir_canonical) {
+        return Err(AppError::BadRequest("Database path outside safe directory".to_string()));
+    }
 
     if !db_path.exists() {
         return Err(AppError::Internal("Database file not found".to_string()));
