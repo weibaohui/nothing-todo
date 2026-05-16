@@ -5,6 +5,8 @@ import {
   ClockCircleOutlined,
   RobotOutlined,
   CopyOutlined,
+  EditOutlined,
+  FileProtectOutlined,
 } from '@ant-design/icons';
 import XMarkdown from '@ant-design/x-markdown';
 import { ExecutorBadge } from './ExecutorBadge';
@@ -146,7 +148,7 @@ export function TodoCard({
               tabIndex={0}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onTogglePrompt(); } }}
             >
-              <span className="kanban-card-section-label">📋 Prompt</span>
+              <span className="kanban-card-section-label"><EditOutlined /> Prompt</span>
               {prompt && (
                 <button
                   className="kanban-copy-btn"
@@ -181,9 +183,7 @@ export function TodoCard({
               tabIndex={0}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onToggleResult(); } }}
             >
-              <span className="kanban-card-section-label">
-                {isSuccess ? <CheckCircleOutlined /> : <CloseCircleOutlined />} 结论
-              </span>
+              <span className="kanban-card-section-label"><FileProtectOutlined /> 结论</span>
               {resultText && (
                 <button
                   className="kanban-copy-btn"
