@@ -818,16 +818,16 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
 
         // 从 execution_logs 表读取已刷入的日志，与内存中剩余的日志合并形成完整快照
         let remaining = std::mem::take(&mut *logs_for_result.lock().await);
-        let remaining_json = serde_json::to_string(&remaining).unwrap_or_else(|e| {
-            tracing::error!("Failed to serialize remaining logs: {}", e);
-            "[]".to_string()
-        });
         let flushed_logs = db_clone
             .get_all_execution_logs(record_id)
             .await
             .unwrap_or_default();
         let mut all_logs_snapshot = flushed_logs;
         all_logs_snapshot.extend(remaining);
+        let all_logs_json = serde_json::to_string(&all_logs_snapshot).unwrap_or_else(|e| {
+            tracing::error!("Failed to serialize all logs: {}", e);
+            "[]".to_string()
+        });
         let result_str = executor_spawn
             .get_final_result(&all_logs_snapshot)
             .unwrap_or_default();
@@ -892,7 +892,7 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
             .update_execution_record(
                 record_id,
                 final_status,
-                &remaining_json,
+                &all_logs_json,
                 &result_str,
                 usage.as_ref(),
                 model.as_deref(),

@@ -144,9 +144,11 @@ impl Database {
         id: i64,
         executor: &str,
     ) -> Result<(), sea_orm::DbErr> {
+        let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
             executor: ActiveValue::Set(Some(executor.to_string())),
+            updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
         self.exec_update(am).await
@@ -157,9 +159,11 @@ impl Database {
         id: i64,
         task_id: Option<&str>,
     ) -> Result<(), sea_orm::DbErr> {
+        let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
             task_id: ActiveValue::Set(task_id.map(|s| s.to_string())),
+            updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
         self.exec_update(am).await
@@ -171,10 +175,12 @@ impl Database {
         enabled: bool,
         config: Option<&str>,
     ) -> Result<(), sea_orm::DbErr> {
+        let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
             scheduler_enabled: ActiveValue::Set(Some(enabled)),
             scheduler_config: ActiveValue::Set(config.map(|s| s.to_string())),
+            updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
         self.exec_update(am).await
@@ -193,9 +199,11 @@ impl Database {
                 Some(trimmed.to_string())
             }
         });
+        let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
             workspace: ActiveValue::Set(ws),
+            updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
         self.exec_update(am).await
