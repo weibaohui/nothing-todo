@@ -9,7 +9,7 @@
 桌面端任务管理工具
 
 ### 核心功能
-通过 Tauri + React + AntDesign 构建的本地 todo 管理应用，支持调用本地 joinai CLI 执行任务，并将执行过程完整记录到执行历史中。
+通过 React + AntDesign 构建的本地 todo 管理应用，支持调用本地 joinai CLI 执行任务，并将执行过程完整记录到执行历史中。
 
 ### 目标用户
 需要任务管理并借助 AI 执行任务的技术用户
@@ -53,7 +53,7 @@
 
 #### 调用 joinai
 - 命令格式：`joinai run --format json "<任务描述>"`
-- 通过 Tauri 的 `Command` API 执行系统命令
+- 通过 Rust 的 `std::process::Command` 执行系统命令
 - 实时捕获 stdout 和 stderr
 
 #### 执行过程记录
@@ -121,12 +121,12 @@ finished_at: DATETIME NULL
 
 ## 4. 技术栈
 
-- **框架**: Tauri 2.x
-- **前端**: React 18 + TypeScript
+- **后端框架**: Rust + Axum
+- **前端**: React 18 + TypeScript + Vite
 - **UI 组件**: AntDesign 5.x
 - **状态管理**: React Context + useReducer
-- **数据存储**: SQLite (via tauri-plugin-sql)
-- **命令执行**: Tauri Command API (std::process::Command)
+- **数据存储**: SQLite (via SeaORM)
+- **命令执行**: std::process::Command
 
 ---
 
