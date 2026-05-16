@@ -17,6 +17,12 @@ import { ExecutorBadge } from './ExecutorBadge';
 import XMarkdown from '@ant-design/x-markdown';
 import type { ExecutionSummary, Todo, TodoItem, ExecutionRecord, ExecutionStats, LogEntry } from '../types';
 
+/** 统一刷新按钮组件 */
+const RefreshBtn = ({ onClick, size = 'small' }: { onClick: () => void; size?: 'small' | 'middle' }) => (
+  <Button type="text" size={size} icon={<ReloadOutlined />} aria-label="刷新"
+    onClick={(e) => { e.stopPropagation(); onClick(); }} />
+);
+
 /** 计算从 started_at 到现在的 elapsed time (秒) */
 function getElapsedSeconds(startedAt: string): number {
   const start = new Date(startedAt).getTime();
@@ -1113,7 +1119,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                                 <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-primary)' }}>
                                   对话视图 ({displayLogs.length} 条){isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}
                                 </span>
-                                <Button type="text" size="small" icon={<ReloadOutlined />} aria-label="刷新" onClick={() => refreshSingleRecord(record.id)} />
+                                <RefreshBtn onClick={() => refreshSingleRecord(record.id)} />
                               </div>
                               <Segmented
                                 size="small"
@@ -1136,7 +1142,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-primary)' }}>
                                 执行过程 ({isRunning ? displayLogs.length : logsTotal} 条{isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''})
                               </span>
-                              <Button type="text" size="small" icon={<ReloadOutlined />} aria-label="刷新" onClick={() => {
+                              <RefreshBtn onClick={() => {
                                 refreshSingleRecord(record.id);
                                 loadLogs(record.id, logsPage);
                               }} />
@@ -1451,7 +1457,7 @@ function ContinuationLogsLoader({ record, viewMode, onRefresh, onViewModeChange 
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-primary)' }}>{title}</span>
-        <Button type="text" size="small" icon={<ReloadOutlined />} aria-label="刷新" onClick={() => onRefresh(record.id)} />
+        <RefreshBtn onClick={() => onRefresh(record.id)} />
       </div>
       <Segmented
         size="small"
@@ -1706,7 +1712,7 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-primary)' }}>{title}</span>
-                        <Button type="text" size="small" icon={<ReloadOutlined />} aria-label="刷新" onClick={() => onRefresh(record.id)} />
+                        <RefreshBtn onClick={() => onRefresh(record.id)} />
                       </div>
                       <Segmented
                         size="small"
@@ -1778,7 +1784,7 @@ function renderNarrowLogs(record: ExecutionRecord, isRunning: boolean, displayLo
         <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-primary)' }}>
           {title}
         </span>
-        <Button type="text" size="small" icon={<ReloadOutlined />} aria-label="刷新" onClick={() => onRefresh(record.id)} />
+        <RefreshBtn onClick={() => onRefresh(record.id)} />
       </div>
       <Segmented
         size="small"
