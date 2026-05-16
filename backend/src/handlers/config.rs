@@ -39,9 +39,11 @@ pub async fn update_config(
 
     cfg.normalize_paths();
 
-    if let Err(e) = cfg.save() {
-        return Err(AppError::Internal(format!("Failed to save config: {}", e)));
-    }
+    let cfg_clone = cfg.clone();
+    tokio::task::spawn_blocking(move || cfg_clone.save())
+        .await
+        .map_err(|e| AppError::Internal(format!("Join error: {}", e)))?
+        .map_err(|e| AppError::Internal(format!("Failed to save config: {}", e)))?;
 
     Ok(ApiResponse::ok(cfg.clone()))
 }
