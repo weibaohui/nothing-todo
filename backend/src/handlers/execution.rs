@@ -147,23 +147,26 @@ pub async fn stop_execution_handler(
         let cancelled = state.task_manager.cancel(task_id).await;
         if !cancelled {
             tracing::warn!(
-                "Task {} was not found in task manager (may have already finished)",
+                "Task {} was not found in task manager (may have already finished), \
+                 fallback to direct DB update",
                 task_id
             );
+            // 任务已不存在（正常结束），回退直接更新数据库
+            let logs_json = record.logs.clone();
+            let _ = state
+                .db
+                .update_execution_record(
+                    req.record_id,
+                    crate::models::ExecutionStatus::Failed.as_str(),
+                    &logs_json,
+                    "任务已被手动停止",
+                    None,
+                    None,
+                )
+                .await;
         }
-        // 更新数据库状态为失败，保留定时刷新已写入的日志
-        let logs_json = record.logs.clone();
-        let _ = state
-            .db
-            .update_execution_record(
-                req.record_id,
-                crate::models::ExecutionStatus::Failed.as_str(),
-                &logs_json,
-                "任务已被手动停止",
-                None,
-                None,
-            )
-            .await;
+        // 取消成功时，由任务内部的 cancel 分支处理 DB 更新，
+        // 避免与 stop handler 同时写入造成竞态条件
         tracing::info!("Successfully stopped execution record {}", req.record_id);
         Ok(ApiResponse::ok(()))
     } else {

@@ -173,6 +173,16 @@ pub async fn delete_todo(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<ApiResponse<()>, AppError> {
+    // 先清理调度器任务（如果有）
+    state.scheduler.remove_task_for_todo(id).await;
+
+    // 如果 todo 正在执行，尝试取消
+    if let Ok(Some(todo)) = state.db.get_todo(id).await {
+        if let Some(task_id) = todo.task_id {
+            state.task_manager.cancel(&task_id).await;
+        }
+    }
+
     state.db.delete_todo(id).await.map_err(AppError::from)?;
     Ok(ApiResponse::ok(()))
 }
