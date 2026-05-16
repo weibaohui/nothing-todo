@@ -279,10 +279,10 @@ impl ExecutorRegistry {
     }
 
     /// Register an executor by name and path (convenience method).
-    pub fn register_by_name(&self, name: &str, path: &str) -> bool {
+    pub async fn register_by_name(&self, name: &str, path: &str) -> bool {
         if let Some(executor) = Self::create_executor(name, path) {
             let executor_type = executor.executor_type();
-            self.executors.blocking_write().insert(executor_type, executor);
+            self.executors.write().await.insert(executor_type, executor);
             true
         } else {
             false
