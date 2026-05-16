@@ -10,6 +10,34 @@
 
 ---
 
+## 什么是 ntd
+
+ntd 是一个**让 AI 替你执行任务**的 Todo 系统。与传统的待办工具不同，你可以在 ntd 中创建任务，然后交给 AI 去真正完成——写代码、查资料、分析数据、生成报告。
+
+**适合场景：**
+- 需要 AI 帮你完成代码开发、数据分析、内容创作等实际工作
+- 希望集中管理 AI 执行记录，方便回顾和追溯
+- 需要定时执行 AI 任务，实现自动化工作流
+
+**工作原理：**
+
+```
+┌─────────────┐     创建任务      ┌─────────────┐
+│   使用者     │ ──────────────▶  │   ntd       │
+└─────────────┘                  │   服务端    │
+      ▲                          └──────┬──────┘
+      │                                 │
+      │  查看结果                        │ 转发任务
+      │                                 ▼
+┌─────────────┐                  ┌─────────────┐
+│   浏览器     │ ◀──────────────  │  AI 执行器  │
+│   UI        │     返回结果      │ (Claude/    │
+└─────────────┘                  │  Codex...)  │
+                                 └─────────────┘
+```
+
+---
+
 ## 特性
 
 - **智能任务管理** — 创建、编辑、跟踪 Todo，支持多种状态（待办、进行中、已完成、已取消、已归档）
@@ -78,20 +106,67 @@ npm install -g @weibaohui/nothing-todo@latest
 
 ---
 
-## 支持的 AI 执行器
+## 快速开始
 
-| 执行器 | 说明 |
-|--------|------|
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) | Anthropic 官方 CLI，支持 Worktree |
-| [JoinAI](https://www.joinai.com) | AI 工作流工具 |
-| [Codebuddy](https://codebuddy.com) | 代码助手 |
-| [OpenCode](https://opencode.ai) | 开源代码助手 |
-| [AtomCode](https://atomcode.dev) | AI 代码编辑器 |
-| [Hermes](https://hermes.chat) | AI 助手 |
-| [Kimi](https://kimi.moonshot.cn) | Kimi AI |
-| [Codex](https://openai.com/codex) | OpenAI 代码助手 |
+```bash
+# 一键安装
+npm install -g @weibaohui/nothing-todo
+
+# 启动服务
+ntd
+
+# 浏览器打开
+open http://localhost:8088
+```
+
+### 前置要求
+
+- **Node.js 20+** （用于安装和运行 npm 包）
+- **AI 执行器** （至少安装一个，详见下方）
 
 ---
+
+## 支持的 AI 执行器
+
+ntd 支持多种 AI CLI 工具，选择你已有的或最喜欢的即可：
+
+| 执行器 | 特点 | 安装方式 |
+|--------|------|----------|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) | 官方 CLI，支持 Worktree | `npm install -g @anthropic-ai/claude-code` |
+| [JoinAI](https://www.joinai.com) | AI 工作流工具 | 联系获取 |
+| [Codex](https://openai.com/codex) | OpenAI 代码助手 | 官方渠道 |
+| [Codebuddy](https://codebuddy.com) | 代码助手 | 官方渠道 |
+| [OpenCode](https://opencode.ai) | 开源代码助手 | 官方渠道 |
+| [AtomCode](https://atomcode.dev) | AI 代码编辑器 | 官方渠道 |
+
+---
+
+## 功能概览
+
+### 智能任务管理
+创建、编辑、跟踪 Todo，支持多种状态（待办、进行中、已完成、已取消、已归档）
+
+### 可视化仪表盘
+实时统计任务完成情况，支持趋势图表和数据洞察，可按时间区间筛选（6h/12h/24h/3d/7d）
+
+### 看板视图
+瀑布流展示最近完成的任务及其 AI 执行结论，方便回顾
+
+### 定时调度
+内置 Cron 调度器，支持定时触发任务执行
+
+### 项目隔离
+多项目独立管理，每个项目有独立的目录和工作空间
+
+### 自动备份
+定时自动备份数据，支持保留数量限制和一键下载
+
+### 跨平台
+支持 Windows、macOS、Linux（x86_64 & ARM64）
+
+---
+
+## 截图预览
 
 ![detail](docs/detail.png)
 ![dashboard](docs/dashboard.png)
