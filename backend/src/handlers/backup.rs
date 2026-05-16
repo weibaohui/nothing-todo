@@ -202,8 +202,10 @@ pub struct BackupStatus {
 }
 
 /// 获取数据库备份状态
-pub async fn get_database_backup_status() -> Result<ApiResponse<BackupStatus>, AppError> {
-    let cfg = crate::config::Config::load();
+pub async fn get_database_backup_status(
+    State(state): State<AppState>,
+) -> Result<ApiResponse<BackupStatus>, AppError> {
+    let cfg = state.config.read().await;
     let dir = backup_dir();
 
     let files = tokio::task::spawn_blocking(move || {
@@ -240,7 +242,7 @@ pub async fn get_database_backup_status() -> Result<ApiResponse<BackupStatus>, A
 
     Ok(ApiResponse::ok(BackupStatus {
         auto_backup_enabled: cfg.auto_backup_enabled,
-        auto_backup_cron: cfg.auto_backup_cron,
+        auto_backup_cron: cfg.auto_backup_cron.clone(),
         auto_backup_max_files: cfg.auto_backup_max_files,
         last_backup,
         files,
@@ -256,6 +258,7 @@ pub struct UpdateAutoBackupRequest {
 }
 
 pub async fn update_auto_backup(
+    State(state): State<AppState>,
     axum::Json(req): axum::Json<UpdateAutoBackupRequest>,
 ) -> Result<ApiResponse<String>, AppError> {
     // 验证 cron 表达式
@@ -267,7 +270,7 @@ pub async fn update_auto_backup(
             .ok_or_else(|| AppError::BadRequest("Cron expression has no future executions".to_string()))?;
     }
 
-    let mut cfg = crate::config::Config::load();
+    let mut cfg = state.config.read().await.clone();
     cfg.auto_backup_enabled = req.enabled;
     cfg.auto_backup_cron = req.cron;
     if let Some(max_files) = req.max_files {
@@ -277,6 +280,7 @@ pub async fn update_auto_backup(
         cfg.auto_backup_max_files = max_files;
     }
     cfg.save().map_err(AppError::Internal)?;
+    *state.config.write().await = cfg;
 
     Ok(ApiResponse::ok("自动备份配置已更新".to_string()))
 }

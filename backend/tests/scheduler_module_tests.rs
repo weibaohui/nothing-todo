@@ -135,13 +135,21 @@ mod scheduler_cron_validation_tests {
     #[test]
     fn test_cron_weekday_schedule() {
         // Every weekday at 9am
-        let schedule = cron::Schedule::from_str("0 0 9 * * 1-5").unwrap();
+        // cron crate 0.15 uses Quartz-style weekday numbering: 1=Sunday, 2=Monday...7=Saturday
+        // So 2-6 = Monday-Friday
+        let schedule = cron::Schedule::from_str("0 0 9 * * 2-6").unwrap();
         let next = schedule.upcoming(chrono::Utc).next().unwrap();
 
         // Should be Monday (1) through Friday (5)
-        let weekday = next.format("%w").to_string();
+        // chrono %w: Sunday=0, Monday=1, ..., Saturday=6
+        let weekday = next.format("%u").to_string(); // ISO weekday: Mon=1, Sun=7
         let weekday: u32 = weekday.parse().unwrap();
-        assert!(weekday >= 1 && weekday <= 5, "Weekday should be 1-5 (Mon-Fri)");
+        assert!(
+            weekday >= 1 && weekday <= 5,
+            "Weekday should be 1-5 (Mon-Fri), got {} ({})",
+            weekday,
+            next.format("%A")
+        );
     }
 }
 

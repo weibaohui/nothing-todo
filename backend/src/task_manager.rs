@@ -17,6 +17,8 @@ pub struct TaskManager {
     tasks: Mutex<HashMap<String, mpsc::UnboundedSender<()>>>,
     /// 存储每个任务的基本信息，用于 WebSocket 连接时同步
     task_infos: RwLock<HashMap<String, TaskInfo>>,
+    /// TOCTOU 保护：执行操作前需获取此锁
+    execution_gate: tokio::sync::Mutex<()>,
 }
 
 impl Default for TaskManager {
@@ -30,6 +32,7 @@ impl TaskManager {
         Self {
             tasks: Mutex::new(HashMap::new()),
             task_infos: RwLock::new(HashMap::new()),
+            execution_gate: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -61,6 +64,11 @@ impl TaskManager {
     pub async fn remove(&self, task_id: &str) {
         self.tasks.lock().await.remove(task_id);
         self.task_infos.write().await.remove(task_id);
+    }
+
+    /// 获取执行门控锁，用于 TOCTOU 保护
+    pub async fn acquire_execution_gate(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.execution_gate.lock().await
     }
 }
 

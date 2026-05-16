@@ -164,14 +164,23 @@ impl TodoScheduler {
     }
 
     pub async fn remove_task_for_todo(&self, todo_id: i64) {
-        let job_id = self.job_map.lock().await.remove(&todo_id);
+        let job_id = {
+            // Peek at the job_id without removing it yet
+            let map = self.job_map.lock().await;
+            map.get(&todo_id).copied()
+        };
         if let Some(job_id) = job_id {
             match self.sched.lock().await.remove(&job_id).await {
-                Ok(_) => info!("Removed scheduled task {} for todo {}", job_id, todo_id),
-                Err(e) => error!(
-                    "Failed to remove scheduled task {} for todo {}: {:?}",
-                    job_id, todo_id, e
-                ),
+                Ok(_) => {
+                    self.job_map.lock().await.remove(&todo_id);
+                    info!("Removed scheduled task {} for todo {}", job_id, todo_id);
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to remove scheduled task {} for todo {}: {:?}",
+                        job_id, todo_id, e
+                    );
+                }
             }
         }
     }

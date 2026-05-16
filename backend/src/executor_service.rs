@@ -67,6 +67,9 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
     let task_id = Uuid::new_v4().to_string();
     let mut cancel_rx = task_manager.register(task_id.clone()).await;
 
+    // 执行入口互斥锁：防止 TOCTOU 竞态，确保并发数检查与状态更新是原子的
+    let _gate = task_manager.acquire_execution_gate().await;
+
     // Read runtime settings from config
     let (max_concurrent, timeout_secs) = {
         let cfg = config.read().await;
