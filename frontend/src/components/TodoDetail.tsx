@@ -815,26 +815,15 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, ...(isWide ? { flexShrink: 0 } : {}) }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>执行历史</h4>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Segmented
-              size="small"
-              value={viewMode}
-              onChange={(value) => setViewMode(value as 'log' | 'chat')}
-              options={[
-                { value: 'log', icon: <UnorderedListOutlined />, label: '日志' },
-                { value: 'chat', icon: <MessageOutlined />, label: '对话' },
-              ]}
-            />
-            <Button
-              type="text"
-              size="small"
-              icon={<ReloadOutlined />}
-              onClick={() => loadExecutionRecords(historyPage, historyLimit)}
-              loading={isExecuting}
-            >
-              刷新
-            </Button>
-          </div>
+          <Button
+            type="text"
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={() => loadExecutionRecords(historyPage, historyLimit)}
+            loading={isExecuting}
+          >
+            刷新
+          </Button>
         </div>
         {records.length === 0 ? (
           <Empty description="暂无执行记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
@@ -1119,13 +1108,24 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                       if (viewMode === 'chat') {
                         return (
                           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexShrink: 0 }}>
-                              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-primary)' }}>
-                                对话视图 ({displayLogs.length} 条){isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}
-                              </span>
-                              <ReloadOutlined
-                                style={{ fontSize: 12, color: 'var(--color-text-tertiary)', cursor: 'pointer' }}
-                                onClick={() => refreshSingleRecord(record.id)}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexShrink: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-primary)' }}>
+                                  对话视图 ({displayLogs.length} 条){isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}
+                                </span>
+                                <ReloadOutlined
+                                  style={{ fontSize: 12, color: 'var(--color-text-tertiary)', cursor: 'pointer' }}
+                                  onClick={() => refreshSingleRecord(record.id)}
+                                />
+                              </div>
+                              <Segmented
+                                size="small"
+                                value={viewMode}
+                                onChange={(value) => setViewMode(value as 'log' | 'chat')}
+                                options={[
+                                  { value: 'log', icon: <UnorderedListOutlined />, label: '日志' },
+                                  { value: 'chat', icon: <MessageOutlined />, label: '对话' },
+                                ]}
                               />
                             </div>
                             <ChatView logs={displayLogs as LogEntry[]} isRunning={isRunning} />
@@ -1134,16 +1134,27 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                       }
                       return (
                         <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-primary)' }}>
-                              执行过程 ({isRunning ? displayLogs.length : logsTotal} 条{isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''})
-                            </span>
-                            <ReloadOutlined
-                              style={{ fontSize: 12, color: 'var(--color-text-tertiary)', cursor: 'pointer' }}
-                              onClick={() => {
-                                refreshSingleRecord(record.id);
-                                loadLogs(record.id, logsPage);
-                              }}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-primary)' }}>
+                                执行过程 ({isRunning ? displayLogs.length : logsTotal} 条{isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''})
+                              </span>
+                              <ReloadOutlined
+                                style={{ fontSize: 12, color: 'var(--color-text-tertiary)', cursor: 'pointer' }}
+                                onClick={() => {
+                                  refreshSingleRecord(record.id);
+                                  loadLogs(record.id, logsPage);
+                                }}
+                              />
+                            </div>
+                            <Segmented
+                              size="small"
+                              value={viewMode}
+                              onChange={(value) => setViewMode(value as 'log' | 'chat')}
+                              options={[
+                                { value: 'log', icon: <UnorderedListOutlined />, label: '日志' },
+                                { value: 'chat', icon: <MessageOutlined />, label: '对话' },
+                              ]}
                             />
                           </div>
                           <div style={{
