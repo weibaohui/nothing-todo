@@ -237,7 +237,8 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
     const isFinished = todo.status === 'completed' || todo.status === 'failed';
     const promptExpanded = expandedPromptIds.has(todo.id);
     const resultExpanded = expandedResultIds.has(todo.id);
-    const resultText = todoResults[todo.id] || '';
+    const recordResult = execRecordCache[todo.id]?.result || state.executionRecords[todo.id]?.[0]?.result;
+    const resultText = todoResults[todo.id] || recordResult || '';
     const isLoadingResult = loadingResults.has(todo.id);
     const records = state.executionRecords[todo.id] || [];
     const todoExecutionRecord: ExecutionRecord | undefined =
