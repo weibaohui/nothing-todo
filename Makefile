@@ -139,33 +139,3 @@ cross-list:
 	@echo ""
 	@echo "Built binaries: backend/target/cross/"
 
-# Tauri desktop app
-TAURI_CLI ?= cargo tauri
-
-tauri-dev:
-	export PATH="$$HOME/.cargo/bin:$$PATH" && \
-	(cd frontend && npm run build) && \
-	(cd backend && cargo run &) && \
-	echo "Waiting for backend to be ready..." && \
-	for i in $$(seq 1 30); do \
-		if curl -sf http://localhost:8088/health > /dev/null 2>&1; then \
-			echo "Backend ready after $$((i))s"; \
-			break; \
-		fi; \
-		if [ $$i -eq 30 ]; then \
-			echo "Backend failed to start within 30s"; \
-			exit 1; \
-		fi; \
-		sleep 1; \
-	done && \
-	cd src-tauri && $(TAURI_CLI) dev
-
-tauri-build:
-	export PATH="$$HOME/.cargo/bin:$$PATH" && cd src-tauri && $(TAURI_CLI) build
-
-desktop: build
-	export PATH="$$HOME/.cargo/bin:$$PATH" && cd src-tauri && $(TAURI_CLI) build
-
-tauri-clean:
-	rm -rf src-tauri/target
-
