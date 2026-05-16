@@ -102,33 +102,35 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         .unwrap_or_default();
 
     let executor = match executor_registry
-        .get(executor_type)
-        .or_else(|| executor_registry.get_default())
+        .get(executor_type).await
     {
         Some(exec) => exec,
-        None => {
-            tracing::error!(
-                "No executor available for type {:?} and no default registered",
-                executor_type
-            );
-            let _ = db.finish_todo_execution(todo_id, false).await;
-            send_event(
-                &tx,
-                ExecEvent::Finished {
-                    task_id: task_id.clone(),
-                    todo_id,
-                    todo_title: todo.as_ref().map(|t| t.title.clone()).unwrap_or_default(),
-                    executor: executor_type.to_string(),
-                    success: false,
-                    result: Some("No executor available".to_string()),
-                },
-            );
-            task_manager.remove(&task_id).await;
-            return ExecutionResult {
-                task_id,
-                record_id: None,
-            };
-        }
+        None => match executor_registry.get_default().await {
+            Some(exec) => exec,
+            None => {
+                tracing::error!(
+                    "No executor available for type {:?} and no default registered",
+                    executor_type
+                );
+                let _ = db.finish_todo_execution(todo_id, false).await;
+                send_event(
+                    &tx,
+                    ExecEvent::Finished {
+                        task_id: task_id.clone(),
+                        todo_id,
+                        todo_title: todo.as_ref().map(|t| t.title.clone()).unwrap_or_default(),
+                        executor: executor_type.to_string(),
+                        success: false,
+                        result: Some("No executor available".to_string()),
+                    },
+                );
+                task_manager.remove(&task_id).await;
+                return ExecutionResult {
+                    task_id,
+                    record_id: None,
+                };
+            },
+        },
     };
 
     let executable_path = executor.executable_path().to_string();
@@ -342,6 +344,8 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         let flush_handles: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>> =
             Arc::new(Mutex::new(Vec::new()));
         const FLUSH_COUNT_THRESHOLD: u64 = 5;
+        // 全局 flush 互斥锁，防止并发 flush 任务在 append_execution_record_logs 中产生读-改-写竞态
+        let flush_mutex: Arc<tokio::sync::Mutex<()>> = Arc::new(tokio::sync::Mutex::new(()));
 
         let executor_for_parse = executor_spawn.clone();
 
@@ -356,6 +360,7 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
             let flush_pending_for_stdout = flush_pending.clone();
             let unflushed_for_stdout = unflushed_count.clone();
             let flush_handles_stdout = flush_handles.clone();
+            let flush_mutex_stdout = flush_mutex.clone();
 
             Some(tokio::spawn(async move {
                 let mut reader = BufReader::new(stdout_reader).lines();
@@ -444,7 +449,9 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
                             let db_flush = db_for_todo.clone();
                             let rid_flush = rid;
                             let fp = flush_pending_for_stdout.clone();
+                            let fm = flush_mutex_stdout.clone();
                             let h = tokio::spawn(async move {
+                                let _guard = fm.lock().await;
                                 if let Ok(json) = serde_json::to_string(&snapshot) {
                                     let _ = db_flush
                                         .append_execution_record_logs(rid_flush, &json)
@@ -478,6 +485,7 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         let flush_for_stderr = flush_pending.clone();
         let unflushed_for_stderr = unflushed_count.clone();
         let flush_handles_stderr = flush_handles.clone();
+        let flush_mutex_stderr = flush_mutex.clone();
         let stderr_task = stderr_handle.map(|stderr_reader| {
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr_reader).lines();
@@ -498,7 +506,9 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
                         let db_flush = db_for_stderr.clone();
                         let rid_flush = rid_for_stderr;
                         let fp = flush_for_stderr.clone();
+                        let fm = flush_mutex_stderr.clone();
                         let h = tokio::spawn(async move {
+                            let _guard = fm.lock().await;
                             if let Ok(json) = serde_json::to_string(&snapshot) {
                                 let _ = db_flush
                                     .append_execution_record_logs(rid_flush, &json)
@@ -524,9 +534,12 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         let timer_logs = logs.clone();
         let timer_fp = flush_pending.clone();
         let timer_uc = unflushed_count.clone();
-        let timer_handles = flush_handles.clone();
+        let timer_mutex = flush_mutex.clone();
         let flush_timer = tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3));
+            // 从第 2 次 tick 开始检查（跳过立即触发的初始 tick）
+            interval.tick().await;
+            #[allow(clippy::integer_arithmetic)]
             loop {
                 interval.tick().await;
                 if timer_fp.load(std::sync::atomic::Ordering::Relaxed) {
@@ -535,21 +548,21 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
                 let n = timer_uc.swap(0, std::sync::atomic::Ordering::Relaxed);
                 if n > 0 && !timer_fp.swap(true, std::sync::atomic::Ordering::Relaxed) {
                     let snapshot = std::mem::take(&mut *timer_logs.lock().await);
-                    let db_f = timer_db.clone();
-                    let rid_f = record_id;
-                    let fp = timer_fp.clone();
-                    let h = tokio::spawn(async move {
-                        if let Ok(json) = serde_json::to_string(&snapshot) {
-                            let _ = db_f.append_execution_record_logs(rid_f, &json).await;
-                        }
-                        fp.store(false, std::sync::atomic::Ordering::Relaxed);
-                    });
-                    timer_handles.lock().await.push(h);
+                    // 直接在 timer 任务中 flush，避免 spawn 导致 handle 丢失不被 await
+                    let _guard = timer_mutex.lock().await;
+                    if let Ok(json) = serde_json::to_string(&snapshot) {
+                        let _ = timer_db.append_execution_record_logs(record_id, &json).await;
+                    }
+                    // 释放 mutex guard 后重置 fp
+                    core::mem::drop(_guard);
+                    timer_fp.store(false, std::sync::atomic::Ordering::Relaxed);
                 } else if n > 0 {
                     timer_uc.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
                 }
             }
         });
+        // 仅用于在最终等待时同步，timer 自身 inline flush 不需要额外 handle 等待
+        // 已在 flush_handles 中跟踪了 stdout/stderr 的 spawn flush
 
         let status = tokio::select! {
             biased;
@@ -664,27 +677,23 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
             .get_final_result(&all_logs_snapshot)
             .unwrap_or_default();
 
-        // Extract execution stats from logs
-        // tool_calls: tool_use (claudecode), tool_call (kimi), tool (atomcode, opencode)
-        // For hermes, use get_tool_calls_count() which parses from output summary
-        let tool_calls = executor_spawn.get_tool_calls_count().unwrap_or_else(|| {
-            all_logs_snapshot
-                .iter()
-                .filter(|l| {
-                    l.log_type == "tool_use" || l.log_type == "tool_call" || l.log_type == "tool"
-                })
-                .count() as u64
-        });
-        // conversation_turns: assistant/result (claudecode), text (kimi, atomcode, hermes)
-        let conversation_turns = all_logs_snapshot
-            .iter()
-            .filter(|l| l.log_type == "assistant" || l.log_type == "result" || l.log_type == "text")
-            .count() as u64;
-        // thinking_count: thinking (claudecode)
-        let thinking_count = all_logs_snapshot
-            .iter()
-            .filter(|l| l.log_type == "thinking")
-            .count() as u64;
+        // Extract execution stats from logs in single pass
+        let (tool_calls, conversation_turns, thinking_count) = {
+            let mut tc = 0u64;
+            let mut ct = 0u64;
+            let mut th = 0u64;
+            for l in &all_logs_snapshot {
+                match l.log_type.as_str() {
+                    "tool_use" | "tool_call" | "tool" => tc += 1,
+                    "assistant" | "result" | "text" => ct += 1,
+                    "thinking" => th += 1,
+                    _ => {}
+                }
+            }
+            (tc, ct, th)
+        };
+        // Override tool_calls if executor provides its own count
+        let tool_calls = executor_spawn.get_tool_calls_count().unwrap_or(tool_calls);
         let execution_stats = crate::models::ExecutionStats {
             tool_calls,
             conversation_turns,
