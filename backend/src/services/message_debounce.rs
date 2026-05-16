@@ -6,6 +6,7 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
 use crate::adapters::ExecutorRegistry;
+use crate::config::Config;
 use crate::db::Database;
 use crate::executor_service::RunTodoExecutionRequest;
 use crate::handlers::execution::start_todo_execution;
@@ -38,6 +39,7 @@ pub struct MessageDebounce {
     executor_registry: Arc<ExecutorRegistry>,
     tx: broadcast::Sender<ExecEvent>,
     task_manager: Arc<TaskManager>,
+    config: Arc<tokio::sync::RwLock<Config>>,
 }
 
 impl MessageDebounce {
@@ -46,6 +48,7 @@ impl MessageDebounce {
         executor_registry: Arc<ExecutorRegistry>,
         tx: broadcast::Sender<ExecEvent>,
         task_manager: Arc<TaskManager>,
+        config: Arc<tokio::sync::RwLock<Config>>,
     ) -> Self {
         Self {
             entries: Arc::new(DashMap::new()),
@@ -53,6 +56,7 @@ impl MessageDebounce {
             executor_registry,
             tx,
             task_manager,
+            config,
         }
     }
 
@@ -78,6 +82,7 @@ impl MessageDebounce {
             let executor_registry = self.executor_registry.clone();
             let tx = self.tx.clone();
             let task_manager = self.task_manager.clone();
+            let config = self.config.clone();
             let bot_id = key.0;
             let chat_id = key.1.clone();
             let target_type = all_msgs
@@ -117,6 +122,7 @@ impl MessageDebounce {
                         executor_registry,
                         tx,
                         task_manager,
+                        config,
                         todo_id: last.todo_id,
                         message: last.todo_prompt.clone(),
                         req_executor: last.executor.clone(),

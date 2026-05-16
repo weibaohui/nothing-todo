@@ -336,6 +336,8 @@ export interface Config {
   slash_command_rules?: SlashCommandRule[];
   default_response_todo_id?: number | null;
   history_message_max_age_secs?: number;
+  max_concurrent_todos?: number;
+  execution_timeout_secs?: number;
 }
 
 export const RESUMABLE_EXECUTORS = new Set(['claudecode', 'kimi', 'opencode', 'joinai']);

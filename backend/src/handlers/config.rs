@@ -36,6 +36,18 @@ pub async fn update_config(
     if let Some(history_message_max_age_secs) = req.history_message_max_age_secs {
         cfg.history_message_max_age_secs = history_message_max_age_secs;
     }
+    if let Some(max_concurrent_todos) = req.max_concurrent_todos {
+        if max_concurrent_todos == 0 {
+            return Err(AppError::BadRequest("max_concurrent_todos must be at least 1".to_string()));
+        }
+        cfg.max_concurrent_todos = max_concurrent_todos;
+    }
+    if let Some(execution_timeout_secs) = req.execution_timeout_secs {
+        if execution_timeout_secs < 60 {
+            return Err(AppError::BadRequest("execution_timeout_secs must be at least 60".to_string()));
+        }
+        cfg.execution_timeout_secs = execution_timeout_secs;
+    }
 
     cfg.normalize_paths();
 

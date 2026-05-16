@@ -1609,6 +1609,62 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       ),
       children: (
         <div style={{ padding: '8px 0' }}>
+          {/* 运行配置 */}
+          <Card
+            size="small"
+            title="运行配置"
+            style={{ marginBottom: 16 }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>最大并发数</span>
+                <InputNumber
+                  size="small"
+                  min={1}
+                  max={20}
+                  value={configForm.getFieldValue('max_concurrent_todos') ?? 1}
+                  onChange={(v) => {
+                    if (v) {
+                      configForm.setFieldsValue({ max_concurrent_todos: v });
+                    }
+                  }}
+                  style={{ width: 70 }}
+                />
+                <Tooltip title="同时运行的最大 Todo 数量，超出将排队等待">
+                  <InfoCircleOutlined style={{ color: 'var(--color-text-quaternary)', fontSize: 12 }} />
+                </Tooltip>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>超时时间(分钟)</span>
+                <InputNumber
+                  size="small"
+                  min={1}
+                  max={1440}
+                  style={{ width: 80 }}
+                  value={Math.round((configForm.getFieldValue('execution_timeout_secs') ?? 1800) / 60)}
+                  onChange={(v) => {
+                    if (v) {
+                      configForm.setFieldsValue({ execution_timeout_secs: v * 60 });
+                    }
+                  }}
+                />
+                <Tooltip title="单个对话执行的最大时长，超时将自动终止">
+                  <InfoCircleOutlined style={{ color: 'var(--color-text-quaternary)', fontSize: 12 }} />
+                </Tooltip>
+              </div>
+              <Button
+                size="small"
+                type="primary"
+                icon={<SaveOutlined />}
+                loading={configSaving}
+                onClick={handleSaveConfig}
+              >
+                保存
+              </Button>
+            </div>
+          </Card>
+
+          {/* 运行中任务列表 */}
           <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
             <Button
               danger

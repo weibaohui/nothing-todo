@@ -489,6 +489,8 @@ pub struct UpdateConfigRequest {
     pub slash_command_rules: Option<Vec<crate::config::SlashCommandRule>>,
     pub default_response_todo_id: Option<i64>,
     pub history_message_max_age_secs: Option<u64>,
+    pub max_concurrent_todos: Option<u32>,
+    pub execution_timeout_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

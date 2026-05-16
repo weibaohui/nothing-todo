@@ -306,6 +306,7 @@ pub fn create_app(
         executor_registry.clone(),
         tx.clone(),
         task_manager.clone(),
+        config.clone(),
     ));
 
     let feishu_listener = Arc::new(FeishuListener::new(

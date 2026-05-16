@@ -6,6 +6,7 @@ use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing::{error, info, warn};
 
 use crate::adapters::ExecutorRegistry;
+use crate::config::Config;
 use crate::db::Database;
 use crate::executor_service::{run_todo_execution, RunTodoExecutionRequest};
 use crate::handlers::ExecEvent;
@@ -31,6 +32,7 @@ impl TodoScheduler {
         executor_registry: Arc<ExecutorRegistry>,
         tx: broadcast::Sender<ExecEvent>,
         task_manager: Arc<TaskManager>,
+        app_config: Arc<tokio::sync::RwLock<Config>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let todos = db.get_scheduler_todos().await?;
 
@@ -49,6 +51,7 @@ impl TodoScheduler {
                             todo.id,
                             config.clone(),
                             task_manager.clone(),
+                            app_config.clone(),
                         )
                         .await
                     {
@@ -72,6 +75,7 @@ impl TodoScheduler {
         todo_id: i64,
         cron_expr: String,
         task_manager: Arc<TaskManager>,
+        config: Arc<tokio::sync::RwLock<Config>>,
     ) -> Result<uuid::Uuid, Box<dyn std::error::Error + Send + Sync>> {
         // Validate cron expression
         if cron::Schedule::from_str(&cron_expr).is_err() {
@@ -93,6 +97,7 @@ impl TodoScheduler {
         let registry_clone = executor_registry.clone();
         let tx_clone = tx.clone();
         let tm_clone = task_manager.clone();
+        let config_clone = config.clone();
 
         info!("Creating job for todo {} with cron: {}", todo_id, cron_expr);
         let job = Job::new_async(&cron_expr, move |_uuid, _l| {
@@ -100,6 +105,7 @@ impl TodoScheduler {
             let registry = registry_clone.clone();
             let tx = tx_clone.clone();
             let tm = tm_clone.clone();
+            let cfg = config_clone.clone();
 
             Box::pin(async move {
                 match db.get_todo(todo_id).await {
@@ -116,6 +122,7 @@ impl TodoScheduler {
                             executor_registry: registry,
                             tx,
                             task_manager: tm,
+                            config: cfg,
                             todo_id,
                             message,
                             req_executor: executor,
