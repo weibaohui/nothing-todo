@@ -207,7 +207,7 @@ async fn run_server(cli_port: Option<u16>) {
         }
     }
 
-    let executors = executor_registry.list_executors();
+    let executors = executor_registry.list_executors().await;
     info!("Available executors: {:?}", executors);
 
     let (tx, _rx) = broadcast::channel(100);
