@@ -23,6 +23,9 @@ async fn kill_process_tree(child: &mut command_group::AsyncGroupChild) {
     }
 }
 
+/// 最大执行时长（秒），超过此时间将自动终止进程（执行器被挂起/卡住时释放资源）
+const MAX_EXECUTION_TIMEOUT_SECS: u64 = 1800; // 30 分钟
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ExecutionResult {
     pub task_id: String,
@@ -67,7 +70,29 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
 
     // Get todo to read stored executor
     let todo = match db.get_todo(todo_id).await {
-        Ok(Some(t)) => Some(t),
+        Ok(Some(t)) => {
+            // 检查 todo 是否正在执行中，防止重复执行
+            if t.status == crate::models::TodoStatus::Running {
+                tracing::warn!("Todo {} is already running, skipping execution", todo_id);
+                task_manager.remove(&task_id).await;
+                send_event(
+                    &tx,
+                    ExecEvent::Finished {
+                        task_id: task_id.clone(),
+                        todo_id,
+                        todo_title: t.title.clone(),
+                        executor: "".to_string(),
+                        success: false,
+                        result: Some(format!("Todo {} is already running", todo_id)),
+                    },
+                );
+                return ExecutionResult {
+                    task_id,
+                    record_id: None,
+                };
+            }
+            Some(t)
+        }
         Ok(None) => None,
         Err(e) => {
             tracing::error!(
@@ -591,6 +616,45 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
                 let entry = ParsedLogEntry::error("Execution cancelled by user");
                 send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
                 send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string(), success: false, result: Some("Task was cancelled by user".to_string()) });
+                task_manager_spawn.remove(&task_id).await;
+                return;
+            }
+            _ = tokio::time::sleep(std::time::Duration::from_secs(MAX_EXECUTION_TIMEOUT_SECS)) => {
+                // Timeout: 自动终止执行时间过长的进程，释放资源
+                tracing::warn!(
+                    "Execution timeout reached ({}s) for todo {} (task {}), killing process",
+                    MAX_EXECUTION_TIMEOUT_SECS, todo_id, task_id
+                );
+                kill_process_tree(&mut child).await;
+                flush_timer.abort();
+
+                let _status = child.wait().await;
+
+                if let Some(handle) = stdout_task {
+                    let _ = handle.await;
+                }
+                if let Some(handle) = stderr_task {
+                    let _ = handle.await;
+                }
+
+                for h in flush_handles.lock().await.drain(..) {
+                    let _ = h.await;
+                }
+
+                let logs_json = serde_json::to_string(&*logs.lock().await)
+                    .unwrap_or_else(|e| { tracing::error!("Failed to serialize logs: {}", e); "[]".to_string() });
+                let _ = db_clone.update_execution_record(
+                    record_id,
+                    crate::models::ExecutionStatus::Failed.as_str(),
+                    &logs_json,
+                    "执行超时",
+                    None,
+                    None,
+                ).await;
+
+                let entry = ParsedLogEntry::error("Execution timeout - process was automatically terminated");
+                send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
+                send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string(), success: false, result: Some("Execution timed out after 30 minutes".to_string()) });
                 task_manager_spawn.remove(&task_id).await;
                 return;
             }
