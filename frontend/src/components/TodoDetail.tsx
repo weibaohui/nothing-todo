@@ -1479,45 +1479,38 @@ function ContinuationLogsLoader({ record, viewMode, onRefresh, onViewModeChange 
   }, [record.id]);
   if (logs === null) return null;
   if (logs.length === 0) return null;
-  if (viewMode === 'chat') {
-    return (
-      <div style={{ marginTop: 6 }}>
-        <div style={{ marginBottom: 4 }}>
-          <LogViewHeader
-            title={`对话 (${logs.length})`}
-            viewMode={viewMode}
-            onViewModeChange={onViewModeChange}
-            onRefresh={() => onRefresh(record.id)}
-          />
-        </div>
-        <div style={{ maxHeight: 300, overflow: 'auto' }}>
-          <ChatView logs={logs as LogEntry[]} isRunning={false} />
-        </div>
-      </div>
-    );
-  }
+  const defaultOpen = viewMode === 'chat';
+  const [isExpanded, setIsExpanded] = useState(defaultOpen);
+  const title = viewMode === 'chat' ? `对话 (${logs.length})` : `日志 (${logs.length})`;
   return (
-    <details style={{ marginTop: 6 }} open>
+    <details style={{ marginTop: 6 }} open={isExpanded} onToggle={(e) => setIsExpanded((e.target as HTMLDetailsElement).open)}>
       <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span>日志 ({logs.length})</span>
+        <span>{title}</span>
         <LogViewHeader
           title=""
           viewMode={viewMode}
           onViewModeChange={onViewModeChange}
           onRefresh={() => onRefresh(record.id)}
+          fontSize={10}
         />
       </summary>
-      <div style={{
-        background: 'var(--log-bg)', color: 'var(--log-text)', padding: 6, borderRadius: 6,
-        fontFamily: 'var(--font-mono)', fontSize: 10, maxHeight: 200, overflow: 'auto',
-      }}>
-        {logs.map((log, i) => (
-          <div key={i} style={{ marginBottom: 3, display: 'flex', gap: 6 }}>
-            <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
-            <span>{log.content}</span>
-          </div>
-        ))}
-      </div>
+      {viewMode === 'chat' ? (
+        <div style={{ maxHeight: 300, overflow: 'auto' }}>
+          <ChatView logs={logs as LogEntry[]} isRunning={false} />
+        </div>
+      ) : (
+        <div style={{
+          background: 'var(--log-bg)', color: 'var(--log-text)', padding: 6, borderRadius: 6,
+          fontFamily: 'var(--font-mono)', fontSize: 10, maxHeight: 200, overflow: 'auto',
+        }}>
+          {logs.map((log, i) => (
+            <div key={i} style={{ marginBottom: 3, display: 'flex', gap: 6 }}>
+              <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
+              <span>{log.content}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </details>
   );
 }
@@ -1731,53 +1724,45 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
                   if (!isRunning && logs.length === 0) {
                     return <ContinuationLogsLoader record={record} viewMode={viewMode} onRefresh={onRefresh} onViewModeChange={onViewModeChange} />;
                   }
-                  if (viewMode === 'chat') {
-                    return (
-                      <div style={{ marginTop: 6 }}>
-                        <div style={{ marginBottom: 4 }}>
-                          <LogViewHeader
-                            title={`对话 (${logs.length})`}
-                            viewMode={viewMode}
-                            onViewModeChange={onViewModeChange}
-                            onRefresh={() => onRefresh(record.id)}
-                            fontSize={10}
-                          />
-                        </div>
-                        <div style={{ maxHeight: 300, overflow: 'auto' }}>
-                          <ChatView logs={logs as LogEntry[]} isRunning={isRunning} />
-                        </div>
-                      </div>
-                    );
-                  }
+                  const defaultOpen = isRunning || viewMode === 'chat';
+                  const [isExpanded, setIsExpanded] = useState(defaultOpen);
+                  const title = viewMode === 'chat' ? `对话 (${logs.length})` : `日志 (${logs.length})`;
                   return (
-                    <details style={{ marginTop: 6 }} open={isRunning}>
+                    <details style={{ marginTop: 6 }} open={isExpanded} onToggle={(e) => setIsExpanded((e.target as HTMLDetailsElement).open)}>
                       <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span>日志 ({logs.length})</span>
+                        <span>{title}</span>
                         <LogViewHeader
                           title=""
                           viewMode={viewMode}
                           onViewModeChange={onViewModeChange}
                           onRefresh={() => onRefresh(record.id)}
+                          fontSize={10}
                         />
                       </summary>
-                      <div style={{
-                        background: 'var(--log-bg)', color: 'var(--log-text)', padding: 6, borderRadius: 6,
-                        fontFamily: 'var(--font-mono)', fontSize: 10, maxHeight: 200, overflow: 'auto',
-                      }}>
-                        {logs.length === 0 ? (
-                          <div style={{ color: 'var(--log-text-muted)' }}>等待输出...</div>
-                        ) : (
-                          logs.map((log, i) => (
-                            <div key={i} style={{ marginBottom: 3, display: 'flex', gap: 6 }}>
-                              <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
-                              <span style={{ color: logTypeColors[log.type || ''] || 'var(--log-text)' }}>
-                                [{logTypeLabels[log.type || ''] || log.type}]
-                              </span>
-                              <span>{log.content}</span>
-                            </div>
-                          ))
-                        )}
-                      </div>
+                      {viewMode === 'chat' ? (
+                        <div style={{ maxHeight: 300, overflow: 'auto' }}>
+                          <ChatView logs={logs as LogEntry[]} isRunning={isRunning} />
+                        </div>
+                      ) : (
+                        <div style={{
+                          background: 'var(--log-bg)', color: 'var(--log-text)', padding: 6, borderRadius: 6,
+                          fontFamily: 'var(--font-mono)', fontSize: 10, maxHeight: 200, overflow: 'auto',
+                        }}>
+                          {logs.length === 0 ? (
+                            <div style={{ color: 'var(--log-text-muted)' }}>等待输出...</div>
+                          ) : (
+                            logs.map((log, i) => (
+                              <div key={i} style={{ marginBottom: 3, display: 'flex', gap: 6 }}>
+                                <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
+                                <span style={{ color: logTypeColors[log.type || ''] || 'var(--log-text)' }}>
+                                  [{logTypeLabels[log.type || ''] || log.type}]
+                                </span>
+                                <span>{log.content}</span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
                     </details>
                   );
                 })()}
@@ -1799,27 +1784,15 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
 /** Shared log rendering for narrow mode cards */
 function renderNarrowLogs(record: ExecutionRecord, isRunning: boolean, displayLogs: LogEntry[], liveLogs: LogEntry[] | null, viewMode: 'log' | 'chat', onRefresh: (id: number) => Promise<void>, onViewModeChange: (mode: 'log' | 'chat') => void) {
   if (!isRunning && displayLogs.length === 0) return null;
-  if (viewMode === 'chat') {
-    return (
-      <div style={{ marginTop: 8 }}>
-        <div style={{ marginBottom: 8 }}>
-          <LogViewHeader
-            title={`对话视图 (${displayLogs.length} 条)${isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}`}
-            viewMode={viewMode}
-            onViewModeChange={onViewModeChange}
-            onRefresh={() => onRefresh(record.id)}
-          />
-        </div>
-        <div style={{ maxHeight: 400, overflow: 'auto' }}>
-          <ChatView logs={displayLogs as LogEntry[]} isRunning={isRunning} />
-        </div>
-      </div>
-    );
-  }
+  const defaultOpen = isRunning || viewMode === 'chat';
+  const [isExpanded, setIsExpanded] = useState(defaultOpen);
+  const title = viewMode === 'chat'
+    ? `对话视图 (${displayLogs.length} 条)${isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}`
+    : `查看日志 (${displayLogs.length} 条)${isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}`;
   return (
-    <details style={{ marginTop: 8 }} open={isRunning}>
+    <details style={{ marginTop: 8 }} open={isExpanded} onToggle={(e) => setIsExpanded((e.target as HTMLDetailsElement).open)}>
       <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span>查看日志 ({displayLogs.length} 条){isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}</span>
+        <span>{title}</span>
         <LogViewHeader
           title=""
           viewMode={viewMode}
@@ -1827,24 +1800,30 @@ function renderNarrowLogs(record: ExecutionRecord, isRunning: boolean, displayLo
           onRefresh={() => onRefresh(record.id)}
         />
       </summary>
-      <div style={{
-        background: 'var(--log-bg)', color: 'var(--log-text)', padding: 8, borderRadius: 8,
-        fontFamily: 'var(--font-mono)', fontSize: 11, maxHeight: 250, overflow: 'auto',
-      }}>
-        {displayLogs.length === 0 ? (
-          <div style={{ color: 'var(--log-text-muted)' }}>等待输出...</div>
-        ) : (
-          displayLogs.map((log, idx) => (
-            <div key={idx} style={{ marginBottom: 4, display: 'flex', gap: 8 }}>
-              <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
-              <span style={{ color: logTypeColors[log.type || ''] || 'var(--log-text)' }}>
-                [{logTypeLabels[log.type || ''] || log.type}]
-              </span>
-              <span>{log.content}</span>
-            </div>
-          ))
-        )}
-      </div>
+      {viewMode === 'chat' ? (
+        <div style={{ maxHeight: 400, overflow: 'auto' }}>
+          <ChatView logs={displayLogs as LogEntry[]} isRunning={isRunning} />
+        </div>
+      ) : (
+        <div style={{
+          background: 'var(--log-bg)', color: 'var(--log-text)', padding: 8, borderRadius: 8,
+          fontFamily: 'var(--font-mono)', fontSize: 11, maxHeight: 250, overflow: 'auto',
+        }}>
+          {displayLogs.length === 0 ? (
+            <div style={{ color: 'var(--log-text-muted)' }}>等待输出...</div>
+          ) : (
+            displayLogs.map((log, idx) => (
+              <div key={idx} style={{ marginBottom: 4, display: 'flex', gap: 8 }}>
+                <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
+                <span style={{ color: logTypeColors[log.type || ''] || 'var(--log-text)' }}>
+                  [{logTypeLabels[log.type || ''] || log.type}]
+                </span>
+                <span>{log.content}</span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </details>
   );
 }
