@@ -30,7 +30,7 @@ pub async fn update_executor(
 
     // Update registry based on enabled state
     if ec.enabled {
-        state.executor_registry.register_by_name(&ec.name, &ec.path);
+        state.executor_registry.register_by_name(&ec.name, &ec.path).await;
     } else if let Some(et) = crate::adapters::parse_executor_type(&ec.name) {
         state.executor_registry.unregister(et).await;
     }
