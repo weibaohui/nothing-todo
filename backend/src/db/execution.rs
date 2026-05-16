@@ -150,11 +150,6 @@ impl Database {
         usage: Option<&ExecutionUsage>,
         model: Option<&str>,
     ) -> Result<bool, sea_orm::DbErr> {
-        // 将剩余日志写入 execution_logs 表
-        if !remaining_logs.is_empty() && remaining_logs != "[]" {
-            self.insert_execution_logs(id, remaining_logs).await?;
-        }
-
         let now = crate::models::utc_timestamp();
         let usage_json = usage.map(|u| {
             serde_json::to_string(u).unwrap_or_else(|e| {
@@ -191,7 +186,14 @@ impl Database {
                 ],
             ))
             .await?;
-        Ok(res.rows_affected() > 0)
+        let updated = res.rows_affected() > 0;
+
+        // Only insert logs if the status update succeeded (prevent duplicate logs on concurrent writes)
+        if updated && !remaining_logs.is_empty() && remaining_logs != "[]" {
+            self.insert_execution_logs(id, remaining_logs).await?;
+        }
+
+        Ok(updated)
     }
 
     /// 更新执行记录的 pid
@@ -268,13 +270,11 @@ impl Database {
         record_id: i64,
         logs_json: &str,
     ) -> Result<(), sea_orm::DbErr> {
-        let entries: Vec<ParsedLogEntry> = match serde_json::from_str(logs_json) {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::warn!("Failed to parse logs JSON for record {}: {}", record_id, e);
-                return Ok(());
-            }
-        };
+        let entries: Vec<ParsedLogEntry> = serde_json::from_str(logs_json)
+            .map_err(|e| sea_orm::DbErr::Custom(format!(
+                "Failed to parse logs JSON for record {}: {}",
+                record_id, e
+            )))?;
         if entries.is_empty() {
             return Ok(());
         }

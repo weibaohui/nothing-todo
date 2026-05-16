@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination, Segmented, Modal, Input, Tooltip } from 'antd';
 import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined, DownOutlined, UpOutlined, UnorderedListOutlined, MessageOutlined, FileTextOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
@@ -388,24 +388,27 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
   const [logsPage, setLogsPage] = useState(1);
   const [logsPerPage] = useState(200);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const activeRecordIdRef = useRef<number | null>(null);
 
   // 加载分页日志
   const loadLogs = async (recordId: number, page: number) => {
     setIsLoadingLogs(true);
     try {
       const result = await db.getExecutionLogs(recordId, page, logsPerPage);
+      if (activeRecordIdRef.current !== recordId) return;
       setPaginatedLogs(result.logs);
       setLogsTotal(result.total);
       setLogsPage(result.page);
     } catch {
-      setPaginatedLogs([]);
+      if (activeRecordIdRef.current === recordId) setPaginatedLogs([]);
     } finally {
-      setIsLoadingLogs(false);
+      if (activeRecordIdRef.current === recordId) setIsLoadingLogs(false);
     }
   };
 
   // 当选择的记录变化时，懒加载详情
   useEffect(() => {
+    activeRecordIdRef.current = selectedHistoryRecordId;
     if (!selectedHistoryRecordId) {
       setSelectedHistoryRecordDetail(null);
       setPaginatedLogs([]);
@@ -413,13 +416,15 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
       setLogsPage(1);
       return;
     }
+    const requestId = selectedHistoryRecordId;
     // 先从 records 中找到基本记录
-    const basicRecord = records.find(r => r.id === selectedHistoryRecordId);
+    const basicRecord = records.find(r => r.id === requestId);
 
     // 懒加载完整记录（即使 basicRecord 不存在也触发）
     setIsLoadingDetail(true);
-    db.getExecutionRecord(selectedHistoryRecordId)
+    db.getExecutionRecord(requestId)
       .then(detail => {
+        if (activeRecordIdRef.current !== requestId) return;
         setSelectedHistoryRecordDetail(detail);
         if (selectedTodoId) {
           dispatch({
@@ -429,16 +434,17 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
         }
       })
       .catch(() => {
+        if (activeRecordIdRef.current !== requestId) return;
         if (basicRecord) {
           setSelectedHistoryRecordDetail(basicRecord);
         }
       })
       .finally(() => {
-        setIsLoadingDetail(false);
+        if (activeRecordIdRef.current === requestId) setIsLoadingDetail(false);
       });
 
     // 同时加载第一页日志
-    loadLogs(selectedHistoryRecordId, 1);
+    loadLogs(requestId, 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedHistoryRecordId]);
 
@@ -1417,6 +1423,54 @@ function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, o
 }
 
 /** Narrow mode: chain group card — main record with indented continuations */
+/** Lazy-load logs for a continuation record in ChainGroupCard */
+function ContinuationLogsLoader({ record, viewMode, onRefresh }: {
+  record: ExecutionRecord;
+  viewMode: 'log' | 'chat';
+  onRefresh: (id: number) => Promise<void>;
+}) {
+  const [logs, setLogs] = useState<LogEntry[] | null>(null);
+  useEffect(() => {
+    db.getExecutionLogs(record.id, 1, 200)
+      .then(r => setLogs(r.logs))
+      .catch(() => setLogs([]));
+  }, [record.id]);
+  if (logs === null) return null;
+  if (logs.length === 0) return null;
+  if (viewMode === 'chat') {
+    return (
+      <div style={{ marginTop: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-primary)' }}>对话 ({logs.length})</span>
+          <ReloadOutlined style={{ fontSize: 10, cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); onRefresh(record.id); }} />
+        </div>
+        <div style={{ maxHeight: 300, overflow: 'auto' }}>
+          <ChatView logs={logs as LogEntry[]} isRunning={false} />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <details style={{ marginTop: 6 }} open>
+      <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span>日志 ({logs.length})</span>
+        <ReloadOutlined style={{ fontSize: 9 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRefresh(record.id); }} />
+      </summary>
+      <div style={{
+        background: 'var(--log-bg)', color: 'var(--log-text)', padding: 6, borderRadius: 6,
+        fontFamily: 'var(--font-mono)', fontSize: 10, marginTop: 4, maxHeight: 200, overflow: 'auto',
+      }}>
+        {logs.map((log, i) => (
+          <div key={i} style={{ marginBottom: 3, display: 'flex', gap: 6 }}>
+            <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
+            <span>{log.content}</span>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, viewMode, parseLogs, onRefresh, resolveStats }: {
   group: SessionGroup;
   onOpenResume: (r: ExecutionRecord) => void;
@@ -1622,7 +1676,9 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
                 {(() => {
                   const logs = parseLogs(record);
                   const isRunning = record.status === 'running';
-                  if (!isRunning && logs.length === 0) return null;
+                  if (!isRunning && logs.length === 0) {
+                    return <ContinuationLogsLoader record={record} viewMode={viewMode} onRefresh={onRefresh} />;
+                  }
                   if (viewMode === 'chat') {
                     return (
                       <div style={{ marginTop: 6 }}>

@@ -101,16 +101,27 @@ impl Database {
             .await?;
 
         let mut migrated = 0u64;
+        let mut failed = 0u64;
         for row in rows {
             let id: i64 = row.try_get_by("id")?;
             let logs_json: String = row.try_get_by("logs")?;
             if !logs_json.is_empty() && logs_json != "[]" {
                 if let Err(e) = self.insert_execution_logs(id, &logs_json).await {
                     tracing::warn!("Failed to migrate logs for record {}: {}", id, e);
+                    failed += 1;
                 } else {
                     migrated += 1;
                 }
             }
+        }
+
+        // 有任意记录迁移失败则不删除旧列，保留数据等待下次重试
+        if failed > 0 {
+            tracing::warn!(
+                "Logs migration incomplete: {} succeeded, {} failed. Keeping old logs column for retry.",
+                migrated, failed
+            );
+            return Ok(());
         }
 
         // 删除旧列

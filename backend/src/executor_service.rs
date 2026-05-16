@@ -668,6 +668,8 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
                     let _ = handle.await;
                 }
 
+                // Graceful shutdown: wait for timer to finish its final flush cycle
+                let _ = flush_timer.await;
                 // 等待所有进行中的 flush 任务完成，防止旧快照覆盖
                 for h in flush_handles.lock().await.drain(..) {
                     let _ = h.await;
@@ -771,6 +773,8 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
             }
         }
 
+        // Graceful shutdown: wait for timer to finish its final flush cycle
+        let _ = flush_timer.await;
         // 等待所有进行中的 flush 任务完成，防止旧快照覆盖最终写入
         for h in flush_handles.lock().await.drain(..) {
             let _ = h.await;
