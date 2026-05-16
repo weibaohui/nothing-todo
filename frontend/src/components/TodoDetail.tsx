@@ -1446,24 +1446,28 @@ function ContinuationLogsLoader({ record, viewMode, onRefresh, onViewModeChange 
   }, [record.id]);
   if (logs === null) return null;
   if (logs.length === 0) return null;
+  // Always show Segmented control for view switching
+  const renderHeader = (title: string) => (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-primary)' }}>{title}</span>
+        <Button type="text" size="small" icon={<ReloadOutlined />} aria-label="刷新" onClick={() => onRefresh(record.id)} />
+      </div>
+      <Segmented
+        size="small"
+        value={viewMode}
+        onChange={(value) => onViewModeChange(value as 'log' | 'chat')}
+        options={[
+          { value: 'log', icon: <UnorderedListOutlined />, label: '日志' },
+          { value: 'chat', icon: <MessageOutlined />, label: '对话' },
+        ]}
+      />
+    </div>
+  );
   if (viewMode === 'chat') {
     return (
       <div style={{ marginTop: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-primary)' }}>对话 ({logs.length})</span>
-            <Button type="text" size="small" icon={<ReloadOutlined />} aria-label="刷新" onClick={() => onRefresh(record.id)} />
-          </div>
-          <Segmented
-            size="small"
-            value={viewMode}
-            onChange={(value) => onViewModeChange(value as 'log' | 'chat')}
-            options={[
-              { value: 'log', icon: <UnorderedListOutlined />, label: '日志' },
-              { value: 'chat', icon: <MessageOutlined />, label: '对话' },
-            ]}
-          />
-        </div>
+        {renderHeader(`对话 (${logs.length})`)}
         <div style={{ maxHeight: 300, overflow: 'auto' }}>
           <ChatView logs={logs as LogEntry[]} isRunning={false} />
         </div>
@@ -1471,14 +1475,11 @@ function ContinuationLogsLoader({ record, viewMode, onRefresh, onViewModeChange 
     );
   }
   return (
-    <details style={{ marginTop: 6 }} open>
-      <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span>日志 ({logs.length})</span>
-        <Button type="text" size="small" icon={<ReloadOutlined />} aria-label="刷新" onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRefresh(record.id); }} />
-      </summary>
+    <div style={{ marginTop: 6 }}>
+      {renderHeader(`日志 (${logs.length})`)}
       <div style={{
         background: 'var(--log-bg)', color: 'var(--log-text)', padding: 6, borderRadius: 6,
-        fontFamily: 'var(--font-mono)', fontSize: 10, marginTop: 4, maxHeight: 200, overflow: 'auto',
+        fontFamily: 'var(--font-mono)', fontSize: 10, maxHeight: 200, overflow: 'auto',
       }}>
         {logs.map((log, i) => (
           <div key={i} style={{ marginBottom: 3, display: 'flex', gap: 6 }}>
@@ -1487,7 +1488,7 @@ function ContinuationLogsLoader({ record, viewMode, onRefresh, onViewModeChange 
           </div>
         ))}
       </div>
-    </details>
+    </div>
   );
 }
 
@@ -1700,24 +1701,28 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
                   if (!isRunning && logs.length === 0) {
                     return <ContinuationLogsLoader record={record} viewMode={viewMode} onRefresh={onRefresh} onViewModeChange={onViewModeChange} />;
                   }
+                  // Always show Segmented control for view switching
+                  const renderHeader = (title: string) => (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-primary)' }}>{title}</span>
+                        <Button type="text" size="small" icon={<ReloadOutlined />} aria-label="刷新" onClick={() => onRefresh(record.id)} />
+                      </div>
+                      <Segmented
+                        size="small"
+                        value={viewMode}
+                        onChange={(value) => onViewModeChange(value as 'log' | 'chat')}
+                        options={[
+                          { value: 'log', icon: <UnorderedListOutlined />, label: '日志' },
+                          { value: 'chat', icon: <MessageOutlined />, label: '对话' },
+                        ]}
+                      />
+                    </div>
+                  );
                   if (viewMode === 'chat') {
                     return (
                       <div style={{ marginTop: 6 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-primary)' }}>对话 ({logs.length})</span>
-                            <Button type="text" size="small" icon={<ReloadOutlined />} aria-label="刷新" onClick={() => onRefresh(record.id)} />
-                          </div>
-                          <Segmented
-                            size="small"
-                            value={viewMode}
-                            onChange={(value) => onViewModeChange(value as 'log' | 'chat')}
-                            options={[
-                              { value: 'log', icon: <UnorderedListOutlined />, label: '日志' },
-                              { value: 'chat', icon: <MessageOutlined />, label: '对话' },
-                            ]}
-                          />
-                        </div>
+                        {renderHeader(`对话 (${logs.length})`)}
                         <div style={{ maxHeight: 300, overflow: 'auto' }}>
                           <ChatView logs={logs as LogEntry[]} isRunning={isRunning} />
                         </div>
@@ -1725,14 +1730,11 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
                     );
                   }
                   return (
-                    <details style={{ marginTop: 6 }} open={isRunning}>
-                      <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span>日志 ({logs.length})</span>
-                        <Button type="text" size="small" icon={<ReloadOutlined />} aria-label="刷新" onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRefresh(record.id); }} />
-                      </summary>
+                    <div style={{ marginTop: 6 }}>
+                      {renderHeader(`日志 (${logs.length})`)}
                       <div style={{
                         background: 'var(--log-bg)', color: 'var(--log-text)', padding: 6, borderRadius: 6,
-                        fontFamily: 'var(--font-mono)', fontSize: 10, marginTop: 4, maxHeight: 200, overflow: 'auto',
+                        fontFamily: 'var(--font-mono)', fontSize: 10, maxHeight: 200, overflow: 'auto',
                       }}>
                         {logs.length === 0 ? (
                           <div style={{ color: 'var(--log-text-muted)' }}>等待输出...</div>
@@ -1748,7 +1750,7 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
                           ))
                         )}
                       </div>
-                    </details>
+                    </div>
                   );
                 })()}
               </div>
@@ -1769,26 +1771,30 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
 /** Shared log rendering for narrow mode cards */
 function renderNarrowLogs(record: ExecutionRecord, isRunning: boolean, displayLogs: LogEntry[], liveLogs: LogEntry[] | null, viewMode: 'log' | 'chat', onRefresh: (id: number) => Promise<void>, onViewModeChange: (mode: 'log' | 'chat') => void) {
   if (!isRunning && displayLogs.length === 0) return null;
+  // Always show Segmented control for view switching
+  const renderHeader = (title: string) => (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-primary)' }}>
+          {title}
+        </span>
+        <Button type="text" size="small" icon={<ReloadOutlined />} aria-label="刷新" onClick={() => onRefresh(record.id)} />
+      </div>
+      <Segmented
+        size="small"
+        value={viewMode}
+        onChange={(value) => onViewModeChange(value as 'log' | 'chat')}
+        options={[
+          { value: 'log', icon: <UnorderedListOutlined />, label: '日志' },
+          { value: 'chat', icon: <MessageOutlined />, label: '对话' },
+        ]}
+      />
+    </div>
+  );
   if (viewMode === 'chat') {
     return (
       <div style={{ marginTop: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-primary)' }}>
-              对话视图 ({displayLogs.length} 条){isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}
-            </span>
-            <Button type="text" size="small" icon={<ReloadOutlined />} aria-label="刷新" onClick={() => onRefresh(record.id)} />
-          </div>
-          <Segmented
-            size="small"
-            value={viewMode}
-            onChange={(value) => onViewModeChange(value as 'log' | 'chat')}
-            options={[
-              { value: 'log', icon: <UnorderedListOutlined />, label: '日志' },
-              { value: 'chat', icon: <MessageOutlined />, label: '对话' },
-            ]}
-          />
-        </div>
+        {renderHeader(`对话视图 (${displayLogs.length} 条)${isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}`)}
         <div style={{ maxHeight: 400, overflow: 'auto' }}>
           <ChatView logs={displayLogs as LogEntry[]} isRunning={isRunning} />
         </div>
@@ -1796,14 +1802,11 @@ function renderNarrowLogs(record: ExecutionRecord, isRunning: boolean, displayLo
     );
   }
   return (
-    <details style={{ marginTop: 8 }} open={isRunning}>
-      <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span>查看日志 ({displayLogs.length} 条){isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}</span>
-        <Button type="text" size="small" icon={<ReloadOutlined />} aria-label="刷新" onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRefresh(record.id); }} />
-      </summary>
+    <div style={{ marginTop: 8 }}>
+      {renderHeader(`查看日志 (${displayLogs.length} 条)${isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}`)}
       <div style={{
         background: 'var(--log-bg)', color: 'var(--log-text)', padding: 8, borderRadius: 8,
-        fontFamily: 'var(--font-mono)', fontSize: 11, marginTop: 8, maxHeight: 250, overflow: 'auto',
+        fontFamily: 'var(--font-mono)', fontSize: 11, maxHeight: 250, overflow: 'auto',
       }}>
         {displayLogs.length === 0 ? (
           <div style={{ color: 'var(--log-text-muted)' }}>等待输出...</div>
@@ -1819,7 +1822,7 @@ function renderNarrowLogs(record: ExecutionRecord, isRunning: boolean, displayLo
           ))
         )}
       </div>
-    </details>
+    </div>
   );
 }
 
