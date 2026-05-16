@@ -310,10 +310,9 @@ impl Database {
         .await?;
 
         self.exec(
-            "CREATE TRIGGER IF NOT EXISTS set_todos_updated_at_utc BEFORE UPDATE ON todos
-             WHEN new.updated_at IS NULL OR new.updated_at = ''
+            "CREATE TRIGGER IF NOT EXISTS set_todos_updated_at_utc AFTER UPDATE ON todos
              BEGIN
-                 SELECT raise(IGNORE);
+                 UPDATE todos SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
              END",
         )
         .await?;
