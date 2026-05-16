@@ -74,6 +74,65 @@ impl Database {
         model.update(&self.conn).await.map(|_| ())
     }
 
+    /// 迁移：将 execution_records.logs 旧字段数据迁移到 execution_logs 表，并删除旧字段
+    async fn migrate_logs_to_execution_logs(&self) -> Result<(), sea_orm::DbErr> {
+        // 检查 logs 列是否存在
+        let check_sql = "SELECT COUNT(*) FROM pragma_table_info('execution_records') WHERE name='logs'";
+        let result = self
+            .conn
+            .query_one(Statement::from_string(DbBackend::Sqlite, check_sql.to_string()))
+            .await?;
+        let col_exists = result
+            .and_then(|r| r.try_get_by_index::<i64>(0).ok())
+            .unwrap_or(0) > 0;
+        if !col_exists {
+            return Ok(());
+        }
+
+        tracing::info!("Migrating old logs column to execution_logs table...");
+
+        // 迁移未迁移的记录（execution_logs 表中没有数据的记录）
+        let select_sql = "SELECT id, logs FROM execution_records \
+            WHERE logs IS NOT NULL AND logs != '' AND logs != '[]' \
+            AND id NOT IN (SELECT DISTINCT record_id FROM execution_logs)";
+        let rows = self
+            .conn
+            .query_all(Statement::from_string(DbBackend::Sqlite, select_sql.to_string()))
+            .await?;
+
+        let mut migrated = 0u64;
+        let mut failed = 0u64;
+        for row in rows {
+            let id: i64 = row.try_get_by("id")?;
+            let logs_json: String = row.try_get_by("logs")?;
+            if !logs_json.is_empty() && logs_json != "[]" {
+                if let Err(e) = self.insert_execution_logs(id, &logs_json).await {
+                    tracing::warn!("Failed to migrate logs for record {}: {}", id, e);
+                    failed += 1;
+                } else {
+                    migrated += 1;
+                }
+            }
+        }
+
+        // 有任意记录迁移失败则不删除旧列，保留数据等待下次重试
+        if failed > 0 {
+            tracing::warn!(
+                "Logs migration incomplete: {} succeeded, {} failed. Keeping old logs column for retry.",
+                migrated, failed
+            );
+            return Ok(());
+        }
+
+        // 删除旧列
+        self.exec("ALTER TABLE execution_records DROP COLUMN logs").await?;
+        tracing::info!(
+            "Migrated {} execution records, dropped logs column",
+            migrated
+        );
+        Ok(())
+    }
+
     async fn init_tables(&self) -> Result<(), sea_orm::DbErr> {
         self.exec(
             "CREATE TABLE IF NOT EXISTS todos (
@@ -122,7 +181,6 @@ impl Database {
                 command TEXT,
                 stdout TEXT DEFAULT '',
                 stderr TEXT DEFAULT '',
-                logs TEXT DEFAULT '[]',
                 result TEXT,
                 usage TEXT,
                 executor TEXT,
@@ -137,6 +195,22 @@ impl Database {
             )",
         )
         .await?;
+
+        // 执行日志表（每条日志一行，支持分页加载）
+        self.exec(
+            "CREATE TABLE IF NOT EXISTS execution_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                record_id INTEGER NOT NULL,
+                timestamp TEXT NOT NULL,
+                log_type TEXT NOT NULL DEFAULT 'info',
+                content TEXT NOT NULL DEFAULT '',
+                metadata TEXT DEFAULT '{}',
+                FOREIGN KEY (record_id) REFERENCES execution_records(id) ON DELETE CASCADE
+            )",
+        )
+        .await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_execution_logs_record ON execution_logs(record_id)")
+            .await?;
 
         // 添加 pid 字段的迁移（向后兼容）
         self.exec("ALTER TABLE execution_records ADD COLUMN pid INTEGER")
@@ -177,6 +251,10 @@ impl Database {
         self.exec("ALTER TABLE execution_records ADD COLUMN resume_message TEXT")
             .await
             .ok(); // 忽略错误，因为字段可能已存在
+
+        // 迁移：将 execution_records.logs 旧字段数据转移到 execution_logs 表，并删除旧字段
+        self.migrate_logs_to_execution_logs().await
+            .unwrap_or_else(|e| tracing::warn!("Failed to migrate logs column: {}", e));
 
         // Skill invocations tracking table
         self.exec(
@@ -1100,7 +1178,7 @@ mod tests {
         db.update_execution_record(
             record_id,
             "success",
-            "[{\"type\":\"info\"}]",
+            "[{\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"type\":\"info\",\"content\":\"test log\"}]",
             "done",
             Some(&usage),
             Some("claude-3"),
@@ -1110,13 +1188,18 @@ mod tests {
         let (records, _) = db.get_execution_records(todo_id, 100, 0).await.unwrap();
         let record = records.iter().find(|r| r.id == record_id).unwrap();
         assert_eq!(record.status, crate::models::ExecutionStatus::Success);
-        assert_eq!(record.logs, "[{\"type\":\"info\"}]");
         assert_eq!(record.result, Some("done".to_string()));
         assert_eq!(record.model, Some("claude-3".to_string()));
         assert!(record.finished_at.is_some());
         let record_usage = record.usage.as_ref().unwrap();
         assert_eq!(record_usage.input_tokens, 100);
         assert_eq!(record_usage.output_tokens, 50);
+
+        // 验证日志已写入 execution_logs 表
+        let (logs, total) = db.get_execution_logs(record_id, 1, 10).await.unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].log_type, "info");
     }
 
     #[tokio::test]

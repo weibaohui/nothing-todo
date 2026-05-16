@@ -82,7 +82,6 @@ export interface ExecutionRecord {
   command: string;
   stdout: string;
   stderr: string;
-  logs: string;
   result: string | null;
   started_at: string;
   finished_at: string | null;
@@ -231,6 +230,13 @@ export interface ExecutionRecordsPage {
   total: number;
   page: number;
   limit: number;
+}
+
+export interface ExecutionLogsPage {
+  logs: LogEntry[];
+  total: number;
+  page: number;
+  per_page: number;
 }
 
 export interface ExecuteResult {
