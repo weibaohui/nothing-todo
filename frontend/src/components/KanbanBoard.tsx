@@ -314,7 +314,7 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
   };
 
   /* ─── Touch Swipe Handlers for Mobile Tabs ─── */
-  const mobileTabItems = useMemo(() => COLUMNS.map(col => ({
+  const mobileTabItems = COLUMNS.map(col => ({
     key: col.status,
     label: `${col.label} (${grouped[col.status].length})`,
     children: (
@@ -326,7 +326,7 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
         )}
       </div>
     ),
-  })), [grouped]);
+  }));
 
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
 
