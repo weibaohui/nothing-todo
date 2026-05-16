@@ -151,19 +151,7 @@ pub async fn stop_execution_handler(
                 task_id
             );
         }
-        // 更新数据库状态为失败，保留定时刷新已写入的日志
-        let logs_json = record.logs.clone();
-        let _ = state
-            .db
-            .update_execution_record(
-                req.record_id,
-                crate::models::ExecutionStatus::Failed.as_str(),
-                &logs_json,
-                "任务已被手动停止",
-                None,
-                None,
-            )
-            .await;
+        // 只需发送取消信号，cancel handler 会在 executor_service 中更新数据库
         tracing::info!("Successfully stopped execution record {}", req.record_id);
         Ok(ApiResponse::ok(()))
     } else {
