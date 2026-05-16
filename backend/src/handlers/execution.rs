@@ -7,8 +7,8 @@ use crate::executor_service::{
 };
 use crate::handlers::{ApiJson, AppError, AppState};
 use crate::models::{
-    ApiResponse, DashboardStats, ExecuteRequest, ExecutionRecordsPage, ExecutionStatus,
-    ExecutionSummary, TodoIdQuery,
+    ApiResponse, DashboardStats, ExecuteRequest, ExecutionLogsPage, ExecutionRecordsPage,
+    ExecutionStatus, ExecutionSummary, TodoIdQuery,
 };
 
 /// 统一启动一条 Todo 执行，供手动执行、消息路由等入口复用。
@@ -57,6 +57,36 @@ pub async fn get_execution_record(
         .await?
         .ok_or(AppError::NotFound)?;
     Ok(ApiResponse::ok(record))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExecutionLogsQuery {
+    #[serde(default = "default_page")]
+    pub page: i64,
+    #[serde(default = "default_per_page")]
+    pub per_page: i64,
+}
+
+fn default_page() -> i64 { 1 }
+fn default_per_page() -> i64 { 200 }
+
+pub async fn get_execution_logs_handler(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Query(query): Query<ExecutionLogsQuery>,
+) -> Result<ApiResponse<ExecutionLogsPage>, AppError> {
+    let page = query.page.max(1);
+    let per_page = query.per_page.clamp(10, 1000);
+    let (logs, total) = state
+        .db
+        .get_execution_logs(id, page, per_page)
+        .await?;
+    Ok(ApiResponse::ok(ExecutionLogsPage {
+        logs,
+        total,
+        page,
+        per_page,
+    }))
 }
 
 pub async fn get_execution_records_by_session(

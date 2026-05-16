@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination, Segmented, Modal, Input, Tooltip } from 'antd';
 import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined, DownOutlined, UpOutlined, UnorderedListOutlined, MessageOutlined, FileTextOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
@@ -322,7 +322,7 @@ function CompactHistoryItem({ record, onOpenResume, onExport }: {
 }
 
 function hasLogsStatic(record: ExecutionRecord): boolean {
-  return !!record.logs && record.logs !== '[]';
+  return record.status !== 'running' && !!record.finished_at;
 }
 
 /** 任务详情面板，包含执行、编辑、历史记录等功能 */
@@ -378,32 +378,54 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
 
   const records = selectedTodoId ? executionRecords[selectedTodoId] || [] : [];
 
-  // 懒加载：点击记录时才获取完整详情（含 logs）
+  // 懒加载：点击记录时才获取完整详情（含分页 logs）
   const [selectedHistoryRecordDetail, setSelectedHistoryRecordDetail] = useState<ExecutionRecord | null>(null);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
 
+  // 分页日志状态
+  const [paginatedLogs, setPaginatedLogs] = useState<LogEntry[]>([]);
+  const [logsTotal, setLogsTotal] = useState(0);
+  const [logsPage, setLogsPage] = useState(1);
+  const [logsPerPage] = useState(200);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const activeRecordIdRef = useRef<number | null>(null);
+
+  // 加载分页日志
+  const loadLogs = async (recordId: number, page: number) => {
+    setIsLoadingLogs(true);
+    try {
+      const result = await db.getExecutionLogs(recordId, page, logsPerPage);
+      if (activeRecordIdRef.current !== recordId) return;
+      setPaginatedLogs(result.logs);
+      setLogsTotal(result.total);
+      setLogsPage(result.page);
+    } catch {
+      if (activeRecordIdRef.current === recordId) setPaginatedLogs([]);
+    } finally {
+      if (activeRecordIdRef.current === recordId) setIsLoadingLogs(false);
+    }
+  };
+
   // 当选择的记录变化时，懒加载详情
   useEffect(() => {
+    activeRecordIdRef.current = selectedHistoryRecordId;
     if (!selectedHistoryRecordId) {
       setSelectedHistoryRecordDetail(null);
+      setPaginatedLogs([]);
+      setLogsTotal(0);
+      setLogsPage(1);
       return;
     }
+    const requestId = selectedHistoryRecordId;
     // 先从 records 中找到基本记录
-    const basicRecord = records.find(r => r.id === selectedHistoryRecordId);
+    const basicRecord = records.find(r => r.id === requestId);
 
-    // 如果记录已经有 logs 字段且非空，直接使用
-    if (basicRecord?.logs && basicRecord.logs !== '[]') {
-      setSelectedHistoryRecordDetail(basicRecord);
-      setIsLoadingDetail(false);
-      return;
-    }
-
-    // 否则懒加载完整记录（即使 basicRecord 不存在也触发）
+    // 懒加载完整记录（即使 basicRecord 不存在也触发）
     setIsLoadingDetail(true);
-    db.getExecutionRecord(selectedHistoryRecordId)
+    db.getExecutionRecord(requestId)
       .then(detail => {
+        if (activeRecordIdRef.current !== requestId) return;
         setSelectedHistoryRecordDetail(detail);
-        // 更新到全局状态
         if (selectedTodoId) {
           dispatch({
             type: 'UPDATE_EXECUTION_RECORD',
@@ -412,14 +434,19 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
         }
       })
       .catch(() => {
+        if (activeRecordIdRef.current !== requestId) return;
         if (basicRecord) {
           setSelectedHistoryRecordDetail(basicRecord);
         }
       })
       .finally(() => {
-        setIsLoadingDetail(false);
+        if (activeRecordIdRef.current === requestId) setIsLoadingDetail(false);
       });
-  }, [selectedHistoryRecordId, records, selectedTodoId, dispatch]);
+
+    // 同时加载第一页日志
+    loadLogs(requestId, 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedHistoryRecordId]);
 
   // selectedHistoryRecord 优先使用懒加载的详情，否则用列表中的基本记录
   const selectedHistoryRecord = selectedHistoryRecordDetail || (selectedHistoryRecordId
@@ -564,20 +591,20 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
     }
   };
 
-  const parseRecordLogs = (record: ExecutionRecord): LogEntry[] => {
+  const parseRecordLogs = (_record: ExecutionRecord): LogEntry[] => {
+    return [];
+  };
+
+  const hasLogs = (record: ExecutionRecord): boolean => hasLogsStatic(record);
+
+  const handleExportMarkdown = async (record: ExecutionRecord) => {
+    let logs: LogEntry[] = [];
     try {
-      return record.logs && record.logs !== '[]' ? JSON.parse(record.logs) : [];
+      const result = await db.getExecutionLogs(record.id, 1, 100000);
+      logs = result.logs;
     } catch {
-      return [];
+      // ignore
     }
-  };
-
-  const hasLogs = (record: ExecutionRecord): boolean => {
-    return !!record.logs && record.logs !== '[]';
-  };
-
-  const handleExportMarkdown = (record: ExecutionRecord) => {
-    const logs = parseRecordLogs(record);
     const messages = parseLogsToMessages(logs);
     const executorLabel = record.executor ? getExecutorOption(record.executor).label : undefined;
     const content = conversationToYaml(messages, {
@@ -949,8 +976,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                 const isRunning = record.status === 'running';
                 const runningTask = isRunning ? getRunningTaskForRecord(record) : null;
                 const liveLogs = runningTask ? runningTask.logs : null;
-                const restLogs = parseRecordLogs(record);
-                const displayLogs = liveLogs && liveLogs.length > 0 ? liveLogs : restLogs;
+                const displayLogs = liveLogs && liveLogs.length > 0 ? liveLogs : paginatedLogs;
                 return (
                   <>
                     {/* Chain breadcrumb — when viewing a continuation record */}
@@ -1110,11 +1136,14 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-primary)' }}>
-                              执行过程 ({displayLogs.length} 条){isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}
+                              执行过程 ({isRunning ? displayLogs.length : logsTotal} 条{isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''})
                             </span>
                             <ReloadOutlined
                               style={{ fontSize: 12, color: 'var(--color-text-tertiary)', cursor: 'pointer' }}
-                              onClick={() => refreshSingleRecord(record.id)}
+                              onClick={() => {
+                                refreshSingleRecord(record.id);
+                                loadLogs(record.id, logsPage);
+                              }}
                             />
                           </div>
                           <div style={{
@@ -1127,7 +1156,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                             overflow: 'auto',
                           }}>
                             {displayLogs.length === 0 ? (
-                              <div style={{ color: 'var(--log-text-muted)' }}>等待输出...</div>
+                              <div style={{ color: 'var(--log-text-muted)' }}>{isRunning ? '等待输出...' : (isLoadingLogs ? '加载中...' : '暂无日志')}</div>
                             ) : (
                               displayLogs.map((log, idx) => (
                                 <div key={idx} style={{ marginBottom: 4, display: 'flex', gap: 8 }}>
@@ -1140,6 +1169,17 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                               ))
                             )}
                           </div>
+                          {!isRunning && logsTotal > logsPerPage && (
+                            <Pagination
+                              simple
+                              current={logsPage}
+                              pageSize={logsPerPage}
+                              total={logsTotal}
+                              onChange={(page) => loadLogs(record.id, page)}
+                              size="small"
+                              style={{ marginTop: 8, textAlign: 'center' }}
+                            />
+                          )}
                         </div>
                       );
                     })()}
@@ -1276,7 +1316,19 @@ function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, o
   const runningTask = isRunning ? getRunningTask(record) : null;
   const liveLogs = runningTask ? runningTask.logs : null;
   const restLogs = parseLogs(record);
-  const displayLogs = liveLogs && liveLogs.length > 0 ? liveLogs : restLogs;
+
+  // 懒加载日志（新记录没有旧字段数据时从新表加载）
+  const [loadedLogs, setLoadedLogs] = useState<LogEntry[] | null>(null);
+  useEffect(() => {
+    if (restLogs.length > 0 || isRunning || loadedLogs !== null) return;
+    db.getExecutionLogs(record.id, 1, 200)
+      .then(r => setLoadedLogs(r.logs))
+      .catch(() => setLoadedLogs([]));
+  }, [record.id, restLogs.length, isRunning, loadedLogs]);
+
+  const displayLogs = liveLogs && liveLogs.length > 0 ? liveLogs :
+    restLogs.length > 0 ? restLogs :
+    loadedLogs || [];
 
   return (
     <div className={`history-card history-card-${record.status}`}>
@@ -1371,6 +1423,54 @@ function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, o
 }
 
 /** Narrow mode: chain group card — main record with indented continuations */
+/** Lazy-load logs for a continuation record in ChainGroupCard */
+function ContinuationLogsLoader({ record, viewMode, onRefresh }: {
+  record: ExecutionRecord;
+  viewMode: 'log' | 'chat';
+  onRefresh: (id: number) => Promise<void>;
+}) {
+  const [logs, setLogs] = useState<LogEntry[] | null>(null);
+  useEffect(() => {
+    db.getExecutionLogs(record.id, 1, 200)
+      .then(r => setLogs(r.logs))
+      .catch(() => setLogs([]));
+  }, [record.id]);
+  if (logs === null) return null;
+  if (logs.length === 0) return null;
+  if (viewMode === 'chat') {
+    return (
+      <div style={{ marginTop: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-primary)' }}>对话 ({logs.length})</span>
+          <ReloadOutlined style={{ fontSize: 10, cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); onRefresh(record.id); }} />
+        </div>
+        <div style={{ maxHeight: 300, overflow: 'auto' }}>
+          <ChatView logs={logs as LogEntry[]} isRunning={false} />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <details style={{ marginTop: 6 }} open>
+      <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span>日志 ({logs.length})</span>
+        <ReloadOutlined style={{ fontSize: 9 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRefresh(record.id); }} />
+      </summary>
+      <div style={{
+        background: 'var(--log-bg)', color: 'var(--log-text)', padding: 6, borderRadius: 6,
+        fontFamily: 'var(--font-mono)', fontSize: 10, marginTop: 4, maxHeight: 200, overflow: 'auto',
+      }}>
+        {logs.map((log, i) => (
+          <div key={i} style={{ marginBottom: 3, display: 'flex', gap: 6 }}>
+            <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
+            <span>{log.content}</span>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, viewMode, parseLogs, onRefresh, resolveStats }: {
   group: SessionGroup;
   onOpenResume: (r: ExecutionRecord) => void;
@@ -1385,6 +1485,17 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const mainRecord = group.records[0];
   const continuations = group.records.slice(1);
+
+  // 懒加载主记录日志
+  const mainRestLogs = parseLogs(mainRecord);
+  const [mainLoadedLogs, setMainLoadedLogs] = useState<LogEntry[] | null>(null);
+  useEffect(() => {
+    if (mainRestLogs.length > 0 || mainRecord.status === 'running' || mainLoadedLogs !== null) return;
+    db.getExecutionLogs(mainRecord.id, 1, 200)
+      .then(r => setMainLoadedLogs(r.logs))
+      .catch(() => setMainLoadedLogs([]));
+  }, [mainRecord.id, mainRestLogs.length, mainRecord.status, mainLoadedLogs]);
+  const mainDisplayLogs = mainRestLogs.length > 0 ? mainRestLogs : mainLoadedLogs || [];
 
   return (
     <div>
@@ -1466,7 +1577,7 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
             </div>
           );
         })()}
-        {renderNarrowLogs(mainRecord, mainRecord.status === 'running', parseLogs(mainRecord), null, viewMode, onRefresh)}
+        {renderNarrowLogs(mainRecord, mainRecord.status === 'running', mainDisplayLogs, null, viewMode, onRefresh)}
       </div>
 
       {/* Indented continuation entries */}
@@ -1565,7 +1676,9 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
                 {(() => {
                   const logs = parseLogs(record);
                   const isRunning = record.status === 'running';
-                  if (!isRunning && logs.length === 0) return null;
+                  if (!isRunning && logs.length === 0) {
+                    return <ContinuationLogsLoader record={record} viewMode={viewMode} onRefresh={onRefresh} />;
+                  }
                   if (viewMode === 'chat') {
                     return (
                       <div style={{ marginTop: 6 }}>

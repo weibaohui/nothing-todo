@@ -3,9 +3,10 @@ use sea_orm::{
     QueryFilter, QueryOrder, QuerySelect, Statement,
 };
 
+use crate::db::entity::execution_logs;
 use crate::db::entity::execution_records;
 use crate::db::Database;
-use crate::models::{ExecutionRecord, ExecutionStatus, ExecutionSummary, ExecutionUsage};
+use crate::models::{ExecutionRecord, ExecutionStatus, ExecutionSummary, ExecutionUsage, ParsedLogEntry};
 
 pub struct NewExecutionRecord<'a> {
     pub todo_id: i64,
@@ -45,7 +46,6 @@ impl From<execution_records::Model> for ExecutionRecord {
             command: m.command.unwrap_or_default(),
             stdout: m.stdout.unwrap_or_default(),
             stderr: m.stderr.unwrap_or_default(),
-            logs: m.logs.unwrap_or_default(),
             result: m.result,
             started_at: m.started_at.unwrap_or_default(),
             finished_at: m.finished_at,
@@ -139,33 +139,17 @@ impl Database {
     /// Update execution record status, but only if it is still "running".
     /// This prevents race conditions where both a stop handler and a spawned task
     /// try to update the same record concurrently -- only the first write succeeds.
+    /// remaining_logs: 内存中尚未刷入 execution_logs 表的剩余日志
     /// Returns Ok(true) if the row was updated, Ok(false) if status was not "running".
     pub async fn update_execution_record(
         &self,
         id: i64,
         status: &str,
-        logs: &str,
+        remaining_logs: &str,
         result: &str,
         usage: Option<&ExecutionUsage>,
         model: Option<&str>,
     ) -> Result<bool, sea_orm::DbErr> {
-        // Merge new logs with existing logs in DB (since periodic flush may have drained in-memory vec)
-        let existing: Option<String> = execution_records::Entity::find_by_id(id)
-            .one(&self.conn)
-            .await?
-            .and_then(|r| r.logs);
-
-        let merged_logs = match existing {
-            Some(ref json) if !json.is_empty() && json != "[]" => {
-                let mut base: Vec<serde_json::Value> =
-                    serde_json::from_str(json).unwrap_or_default();
-                let append: Vec<serde_json::Value> = serde_json::from_str(logs).unwrap_or_default();
-                base.extend(append);
-                serde_json::to_string(&base).unwrap_or_else(|_| logs.to_string())
-            }
-            _ => logs.to_string(),
-        };
-
         let now = crate::models::utc_timestamp();
         let usage_json = usage.map(|u| {
             serde_json::to_string(u).unwrap_or_else(|e| {
@@ -181,12 +165,11 @@ impl Database {
         let backend = self.conn.get_database_backend();
         let sql = "UPDATE execution_records SET \
             status = $1, \
-            logs = $2, \
-            result = $3, \
-            usage = $4, \
-            model = $5, \
-            finished_at = $6 \
-            WHERE id = $7 AND status = 'running'";
+            result = $2, \
+            usage = $3, \
+            model = $4, \
+            finished_at = $5 \
+            WHERE id = $6 AND status = 'running'";
 
         let res = self
             .conn
@@ -195,7 +178,6 @@ impl Database {
                 sql,
                 [
                     status.into(),
-                    merged_logs.into(),
                     result.into(),
                     usage_json.into(),
                     model_val.into(),
@@ -204,7 +186,14 @@ impl Database {
                 ],
             ))
             .await?;
-        Ok(res.rows_affected() > 0)
+        let updated = res.rows_affected() > 0;
+
+        // Only insert logs if the status update succeeded (prevent duplicate logs on concurrent writes)
+        if updated && !remaining_logs.is_empty() && remaining_logs != "[]" {
+            self.insert_execution_logs(id, remaining_logs).await?;
+        }
+
+        Ok(updated)
     }
 
     /// 更新执行记录的 pid
@@ -263,49 +252,126 @@ impl Database {
         self.exec_update(am).await
     }
 
-    /// 追加日志条目到执行记录（读取已有日志 + 合并新条目 + 写回，防止覆盖）
+    /// 追加日志条目到执行记录（直接写入 execution_logs 表，支持分页加载）
     pub async fn append_execution_record_logs(
         &self,
         id: i64,
         new_logs_json: &str,
     ) -> Result<(), sea_orm::DbErr> {
-        let existing: Option<String> = execution_records::Entity::find_by_id(id)
-            .one(&self.conn)
-            .await?
-            .and_then(|r| r.logs);
+        if new_logs_json.is_empty() || new_logs_json == "[]" {
+            return Ok(());
+        }
+        self.insert_execution_logs(id, new_logs_json).await
+    }
 
-        let merged = match existing {
-            Some(ref json) if !json.is_empty() && json != "[]" => {
-                let mut base: Vec<serde_json::Value> = match serde_json::from_str(json) {
-                    Ok(b) => b,
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to parse existing logs JSON for record {}: {}",
-                            id,
-                            e
-                        );
-                        Vec::new()
-                    }
-                };
-                let append: Vec<serde_json::Value> = match serde_json::from_str(new_logs_json) {
-                    Ok(a) => a,
-                    Err(e) => {
-                        tracing::warn!("Failed to parse new logs JSON for record {}: {}", id, e);
-                        Vec::new()
-                    }
-                };
-                base.extend(append);
-                serde_json::to_string(&base).unwrap_or_else(|_| new_logs_json.to_string())
-            }
-            _ => new_logs_json.to_string(),
-        };
+    /// 将 JSON 格式的日志条目批量插入 execution_logs 表
+    pub async fn insert_execution_logs(
+        &self,
+        record_id: i64,
+        logs_json: &str,
+    ) -> Result<(), sea_orm::DbErr> {
+        let entries: Vec<ParsedLogEntry> = serde_json::from_str(logs_json)
+            .map_err(|e| sea_orm::DbErr::Custom(format!(
+                "Failed to parse logs JSON for record {}: {}",
+                record_id, e
+            )))?;
+        if entries.is_empty() {
+            return Ok(());
+        }
 
-        let am = execution_records::ActiveModel {
-            id: ActiveValue::Unchanged(id),
-            logs: ActiveValue::Set(Some(merged)),
-            ..Default::default()
-        };
-        self.exec_update(am).await
+        let models: Vec<execution_logs::ActiveModel> = entries
+            .into_iter()
+            .map(|e| {
+                let metadata = serde_json::json!({
+                    "usage": e.usage,
+                    "tool_name": e.tool_name,
+                    "tool_input_json": e.tool_input_json,
+                });
+                let metadata_str = serde_json::to_string(&metadata).unwrap_or_default();
+                execution_logs::ActiveModel {
+                    record_id: ActiveValue::Set(record_id),
+                    timestamp: ActiveValue::Set(e.timestamp),
+                    log_type: ActiveValue::Set(e.log_type),
+                    content: ActiveValue::Set(e.content),
+                    metadata: ActiveValue::Set(Some(metadata_str)),
+                    ..Default::default()
+                }
+            })
+            .collect();
+
+        execution_logs::Entity::insert_many(models)
+            .exec(&self.conn)
+            .await?;
+        Ok(())
+    }
+
+    /// 分页获取执行日志
+    pub async fn get_execution_logs(
+        &self,
+        record_id: i64,
+        page: i64,
+        per_page: i64,
+    ) -> Result<(Vec<ParsedLogEntry>, i64), sea_orm::DbErr> {
+        let total: i64 = execution_logs::Entity::find()
+            .filter(execution_logs::Column::RecordId.eq(record_id))
+            .count(&self.conn)
+            .await? as i64;
+
+        if total == 0 {
+            return Ok((Vec::new(), 0));
+        }
+
+        let offset = ((page - 1) * per_page).max(0) as u64;
+        let entries = execution_logs::Entity::find()
+            .filter(execution_logs::Column::RecordId.eq(record_id))
+            .order_by_asc(execution_logs::Column::Id)
+            .limit(per_page as u64)
+            .offset(offset)
+            .all(&self.conn)
+            .await?;
+
+        let logs: Vec<ParsedLogEntry> = entries
+            .into_iter()
+            .map(|m| {
+                let (usage, tool_name, tool_input_json) = m
+                    .metadata
+                    .as_deref()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+                    .map(|v| {
+                        (
+                            v.get("usage")
+                                .and_then(|u| serde_json::from_value(u.clone()).ok()),
+                            v.get("tool_name")
+                                .and_then(|n| n.as_str().map(String::from)),
+                            v.get("tool_input_json")
+                                .and_then(|t| t.as_str().map(String::from)),
+                        )
+                    })
+                    .unwrap_or((None, None, None));
+
+                ParsedLogEntry {
+                    timestamp: m.timestamp,
+                    log_type: m.log_type,
+                    content: m.content,
+                    usage,
+                    tool_name,
+                    tool_input_json,
+                }
+            })
+            .collect();
+
+        Ok((logs, total))
+    }
+
+    /// 获取所有执行日志（用于 WebSocket 同步等场景，请谨慎使用）
+    pub async fn get_all_execution_logs(
+        &self,
+        record_id: i64,
+    ) -> Result<Vec<ParsedLogEntry>, sea_orm::DbErr> {
+        let (logs, _) = self
+            .get_execution_logs(record_id, 1, i64::MAX)
+            .await?;
+        Ok(logs)
     }
 
     /// 根据 session_id 获取所有执行记录（按 started_at 排序）
@@ -806,7 +872,6 @@ impl Database {
                     command: None,
                     stdout: None,
                     stderr: None,
-                    logs: None,
                     model: None,
                     pid: None,
                     todo_progress: None,

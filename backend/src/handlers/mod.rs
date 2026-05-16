@@ -165,9 +165,12 @@ pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade)
         // 每个任务需要从数据库获取最新的日志
         let mut running_tasks = state.task_manager.get_all_task_infos().await;
         for task in &mut running_tasks {
-            // 从数据库获取该任务的执行记录日志
+            // 从 execution_logs 表获取该任务的执行记录日志
             match state.db.get_execution_record_by_task_id(&task.task_id).await {
-                Ok(Some(record)) => task.logs = record.logs,
+                Ok(Some(record)) => {
+                    let logs = state.db.get_all_execution_logs(record.id).await.unwrap_or_default();
+                    task.logs = serde_json::to_string(&logs).unwrap_or_default();
+                }
                 Ok(None) => {}
                 Err(e) => tracing::debug!("No execution record found for task_id {}: {}", task.task_id, e),
             }
@@ -393,6 +396,7 @@ pub fn create_app(
         .route("/xyz/execution-records", get(execution::get_execution_records))
         .route("/xyz/execution-records/running", get(execution::get_running_execution_records_handler))
         .route("/xyz/execution-records/session/{session_id}", get(execution::get_execution_records_by_session))
+        .route("/xyz/execution-records/{id}/logs", get(execution::get_execution_logs_handler))
         .route("/xyz/execution-records/{id}", get(execution::get_execution_record))
         .route("/xyz/execution-records/{id}/resume", post(execution::resume_execution_handler))
         .route("/xyz/dashboard-stats", get(execution::get_dashboard_stats))

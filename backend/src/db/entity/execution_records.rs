@@ -11,7 +11,6 @@ pub struct Model {
     pub command: Option<String>,
     pub stdout: Option<String>,
     pub stderr: Option<String>,
-    pub logs: Option<String>,
     pub result: Option<String>,
     pub usage: Option<String>,
     pub executor: Option<String>,
