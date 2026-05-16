@@ -17,6 +17,39 @@ import { ExecutorBadge } from './ExecutorBadge';
 import XMarkdown from '@ant-design/x-markdown';
 import type { ExecutionSummary, Todo, TodoItem, ExecutionRecord, ExecutionStats, LogEntry } from '../types';
 
+/** 统一刷新按钮组件 */
+const RefreshBtn = ({ onClick, size = 'small' }: { onClick: () => void; size?: 'small' | 'middle' }) => (
+  <Button type="text" size={size} icon={<ReloadOutlined />} aria-label="刷新"
+    onClick={(e) => { e.stopPropagation(); onClick(); }} />
+);
+
+/** 日志视图头部组件 */
+function LogViewHeader({ title, viewMode, onViewModeChange, onRefresh, fontSize = 12 }: {
+  title: string;
+  viewMode: 'log' | 'chat';
+  onViewModeChange: (mode: 'log' | 'chat') => void;
+  onRefresh: () => void;
+  fontSize?: number;
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize, fontWeight: 600, color: 'var(--color-primary)' }}>{title}</span>
+        <RefreshBtn onClick={onRefresh} />
+      </div>
+      <Segmented
+        size="small"
+        value={viewMode}
+        onChange={(value) => onViewModeChange(value as 'log' | 'chat')}
+        options={[
+          { value: 'log', icon: <UnorderedListOutlined />, label: '日志' },
+          { value: 'chat', icon: <MessageOutlined />, label: '对话' },
+        ]}
+      />
+    </div>
+  );
+}
+
 /** 计算从 started_at 到现在的 elapsed time (秒) */
 function getElapsedSeconds(startedAt: string): number {
   const start = new Date(startedAt).getTime();
@@ -815,26 +848,15 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, ...(isWide ? { flexShrink: 0 } : {}) }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>执行历史</h4>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Segmented
-              size="small"
-              value={viewMode}
-              onChange={(value) => setViewMode(value as 'log' | 'chat')}
-              options={[
-                { value: 'log', icon: <UnorderedListOutlined />, label: '日志' },
-                { value: 'chat', icon: <MessageOutlined />, label: '对话' },
-              ]}
-            />
-            <Button
-              type="text"
-              size="small"
-              icon={<ReloadOutlined />}
-              onClick={() => loadExecutionRecords(historyPage, historyLimit)}
-              loading={isExecuting}
-            >
-              刷新
-            </Button>
-          </div>
+          <Button
+            type="text"
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={() => loadExecutionRecords(historyPage, historyLimit)}
+            loading={isExecuting}
+          >
+            刷新
+          </Button>
         </div>
         {records.length === 0 ? (
           <Empty description="暂无执行记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
@@ -1119,13 +1141,21 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                       if (viewMode === 'chat') {
                         return (
                           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexShrink: 0 }}>
-                              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-primary)' }}>
-                                对话视图 ({displayLogs.length} 条){isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}
-                              </span>
-                              <ReloadOutlined
-                                style={{ fontSize: 12, color: 'var(--color-text-tertiary)', cursor: 'pointer' }}
-                                onClick={() => refreshSingleRecord(record.id)}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexShrink: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-primary)' }}>
+                                  对话视图 ({displayLogs.length} 条){isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}
+                                </span>
+                                <RefreshBtn onClick={() => refreshSingleRecord(record.id)} />
+                              </div>
+                              <Segmented
+                                size="small"
+                                value={viewMode}
+                                onChange={(value) => setViewMode(value as 'log' | 'chat')}
+                                options={[
+                                  { value: 'log', icon: <UnorderedListOutlined />, label: '日志' },
+                                  { value: 'chat', icon: <MessageOutlined />, label: '对话' },
+                                ]}
                               />
                             </div>
                             <ChatView logs={displayLogs as LogEntry[]} isRunning={isRunning} />
@@ -1134,16 +1164,24 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                       }
                       return (
                         <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-primary)' }}>
-                              执行过程 ({isRunning ? displayLogs.length : logsTotal} 条{isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''})
-                            </span>
-                            <ReloadOutlined
-                              style={{ fontSize: 12, color: 'var(--color-text-tertiary)', cursor: 'pointer' }}
-                              onClick={() => {
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-primary)' }}>
+                                执行过程 ({isRunning ? displayLogs.length : logsTotal} 条{isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''})
+                              </span>
+                              <RefreshBtn onClick={() => {
                                 refreshSingleRecord(record.id);
                                 loadLogs(record.id, logsPage);
-                              }}
+                              }} />
+                            </div>
+                            <Segmented
+                              size="small"
+                              value={viewMode}
+                              onChange={(value) => setViewMode(value as 'log' | 'chat')}
+                              options={[
+                                { value: 'log', icon: <UnorderedListOutlined />, label: '日志' },
+                                { value: 'chat', icon: <MessageOutlined />, label: '对话' },
+                              ]}
                             />
                           </div>
                           <div style={{
@@ -1210,6 +1248,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                     resolveStats={resolveExecutionStats}
                     parseLogs={parseRecordLogs}
                     messageApi={message}
+                    onViewModeChange={setViewMode}
                   />
                 ));
               }
@@ -1225,6 +1264,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                   parseLogs={parseRecordLogs}
                   onRefresh={refreshSingleRecord}
                   resolveStats={resolveExecutionStats}
+                  onViewModeChange={setViewMode}
                 />
               );
             })}
@@ -1300,7 +1340,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
 }
 
 /** Narrow mode: single history card */
-function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, onRefresh, getRunningTask, resolveStats, parseLogs, messageApi }: {
+function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, onRefresh, getRunningTask, resolveStats, parseLogs, messageApi, onViewModeChange }: {
   record: ExecutionRecord;
   viewMode: 'log' | 'chat';
   onOpenResume: (r: ExecutionRecord) => void;
@@ -1311,6 +1351,7 @@ function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, o
   resolveStats: (r: ExecutionRecord, running: boolean) => ExecutionStats | null | undefined;
   parseLogs: (r: ExecutionRecord) => LogEntry[];
   messageApi: any;
+  onViewModeChange: (mode: 'log' | 'chat') => void;
 }) {
   const isRunning = record.status === 'running';
   const runningTask = isRunning ? getRunningTask(record) : null;
@@ -1417,17 +1458,26 @@ function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, o
           </div>
         );
       })()}
-      {renderNarrowLogs(record, isRunning, displayLogs, liveLogs, viewMode, onRefresh)}
+      <NarrowLogView
+        record={record}
+        isRunning={isRunning}
+        displayLogs={displayLogs}
+        liveLogs={liveLogs}
+        viewMode={viewMode}
+        onRefresh={onRefresh}
+        onViewModeChange={onViewModeChange}
+      />
     </div>
   );
 }
 
 /** Narrow mode: chain group card — main record with indented continuations */
 /** Lazy-load logs for a continuation record in ChainGroupCard */
-function ContinuationLogsLoader({ record, viewMode, onRefresh }: {
+function ContinuationLogsLoader({ record, viewMode, onRefresh, onViewModeChange }: {
   record: ExecutionRecord;
   viewMode: 'log' | 'chat';
   onRefresh: (id: number) => Promise<void>;
+  onViewModeChange: (mode: 'log' | 'chat') => void;
 }) {
   const [logs, setLogs] = useState<LogEntry[] | null>(null);
   useEffect(() => {
@@ -1437,41 +1487,94 @@ function ContinuationLogsLoader({ record, viewMode, onRefresh }: {
   }, [record.id]);
   if (logs === null) return null;
   if (logs.length === 0) return null;
-  if (viewMode === 'chat') {
-    return (
-      <div style={{ marginTop: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-primary)' }}>对话 ({logs.length})</span>
-          <ReloadOutlined style={{ fontSize: 10, cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); onRefresh(record.id); }} />
-        </div>
+  const defaultOpen = viewMode === 'chat';
+  const [isExpanded, setIsExpanded] = useState(defaultOpen);
+  const title = viewMode === 'chat' ? `对话 (${logs.length})` : `日志 (${logs.length})`;
+  return (
+    <details style={{ marginTop: 6 }} open={isExpanded} onToggle={(e) => setIsExpanded((e.target as HTMLDetailsElement).open)}>
+      <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span>{title}</span>
+        <LogViewHeader
+          title=""
+          viewMode={viewMode}
+          onViewModeChange={onViewModeChange}
+          onRefresh={() => onRefresh(record.id)}
+          fontSize={10}
+        />
+      </summary>
+      {viewMode === 'chat' ? (
         <div style={{ maxHeight: 300, overflow: 'auto' }}>
           <ChatView logs={logs as LogEntry[]} isRunning={false} />
         </div>
-      </div>
-    );
-  }
-  return (
-    <details style={{ marginTop: 6 }} open>
-      <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span>日志 ({logs.length})</span>
-        <ReloadOutlined style={{ fontSize: 9 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRefresh(record.id); }} />
-      </summary>
-      <div style={{
-        background: 'var(--log-bg)', color: 'var(--log-text)', padding: 6, borderRadius: 6,
-        fontFamily: 'var(--font-mono)', fontSize: 10, marginTop: 4, maxHeight: 200, overflow: 'auto',
-      }}>
-        {logs.map((log, i) => (
-          <div key={i} style={{ marginBottom: 3, display: 'flex', gap: 6 }}>
-            <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
-            <span>{log.content}</span>
-          </div>
-        ))}
-      </div>
+      ) : (
+        <div style={{
+          background: 'var(--log-bg)', color: 'var(--log-text)', padding: 6, borderRadius: 6,
+          fontFamily: 'var(--font-mono)', fontSize: 10, maxHeight: 200, overflow: 'auto',
+        }}>
+          {logs.map((log, i) => (
+            <div key={i} style={{ marginBottom: 3, display: 'flex', gap: 6 }}>
+              <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
+              <span>{log.content}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </details>
   );
 }
 
-function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, viewMode, parseLogs, onRefresh, resolveStats }: {
+/** 内联日志视图组件 (用于 ChainGroupCard 内部) */
+function ContinuationLogView({ logs, isRunning, viewMode, onRefresh, onViewModeChange }: {
+  logs: LogEntry[];
+  isRunning: boolean;
+  viewMode: 'log' | 'chat';
+  onRefresh: () => void;
+  onViewModeChange: (mode: 'log' | 'chat') => void;
+}) {
+  const defaultOpen = isRunning || viewMode === 'chat';
+  const [isExpanded, setIsExpanded] = useState(defaultOpen);
+  const title = viewMode === 'chat' ? `对话 (${logs.length})` : `日志 (${logs.length})`;
+  return (
+    <details style={{ marginTop: 6 }} open={isExpanded} onToggle={(e) => setIsExpanded((e.target as HTMLDetailsElement).open)}>
+      <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span>{title}</span>
+        <LogViewHeader
+          title=""
+          viewMode={viewMode}
+          onViewModeChange={onViewModeChange}
+          onRefresh={onRefresh}
+          fontSize={10}
+        />
+      </summary>
+      {viewMode === 'chat' ? (
+        <div style={{ maxHeight: 300, overflow: 'auto' }}>
+          <ChatView logs={logs as LogEntry[]} isRunning={isRunning} />
+        </div>
+      ) : (
+        <div style={{
+          background: 'var(--log-bg)', color: 'var(--log-text)', padding: 6, borderRadius: 6,
+          fontFamily: 'var(--font-mono)', fontSize: 10, maxHeight: 200, overflow: 'auto',
+        }}>
+          {logs.length === 0 ? (
+            <div style={{ color: 'var(--log-text-muted)' }}>等待输出...</div>
+          ) : (
+            logs.map((log, i) => (
+              <div key={i} style={{ marginBottom: 3, display: 'flex', gap: 6 }}>
+                <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
+                <span style={{ color: logTypeColors[log.type || ''] || 'var(--log-text)' }}>
+                  [{logTypeLabels[log.type || ''] || log.type}]
+                </span>
+                <span>{log.content}</span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </details>
+  );
+}
+
+function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, viewMode, parseLogs, onRefresh, resolveStats, onViewModeChange }: {
   group: SessionGroup;
   onOpenResume: (r: ExecutionRecord) => void;
   onExport: (r: ExecutionRecord) => void;
@@ -1481,6 +1584,7 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
   parseLogs: (r: ExecutionRecord) => LogEntry[];
   onRefresh: (id: number) => Promise<void>;
   resolveStats: (r: ExecutionRecord, running: boolean) => ExecutionStats | null | undefined;
+  onViewModeChange: (mode: 'log' | 'chat') => void;
 }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const mainRecord = group.records[0];
@@ -1577,13 +1681,23 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
             </div>
           );
         })()}
-        {renderNarrowLogs(mainRecord, mainRecord.status === 'running', mainDisplayLogs, null, viewMode, onRefresh)}
+        <NarrowLogView
+          record={mainRecord}
+          isRunning={mainRecord.status === 'running'}
+          displayLogs={mainDisplayLogs}
+          liveLogs={null}
+          viewMode={viewMode}
+          onRefresh={onRefresh}
+          onViewModeChange={onViewModeChange}
+        />
       </div>
 
       {/* Indented continuation entries */}
       {continuations.map((record, idx) => {
         const isLast = idx === continuations.length - 1;
         const isExpanded = expandedId === record.id;
+        const logs = parseLogs(record);
+        const isRunning = record.status === 'running';
         return (
           <div key={record.id} style={{
             marginLeft: 14,
@@ -1673,52 +1787,17 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
                     </Popconfirm>
                   )}
                 </div>
-                {(() => {
-                  const logs = parseLogs(record);
-                  const isRunning = record.status === 'running';
-                  if (!isRunning && logs.length === 0) {
-                    return <ContinuationLogsLoader record={record} viewMode={viewMode} onRefresh={onRefresh} />;
-                  }
-                  if (viewMode === 'chat') {
-                    return (
-                      <div style={{ marginTop: 6 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-primary)' }}>对话 ({logs.length})</span>
-                          <ReloadOutlined style={{ fontSize: 10, cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); onRefresh(record.id); }} />
-                        </div>
-                        <div style={{ maxHeight: 300, overflow: 'auto' }}>
-                          <ChatView logs={logs as LogEntry[]} isRunning={isRunning} />
-                        </div>
-                      </div>
-                    );
-                  }
-                  return (
-                    <details style={{ marginTop: 6 }} open={isRunning}>
-                      <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span>日志 ({logs.length})</span>
-                        <ReloadOutlined style={{ fontSize: 9 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRefresh(record.id); }} />
-                      </summary>
-                      <div style={{
-                        background: 'var(--log-bg)', color: 'var(--log-text)', padding: 6, borderRadius: 6,
-                        fontFamily: 'var(--font-mono)', fontSize: 10, marginTop: 4, maxHeight: 200, overflow: 'auto',
-                      }}>
-                        {logs.length === 0 ? (
-                          <div style={{ color: 'var(--log-text-muted)' }}>等待输出...</div>
-                        ) : (
-                          logs.map((log, i) => (
-                            <div key={i} style={{ marginBottom: 3, display: 'flex', gap: 6 }}>
-                              <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
-                              <span style={{ color: logTypeColors[log.type || ''] || 'var(--log-text)' }}>
-                                [{logTypeLabels[log.type || ''] || log.type}]
-                              </span>
-                              <span>{log.content}</span>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </details>
-                  );
-                })()}
+                {!isRunning && logs.length === 0 ? (
+                  <ContinuationLogsLoader record={record} viewMode={viewMode} onRefresh={onRefresh} onViewModeChange={onViewModeChange} />
+                ) : (
+                  <ContinuationLogView
+                    logs={logs}
+                    isRunning={isRunning}
+                    viewMode={viewMode}
+                    onRefresh={() => onRefresh(record.id)}
+                    onViewModeChange={onViewModeChange}
+                  />
+                )}
               </div>
             )}
             {/* Continue button on last continuation */}
@@ -1734,48 +1813,57 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
   );
 }
 
-/** Shared log rendering for narrow mode cards */
-function renderNarrowLogs(record: ExecutionRecord, isRunning: boolean, displayLogs: LogEntry[], liveLogs: LogEntry[] | null, viewMode: 'log' | 'chat', onRefresh: (id: number) => Promise<void>) {
+/** Shared log rendering for narrow mode cards - as a proper component */
+function NarrowLogView({ record, isRunning, displayLogs, liveLogs, viewMode, onRefresh, onViewModeChange }: {
+  record: ExecutionRecord;
+  isRunning: boolean;
+  displayLogs: LogEntry[];
+  liveLogs: LogEntry[] | null;
+  viewMode: 'log' | 'chat';
+  onRefresh: (id: number) => Promise<void>;
+  onViewModeChange: (mode: 'log' | 'chat') => void;
+}) {
   if (!isRunning && displayLogs.length === 0) return null;
-  if (viewMode === 'chat') {
-    return (
-      <div style={{ marginTop: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-primary)' }}>
-            对话视图 ({displayLogs.length} 条){isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}
-          </span>
-          <ReloadOutlined style={{ fontSize: 11 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRefresh(record.id); }} />
-        </div>
+  const defaultOpen = isRunning || viewMode === 'chat';
+  const [isExpanded, setIsExpanded] = useState(defaultOpen);
+  const title = viewMode === 'chat'
+    ? `对话视图 (${displayLogs.length} 条)${isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}`
+    : `查看日志 (${displayLogs.length} 条)${isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}`;
+  return (
+    <details style={{ marginTop: 8 }} open={isExpanded} onToggle={(e) => setIsExpanded((e.target as HTMLDetailsElement).open)}>
+      <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span>{title}</span>
+        <LogViewHeader
+          title=""
+          viewMode={viewMode}
+          onViewModeChange={onViewModeChange}
+          onRefresh={() => onRefresh(record.id)}
+        />
+      </summary>
+      {viewMode === 'chat' ? (
         <div style={{ maxHeight: 400, overflow: 'auto' }}>
           <ChatView logs={displayLogs as LogEntry[]} isRunning={isRunning} />
         </div>
-      </div>
-    );
-  }
-  return (
-    <details style={{ marginTop: 8 }} open={isRunning}>
-      <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span>查看日志 ({displayLogs.length} 条){isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}</span>
-        <ReloadOutlined style={{ fontSize: 11 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRefresh(record.id); }} />
-      </summary>
-      <div style={{
-        background: 'var(--log-bg)', color: 'var(--log-text)', padding: 8, borderRadius: 8,
-        fontFamily: 'var(--font-mono)', fontSize: 11, marginTop: 8, maxHeight: 250, overflow: 'auto',
-      }}>
-        {displayLogs.length === 0 ? (
-          <div style={{ color: 'var(--log-text-muted)' }}>等待输出...</div>
-        ) : (
-          displayLogs.map((log, idx) => (
-            <div key={idx} style={{ marginBottom: 4, display: 'flex', gap: 8 }}>
-              <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
-              <span style={{ color: logTypeColors[log.type || ''] || 'var(--log-text)' }}>
-                [{logTypeLabels[log.type || ''] || log.type}]
-              </span>
-              <span>{log.content}</span>
-            </div>
-          ))
-        )}
-      </div>
+      ) : (
+        <div style={{
+          background: 'var(--log-bg)', color: 'var(--log-text)', padding: 8, borderRadius: 8,
+          fontFamily: 'var(--font-mono)', fontSize: 11, maxHeight: 250, overflow: 'auto',
+        }}>
+          {displayLogs.length === 0 ? (
+            <div style={{ color: 'var(--log-text-muted)' }}>等待输出...</div>
+          ) : (
+            displayLogs.map((log, idx) => (
+              <div key={idx} style={{ marginBottom: 4, display: 'flex', gap: 8 }}>
+                <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
+                <span style={{ color: logTypeColors[log.type || ''] || 'var(--log-text)' }}>
+                  [{logTypeLabels[log.type || ''] || log.type}]
+                </span>
+                <span>{log.content}</span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </details>
   );
 }
