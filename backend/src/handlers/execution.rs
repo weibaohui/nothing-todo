@@ -119,6 +119,16 @@ pub async fn execute_handler(
         )));
     }
 
+    // 检查全局并发数是否已达上限
+    let max_concurrent = state.config.read().await.max_concurrent_todos;
+    let running_count = state.db.get_running_todos().await.map(|v| v.len()).unwrap_or(0);
+    if running_count >= max_concurrent as usize {
+        return Err(AppError::BadRequest(format!(
+            "Concurrent limit reached ({}/{}). Please wait for a running task to finish.",
+            running_count, max_concurrent
+        )));
+    }
+
     // Fall back to todo.prompt if message is None or whitespace-only
     let message = req
         .message
@@ -133,6 +143,7 @@ pub async fn execute_handler(
         executor_registry: state.executor_registry.clone(),
         tx: state.tx.clone(),
         task_manager: state.task_manager.clone(),
+        config: state.config.clone(),
         todo_id: req.todo_id,
         message,
         req_executor: req.executor,
@@ -303,6 +314,16 @@ pub async fn resume_execution_handler(
         )));
     }
 
+    // 检查全局并发数是否已达上限
+    let max_concurrent = state.config.read().await.max_concurrent_todos;
+    let running_count = state.db.get_running_todos().await.map(|v| v.len()).unwrap_or(0);
+    if running_count >= max_concurrent as usize {
+        return Err(AppError::BadRequest(format!(
+            "Concurrent limit reached ({}/{}). Please wait for a running task to finish.",
+            running_count, max_concurrent
+        )));
+    }
+
     let message = req
         .message
         .as_ref()
@@ -327,6 +348,7 @@ pub async fn resume_execution_handler(
         executor_registry: state.executor_registry.clone(),
         tx: state.tx.clone(),
         task_manager: state.task_manager.clone(),
+        config: state.config.clone(),
         todo_id,
         message,
         req_executor: record.executor.clone(),

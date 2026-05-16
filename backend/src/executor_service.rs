@@ -23,9 +23,6 @@ async fn kill_process_tree(child: &mut command_group::AsyncGroupChild) {
     }
 }
 
-/// 最大执行时长（秒），超过此时间将自动终止进程（执行器被挂起/卡住时释放资源）
-const MAX_EXECUTION_TIMEOUT_SECS: u64 = 1800; // 30 分钟
-
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ExecutionResult {
     pub task_id: String,
@@ -37,6 +34,7 @@ pub struct RunTodoExecutionRequest {
     pub executor_registry: Arc<ExecutorRegistry>,
     pub tx: broadcast::Sender<ExecEvent>,
     pub task_manager: Arc<TaskManager>,
+    pub config: Arc<tokio::sync::RwLock<crate::config::Config>>,
     pub todo_id: i64,
     pub message: String,
     pub req_executor: Option<String>,
@@ -53,6 +51,7 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         executor_registry,
         tx,
         task_manager,
+        config,
         todo_id,
         message,
         req_executor,
@@ -68,10 +67,16 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
     let task_id = Uuid::new_v4().to_string();
     let mut cancel_rx = task_manager.register(task_id.clone()).await;
 
-    // Get todo to read stored executor
+    // Read runtime settings from config
+    let (max_concurrent, timeout_secs) = {
+        let cfg = config.read().await;
+        (cfg.max_concurrent_todos, cfg.execution_timeout_secs)
+    };
+
+    // Get todo to read stored executor and check concurrency
     let todo = match db.get_todo(todo_id).await {
         Ok(Some(t)) => {
-            // 检查 todo 是否正在执行中，防止重复执行
+            // 检查同一个 todo 是否正在执行中，防止重复执行
             if t.status == crate::models::TodoStatus::Running {
                 tracing::warn!("Todo {} is already running, skipping execution", todo_id);
                 task_manager.remove(&task_id).await;
@@ -91,6 +96,35 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
                     record_id: None,
                 };
             }
+
+            // 检查全局并发数是否已达上限
+            let running_count = db.get_running_todos().await.map(|v| v.len()).unwrap_or(0);
+            if running_count >= max_concurrent as usize {
+                tracing::warn!(
+                    "Concurrent limit reached ({}/{}), rejecting todo {}",
+                    running_count, max_concurrent, todo_id
+                );
+                task_manager.remove(&task_id).await;
+                send_event(
+                    &tx,
+                    ExecEvent::Finished {
+                        task_id: task_id.clone(),
+                        todo_id,
+                        todo_title: t.title.clone(),
+                        executor: "".to_string(),
+                        success: false,
+                        result: Some(format!(
+                            "Concurrent limit reached ({}/{}), please wait",
+                            running_count, max_concurrent
+                        )),
+                    },
+                );
+                return ExecutionResult {
+                    task_id,
+                    record_id: None,
+                };
+            }
+
             Some(t)
         }
         Ok(None) => None,
@@ -262,6 +296,7 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
     let task_manager_spawn = task_manager.clone();
 
     let todo_title = todo.as_ref().map(|t| t.title.clone()).unwrap_or_default();
+    let execution_timeout_secs = timeout_secs;
 
     // 注册任务信息，用于 WebSocket 同步
     task_manager
@@ -696,11 +731,11 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
                 task_manager_spawn.remove(&task_id).await;
                 return;
             }
-            _ = tokio::time::sleep(std::time::Duration::from_secs(MAX_EXECUTION_TIMEOUT_SECS)) => {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(execution_timeout_secs)) => {
                 // Timeout: 自动终止执行时间过长的进程，释放资源
                 tracing::warn!(
                     "Execution timeout reached ({}s) for todo {} (task {}), killing process",
-                    MAX_EXECUTION_TIMEOUT_SECS, todo_id, task_id
+                    execution_timeout_secs, todo_id, task_id
                 );
                 kill_process_tree(&mut child).await;
                 flush_timer.abort();
@@ -731,7 +766,8 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
 
                 let entry = ParsedLogEntry::error("Execution timeout - process was automatically terminated");
                 send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
-                send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string(), success: false, result: Some("Execution timed out after 30 minutes".to_string()) });
+                let timeout_mins = execution_timeout_secs / 60;
+                send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string(), success: false, result: Some(format!("Execution timed out after {} minutes", timeout_mins)) });
                 task_manager_spawn.remove(&task_id).await;
                 return;
             }

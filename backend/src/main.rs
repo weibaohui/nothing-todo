@@ -212,13 +212,14 @@ async fn run_server(cli_port: Option<u16>) {
 
     let (tx, _rx) = broadcast::channel(100);
     let task_manager = Arc::new(TaskManager::new());
+    let config = Arc::new(tokio::sync::RwLock::new(cfg.clone()));
 
     let scheduler = Arc::new({
         let sched = TodoScheduler::new().await.unwrap_or_else(|e| {
             tracing::error!("Failed to create scheduler: {}. Exiting.", e);
             std::process::exit(1);
         });
-        if let Err(e) = sched.load_from_db(db.clone(), executor_registry.clone(), tx.clone(), task_manager.clone()).await {
+        if let Err(e) = sched.load_from_db(db.clone(), executor_registry.clone(), tx.clone(), task_manager.clone(), config.clone()).await {
             tracing::warn!("Failed to load scheduled tasks: {}", e);
         }
         if let Err(e) = sched.start().await {
@@ -245,8 +246,7 @@ async fn run_server(cli_port: Option<u16>) {
         sched
     });
 
-    let config = Arc::new(tokio::sync::RwLock::new(cfg.clone()));
-    let app = handlers::create_app(db, executor_registry, tx, scheduler, task_manager, config);
+    let app = handlers::create_app(db, executor_registry, tx, scheduler, task_manager, config.clone());
 
     let port = cli_port.unwrap_or(cfg.port);
 

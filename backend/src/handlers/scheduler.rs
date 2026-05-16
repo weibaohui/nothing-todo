@@ -22,6 +22,7 @@ pub async fn update_scheduler(
                     id,
                     config.clone(),
                     state.task_manager.clone(),
+                    state.config.clone(),
                 )
                 .await
             {
