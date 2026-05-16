@@ -47,9 +47,9 @@ pub struct Config {
     pub default_response_todo_id: Option<i64>,
     /// 历史消息最大处理年龄（秒），超过此时间的历史消息拉取后标记跳过不处理（默认 600 = 10 分钟）
     pub history_message_max_age_secs: u64,
-    /// 最大并发执行数（默认 1，即同一时间只能运行一个 Todo）
+    /// 最大并发执行数（默认 3）
     pub max_concurrent_todos: u32,
-    /// 执行超时时间（秒，默认 1800 = 30 分钟），超过此时间将自动终止进程
+    /// 执行超时时间（秒，默认 3600 = 60 分钟），超过此时间将自动终止进程
     pub execution_timeout_secs: u64,
 }
 
