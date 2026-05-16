@@ -249,7 +249,20 @@ pub async fn force_fail_execution_handler(
 
     // Try to cancel in-memory task if it exists
     if let Some(task_id) = &record.task_id {
-        state.task_manager.cancel(task_id).await;
+        let cancelled = state.task_manager.cancel(task_id).await;
+        if !cancelled {
+            // 任务已在 task_manager 中不存在，说明 spawned task 已自行完成清理
+            // 此时不应再写入 DB，避免与 spawned task 的最终状态更新产生竞态
+            tracing::warn!(
+                "Task {} was not found in task manager for force-fail (may have already finished its cleanup), \
+                 skipping DB update to avoid race condition",
+                task_id
+            );
+            return Ok(ApiResponse::ok(()));
+        }
+        // 取消成功时，等待一小段时间确保 spawn 的 task 收到取消信号并进入其取消处理分支
+        // 从而避免与 force_fail_execution_record 同时写入造成竞态
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
 
     state

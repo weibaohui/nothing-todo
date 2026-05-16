@@ -11,6 +11,13 @@ use crate::handlers::ExecEvent;
 use crate::models::{ExecutorType, ParsedLogEntry};
 use crate::task_manager::TaskManager;
 
+use std::sync::OnceLock;
+
+fn concurrency_gate() -> &'static tokio::sync::Mutex<()> {
+    static GATE: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    GATE.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
 fn send_event(tx: &broadcast::Sender<ExecEvent>, event: ExecEvent) {
     let _ = tx.send(event);
 }
@@ -72,6 +79,10 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         let cfg = config.read().await;
         (cfg.max_concurrent_todos, cfg.execution_timeout_secs)
     };
+
+    // Global concurrency gate: 确保并发数检查和 DB 状态写入是原子的，
+    // 防止 TOCTOU 竞态导致超额执行不同的 todo
+    let _concurrency_guard = concurrency_gate().lock().await;
 
     // Get todo to read stored executor and check concurrency
     let todo = match db.get_todo(todo_id).await {
@@ -288,6 +299,9 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
             record_id: Some(record_id),
         };
     }
+
+    // 释放并发门控 — 从此刻起 DB 状态已一致，后续请求会看到 Running 状态
+    drop(_concurrency_guard);
 
     let task_id_return = task_id.clone();
     let db_clone = db.clone();

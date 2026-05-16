@@ -156,6 +156,35 @@ pub async fn update_todo(
         .await
         .map_err(AppError::from)?;
 
+    // 同步更新 scheduler 中的定时任务（如果 scheduler_enabled 或 scheduler_config 发生了变化）
+    if req.scheduler_enabled.is_some() || req.scheduler_config.is_some() {
+        let final_enabled = req.scheduler_enabled.unwrap_or(current.scheduler_enabled);
+        let final_config = scheduler_config.clone()
+            .or_else(|| current.scheduler_config.clone())
+            .filter(|s| !s.is_empty());
+        if final_enabled {
+            if let Some(cfg) = &final_config {
+                if let Err(e) = state
+                    .scheduler
+                    .upsert_task(
+                        state.db.clone(),
+                        state.executor_registry.clone(),
+                        state.tx.clone(),
+                        id,
+                        cfg.clone(),
+                        state.task_manager.clone(),
+                        state.config.clone(),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to update scheduler task for todo {}: {}", id, e);
+                }
+            }
+        } else {
+            state.scheduler.remove_task_for_todo(id).await;
+        }
+    }
+
     let todo = state.require_todo(id).await?;
     Ok(ApiResponse::ok(todo))
 }
