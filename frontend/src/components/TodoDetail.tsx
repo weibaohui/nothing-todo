@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination, Segmented, Modal, Input, Tooltip } from 'antd';
-import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined, DownOutlined, UpOutlined, UnorderedListOutlined, MessageOutlined, FileTextOutlined, LinkOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined, DownOutlined, UpOutlined, UnorderedListOutlined, MessageOutlined, FileTextOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import { PieChart } from './PieChart';
 import { TodoSettingsDrawer } from './TodoSettingsDrawer';
@@ -377,9 +377,54 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
   useEffect(() => { void tick; }, [tick]);
 
   const records = selectedTodoId ? executionRecords[selectedTodoId] || [] : [];
-  const selectedHistoryRecord = selectedHistoryRecordId
+
+  // 懒加载：点击记录时才获取完整详情（含 logs）
+  const [selectedHistoryRecordDetail, setSelectedHistoryRecordDetail] = useState<ExecutionRecord | null>(null);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+
+  // 当选择的记录变化时，懒加载详情
+  useEffect(() => {
+    if (!selectedHistoryRecordId) {
+      setSelectedHistoryRecordDetail(null);
+      return;
+    }
+    // 先从 records 中找到基本记录
+    const basicRecord = records.find(r => r.id === selectedHistoryRecordId);
+
+    // 如果记录已经有 logs 字段且非空，直接使用
+    if (basicRecord?.logs && basicRecord.logs !== '[]') {
+      setSelectedHistoryRecordDetail(basicRecord);
+      setIsLoadingDetail(false);
+      return;
+    }
+
+    // 否则懒加载完整记录（即使 basicRecord 不存在也触发）
+    setIsLoadingDetail(true);
+    db.getExecutionRecord(selectedHistoryRecordId)
+      .then(detail => {
+        setSelectedHistoryRecordDetail(detail);
+        // 更新到全局状态
+        if (selectedTodoId) {
+          dispatch({
+            type: 'UPDATE_EXECUTION_RECORD',
+            payload: { todoId: selectedTodoId, record: detail }
+          });
+        }
+      })
+      .catch(() => {
+        if (basicRecord) {
+          setSelectedHistoryRecordDetail(basicRecord);
+        }
+      })
+      .finally(() => {
+        setIsLoadingDetail(false);
+      });
+  }, [selectedHistoryRecordId, records, selectedTodoId, dispatch]);
+
+  // selectedHistoryRecord 优先使用懒加载的详情，否则用列表中的基本记录
+  const selectedHistoryRecord = selectedHistoryRecordDetail || (selectedHistoryRecordId
     ? records.find(r => r.id === selectedHistoryRecordId) || null
-    : null;
+    : null);
 
   // Find the running task that matches a specific execution record by task_id
   const getRunningTaskForRecord = (record: ExecutionRecord) => {
@@ -404,28 +449,10 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
     try {
       const pageData = await db.getExecutionRecords(selectedTodo.id, page, limit);
 
-      // Fetch complete session chains to avoid splitting sessions across pages
-      const sessionIds = [...new Set(
-        pageData.records
-          .filter(r => r.session_id)
-          .map(r => r.session_id!)
-      )];
-
-      let completeRecords = pageData.records;
-      if (sessionIds.length > 0) {
-        const sessionRecordsArrays = await Promise.all(
-          sessionIds.map(sid => db.getExecutionRecordsBySession(sid))
-        );
-        const sessionRecords = sessionRecordsArrays.flat();
-        // Merge: page records + additional session records not already in page
-        const pageIds = new Set(pageData.records.map(r => r.id));
-        const additional = sessionRecords.filter(r => !pageIds.has(r.id));
-        completeRecords = [...pageData.records, ...additional];
-      }
-
+      // 只加载当前页的记录，不再预加载会话链（会话链在点击查看详情时单独加载）
       dispatch({
         type: 'SET_EXECUTION_RECORDS',
-        payload: { todoId: selectedTodo.id, records: completeRecords }
+        payload: { todoId: selectedTodo.id, records: pageData.records }
       });
       setHistoryPage(pageData.page);
       setHistoryLimit(pageData.limit);
@@ -912,7 +939,12 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
             <div style={{ width: 1, background: 'var(--color-border-light)', flexShrink: 0 }} />
             {/* Right: Record Detail */}
             <div className="history-detail-column">
-              {selectedHistoryRecord ? (() => {
+              {isLoadingDetail ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8, color: 'var(--color-text-secondary)' }}>
+                  <LoadingOutlined style={{ fontSize: 20, color: 'var(--color-primary)' }} />
+                  <span>加载执行详情...</span>
+                </div>
+              ) : selectedHistoryRecord ? (() => {
                 const record = selectedHistoryRecord;
                 const isRunning = record.status === 'running';
                 const runningTask = isRunning ? getRunningTaskForRecord(record) : null;
