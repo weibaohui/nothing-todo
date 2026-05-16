@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutorSkills, SkillComparison, PaginatedInvocations, FeishuHistoryMessagesPage, FeishuHistoryChat, FeishuMessageStats, TodoTemplate, CustomTemplateStatus } from '../types';
+import type { Todo, Tag, ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutionLogsPage, ExecutorSkills, SkillComparison, PaginatedInvocations, FeishuHistoryMessagesPage, FeishuHistoryChat, FeishuMessageStats, TodoTemplate, CustomTemplateStatus } from '../types';
 
 interface ApiResp<T> {
   code: number;
@@ -191,6 +191,13 @@ export async function getExecutionRecords(todoId: number, page?: number, limit?:
 
 export async function getExecutionRecord(recordId: number): Promise<ExecutionRecord> {
   return unwrap(await api.get<ApiResp<ExecutionRecord>>(`/xyz/execution-records/${recordId}`));
+}
+
+export async function getExecutionLogs(recordId: number, page?: number, perPage?: number): Promise<ExecutionLogsPage> {
+  const params: Record<string, unknown> = {};
+  if (page !== undefined) params.page = page;
+  if (perPage !== undefined) params.per_page = perPage;
+  return unwrap(await api.get<ApiResp<ExecutionLogsPage>>(`/xyz/execution-records/${recordId}/logs`, { params }));
 }
 
 export async function getExecutionRecordsBySession(sessionId: string): Promise<ExecutionRecord[]> {

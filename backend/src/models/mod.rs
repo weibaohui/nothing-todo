@@ -167,7 +167,6 @@ pub struct ExecutionRecord {
     pub command: String,
     pub stdout: String,
     pub stderr: String,
-    pub logs: String,
     pub result: Option<String>,
     pub started_at: String,
     pub finished_at: Option<String>,
@@ -340,6 +339,14 @@ pub struct ExecutionRecordsPage {
     pub total: i64,
     pub page: i64,
     pub limit: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionLogsPage {
+    pub logs: Vec<ParsedLogEntry>,
+    pub total: i64,
+    pub page: i64,
+    pub per_page: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

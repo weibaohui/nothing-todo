@@ -776,30 +776,18 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
             let _ = h.await;
         }
 
-        // 从数据库读取完整的日志集（因为定期 flush 会 drain 内存中的 vec）
+        // 从 execution_logs 表读取已刷入的日志，与内存中剩余的日志合并形成完整快照
         let remaining = std::mem::take(&mut *logs_for_result.lock().await);
-        let all_logs_snapshot = match db_clone.get_execution_record(record_id).await {
-            Ok(Some(record)) if !record.logs.is_empty() && record.logs != "[]" => {
-                let mut base: Vec<ParsedLogEntry> = match serde_json::from_str(&record.logs) {
-                    Ok(b) => b,
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to parse execution logs JSON, record_id={}: {}",
-                            record_id,
-                            e
-                        );
-                        Vec::new()
-                    }
-                };
-                base.extend(remaining);
-                base
-            }
-            Ok(_) => remaining,
-            Err(e) => {
-                tracing::error!("Failed to fetch execution record {}: {}", record_id, e);
-                remaining
-            }
-        };
+        let remaining_json = serde_json::to_string(&remaining).unwrap_or_else(|e| {
+            tracing::error!("Failed to serialize remaining logs: {}", e);
+            "[]".to_string()
+        });
+        let flushed_logs = db_clone
+            .get_all_execution_logs(record_id)
+            .await
+            .unwrap_or_default();
+        let mut all_logs_snapshot = flushed_logs;
+        all_logs_snapshot.extend(remaining);
         let result_str = executor_spawn
             .get_final_result(&all_logs_snapshot)
             .unwrap_or_default();
@@ -837,10 +825,6 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         } else {
             crate::models::ExecutionStatus::Failed.as_str()
         };
-        let logs_json = serde_json::to_string(&all_logs_snapshot).unwrap_or_else(|e| {
-            tracing::error!("Failed to serialize logs: {}", e);
-            "[]".to_string()
-        });
         let mut usage = executor_spawn.get_usage(&all_logs_snapshot);
         let model = executor_spawn.get_model();
 
@@ -868,7 +852,7 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
             .update_execution_record(
                 record_id,
                 final_status,
-                &logs_json,
+                &remaining_json,
                 &result_str,
                 usage.as_ref(),
                 model.as_deref(),
