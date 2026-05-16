@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use crate::models::{ExecutorType, ParsedLogEntry, ExecutionUsage, TodoItem};
 
@@ -239,25 +240,25 @@ impl ExecutorRegistry {
         }
     }
 
-    pub fn register<E: CodeExecutor + 'static>(&self, executor: E) {
+    pub async fn register<E: CodeExecutor + 'static>(&self, executor: E) {
         let executor_type = executor.executor_type();
-        self.executors.write().unwrap().insert(executor_type, Arc::new(executor));
+        self.executors.write().await.insert(executor_type, Arc::new(executor));
     }
 
-    pub fn get(&self, executor_type: ExecutorType) -> Option<Arc<dyn CodeExecutor>> {
-        self.executors.read().unwrap().get(&executor_type).cloned()
+    pub async fn get(&self, executor_type: ExecutorType) -> Option<Arc<dyn CodeExecutor>> {
+        self.executors.read().await.get(&executor_type).cloned()
     }
 
-    pub fn get_default(&self) -> Option<Arc<dyn CodeExecutor>> {
-        self.get(ExecutorType::Claudecode)
+    pub async fn get_default(&self) -> Option<Arc<dyn CodeExecutor>> {
+        self.get(ExecutorType::Claudecode).await
     }
 
-    pub fn list_executors(&self) -> Vec<ExecutorType> {
-        self.executors.read().unwrap().keys().copied().collect()
+    pub async fn list_executors(&self) -> Vec<ExecutorType> {
+        self.executors.read().await.keys().copied().collect()
     }
 
-    pub fn unregister(&self, executor_type: ExecutorType) {
-        self.executors.write().unwrap().remove(&executor_type);
+    pub async fn unregister(&self, executor_type: ExecutorType) {
+        self.executors.write().await.remove(&executor_type);
     }
 
     /// Create an executor instance by name and path.
@@ -281,7 +282,7 @@ impl ExecutorRegistry {
     pub fn register_by_name(&self, name: &str, path: &str) -> bool {
         if let Some(executor) = Self::create_executor(name, path) {
             let executor_type = executor.executor_type();
-            self.executors.write().unwrap().insert(executor_type, executor);
+            self.executors.blocking_write().insert(executor_type, executor);
             true
         } else {
             false
@@ -377,38 +378,38 @@ mod tests {
         assert_eq!(strip_think_tags("<think>a</think><think>b</think>c"), "c");
     }
 
-    #[test]
-    fn test_executor_registry_new_empty() {
+    #[tokio::test]
+    async fn test_executor_registry_new_empty() {
         let reg = ExecutorRegistry::new();
-        assert!(reg.list_executors().is_empty());
+        assert!(reg.list_executors().await.is_empty());
     }
 
-    #[test]
-    fn test_executor_registry_register_and_get() {
+    #[tokio::test]
+    async fn test_executor_registry_register_and_get() {
         let reg = ExecutorRegistry::new();
-        reg.register(joinai::JoinaiExecutor::new("joinai".to_string()));
-        assert!(reg.get(ExecutorType::Joinai).is_some());
+        reg.register(joinai::JoinaiExecutor::new("joinai".to_string())).await;
+        assert!(reg.get(ExecutorType::Joinai).await.is_some());
     }
 
-    #[test]
-    fn test_executor_registry_get_default() {
+    #[tokio::test]
+    async fn test_executor_registry_get_default() {
         let reg = ExecutorRegistry::new();
-        reg.register(claude_code::ClaudeCodeExecutor::new("claude".to_string()));
-        assert!(reg.get_default().is_some());
+        reg.register(claude_code::ClaudeCodeExecutor::new("claude".to_string())).await;
+        assert!(reg.get_default().await.is_some());
     }
 
-    #[test]
-    fn test_executor_registry_get_default_when_empty() {
+    #[tokio::test]
+    async fn test_executor_registry_get_default_when_empty() {
         let reg = ExecutorRegistry::new();
-        assert!(reg.get_default().is_none());
+        assert!(reg.get_default().await.is_none());
     }
 
-    #[test]
-    fn test_executor_registry_list_executors() {
+    #[tokio::test]
+    async fn test_executor_registry_list_executors() {
         let reg = ExecutorRegistry::new();
-        reg.register(joinai::JoinaiExecutor::new("joinai".to_string()));
-        reg.register(claude_code::ClaudeCodeExecutor::new("claude".to_string()));
-        let list = reg.list_executors();
+        reg.register(joinai::JoinaiExecutor::new("joinai".to_string())).await;
+        reg.register(claude_code::ClaudeCodeExecutor::new("claude".to_string())).await;
+        let list = reg.list_executors().await;
         assert_eq!(list.len(), 2);
         assert!(list.contains(&ExecutorType::Joinai));
         assert!(list.contains(&ExecutorType::Claudecode));

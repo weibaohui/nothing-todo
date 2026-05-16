@@ -250,7 +250,7 @@ pub async fn resume_execution_handler(
 
     let executor = state
         .executor_registry
-        .get(executor_type)
+        .get(executor_type).await
         .ok_or_else(|| AppError::Internal("Executor not found in registry".to_string()))?;
 
     if !executor.supports_resume() {

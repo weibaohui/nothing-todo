@@ -32,7 +32,7 @@ pub async fn update_executor(
     if ec.enabled {
         state.executor_registry.register_by_name(&ec.name, &ec.path);
     } else if let Some(et) = crate::adapters::parse_executor_type(&ec.name) {
-        state.executor_registry.unregister(et);
+        state.executor_registry.unregister(et).await;
     }
 
     Ok(ApiResponse::ok(ec))

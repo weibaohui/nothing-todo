@@ -453,43 +453,43 @@ mod executor_registry_tests {
     use ntd::adapters::claude_code::ClaudeCodeExecutor;
     use ntd::models::ExecutorType;
 
-    #[test]
-    fn test_register_and_get() {
+    #[tokio::test]
+    async fn test_register_and_get() {
         let registry = ExecutorRegistry::new();
-        registry.register(KimiExecutor::new("kimi".to_string()));
-        registry.register(ClaudeCodeExecutor::new("claude".to_string()));
+        registry.register(KimiExecutor::new("kimi".to_string())).await;
+        registry.register(ClaudeCodeExecutor::new("claude".to_string())).await;
 
-        let kimi = registry.get(ExecutorType::Kimi);
+        let kimi = registry.get(ExecutorType::Kimi).await;
         assert!(kimi.is_some());
         assert_eq!(kimi.unwrap().executor_type(), ExecutorType::Kimi);
     }
 
-    #[test]
-    fn test_get_default() {
+    #[tokio::test]
+    async fn test_get_default() {
         let registry = ExecutorRegistry::new();
-        registry.register(KimiExecutor::new("kimi".to_string()));
-        registry.register(ClaudeCodeExecutor::new("claude".to_string()));
+        registry.register(KimiExecutor::new("kimi".to_string())).await;
+        registry.register(ClaudeCodeExecutor::new("claude".to_string())).await;
 
         // Default is Claudecode
-        let default = registry.get_default();
+        let default = registry.get_default().await;
         assert!(default.is_some());
         assert_eq!(default.unwrap().executor_type(), ExecutorType::Claudecode);
     }
 
-    #[test]
-    fn test_get_nonexistent() {
+    #[tokio::test]
+    async fn test_get_nonexistent() {
         let registry = ExecutorRegistry::new();
-        let result = registry.get(ExecutorType::Kimi);
+        let result = registry.get(ExecutorType::Kimi).await;
         assert!(result.is_none());
     }
 
-    #[test]
-    fn test_list_executors() {
+    #[tokio::test]
+    async fn test_list_executors() {
         let registry = ExecutorRegistry::new();
-        registry.register(KimiExecutor::new("kimi".to_string()));
-        registry.register(ClaudeCodeExecutor::new("claude".to_string()));
+        registry.register(KimiExecutor::new("kimi".to_string())).await;
+        registry.register(ClaudeCodeExecutor::new("claude".to_string())).await;
 
-        let executors = registry.list_executors();
+        let executors = registry.list_executors().await;
         assert!(executors.contains(&ExecutorType::Kimi));
         assert!(executors.contains(&ExecutorType::Claudecode));
     }
