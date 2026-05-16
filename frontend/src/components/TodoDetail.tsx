@@ -1458,7 +1458,15 @@ function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, o
           </div>
         );
       })()}
-      {renderNarrowLogs(record, isRunning, displayLogs, liveLogs, viewMode, onRefresh, onViewModeChange)}
+      <NarrowLogView
+        record={record}
+        isRunning={isRunning}
+        displayLogs={displayLogs}
+        liveLogs={liveLogs}
+        viewMode={viewMode}
+        onRefresh={onRefresh}
+        onViewModeChange={onViewModeChange}
+      />
     </div>
   );
 }
@@ -1673,7 +1681,15 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
             </div>
           );
         })()}
-        {renderNarrowLogs(mainRecord, mainRecord.status === 'running', mainDisplayLogs, null, viewMode, onRefresh, onViewModeChange)}
+        <NarrowLogView
+          record={mainRecord}
+          isRunning={mainRecord.status === 'running'}
+          displayLogs={mainDisplayLogs}
+          liveLogs={null}
+          viewMode={viewMode}
+          onRefresh={onRefresh}
+          onViewModeChange={onViewModeChange}
+        />
       </div>
 
       {/* Indented continuation entries */}
@@ -1797,8 +1813,16 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
   );
 }
 
-/** Shared log rendering for narrow mode cards */
-function renderNarrowLogs(record: ExecutionRecord, isRunning: boolean, displayLogs: LogEntry[], liveLogs: LogEntry[] | null, viewMode: 'log' | 'chat', onRefresh: (id: number) => Promise<void>, onViewModeChange: (mode: 'log' | 'chat') => void) {
+/** Shared log rendering for narrow mode cards - as a proper component */
+function NarrowLogView({ record, isRunning, displayLogs, liveLogs, viewMode, onRefresh, onViewModeChange }: {
+  record: ExecutionRecord;
+  isRunning: boolean;
+  displayLogs: LogEntry[];
+  liveLogs: LogEntry[] | null;
+  viewMode: 'log' | 'chat';
+  onRefresh: (id: number) => Promise<void>;
+  onViewModeChange: (mode: 'log' | 'chat') => void;
+}) {
   if (!isRunning && displayLogs.length === 0) return null;
   const defaultOpen = isRunning || viewMode === 'chat';
   const [isExpanded, setIsExpanded] = useState(defaultOpen);
