@@ -1,6 +1,6 @@
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter,
-    QueryOrder, Statement,
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait,
+    QueryFilter, QueryOrder, Statement,
 };
 
 use crate::db::entity::tags;
@@ -306,6 +306,40 @@ impl Database {
             ..Default::default()
         };
         self.exec_update(am).await
+    }
+
+    /// 原子性地尝试启动一个 todo 的执行：
+    /// 只有当该 todo 当前没有在运行（status != 'running'）且全局并发数未达上限时才更新为 running 状态。
+    /// `max_concurrent`：全局最大并发执行数（0 表示不限制）。
+    /// 返回值表示是否成功获取了执行权（true = 获取成功，false = 已在运行或已达并发上限）。
+    pub async fn try_start_todo_execution(
+        &self,
+        todo_id: i64,
+        task_id: &str,
+        max_concurrent: u32,
+    ) -> Result<bool, sea_orm::DbErr> {
+        let now = crate::models::utc_timestamp();
+        let safe_task_id = task_id.replace('\'', "''");
+        let safe_now = now.replace('\'', "''");
+        // 原子性检查：同一 todo 未运行 + 全局并发数未达上限
+        let concurrent_check = if max_concurrent > 0 {
+            format!(
+                "AND (SELECT COUNT(*) FROM todos WHERE status = 'running' AND deleted_at IS NULL) < {}",
+                max_concurrent
+            )
+        } else {
+            String::new()
+        };
+        let sql = format!(
+            "UPDATE todos SET status = 'running', task_id = '{}', updated_at = '{}' \
+             WHERE id = {} AND (status IS NULL OR status != 'running') AND deleted_at IS NULL {}",
+            safe_task_id, safe_now, todo_id, concurrent_check,
+        );
+        let rows_affected = self.conn
+            .execute(Statement::from_string(DbBackend::Sqlite, sql))
+            .await?
+            .rows_affected();
+        Ok(rows_affected > 0)
     }
 
     pub async fn start_todo_execution(

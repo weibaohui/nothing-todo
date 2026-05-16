@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use axum::extract::State;
 
 use crate::config::Config;
@@ -22,6 +24,19 @@ pub async fn update_config(
         cfg.host = host;
     }
     if let Some(db_path) = req.db_path {
+        // 路径穿越防护：验证数据库路径位于安全目录 ~/.ntd/ 内
+        let normalized = Config::normalize_single_path(&db_path);
+        let canonicalized = std::fs::canonicalize(&PathBuf::from(&normalized))
+            .map_err(|_| AppError::BadRequest("Invalid database path: cannot resolve".to_string()))?;
+        let safe_dir = dirs::home_dir()
+            .ok_or_else(|| AppError::Internal("Cannot determine home directory".to_string()))?
+            .join(".ntd");
+        let safe_dir_canonical = std::fs::canonicalize(&safe_dir).unwrap_or(safe_dir);
+        if !canonicalized.starts_with(&safe_dir_canonical) {
+            return Err(AppError::BadRequest(
+                "Database path must be within ~/.ntd/ directory".to_string(),
+            ));
+        }
         cfg.db_path = db_path;
     }
     if let Some(log_level) = req.log_level {

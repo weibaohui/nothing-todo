@@ -174,7 +174,7 @@ impl Config {
         self.executors.paths = normalized;
     }
 
-    fn normalize_single_path(path: &str) -> String {
+    pub(crate) fn normalize_single_path(path: &str) -> String {
         if path.starts_with('~') {
             if let Some(home) = dirs::home_dir() {
                 let relative = path.trim_start_matches('~').trim_start_matches(std::path::MAIN_SEPARATOR);

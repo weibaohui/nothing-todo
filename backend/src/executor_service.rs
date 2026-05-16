@@ -73,10 +73,10 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         (cfg.max_concurrent_todos, cfg.execution_timeout_secs)
     };
 
-    // Get todo to read stored executor and check concurrency
+    // Get todo to read stored executor
     let todo = match db.get_todo(todo_id).await {
         Ok(Some(t)) => {
-            // 检查同一个 todo 是否正在执行中，防止重复执行
+            // 检查同一个 todo 是否正在执行中，防止重复执行（快速路径检查，最终原子保证在 try_start_todo_execution）
             if t.status == crate::models::TodoStatus::Running {
                 tracing::warn!("Todo {} is already running, skipping execution", todo_id);
                 task_manager.remove(&task_id).await;
@@ -89,34 +89,6 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
                         executor: "".to_string(),
                         success: false,
                         result: Some(format!("Todo {} is already running", todo_id)),
-                    },
-                );
-                return ExecutionResult {
-                    task_id,
-                    record_id: None,
-                };
-            }
-
-            // 检查全局并发数是否已达上限
-            let running_count = db.get_running_todos().await.map(|v| v.len()).unwrap_or(0);
-            if running_count >= max_concurrent as usize {
-                tracing::warn!(
-                    "Concurrent limit reached ({}/{}), rejecting todo {}",
-                    running_count, max_concurrent, todo_id
-                );
-                task_manager.remove(&task_id).await;
-                send_event(
-                    &tx,
-                    ExecEvent::Finished {
-                        task_id: task_id.clone(),
-                        todo_id,
-                        todo_title: t.title.clone(),
-                        executor: "".to_string(),
-                        success: false,
-                        result: Some(format!(
-                            "Concurrent limit reached ({}/{}), please wait",
-                            running_count, max_concurrent
-                        )),
                     },
                 );
                 return ExecutionResult {
@@ -249,10 +221,11 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         }
     };
 
-    // Update todo status to running and associate with task
-    if let Err(e) = db.start_todo_execution(todo_id, &task_id).await {
-        tracing::error!("Failed to start todo execution: {}", e);
-        let entry = ParsedLogEntry::error(format!("Failed to start todo execution: {}", e));
+    // Atomically update todo status to running (checks todo not already running + concurrency limit)
+    if !db.try_start_todo_execution(todo_id, &task_id, max_concurrent).await.unwrap_or(false) {
+        let err_msg = "Todo is already running or concurrent limit reached";
+        tracing::error!("Failed to start todo execution: {}", err_msg);
+        let entry = ParsedLogEntry::error(format!("Failed to start todo execution: {}", err_msg));
         send_event(
             &tx,
             ExecEvent::Output {
@@ -277,7 +250,7 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
                 record_id,
                 crate::models::ExecutionStatus::Failed.as_str(),
                 "[]",
-                &format!("Failed to start todo execution: {}", e),
+                &format!("Failed to start todo execution: {}", err_msg),
                 None,
                 None,
             )

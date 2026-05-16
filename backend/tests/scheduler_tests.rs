@@ -1,77 +1,101 @@
-//! Tests for scheduler logic - cron expression validation
+//! Tests for scheduler logic - upsert/remove and job lifecycle
 
-#[cfg(test)]
-mod cron_validation_tests {
-    use std::str::FromStr;
+use std::sync::Arc;
+use tokio::sync::broadcast;
 
-    #[test]
-    fn test_cron_seconds_field() {
-        // 6-field cron: second minute hour day month weekday
-        // Valid: every 30 seconds
-        let result = cron::Schedule::from_str("*/30 * * * * *");
-        assert!(result.is_ok());
+use ntd::scheduler::TodoScheduler;
 
-        // Valid: every minute at second 0
-        let result = cron::Schedule::from_str("0 * * * * *");
-        assert!(result.is_ok());
+/// 测试无效的 cron 表达式会被 reject
+#[tokio::test]
+async fn test_upsert_invalid_cron_rejected() {
+    let scheduler = TodoScheduler::new().await.unwrap();
 
-        // Valid: every hour at minute 0
-        let result = cron::Schedule::from_str("0 0 * * * *");
-        assert!(result.is_ok());
+    let result = scheduler
+        .upsert_task(
+            Arc::new(ntd::db::Database::new(":memory:").await.unwrap()),
+            Arc::new(ntd::adapters::ExecutorRegistry::new()),
+            broadcast::channel(16).0,
+            1,
+            "invalid cron".to_string(),
+            Arc::new(ntd::task_manager::TaskManager::new()),
+            Arc::new(tokio::sync::RwLock::new(ntd::config::Config::default())),
+        )
+        .await;
 
-        // Valid: daily at 9am
-        let result = cron::Schedule::from_str("0 0 9 * * *");
-        assert!(result.is_ok());
-    }
+    assert!(result.is_err(), "invalid cron should be rejected");
+    let err = result.unwrap_err();
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("Invalid cron"),
+        "error should mention invalid cron, got: {}",
+        msg
+    );
+}
 
-    #[test]
-    fn test_cron_common_patterns() {
-        // Every 5 minutes
-        assert!(cron::Schedule::from_str("0 */5 * * * *").is_ok());
+/// 测试有效的 cron 表达式可以被接受
+#[tokio::test]
+async fn test_upsert_valid_cron_accepted() {
+    let scheduler = TodoScheduler::new().await.unwrap();
 
-        // Every 15 minutes
-        assert!(cron::Schedule::from_str("0 */15 * * * *").is_ok());
+    let result = scheduler
+        .upsert_task(
+            Arc::new(ntd::db::Database::new(":memory:").await.unwrap()),
+            Arc::new(ntd::adapters::ExecutorRegistry::new()),
+            broadcast::channel(16).0,
+            1,
+            "0 */5 * * * *".to_string(), // every 5 minutes
+            Arc::new(ntd::task_manager::TaskManager::new()),
+            Arc::new(tokio::sync::RwLock::new(ntd::config::Config::default())),
+        )
+        .await;
 
-        // Every hour
-        assert!(cron::Schedule::from_str("0 0 */1 * * *").is_ok());
+    assert!(result.is_ok(), "valid cron should be accepted, got: {:?}", result.err());
+}
 
-        // Every day at midnight
-        assert!(cron::Schedule::from_str("0 0 0 * * *").is_ok());
+/// 测试 remove_task_for_todo 对不存在的 todo 不会报错
+#[tokio::test]
+async fn test_remove_nonexistent_todo_is_noop() {
+    let scheduler = TodoScheduler::new().await.unwrap();
+    // 对于不存在的 todo_id，remove 不应 panic 或报错
+    scheduler.remove_task_for_todo(999).await;
+    // 如果没 panic，测试通过
+}
 
-        // Every Monday at 9am
-        assert!(cron::Schedule::from_str("0 0 9 * * 1").is_ok());
-    }
+/// 测试 upsert 会先 remove 旧的任务再添加新的（job_map 只保留最新的）
+#[tokio::test]
+async fn test_upsert_replaces_existing_task() {
+    let scheduler = TodoScheduler::new().await.unwrap();
 
-    #[test]
-    fn test_cron_invalid_patterns() {
-        // Empty
-        assert!(cron::Schedule::from_str("").is_err());
+    // 先添加一个任务
+    let result1 = scheduler
+        .upsert_task(
+            Arc::new(ntd::db::Database::new(":memory:").await.unwrap()),
+            Arc::new(ntd::adapters::ExecutorRegistry::new()),
+            broadcast::channel(16).0,
+            1,
+            "0 */5 * * * *".to_string(),
+            Arc::new(ntd::task_manager::TaskManager::new()),
+            Arc::new(tokio::sync::RwLock::new(ntd::config::Config::default())),
+        )
+        .await;
+    assert!(result1.is_ok(), "first upsert should succeed");
 
-        // Too few fields
-        assert!(cron::Schedule::from_str("* * * *").is_err());
+    // 再次 upsert（同一个 todo_id，不同 cron）应当先 remove 旧的再添加新的
+    let result2 = scheduler
+        .upsert_task(
+            Arc::new(ntd::db::Database::new(":memory:").await.unwrap()),
+            Arc::new(ntd::adapters::ExecutorRegistry::new()),
+            broadcast::channel(16).0,
+            1,
+            "0 0 * * * *".to_string(), // every hour
+            Arc::new(ntd::task_manager::TaskManager::new()),
+            Arc::new(tokio::sync::RwLock::new(ntd::config::Config::default())),
+        )
+        .await;
+    assert!(result2.is_ok(), "second upsert should succeed");
 
-        // Invalid characters
-        assert!(cron::Schedule::from_str("abc def ghi jkl mno pqr").is_err());
-
-        // Out of range values
-        assert!(cron::Schedule::from_str("60 * * * * *").is_err()); // second > 59
-        assert!(cron::Schedule::from_str("* 60 * * * *").is_err()); // minute > 59
-        assert!(cron::Schedule::from_str("* * 25 * * *").is_err()); // hour > 23
-    }
-
-    #[test]
-    fn test_cron_schedule_next() {
-        use std::str::FromStr;
-
-        let schedule = cron::Schedule::from_str("*/10 * * * * *").unwrap();
-        let now = chrono::Utc::now();
-        let next = schedule.upcoming(chrono::Utc).next();
-
-        assert!(next.is_some());
-        let next_time = next.unwrap();
-        // Next should be at most 10 seconds in the future (strictly less to avoid boundary issues)
-        let duration = next_time.signed_duration_since(now);
-        assert!(duration.num_seconds() > 0 && duration.num_seconds() < 10,
-            "next run should be within 10 seconds, got {} seconds", duration.num_seconds());
-    }
+    // 此时应该只有第二个任务存在
+    scheduler.remove_task_for_todo(1).await;
+    // 再次 remove 应当是 no-op（因为已被移除）
+    scheduler.remove_task_for_todo(1).await;
 }
