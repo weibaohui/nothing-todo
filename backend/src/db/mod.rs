@@ -243,7 +243,7 @@ impl Database {
 
         // 迁移：将 execution_records.logs 旧字段数据转移到 execution_logs 表，并删除旧字段
         self.migrate_logs_to_execution_logs().await
-            .unwrap_or_else(|e| tracing::error!("Failed to migrate logs column: {}", e));
+            .unwrap_or_else(|e| tracing::warn!("Failed to migrate logs column: {}", e));
 
         // Skill invocations tracking table
         self.exec(

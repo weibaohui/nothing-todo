@@ -322,12 +322,6 @@ function CompactHistoryItem({ record, onOpenResume, onExport }: {
 }
 
 function hasLogsStatic(record: ExecutionRecord): boolean {
-  // 新记录：有 execution_stats 表示有日志
-  if (record.execution_stats) {
-    const s = record.execution_stats;
-    if (s.tool_calls > 0 || s.conversation_turns > 0 || s.thinking_count > 0) return true;
-  }
-  // 已完成的记录通常有日志
   return record.status !== 'running' && !!record.finished_at;
 }
 
