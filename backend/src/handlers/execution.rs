@@ -81,6 +81,14 @@ pub async fn execute_handler(
         .await?
         .ok_or_else(|| AppError::BadRequest(format!("Todo {} not found", req.todo_id)))?;
 
+    // 检查 todo 是否正在执行中，防止重复执行造成状态混乱
+    if todo.status == crate::models::TodoStatus::Running {
+        return Err(AppError::BadRequest(format!(
+            "Todo {} is already running. Please stop the current execution first.",
+            req.todo_id
+        )));
+    }
+
     // Fall back to todo.prompt if message is None or whitespace-only
     let message = req
         .message
@@ -146,24 +154,15 @@ pub async fn stop_execution_handler(
         );
         let cancelled = state.task_manager.cancel(task_id).await;
         if !cancelled {
+            // 任务已在 task_manager 中不存在，说明 spawned task 已完成对自身 task_id 的清理，
+            // 正在执行最终的 update_execution_record。此时不应再写入 DB，避免与 spawned task
+            // 的最终状态更新产生竞态。spawned task 会自行写入正确的结束状态。
             tracing::warn!(
-                "Task {} was not found in task manager (may have already finished), \
-                 fallback to direct DB update",
+                "Task {} was not found in task manager (may have already finished its cleanup), \
+                 skipping DB update to avoid race condition with the task's own final write",
                 task_id
             );
-            // 任务已不存在（正常结束），回退直接更新数据库
-            let logs_json = record.logs.clone();
-            let _ = state
-                .db
-                .update_execution_record(
-                    req.record_id,
-                    crate::models::ExecutionStatus::Failed.as_str(),
-                    &logs_json,
-                    "任务已被手动停止",
-                    None,
-                    None,
-                )
-                .await;
+            return Ok(ApiResponse::ok(()));
         }
         // 取消成功时，由任务内部的 cancel 分支处理 DB 更新，
         // 避免与 stop handler 同时写入造成竞态条件
@@ -265,6 +264,14 @@ pub async fn resume_execution_handler(
         .get_todo(todo_id)
         .await?
         .ok_or(AppError::NotFound)?;
+
+    // 检查 todo 是否正在执行中，防止重复执行造成状态混乱
+    if todo.status == crate::models::TodoStatus::Running {
+        return Err(AppError::BadRequest(format!(
+            "Todo {} is already running. Cannot resume.",
+            todo_id
+        )));
+    }
 
     let message = req
         .message
