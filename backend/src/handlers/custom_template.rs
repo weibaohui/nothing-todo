@@ -96,6 +96,9 @@ pub async fn fetch_remote_templates(url: &str) -> Result<Vec<RemoteTemplate>, St
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
+        // 禁止重定向以防止 SSRF 绕过：
+        // 攻击者可以提供一个指向公共服务器的 URL，该服务器再重定向到内网地址
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
