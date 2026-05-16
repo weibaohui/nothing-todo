@@ -200,7 +200,7 @@ async fn run_server(cli_port: Option<u16>) {
     let executor_registry = Arc::new(adapters::ExecutorRegistry::new());
     let db_executors = db.get_enabled_executors().await.unwrap_or_default();
     for ec in &db_executors {
-        if executor_registry.register_by_name(&ec.name, &ec.path) {
+        if executor_registry.register_by_name(&ec.name, &ec.path).await {
             info!("Registered executor: {} ({})", ec.display_name, ec.name);
         } else {
             tracing::warn!("Unknown executor '{}' in database, skipping", ec.name);
