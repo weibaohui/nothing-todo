@@ -346,6 +346,8 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         const FLUSH_COUNT_THRESHOLD: u64 = 5;
         // 全局 flush 互斥锁，防止并发 flush 任务在 append_execution_record_logs 中产生读-改-写竞态
         let flush_mutex: Arc<tokio::sync::Mutex<()>> = Arc::new(tokio::sync::Mutex::new(()));
+        // Graceful shutdown flag for flush timer - avoids aborting in-flight flush tasks
+        let flush_shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         let executor_for_parse = executor_spawn.clone();
 
@@ -446,16 +448,27 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
                         {
                             unflushed_for_stdout.store(0, std::sync::atomic::Ordering::Relaxed);
                             let snapshot = std::mem::take(&mut *logs_for_db.lock().await);
+                            let snapshot_len = snapshot.len() as u64;
                             let db_flush = db_for_todo.clone();
                             let rid_flush = rid;
                             let fp = flush_pending_for_stdout.clone();
                             let fm = flush_mutex_stdout.clone();
+                            let uc_restore = unflushed_for_stdout.clone();
+                            let logs_restore = logs_for_db.clone();
                             let h = tokio::spawn(async move {
                                 let _guard = fm.lock().await;
-                                if let Ok(json) = serde_json::to_string(&snapshot) {
-                                    let _ = db_flush
-                                        .append_execution_record_logs(rid_flush, &json)
-                                        .await;
+                                let success = match serde_json::to_string(&snapshot) {
+                                    Ok(json) => {
+                                        db_flush.append_execution_record_logs(rid_flush, &json).await.is_ok()
+                                    }
+                                    Err(_) => false,
+                                };
+                                drop(_guard); // Release mutex before potential restore
+                                if !success {
+                                    // On failure, merge snapshot back and restore count
+                                    let mut logs = logs_restore.lock().await;
+                                    logs.extend(snapshot);
+                                    uc_restore.fetch_add(snapshot_len, std::sync::atomic::Ordering::Relaxed);
                                 }
                                 fp.store(false, std::sync::atomic::Ordering::Relaxed);
                             });
@@ -503,16 +516,27 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
                     {
                         unflushed_for_stderr.store(0, std::sync::atomic::Ordering::Relaxed);
                         let snapshot = std::mem::take(&mut *logs_for_stderr.lock().await);
+                        let snapshot_len = snapshot.len() as u64;
                         let db_flush = db_for_stderr.clone();
                         let rid_flush = rid_for_stderr;
                         let fp = flush_for_stderr.clone();
                         let fm = flush_mutex_stderr.clone();
+                        let uc_restore = unflushed_for_stderr.clone();
+                        let logs_restore = logs_for_stderr.clone();
                         let h = tokio::spawn(async move {
                             let _guard = fm.lock().await;
-                            if let Ok(json) = serde_json::to_string(&snapshot) {
-                                let _ = db_flush
-                                    .append_execution_record_logs(rid_flush, &json)
-                                    .await;
+                            let success = match serde_json::to_string(&snapshot) {
+                                Ok(json) => {
+                                    db_flush.append_execution_record_logs(rid_flush, &json).await.is_ok()
+                                }
+                                Err(_) => false,
+                            };
+                            drop(_guard); // Release mutex before potential restore
+                            if !success {
+                                // On failure, merge snapshot back and restore count
+                                let mut logs = logs_restore.lock().await;
+                                logs.extend(snapshot);
+                                uc_restore.fetch_add(snapshot_len, std::sync::atomic::Ordering::Relaxed);
                             }
                             fp.store(false, std::sync::atomic::Ordering::Relaxed);
                         });
@@ -534,42 +558,80 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         let timer_logs = logs.clone();
         let timer_fp = flush_pending.clone();
         let timer_uc = unflushed_count.clone();
-        let timer_mutex = flush_mutex.clone();
+        let timer_handles = flush_handles.clone();
+        let timer_shutdown = flush_shutdown.clone();
         let flush_timer = tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3));
-            // 从第 2 次 tick 开始检查（跳过立即触发的初始 tick）
-            interval.tick().await;
-            #[allow(clippy::integer_arithmetic)]
             loop {
-                interval.tick().await;
-                if timer_fp.load(std::sync::atomic::Ordering::Relaxed) {
-                    continue;
-                }
-                let n = timer_uc.swap(0, std::sync::atomic::Ordering::Relaxed);
-                if n > 0 && !timer_fp.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                    let snapshot = std::mem::take(&mut *timer_logs.lock().await);
-                    // 直接在 timer 任务中 flush，避免 spawn 导致 handle 丢失不被 await
-                    let _guard = timer_mutex.lock().await;
-                    if let Ok(json) = serde_json::to_string(&snapshot) {
-                        let _ = timer_db.append_execution_record_logs(record_id, &json).await;
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if timer_shutdown.load(std::sync::atomic::Ordering::Relaxed) {
+                            // Graceful shutdown: do one final flush if needed, then exit
+                            let n = timer_uc.swap(0, std::sync::atomic::Ordering::Relaxed);
+                            if n > 0 {
+                                let snapshot = std::mem::take(&mut *timer_logs.lock().await);
+                                let db_f = timer_db.clone();
+                                let rid_f = record_id;
+                                let fp = timer_fp.clone();
+                                let h = tokio::spawn(async move {
+                                    if let Ok(json) = serde_json::to_string(&snapshot) {
+                                        let _ = db_f.append_execution_record_logs(rid_f, &json).await;
+                                    }
+                                    fp.store(false, std::sync::atomic::Ordering::Relaxed);
+                                });
+                                timer_handles.lock().await.push(h);
+                            }
+                            break;
+                        }
+                        if timer_fp.load(std::sync::atomic::Ordering::Relaxed) {
+                            continue;
+                        }
+                        let n = timer_uc.swap(0, std::sync::atomic::Ordering::Relaxed);
+                        if n > 0 && !timer_fp.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                            let snapshot = std::mem::take(&mut *timer_logs.lock().await);
+                            let snapshot_len = snapshot.len() as u64;
+                            let db_f = timer_db.clone();
+                            let rid_f = record_id;
+                            let fp = timer_fp.clone();
+                            let uc_restore = timer_uc.clone();
+                            let logs_restore = timer_logs.clone();
+                            let h = tokio::spawn(async move {
+                                let success = match serde_json::to_string(&snapshot) {
+                                    Ok(json) => {
+                                        db_f.append_execution_record_logs(rid_f, &json).await.is_ok()
+                                    }
+                                    Err(_) => false,
+                                };
+                                if !success {
+                                    // On failure, merge snapshot back and restore count
+                                    let mut logs = logs_restore.lock().await;
+                                    logs.extend(snapshot);
+                                    uc_restore.fetch_add(snapshot_len, std::sync::atomic::Ordering::Relaxed);
+                                }
+                                fp.store(false, std::sync::atomic::Ordering::Relaxed);
+                            });
+                            timer_handles.lock().await.push(h);
+                        } else if n > 0 {
+                            timer_uc.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+                        }
                     }
-                    // 释放 mutex guard 后重置 fp
-                    core::mem::drop(_guard);
-                    timer_fp.store(false, std::sync::atomic::Ordering::Relaxed);
-                } else if n > 0 {
-                    timer_uc.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+                    _ = tokio::time::sleep(tokio::time::Duration::from_secs(4)) => {
+                        // Fallback timeout to prevent hanging (timer should exit via shutdown flag)
+                        if timer_shutdown.load(std::sync::atomic::Ordering::Relaxed) {
+                            break;
+                        }
+                    }
                 }
             }
         });
-        // 仅用于在最终等待时同步，timer 自身 inline flush 不需要额外 handle 等待
-        // 已在 flush_handles 中跟踪了 stdout/stderr 的 spawn flush
 
         let status = tokio::select! {
             biased;
             _ = cancel_rx.recv() => {
                 // Cancelled (or channel closed): 使用 command-group 安全杀死整个进程组
                 kill_process_tree(&mut child).await;
-                flush_timer.abort();
+                // Graceful shutdown: signal timer to finish its pending flush
+                flush_shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
 
                 // 收割僵尸进程
                 let _status = child.wait().await;
@@ -609,7 +671,8 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
             }
             status = child.wait() => {
                 // 子进程已自然退出，command-group 的进程组已自动清理
-                flush_timer.abort();
+                // Graceful shutdown: signal timer to finish its pending flush
+                flush_shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
 
                 if let Some(handle) = stdout_task {
                     let _ = handle.await;
