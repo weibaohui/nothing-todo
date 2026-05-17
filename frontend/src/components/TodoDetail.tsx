@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useApp } from '../hooks/useApp';
-import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination, Segmented, Modal, Input, Tooltip } from 'antd';
+import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination, Segmented, Modal, Input, Tooltip, Select } from 'antd';
 import { PlayCircleOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined, DownOutlined, UpOutlined, UnorderedListOutlined, MessageOutlined, FileTextOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import { PieChart } from './PieChart';
@@ -409,6 +409,9 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
 
   const records = selectedTodoId ? executionRecords[selectedTodoId] || [] : [];
 
+  // 执行历史状态筛选
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'running' | 'success' | 'failed'>('all');
+
   // 懒加载：点击记录时才获取完整详情（含分页 logs）
   const [selectedHistoryRecordDetail, setSelectedHistoryRecordDetail] = useState<ExecutionRecord | null>(null);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
@@ -598,8 +601,14 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
   const [resumeMessage, setResumeMessage] = useState('');
   const [resumeLoading, setResumeLoading] = useState(false);
 
+  // Filter records by status
+  const filteredRecords = useMemo(() => {
+    if (historyStatusFilter === 'all') return records;
+    return records.filter(r => r.status === historyStatusFilter);
+  }, [records, historyStatusFilter]);
+
   // Always group execution records by session_id
-  const sessionGroups = useMemo(() => groupBySession(records), [records]);
+  const sessionGroups = useMemo(() => groupBySession(filteredRecords), [filteredRecords]);
 
   const handleOpenResume = (record: ExecutionRecord) => {
     setResumeRecordId(record.id);
@@ -828,15 +837,29 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, ...(isWide ? { flexShrink: 0 } : {}) }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>执行历史</h4>
-          <Button
-            type="text"
-            size="small"
-            icon={<ReloadOutlined />}
-            onClick={() => loadExecutionRecords(historyPage, historyLimit)}
-            loading={isExecuting}
-          >
-            刷新
-          </Button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Select
+              size="small"
+              value={historyStatusFilter}
+              onChange={setHistoryStatusFilter}
+              style={{ width: 100 }}
+              options={[
+                { value: 'all', label: '全部' },
+                { value: 'running', label: '进行中' },
+                { value: 'success', label: '成功' },
+                { value: 'failed', label: '失败' },
+              ]}
+            />
+            <Button
+              type="text"
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={() => loadExecutionRecords(historyPage, historyLimit)}
+              loading={isExecuting}
+            >
+              刷新
+            </Button>
+          </div>
         </div>
         {records.length === 0 ? (
           <Empty description="暂无执行记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
