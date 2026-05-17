@@ -992,6 +992,31 @@ impl Database {
         Ok(models.into_iter().map(Into::into).collect())
     }
 
+    /// 查询指定 todo 下正在执行中的执行记录数量（status = 'running'）
+    pub async fn count_running_executions_for_todo(
+        &self,
+        todo_id: i64,
+    ) -> Result<i64, sea_orm::DbErr> {
+        use sea_orm::EntityTrait;
+        let count = execution_records::Entity::find()
+            .filter(execution_records::Column::TodoId.eq(todo_id))
+            .filter(execution_records::Column::Status.eq("running"))
+            .count(&self.conn)
+            .await?;
+        Ok(count as i64)
+    }
+
+    /// 查询所有正在执行中的执行记录数量（status = 'running'）
+    pub async fn count_all_running_executions(
+        &self,
+    ) -> Result<i64, sea_orm::DbErr> {
+        let count = execution_records::Entity::find()
+            .filter(execution_records::Column::Status.eq("running"))
+            .count(&self.conn)
+            .await?;
+        Ok(count as i64)
+    }
+
     /// 强制将一条执行记录标记为失败（用于僵尸记录清理）
     pub async fn force_fail_execution_record(&self, id: i64) -> Result<(), sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();

@@ -73,46 +73,34 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         (cfg.max_concurrent_todos, cfg.execution_timeout_secs)
     };
 
-    // Get todo to read stored executor and check concurrency
+    // Get todo to read stored executor
     let todo = match db.get_todo(todo_id).await {
         Ok(Some(t)) => {
-            // 检查同一个 todo 是否正在执行中，防止重复执行
-            // 不仅检查数据库状态，还要确认 task_manager 中是否真的有这个 todo 在运行
-            // 如果数据库状态是 Running 但 task_manager 中没有，说明状态异常（可能是异常退出遗留），允许重新执行
-            let running_tasks = task_manager.get_all_task_infos().await;
-            let is_orphan = t.status == crate::models::TodoStatus::Running
-                && !running_tasks.iter().any(|task| task.todo_id == todo_id);
-            if t.status == crate::models::TodoStatus::Running {
-                if running_tasks.iter().any(|task| task.todo_id == todo_id) {
-                    tracing::warn!("Todo {} is already running in task_manager, skipping execution", todo_id);
-                    task_manager.remove(&task_id).await;
-                    send_event(
-                        &tx,
-                        ExecEvent::Finished {
-                            task_id: task_id.clone(),
-                            todo_id,
-                            todo_title: t.title.clone(),
-                            executor: "".to_string(),
-                            success: false,
-                            result: Some(format!("Todo {} is already running", todo_id)),
-                        },
-                    );
-                    return ExecutionResult {
-                        task_id,
-                        record_id: None,
-                    };
-                } else if is_orphan {
-                    tracing::warn!(
-                        "Todo {} has status=Running in DB but not in task_manager (orphan state), will allow execution",
-                        todo_id
-                    );
-                }
+            // 检查该 todo 是否有正在执行中的执行记录，防止重复执行
+            let running_exec_count = db.count_running_executions_for_todo(todo_id).await.unwrap_or(0);
+            if running_exec_count > 0 {
+                tracing::warn!("Todo {} already has running execution records, skipping execution", todo_id);
+                task_manager.remove(&task_id).await;
+                send_event(
+                    &tx,
+                    ExecEvent::Finished {
+                        task_id: task_id.clone(),
+                        todo_id,
+                        todo_title: t.title.clone(),
+                        executor: "".to_string(),
+                        success: false,
+                        result: Some(format!("Todo {} is already running", todo_id)),
+                    },
+                );
+                return ExecutionResult {
+                    task_id,
+                    record_id: None,
+                };
             }
 
-            // 检查全局并发数是否已达上限（排除孤儿任务，因为它们实际上并未运行）
-            let running_count = db.get_running_todos().await.map(|v| v.len()).unwrap_or(0);
-            let running_count = if is_orphan { running_count.saturating_sub(1) } else { running_count };
-            if running_count >= max_concurrent as usize {
+            // 检查全局并发数是否已达上限（统计所有正在执行中的执行记录）
+            let running_count = db.count_all_running_executions().await.unwrap_or(0);
+            if running_count >= max_concurrent as i64 {
                 tracing::warn!(
                     "Concurrent limit reached ({}/{}), rejecting todo {}",
                     running_count, max_concurrent, todo_id
