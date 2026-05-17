@@ -340,7 +340,7 @@ export interface Config {
   execution_timeout_secs?: number;
 }
 
-export const RESUMABLE_EXECUTORS = new Set(['claudecode', 'kimi', 'opencode', 'joinai']);
+export const RESUMABLE_EXECUTORS = new Set(['claudecode', 'kimi', 'opencode', 'joinai', 'hermes']);
 
 export function supportsResume(record: ExecutionRecord): boolean {
   return (

@@ -54,6 +54,51 @@ impl CodeExecutor for HermesExecutor {
         ]
     }
 
+    fn command_args_with_session(&self, message: &str, session_id: Option<&str>, is_resume: bool) -> Vec<String> {
+        if is_resume {
+            let mut args = vec!["--resume".to_string()];
+            if let Some(sid) = session_id {
+                args.push(sid.to_string());
+            }
+            args.push("-q".to_string());
+            args.push(message.to_string());
+            args.push("--yolo".to_string());
+            args
+        } else {
+            self.command_args(message)
+        }
+    }
+
+    fn supports_resume(&self) -> bool {
+        true
+    }
+
+    fn extract_session_id(&self, line: &str) -> Option<String> {
+        let trimmed = line.trim();
+        // Format: "hermes --resume <session_id>"
+        if let Some(rest) = trimmed.strip_prefix("hermes --resume ") {
+            let sid = rest.trim().to_string();
+            if !sid.is_empty() {
+                return Some(sid);
+            }
+        }
+        // Format: "Session: <id>"
+        if let Some(rest) = trimmed.strip_prefix("Session:") {
+            let sid = rest.trim().to_string();
+            if !sid.is_empty() {
+                return Some(sid);
+            }
+        }
+        // Format: "session_id: <id>"
+        if let Some(rest) = trimmed.strip_prefix("session_id:") {
+            let sid = rest.trim().to_string();
+            if !sid.is_empty() {
+                return Some(sid);
+            }
+        }
+        None
+    }
+
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -289,5 +334,61 @@ mod tests {
     fn test_executor_type() {
         let executor = HermesExecutor::new("hermes".to_string());
         assert_eq!(executor.executor_type(), ExecutorType::Hermes);
+    }
+
+    #[test]
+    fn test_supports_resume() {
+        let executor = HermesExecutor::new("hermes".to_string());
+        assert!(executor.supports_resume());
+    }
+
+    #[test]
+    fn test_extract_session_id_resume_format() {
+        let executor = HermesExecutor::new("hermes".to_string());
+        let sid = executor.extract_session_id("hermes --resume 20260517_051220_95e4d6");
+        assert_eq!(sid, Some("20260517_051220_95e4d6".to_string()));
+    }
+
+    #[test]
+    fn test_extract_session_id_session_prefix() {
+        let executor = HermesExecutor::new("hermes".to_string());
+        let sid = executor.extract_session_id("Session: mysession123");
+        assert_eq!(sid, Some("mysession123".to_string()));
+    }
+
+    #[test]
+    fn test_extract_session_id_lowercase_prefix() {
+        let executor = HermesExecutor::new("hermes".to_string());
+        let sid = executor.extract_session_id("session_id: abc_xyz_789");
+        assert_eq!(sid, Some("abc_xyz_789".to_string()));
+    }
+
+    #[test]
+    fn test_extract_session_id_no_match() {
+        let executor = HermesExecutor::new("hermes".to_string());
+        assert!(executor.extract_session_id("Hello world").is_none());
+        assert!(executor.extract_session_id("").is_none());
+        assert!(executor.extract_session_id("hermes chat -q test").is_none());
+    }
+
+    #[test]
+    fn test_command_args_with_session_new() {
+        let executor = HermesExecutor::new("hermes".to_string());
+        let args = executor.command_args_with_session("do something", Some("task_id"), false);
+        assert_eq!(args, vec!["chat", "-q", "do something", "--yolo"]);
+    }
+
+    #[test]
+    fn test_command_args_with_session_resume() {
+        let executor = HermesExecutor::new("hermes".to_string());
+        let args = executor.command_args_with_session("continue", Some("session_123"), true);
+        assert_eq!(args, vec!["--resume", "session_123", "-q", "continue", "--yolo"]);
+    }
+
+    #[test]
+    fn test_command_args_with_session_resume_none() {
+        let executor = HermesExecutor::new("hermes".to_string());
+        let args = executor.command_args_with_session("continue", None, true);
+        assert_eq!(args, vec!["--resume", "-q", "continue", "--yolo"]);
     }
 }
