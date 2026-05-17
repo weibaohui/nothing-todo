@@ -1,6 +1,6 @@
 //! Unified configuration management.
 //!
-//! Config file location: `~/.ntd/config.yaml`
+//! Config file location: `~/.ntd/config.yaml` or `~/.ntd/config.dev.yaml` (when NTD_MODE=dev)
 //!
 //! All components (server, CLI, executors) read their settings from this module.
 //! No direct environment variable reads — route everything through Config.
@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 
 /// Default port.
 pub const DEFAULT_PORT: u16 = 8088;
+/// Dev mode port.
+pub const DEFAULT_DEV_PORT: u16 = 18088;
 /// Default host.
 pub const DEFAULT_HOST: &str = "0.0.0.0";
 /// Default executor paths (binary names).
@@ -131,18 +133,28 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Load config from `~/.ntd/config.yaml`.
+    /// Load config from `~/.ntd/config.yaml` or `~/.ntd/config.dev.yaml` (when NTD_MODE=dev).
     /// Creates the file with defaults if it doesn't exist.
     pub fn load() -> Self {
         let path = Self::config_path();
         if !path.exists() {
-            let cfg = Config::default();
+            let cfg = if Self::is_dev_mode() {
+                // Dev mode defaults: different port and database
+                let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+                Config {
+                    port: DEFAULT_DEV_PORT,
+                    db_path: home.join(".ntd").join("data.dev.db").to_string_lossy().to_string(),
+                    ..Default::default()
+                }
+            } else {
+                Config::default()
+            };
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).ok();
             }
             if let Ok(yaml) = serde_yaml::to_string(&cfg) {
                 if let Err(e) = std::fs::write(&path, yaml) {
-                    eprintln!("Warning: failed to write config.yaml ({}), using in-memory defaults", e);
+                    eprintln!("Warning: failed to write config file ({}), using in-memory defaults", e);
                 }
             }
             return cfg;
@@ -151,14 +163,14 @@ impl Config {
         match std::fs::read_to_string(&path) {
             Ok(content) => {
                 let mut cfg = serde_yaml::from_str::<Config>(&content).unwrap_or_else(|e| {
-                    eprintln!("Warning: failed to parse config.yaml ({}), using defaults", e);
+                    eprintln!("Warning: failed to parse config file ({}), using defaults", e);
                     Config::default()
                 });
                 cfg.normalize_paths();
                 cfg
             }
             Err(e) => {
-                eprintln!("Warning: failed to read config.yaml ({}), using defaults", e);
+                eprintln!("Warning: failed to read config file ({}), using defaults", e);
                 Config::default()
             }
         }
@@ -213,9 +225,20 @@ impl Config {
     }
 
     /// Path to the config file.
+    /// When NTD_MODE=dev, loads ~/.ntd/config.dev.yaml instead.
     fn config_path() -> PathBuf {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        home.join(".ntd").join("config.yaml")
+        let base = home.join(".ntd");
+        if std::env::var("NTD_MODE").as_deref() == Ok("dev") {
+            base.join("config.dev.yaml")
+        } else {
+            base.join("config.yaml")
+        }
+    }
+
+    /// Check if running in dev mode (NTD_MODE=dev).
+    pub fn is_dev_mode() -> bool {
+        std::env::var("NTD_MODE").as_deref() == Ok("dev")
     }
 }
 

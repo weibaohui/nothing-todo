@@ -1,34 +1,50 @@
 # AGENTS.md
 
 ## 项目概述
-ntd (Nothing Todo) 是一个 AI Todo 应用，基于 Rust 后端 + React 前端，支持 Codex 和 JoinAI 执行器。
+ntd (Nothing Todo) 是一个 AI Todo 应用，基于 Rust 后端 + React 前端，支持 Claude Code 和 JoinAI 执行器。
 
 ## 开发流程
 
 **禁止直接在主分支 (main) 上写代码。所有代码改动必须先创建分支，在分支上完成开发后再通过 PR 合入 main。**
 
-**每次完成功能开发后，执行 `make restart` 重启服务以便调试。**
+## 生产环境 vs 开发环境
+
+### 生产环境（端口 8088）
+- 配置：`~/.ntd/config.yaml`
+- 数据库：`~/.ntd/data.db`
+- 日志：`~/.ntd/daemon.log`
+- PID：`~/.ntd/daemon.pid`
+- 管理命令：
+```bash
+ntd daemon install   # 安装为系统服务
+ntd daemon start     # 启动
+ntd daemon stop      # 停止
+ntd daemon restart   # 重启
+ntd daemon status    # 查看状态
+```
+
+### 开发环境（端口 18088）
+- 配置：`~/.ntd/config.dev.yaml`（首次自动创建）
+- 数据库：`~/.ntd/data.dev.db`
+- 日志：`backend.dev.log`
+- PID：`~/.ntd/dev.pid`
+- 管理命令：
+```bash
+make dev    # 启动开发模式（构建前端 + 启动后端 embedded 模式）
+make stop   # 停止开发实例
+make build  # 构建生产版本
+```
+
+### 端口区分
+| 环境 | 端口 | 配置 | 数据库 |
+|------|------|------|--------|
+| 生产 | 8088 | config.yaml | data.db |
+| 开发 | 18088 | config.dev.yaml | data.dev.db |
 
 ## 技术栈
 - 后端: Rust (Axum框架)
 - 前端: React + Vite + Ant Design
 - 数据库: SQLite + SeaORM
-
-## 常用命令
-
-```bash
-make install    # 构建并安装
-make start     # 启动服务 (需要先 install)
-make stop      # 停止服务
-make restart   # 重启服务 (开发调试时常用)
-make dev       # 开发模式 (前后端分离)
-make build     # 仅构建
-make clean     # 清理构建产物
-```
-
-## 端口
-- 前端: 5173 (开发模式)
-- 后端: 8088
 
 ## 目录结构
 - `backend/` - Rust 后端代码
@@ -48,7 +64,7 @@ cd frontend && npx playwright test --reporter=list
 ```
 
 ### 验证流程
-1. 修改前端代码后，执行 `make restart` 重启服务
+1. 修改前端代码后，执行 `make dev` 重启开发服务
 2. 使用 Playwright 编写测试脚本验证 UI 效果
 3. 验证通过后再通知用户
 
@@ -63,7 +79,7 @@ const { chromium } = require('playwright');
   const page = await context.newPage();
 
   // 设置 localStorage 以触发 ThemeProvider 的深色模式
-  await page.goto('https://t-600b43689eae40d3.hostc.dev');
+  await page.goto('http://localhost:18088');
   await page.evaluate(() => localStorage.setItem('app_theme', 'dark'));
   await page.reload();
   await page.waitForTimeout(2000);
