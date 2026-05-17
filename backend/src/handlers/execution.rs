@@ -201,18 +201,31 @@ pub async fn stop_execution_handler(
         );
         let cancelled = state.task_manager.cancel(task_id).await;
         if !cancelled {
-            // 任务不在 task_manager 中，可能是已经完成清理，或者任务已崩溃。
-            // 对于后者，DB 从未被更新，执行记录会一直卡在 Running 状态。
-            // 强制更新 DB 将状态标记为 failed。
-            tracing::warn!(
-                "Task {} was not found in task manager, forcing DB update to failed",
-                task_id
-            );
-            state
+            // 任务不在 task_manager 中，可能是已完成清理或已崩溃。
+            // 重新查询 DB 确认当前状态，避免与正常完成的任务产生竞态
+            let current_record = state
                 .db
-                .force_fail_execution_record(req.record_id)
-                .await
-                .map_err(|e| AppError::Internal(e.to_string()))?;
+                .get_execution_record(req.record_id)
+                .await?
+                .ok_or(AppError::BadRequest(
+                    "Execution record not found".to_string(),
+                ))?;
+            if current_record.status == ExecutionStatus::Running {
+                tracing::warn!(
+                    "Task {} was not found in task manager and record is still Running (crashed), forcing DB update to failed",
+                    task_id
+                );
+                state
+                    .db
+                    .force_fail_execution_record(req.record_id)
+                    .await
+                    .map_err(|e| AppError::Internal(e.to_string()))?;
+            } else {
+                tracing::warn!(
+                    "Task {} was not found in task manager but record status is {:?} (already completed), skipping",
+                    task_id, current_record.status
+                );
+            }
             return Ok(ApiResponse::ok(()));
         }
         // 取消成功时，由任务内部的 cancel 分支处理 DB 更新，
