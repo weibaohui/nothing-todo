@@ -767,7 +767,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
         {/* Row 1: Title + Action Buttons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <StatusPicker value={selectedTodo.status} onChange={handleStatusChange} disabled={isExecuting} />
-          <h2 className="card-title" style={{ margin: 0, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedTodo.title}</h2>
+          <h2 className="card-title" style={{ margin: 0, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><span style={{ color: '#999', marginRight: 4, fontSize: '0.9em' }}>#{selectedTodo.id}</span>{selectedTodo.title}</h2>
           <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
             <Button type="text" icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)} className="icon-btn" aria-label="任务设置" />
             <Button type="text" icon={<EditOutlined />} onClick={() => setIsEditing(true)} className="icon-btn" aria-label="编辑任务" />
