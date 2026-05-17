@@ -517,6 +517,8 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       const mergedConfig: Config = {
         ...currentConfig,
         ...(values as Partial<Config>),
+        max_concurrent_todos: configForm.getFieldValue('max_concurrent_todos') ?? currentConfig.max_concurrent_todos ?? 3,
+        execution_timeout_secs: configForm.getFieldValue('execution_timeout_secs') ?? currentConfig.execution_timeout_secs ?? 1800,
         slash_command_rules: hasSlashRulesField
           ? normalizedRules
           : (currentConfig.slash_command_rules ?? []),
