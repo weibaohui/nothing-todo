@@ -66,6 +66,14 @@ impl Database {
             .map(|_| ())
     }
 
+    /// 执行返回结果集的 SQL 语句（如 PRAGMA），忽略返回值
+    pub(super) async fn query_exec(&self, sql: &str) -> Result<(), sea_orm::DbErr> {
+        self.conn
+            .query_one(Statement::from_string(DbBackend::Sqlite, sql.to_string()))
+            .await
+            .map(|_| ())
+    }
+
     pub(super) async fn exec_update<M>(&self, model: M) -> Result<(), sea_orm::DbErr>
     where
         M: ActiveModelTrait + ActiveModelBehavior + Send,

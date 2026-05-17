@@ -199,7 +199,8 @@ pub async fn database_optimize(
 
     // 执行 PRAGMA optimize，这是 SQLite 的轻量级优化命令
     // 它会更新数据库的统计信息，帮助查询优化器生成更好的执行计划
-    state.db.exec("PRAGMA optimize").await
+    // 注意：PRAGMA optimize 返回结果集，需要使用 query_exec 而非 exec
+    state.db.query_exec("PRAGMA optimize").await
         .map_err(|e| AppError::Internal(format!("Database optimize failed: {}", e)))?;
 
     tracing::info!("Database optimization completed for: {}", db_path.display());
