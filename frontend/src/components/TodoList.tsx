@@ -208,7 +208,7 @@ export function TodoList({ onOpenCreateModal, onSelectTodo, onShowDashboard, onS
                         className="todo-item-title"
                         style={{ opacity: isCompleted ? 0.6 : 1 }}
                       >
-                        {todo.title}
+                        <span style={{ color: '#999', marginRight: 4, fontSize: 13 }}>#{todo.id}</span>{todo.title}
                       </div>
                       <ExecutorBadge executor={todo.executor || 'claudecode'} />
                     </div>
