@@ -28,6 +28,9 @@ export function parseLogsToMessages(logs: LogEntry[]): ChatMessage[] {
   let isCollectingTool = false;
 
   for (const log of logs) {
+    // Skip logs with null/undefined content to prevent crashes
+    if (log.content == null) continue;
+
     switch (log.type) {
       case 'user':
         messages.push({ role: 'user', content: log.content, timestamp: log.timestamp });
