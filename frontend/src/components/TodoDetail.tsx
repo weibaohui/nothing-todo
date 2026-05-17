@@ -1361,11 +1361,11 @@ function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, o
   // 懒加载日志（新记录没有旧字段数据时从新表加载）
   const [loadedLogs, setLoadedLogs] = useState<LogEntry[] | null>(null);
   useEffect(() => {
-    if (restLogs.length > 0 || isRunning || loadedLogs !== null) return;
+    if (restLogs.length > 0 || loadedLogs !== null) return;
     db.getExecutionLogs(record.id, 1, 200)
       .then(r => setLoadedLogs(r.logs))
       .catch(() => setLoadedLogs([]));
-  }, [record.id, restLogs.length, isRunning, loadedLogs]);
+  }, [record.id, restLogs.length, loadedLogs]);
 
   const displayLogs = liveLogs && liveLogs.length > 0 ? liveLogs :
     restLogs.length > 0 ? restLogs :
@@ -1594,11 +1594,11 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
   const mainRestLogs = parseLogs(mainRecord);
   const [mainLoadedLogs, setMainLoadedLogs] = useState<LogEntry[] | null>(null);
   useEffect(() => {
-    if (mainRestLogs.length > 0 || mainRecord.status === 'running' || mainLoadedLogs !== null) return;
+    if (mainRestLogs.length > 0 || mainLoadedLogs !== null) return;
     db.getExecutionLogs(mainRecord.id, 1, 200)
       .then(r => setMainLoadedLogs(r.logs))
       .catch(() => setMainLoadedLogs([]));
-  }, [mainRecord.id, mainRestLogs.length, mainRecord.status, mainLoadedLogs]);
+  }, [mainRecord.id, mainRestLogs.length, mainLoadedLogs]);
   const mainDisplayLogs = mainRestLogs.length > 0 ? mainRestLogs : mainLoadedLogs || [];
 
   return (
