@@ -249,8 +249,49 @@ mod hermes_executor_extended_tests {
     #[test]
     fn test_supports_resume() {
         let executor = HermesExecutor::new("hermes".to_string());
-        // Hermes uses default which returns false
-        assert!(!executor.supports_resume());
+        assert!(executor.supports_resume());
+    }
+
+    #[test]
+    fn test_extract_session_id_resume_format() {
+        let executor = HermesExecutor::new("hermes".to_string());
+        let sid = executor.extract_session_id("hermes --resume 20260517_051220_95e4d6");
+        assert_eq!(sid, Some("20260517_051220_95e4d6".to_string()));
+    }
+
+    #[test]
+    fn test_extract_session_id_session_prefix() {
+        let executor = HermesExecutor::new("hermes".to_string());
+        let sid = executor.extract_session_id("Session: mysession");
+        assert_eq!(sid, Some("mysession".to_string()));
+    }
+
+    #[test]
+    fn test_extract_session_id_lowercase_prefix() {
+        let executor = HermesExecutor::new("hermes".to_string());
+        let sid = executor.extract_session_id("session_id: abc123");
+        assert_eq!(sid, Some("abc123".to_string()));
+    }
+
+    #[test]
+    fn test_extract_session_id_no_match() {
+        let executor = HermesExecutor::new("hermes".to_string());
+        assert!(executor.extract_session_id("random text").is_none());
+        assert!(executor.extract_session_id("hermes chat -q test").is_none());
+    }
+
+    #[test]
+    fn test_command_args_with_session_new() {
+        let executor = HermesExecutor::new("hermes".to_string());
+        let args = executor.command_args_with_session("do something", Some("task_id"), false);
+        assert_eq!(args, vec!["chat", "-q", "do something", "--yolo"]);
+    }
+
+    #[test]
+    fn test_command_args_with_session_resume() {
+        let executor = HermesExecutor::new("hermes".to_string());
+        let args = executor.command_args_with_session("continue", Some("session_123"), true);
+        assert_eq!(args, vec!["--resume", "session_123", "-q", "continue", "--yolo"]);
     }
 }
 
