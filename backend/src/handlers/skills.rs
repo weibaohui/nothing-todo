@@ -17,19 +17,25 @@ use crate::models::ApiResponse;
 
 // ── Data types ──────────────────────────────────────────────────────────
 
-/// Executor type → skills directory mapping
-fn executor_skills_dir(et: ExecutorType) -> Option<PathBuf> {
+/// Executor type name → skills directory mapping (string-based, shared with CLI).
+pub fn executor_skills_dir_str(et: &str) -> Option<PathBuf> {
     let home = dirs::home_dir()?;
     match et {
-        ExecutorType::Claudecode => Some(home.join(".claude").join("skills")),
-        ExecutorType::Hermes => Some(home.join(".hermes").join("skills")),
-        ExecutorType::Codex => Some(home.join(".codex").join("skills")),
-        ExecutorType::Codebuddy => Some(home.join(".codebuddy").join("skills")),
-        ExecutorType::Opencode => Some(home.join(".opencode").join("skills")),
-        ExecutorType::Atomcode => Some(home.join(".atomcode").join("skills")),
-        ExecutorType::Kimi => Some(home.join(".kimi").join("skills")),
-        ExecutorType::Joinai => Some(home.join(".joinai").join("skills")),
+        "claudecode" => Some(home.join(".claude").join("skills")),
+        "hermes" => Some(home.join(".hermes").join("skills")),
+        "codex" => Some(home.join(".codex").join("skills")),
+        "codebuddy" => Some(home.join(".codebuddy").join("skills")),
+        "opencode" => Some(home.join(".opencode").join("skills")),
+        "atomcode" => Some(home.join(".atomcode").join("skills")),
+        "kimi" => Some(home.join(".kimi").join("skills")),
+        "joinai" => Some(home.join(".joinai").join("skills")),
+        _ => None,
     }
+}
+
+/// Executor type → skills directory mapping
+fn executor_skills_dir(et: ExecutorType) -> Option<PathBuf> {
+    executor_skills_dir_str(et.as_str())
 }
 
 fn executor_label(et: ExecutorType) -> &'static str {
