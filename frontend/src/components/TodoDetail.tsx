@@ -605,7 +605,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
 
   const handleOpenResume = (record: ExecutionRecord) => {
     setResumeRecordId(record.id);
-    setResumeMessage(selectedTodo?.prompt || selectedTodo?.title || '');
+    setResumeMessage('');
     setResumeModalOpen(true);
   };
 
