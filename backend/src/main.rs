@@ -214,12 +214,13 @@ fn handle_skill_install(force: bool, executor_filter: Option<&str>) -> anyhow::R
 
     let mut installed = 0;
     let mut skipped = 0;
+    let mut unknown: Vec<&str> = Vec::new();
 
     for et in &executors {
         let base_dir = match executor_skills_dir(et) {
             Some(d) => d,
             None => {
-                println!("  ✗ Unknown executor '{}', skipping", et);
+                unknown.push(et);
                 continue;
             }
         };
@@ -272,6 +273,19 @@ fn handle_skill_install(force: bool, executor_filter: Option<&str>) -> anyhow::R
         } else {
             anyhow::bail!("No files extracted for executor '{}'. Embedded skill data may be empty.", et);
         }
+    }
+
+    // When --executor is explicitly provided, unknown executors are fatal.
+    // Without --executor (installing for all known), only warn and continue.
+    if executor_filter.is_some() && !unknown.is_empty() {
+        anyhow::bail!(
+            "Unknown executor(s): {}. Supported executors: {}",
+            unknown.join(", "),
+            ALL_EXECUTORS.join(", ")
+        );
+    }
+    for et in &unknown {
+        println!("  ✗ Unknown executor '{}', skipping", et);
     }
 
     if installed == 0 && skipped > 0 {
