@@ -917,7 +917,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                               <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--color-primary)', fontWeight: 500 }}>
                                 <LinkOutlined style={{ fontSize: 10 }} />
                                 {record.resume_message ? (
-                                  <span style={{ color: 'var(--color-text-secondary)', fontWeight: 400 }}>{record.resume_message.length > 30 ? record.resume_message.substring(0, 30) + '...' : record.resume_message}</span>
+                                  <span style={{ color: 'var(--color-text-secondary)', fontWeight: 400 }}>{String(record.resume_message).length > 30 ? String(record.resume_message).substring(0, 30) + '...' : record.resume_message}</span>
                                 ) : (
                                   <span>继续对话</span>
                                 )}
@@ -1026,7 +1026,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                             <>
                               <span style={{ color: 'var(--color-border)' }}>·</span>
                               <span style={{ color: 'var(--color-text-secondary)', fontStyle: 'italic' }}>
-                                "{record.resume_message.length > 40 ? record.resume_message.substring(0, 40) + '...' : record.resume_message}"
+                                "{String(record.resume_message).length > 40 ? String(record.resume_message).substring(0, 40) + '...' : record.resume_message}"
                               </span>
                             </>
                           )}
@@ -1514,7 +1514,7 @@ function ContinuationLogsLoader({ record, viewMode, onRefresh, onViewModeChange 
           {logs.map((log, i) => (
             <div key={i} style={{ marginBottom: 3, display: 'flex', gap: 6 }}>
               <span style={{ color: 'var(--log-text-muted)', flexShrink: 0 }}>{formatLogTime(log.timestamp || '')}</span>
-              <span>{log.content}</span>
+              <span>{log.content ?? ''}</span>
             </div>
           ))}
         </div>
@@ -1564,7 +1564,7 @@ function ContinuationLogView({ logs, isRunning, viewMode, onRefresh, onViewModeC
                 <span style={{ color: logTypeColors[log.type || ''] || 'var(--log-text)' }}>
                   [{logTypeLabels[log.type || ''] || log.type}]
                 </span>
-                <span>{log.content}</span>
+                <span>{log.content ?? ''}</span>
               </div>
             ))
           )}
