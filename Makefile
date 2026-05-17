@@ -1,4 +1,4 @@
-.PHONY: setup build clean dev stop watch kill-port cross-build cross-list
+.PHONY: setup install build clean dev stop watch kill-port cross-build cross-list
 
 # Source cargo env for all Rust commands
 export PATH := $(HOME)/.cargo/bin:$(PATH)
@@ -29,11 +29,18 @@ setup:
 	@$(CARGO_ENV) which cross > /dev/null 2>&1 || $(CARGO_ENV) cargo install cross --locked
 	@echo ""
 	@echo "=== Setup complete! ==="
+	@echo "Run 'make install'   to build and install binary to ~/.local/bin"
 	@echo "Run 'make dev'       to start development (frontend + backend, port 18088)"
 	@echo "Run 'make stop'      to stop dev instance"
-	@echo "Run 'make watch'     to start with hot reload"
 	@echo "Run 'make build'     to build for production"
 	@echo "Run 'make cross-build' to build for win/mac/linux x86+arm"
+
+# Install the built binary to ~/.local/bin
+install:  build
+	@mkdir -p $$HOME/.local/bin
+	@rm -f $$HOME/.local/bin/ntd
+	@cp backend/target/release/ntd $$HOME/.local/bin/
+	@echo "Installed to $$HOME/.local/bin/ntd"
 
 # Build frontend and embed into Rust binary
 build:
