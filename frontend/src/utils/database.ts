@@ -292,6 +292,10 @@ export async function triggerLocalBackup(): Promise<string> {
   return unwrap(await api.post<ApiResp<string>>('/xyz/backup/database/trigger'));
 }
 
+export async function optimizeDatabase(): Promise<string> {
+  return unwrap(await api.post<ApiResp<string>>('/xyz/backup/database/optimize'));
+}
+
 export async function getDatabaseBackupStatus(): Promise<{
   auto_backup_enabled: boolean;
   auto_backup_cron: string;

@@ -892,6 +892,18 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     }
   };
 
+  const handleOptimizeDatabase = async () => {
+    setBackupLoading(true);
+    try {
+      const msg = await db.optimizeDatabase();
+      message.success(msg);
+    } catch (err: any) {
+      message.error(err?.message || '优化失败');
+    } finally {
+      setBackupLoading(false);
+    }
+  };
+
   const handleDownloadDatabase = async () => {
     try {
       const response = await fetch('/xyz/backup/database/download');
@@ -1510,6 +1522,13 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                   loading={backupLoading}
                 >
                   备份到服务器
+                </Button>
+                <Button
+                  icon={<SettingOutlined />}
+                  onClick={handleOptimizeDatabase}
+                  loading={backupLoading}
+                >
+                  压缩优化
                 </Button>
               </div>
 

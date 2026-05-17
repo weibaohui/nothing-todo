@@ -185,6 +185,27 @@ pub async fn trigger_local_backup() -> Result<ApiResponse<String>, AppError> {
     Ok(ApiResponse::ok(format!("备份成功: {}", backup_path.display())))
 }
 
+/// 执行数据库压缩优化
+pub async fn database_optimize(
+    State(state): State<AppState>,
+) -> Result<ApiResponse<String>, AppError> {
+    let cfg = state.config.read().await;
+    let db_path = PathBuf::from(&cfg.db_path);
+    drop(cfg);
+
+    if !db_path.exists() {
+        return Err(AppError::Internal("Database file not found".to_string()));
+    }
+
+    // 执行 PRAGMA optimize，这是 SQLite 的轻量级优化命令
+    // 它会更新数据库的统计信息，帮助查询优化器生成更好的执行计划
+    state.db.exec("PRAGMA optimize").await
+        .map_err(|e| AppError::Internal(format!("Database optimize failed: {}", e)))?;
+
+    tracing::info!("Database optimization completed for: {}", db_path.display());
+    Ok(ApiResponse::ok("数据库优化完成".to_string()))
+}
+
 #[derive(Serialize)]
 pub struct BackupFile {
     pub name: String,
