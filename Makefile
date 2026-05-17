@@ -62,8 +62,7 @@ stop:
 # Development mode - build frontend + run backend with embedded frontend on port 18088
 dev: stop
 	cd frontend && npm run build
-	(cd backend && $(CARGO_ENV) NTD_MODE=dev RUST_BACKTRACE=1 RUST_LOG=info cargo watch -x run 2>&1 | tee ../backend.dev.log) &
-	@echo $$! > $$HOME/.ntd/dev.pid
+	@cd backend && $(CARGO_ENV) NTD_MODE=dev RUST_BACKTRACE=1 RUST_LOG=info cargo watch -x run 2>&1 | tee ../backend.dev.log & echo $$! > $$HOME/.ntd/dev.pid
 	@echo "==========================================="
 	@echo "  Dev mode: http://localhost:18088"
 	@echo "==========================================="
