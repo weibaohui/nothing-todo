@@ -1479,6 +1479,7 @@ function ContinuationLogsLoader({ record, viewMode, onRefresh, onViewModeChange 
   onViewModeChange: (mode: 'log' | 'chat') => void;
 }) {
   const [logs, setLogs] = useState<LogEntry[] | null>(null);
+  const [isExpanded, setIsExpanded] = useState(viewMode === 'chat');
   useEffect(() => {
     db.getExecutionLogs(record.id, 1, 200)
       .then(r => setLogs(r.logs))
@@ -1486,8 +1487,6 @@ function ContinuationLogsLoader({ record, viewMode, onRefresh, onViewModeChange 
   }, [record.id]);
   if (logs === null) return null;
   if (logs.length === 0) return null;
-  const defaultOpen = viewMode === 'chat';
-  const [isExpanded, setIsExpanded] = useState(defaultOpen);
   const title = viewMode === 'chat' ? `对话 (${logs.length})` : `日志 (${logs.length})`;
   return (
     <details style={{ marginTop: 6 }} open={isExpanded} onToggle={(e) => setIsExpanded((e.target as HTMLDetailsElement).open)}>
