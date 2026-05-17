@@ -10,7 +10,8 @@ import { Dashboard } from './components/Dashboard';
 import { MemorialBoard } from './components/MemorialBoard';
 import { SettingsPage } from './components/SettingsPage';
 import { ExecutionPanel } from './components/ExecutionPanel';
-import { CreateTodoModal } from './components/CreateTodoModal';
+import { TodoDrawer } from './components/TodoDrawer';
+import * as db from './utils/database';
 import zhCN from 'antd/locale/zh_CN';
 import './App.css';
 
@@ -19,7 +20,7 @@ const { Content } = Layout;
 const MOBILE_BREAKPOINT = 768;
 
 function AppContent() {
-  const { state, clearSelection } = useApp();
+  const { state, dispatch, clearSelection } = useApp();
   const [todoModalOpen, setTodoModalOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [selectedPanel, setSelectedPanel] = useState<'list' | 'detail'>('list');
@@ -152,9 +153,16 @@ function AppContent() {
         </Content>
       </Layout>
 
-      <CreateTodoModal
+      <TodoDrawer
         open={todoModalOpen}
+        todo={null}
+        tags={state.tags}
         onClose={() => setTodoModalOpen(false)}
+        onSaved={() => {
+          db.getAllTodos().then(todos => {
+            dispatch({ type: 'SET_TODOS', payload: todos });
+          });
+        }}
       />
       <ExecutionPanel
         collapsed={panelCollapsed}

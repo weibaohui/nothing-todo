@@ -1,11 +1,10 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useApp } from '../hooks/useApp';
 import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination, Segmented, Modal, Input, Tooltip } from 'antd';
-import { PlayCircleOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined, DownOutlined, UpOutlined, UnorderedListOutlined, MessageOutlined, FileTextOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, ReloadOutlined, CopyOutlined, ArrowLeftOutlined, StopOutlined, DownOutlined, UpOutlined, UnorderedListOutlined, MessageOutlined, FileTextOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import { PieChart } from './PieChart';
-import { TodoSettingsDrawer } from './TodoSettingsDrawer';
-import { TodoEditDrawer } from './TodoEditDrawer';
+import { TodoDrawer } from './TodoDrawer';
 import { ChatView } from './ChatView';
 import { parseLogsToMessages } from './ChatView';
 import * as db from '../utils/database';
@@ -15,7 +14,7 @@ import { AnimatedNumber } from './AnimatedNumber';
 import { getExecutorOption, supportsResume } from '../types';
 import { ExecutorBadge } from './ExecutorBadge';
 import XMarkdown from '@ant-design/x-markdown';
-import type { ExecutionSummary, Todo, TodoItem, ExecutionRecord, ExecutionStats, LogEntry } from '../types';
+import type { ExecutionSummary, TodoItem, ExecutionRecord, ExecutionStats, LogEntry } from '../types';
 
 /** 统一刷新按钮组件 */
 const RefreshBtn = ({ onClick, size = 'small' }: { onClick: () => void; size?: 'small' | 'middle' }) => (
@@ -383,9 +382,8 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
     return () => window.removeEventListener('resize', checkWide);
   }, []);
 
-  const [isEditing, setIsEditing] = useState(false);
+  const [todoDrawerOpen, setTodoDrawerOpen] = useState(false);
   const [summary, setSummary] = useState<ExecutionSummary | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Execution history pagination state
   const [historyPage, setHistoryPage] = useState(1);
@@ -555,7 +553,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
         if (!cancelled) setSummary(sum);
       }).catch(() => {});
     } else {
-      setIsEditing(false);
+      setTodoDrawerOpen(false);
     }
     return () => { cancelled = true; };
   }, [selectedTodoId, selectedTodo, dispatch, historyLimit]);
@@ -672,24 +670,6 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
     }
   };
 
-  const handleSaveEdit = async (editTitle: string, editPrompt: string) => {
-    if (!selectedTodo) return;
-    try {
-      const updated = await db.updateTodo(
-        selectedTodo.id,
-        editTitle,
-        editPrompt,
-        selectedTodo.status,
-      );
-      dispatch({
-        type: 'UPDATE_TODO',
-        payload: updated as Todo
-      });
-    } catch {
-      // ignore: interceptor already shows error
-    }
-  };
-
   const handleDelete = async () => {
     if (!selectedTodo) return;
     try {
@@ -770,8 +750,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
           <StatusPicker value={selectedTodo.status} onChange={handleStatusChange} disabled={isExecuting} />
           <h2 className="card-title" style={{ margin: 0, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedTodo.title}</h2>
           <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-            <Button type="text" icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)} className="icon-btn" aria-label="任务设置" />
-            <Button type="text" icon={<EditOutlined />} onClick={() => setIsEditing(true)} className="icon-btn" aria-label="编辑任务" />
+            <Button type="text" icon={<EditOutlined />} onClick={() => setTodoDrawerOpen(true)} className="icon-btn" aria-label="编辑任务" />
             <Popconfirm title="删除任务" description="确定要删除吗？" onConfirm={handleDelete}>
               <Button type="text" danger icon={<DeleteOutlined />} className="icon-btn" aria-label="删除任务" />
             </Popconfirm>
@@ -1293,19 +1272,12 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
         )}
       </div>
 
-      <TodoEditDrawer
-        open={isEditing}
-        todo={selectedTodo}
-        onClose={() => setIsEditing(false)}
-        onSave={handleSaveEdit}
-      />
-
-      <TodoSettingsDrawer
-        open={settingsOpen}
+      <TodoDrawer
+        open={todoDrawerOpen}
         todo={selectedTodo}
         tags={state.tags}
-        onClose={() => setSettingsOpen(false)}
-        onUpdated={() => {
+        onClose={() => setTodoDrawerOpen(false)}
+        onSaved={() => {
           db.getAllTodos().then(todos => {
             dispatch({ type: 'SET_TODOS', payload: todos });
           });
