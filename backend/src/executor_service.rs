@@ -740,7 +740,8 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
                     execution_timeout_secs, todo_id, task_id
                 );
                 kill_process_tree(&mut child).await;
-                flush_timer.abort();
+                // Graceful shutdown: signal timer to finish its pending flush before abort
+                flush_shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
 
                 let _status = child.wait().await;
 
@@ -749,6 +750,11 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
                 }
                 if let Some(handle) = stderr_task {
                     let _ = handle.await;
+                }
+
+                // Wait for timer to finish its final flush cycle
+                if let Err(e) = flush_timer.await {
+                    tracing::error!("flush_timer panicked: {}", e);
                 }
 
                 for h in flush_handles.lock().await.drain(..) {
