@@ -56,12 +56,13 @@ impl CodeExecutor for HermesExecutor {
 
     fn command_args_with_session(&self, message: &str, session_id: Option<&str>, is_resume: bool) -> Vec<String> {
         if is_resume {
-            let mut args = vec!["--resume".to_string()];
+            let mut args = vec!["chat".to_string()];
+            args.push("-q".to_string());
+            args.push(message.to_string());
+            args.push("--resume".to_string());
             if let Some(sid) = session_id {
                 args.push(sid.to_string());
             }
-            args.push("-q".to_string());
-            args.push(message.to_string());
             args.push("--yolo".to_string());
             args
         } else {
@@ -382,13 +383,13 @@ mod tests {
     fn test_command_args_with_session_resume() {
         let executor = HermesExecutor::new("hermes".to_string());
         let args = executor.command_args_with_session("continue", Some("session_123"), true);
-        assert_eq!(args, vec!["--resume", "session_123", "-q", "continue", "--yolo"]);
+        assert_eq!(args, vec!["chat", "-q", "continue", "--resume", "session_123", "--yolo"]);
     }
 
     #[test]
     fn test_command_args_with_session_resume_none() {
         let executor = HermesExecutor::new("hermes".to_string());
         let args = executor.command_args_with_session("continue", None, true);
-        assert_eq!(args, vec!["--resume", "-q", "continue", "--yolo"]);
+        assert_eq!(args, vec!["chat", "-q", "continue", "--resume", "--yolo"]);
     }
 }

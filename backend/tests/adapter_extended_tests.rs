@@ -291,7 +291,7 @@ mod hermes_executor_extended_tests {
     fn test_command_args_with_session_resume() {
         let executor = HermesExecutor::new("hermes".to_string());
         let args = executor.command_args_with_session("continue", Some("session_123"), true);
-        assert_eq!(args, vec!["--resume", "session_123", "-q", "continue", "--yolo"]);
+        assert_eq!(args, vec!["chat", "-q", "continue", "--resume", "session_123", "--yolo"]);
     }
 }
 
