@@ -29,6 +29,7 @@ function formatDuration(ms: number): string {
 
 export interface TodoCardProps {
   /** Core content */
+  id: number;
   title: string;
   prompt: string | null;
   resultText: string | null;
@@ -72,6 +73,7 @@ export interface TodoCardProps {
 /* ─── Component ─── */
 
 export function TodoCard({
+  id,
   title,
   prompt,
   resultText,
@@ -100,7 +102,7 @@ export function TodoCard({
             onClick={onSelectTodo}
             title={title}
           >
-            {title}
+            <span style={{ color: '#999', marginRight: 4 }}>#{id}</span>{title}
           </span>
           <span>
             {isSuccess ? (

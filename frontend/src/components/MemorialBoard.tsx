@@ -132,6 +132,7 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
         bodyStyle={{ padding: 0 }}
       >
         <TodoCard
+          id={item.todo_id}
           title={item.title}
           prompt={item.prompt}
           resultText={result}
