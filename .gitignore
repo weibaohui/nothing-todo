@@ -52,3 +52,5 @@ datalog
 frontend/test-results/.last-run.json
 .deepseek/trusted
 .sisyphus/
+.worktrees
+frontend/node_modules
