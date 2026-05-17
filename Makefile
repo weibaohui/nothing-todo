@@ -1,4 +1,4 @@
-.PHONY: setup build clean run dev watch kill-port install start stop cross-build cross-list
+.PHONY: setup build clean dev stop watch kill-port cross-build cross-list
 
 # Source cargo env for all Rust commands
 export PATH := $(HOME)/.cargo/bin:$(PATH)
@@ -29,50 +29,11 @@ setup:
 	@$(CARGO_ENV) which cross > /dev/null 2>&1 || $(CARGO_ENV) cargo install cross --locked
 	@echo ""
 	@echo "=== Setup complete! ==="
-	@echo "Run 'make dev'       to start development (frontend + backend)"
+	@echo "Run 'make dev'       to start development (frontend + backend, port 18088)"
+	@echo "Run 'make stop'      to stop dev instance"
 	@echo "Run 'make watch'     to start with hot reload"
 	@echo "Run 'make build'     to build for production"
 	@echo "Run 'make cross-build' to build for win/mac/linux x86+arm"
-	@echo "Run 'make install'   to build and install binary to ~/.local/bin"
-
-# Install the built binary to ~/.local/bin
-install:  build
-	@mkdir -p $$HOME/.local/bin
-	@rm -f $$HOME/.local/bin/ntd
-	@cp backend/target/release/ntd $$HOME/.local/bin/
-	@echo "Installed to $$HOME/.local/bin/ntd"
-	@echo "Make sure $$HOME/.local/bin is in your PATH"
-
-# Stop the ntd binary
-stop:
-	-@if [ -f ~/.ntd/run.pid ]; then \
-		pid=$$(cat ~/.ntd/run.pid); \
-		kill -9 $$pid 2>/dev/null && echo "Killed process $$pid" || echo "Process $$pid not running"; \
-		rm -f ~/.ntd/run.pid; \
-	fi
-	-@pkill -9 -x ntd 2>/dev/null && echo "Killed ntd processes" || true
-	@sleep 1
-
-# Start the ntd binary (after installing)
-start: install
-	@mkdir -p $$HOME/.ntd
-	@( $$HOME/.local/bin/ntd >> $$HOME/.ntd/run.log 2>&1 & echo $$! > $$HOME/.ntd/run.pid )
-	@echo "ntd started (PID: $$(cat $$HOME/.ntd/run.pid)), logs: ~/.ntd/run.log"
-
-# Restart: clean install and start fresh
-restart: stop install
-	@rm -f $$HOME/.local/bin/ntd
-	@cd frontend && npm run build
-	@cd backend && $(CARGO_ENV) cargo build --release
-	@mkdir -p $$HOME/.local/bin
-	@cp backend/target/release/ntd $$HOME/.local/bin/
-	@( $$HOME/.local/bin/ntd >> $$HOME/.ntd/run.log 2>&1 & echo $$! > $$HOME/.ntd/run.pid )
-	@echo "ntd rebuilt and started (PID: $$(cat $$HOME/.ntd/run.pid))"
-
-# Kill processes on ports used by dev servers
-kill-port:
-	@fuser -k 8088/tcp 2>/dev/null || true
-	@fuser -k 5173/tcp 2>/dev/null || true
 
 # Build frontend and embed into Rust binary
 build:
@@ -84,17 +45,29 @@ clean:
 	rm -rf frontend/dist
 	rm -rf backend/target
 
-# Run the server (after build)
-run:
-	./backend/target/release/ntd
+# Kill processes on ports used by dev servers
+kill-port:
+	@fuser -k 18088/tcp 2>/dev/null || true
 
-# Development mode - frontend hot reload + backend auto-reload
-dev: kill-port
-	(cd frontend && npm run dev) &
-	(cd backend && $(CARGO_ENV) RUST_BACKTRACE=1 RUST_LOG=info cargo watch -x run 2>&1 | tee ../backend.log) &
-	@echo "Frontend: http://localhost:5173"
-	@echo "Backend:  http://localhost:8088 (watching for changes...)"
-	@echo "Backend logs: tail -f backend.log"
+# Stop the dev instance
+stop:
+	-@if [ -f ~/.ntd/dev.pid ]; then \
+		pid=$$(cat ~/.ntd/dev.pid); \
+		kill -9 $$pid 2>/dev/null && echo "Killed dev process $$pid" || echo "Dev process $$pid not running"; \
+		rm -f ~/.ntd/dev.pid; \
+	fi
+	-@fuser -k 18088/tcp 2>/dev/null || true
+	@sleep 1
+
+# Development mode - build frontend + run backend with embedded frontend on port 18088
+dev: stop
+	cd frontend && npm run build
+	(cd backend && $(CARGO_ENV) NTD_MODE=dev RUST_BACKTRACE=1 RUST_LOG=info cargo watch -x run 2>&1 | tee ../backend.dev.log) &
+	@echo $$! > $$HOME/.ntd/dev.pid
+	@echo "==========================================="
+	@echo "  Dev mode: http://localhost:18088"
+	@echo "==========================================="
+	@echo "Backend logs: tail -f backend.dev.log"
 	@echo ""
 	@echo "Press Ctrl+C to stop"
 
@@ -138,4 +111,3 @@ cross-list:
 	@echo "  Linux:    x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu"
 	@echo ""
 	@echo "Built binaries: backend/target/cross/"
-
