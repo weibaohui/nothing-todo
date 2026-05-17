@@ -111,34 +111,27 @@ pub async fn execute_handler(
         .await?
         .ok_or_else(|| AppError::BadRequest(format!("Todo {} not found", req.todo_id)))?;
 
-    // 检查 todo 是否正在执行中，防止重复执行造成状态混乱
-    // 不仅检查数据库状态，还要确认 task_manager 中是否真的有这个 todo 在运行
-    // 如果数据库状态是 Running 但 task_manager 中没有，说明状态异常（可能是异常退出遗留），允许重新执行
-    let running_tasks = state.task_manager.get_all_task_infos().await;
-    let is_orphan = todo.status == crate::models::TodoStatus::Running
-        && !running_tasks.iter().any(|task| task.todo_id == req.todo_id);
-    if todo.status == crate::models::TodoStatus::Running {
-        if running_tasks.iter().any(|task| task.todo_id == req.todo_id) {
-            return Err(AppError::BadRequest(format!(
-                "Todo {} is already running. Please stop the current execution first.",
-                req.todo_id
-            )));
-        } else if is_orphan {
-            tracing::warn!(
-                "Todo {} has status=Running in DB but not in task_manager (orphan state), will allow execution",
-                req.todo_id
-            );
-        }
-    }
-
-    // 检查全局并发数是否已达上限（排除孤儿任务，因为它们实际上并未运行）
+    // 检查该 todo 下正在执行的记录数量是否已达并发上限
+    // 需要过滤掉孤儿记录：状态为 running 但 task_manager 中没有对应 task
     let max_concurrent = state.config.read().await.max_concurrent_todos;
-    let running_count = state.db.get_running_todos().await.map(|v| v.len()).unwrap_or(0);
-    let running_count = if is_orphan { running_count.saturating_sub(1) } else { running_count };
-    if running_count >= max_concurrent as usize {
+    let running_tasks = state.task_manager.get_all_task_infos().await;
+    let running_records = state.db.get_running_execution_records().await?;
+    let running_count_for_todo = running_records
+        .iter()
+        .filter(|r| {
+            // 排除僵尸记录：状态为 running 但 task_manager 中没有对应 task
+            if let Some(task_id) = &r.task_id {
+                running_tasks.iter().any(|t| t.task_id == *task_id)
+            } else {
+                false
+            }
+        })
+        .filter(|r| r.todo_id == req.todo_id)
+        .count();
+    if running_count_for_todo >= max_concurrent as usize {
         return Err(AppError::BadRequest(format!(
-            "Concurrent limit reached ({}/{}). Please wait for a running task to finish.",
-            running_count, max_concurrent
+            "Todo {} has {} execution(s) still running (limit: {}). Please stop them first.",
+            req.todo_id, running_count_for_todo, max_concurrent
         )));
     }
 
@@ -319,34 +312,27 @@ pub async fn resume_execution_handler(
         .await?
         .ok_or(AppError::NotFound)?;
 
-    // 检查 todo 是否正在执行中，防止重复执行造成状态混乱
-    // 不仅检查数据库状态，还要确认 task_manager 中是否真的有这个 todo 在运行
-    // 如果数据库状态是 Running 但 task_manager 中没有，说明状态异常（可能是异常退出遗留），允许重新执行
-    let running_tasks = state.task_manager.get_all_task_infos().await;
-    let is_orphan = todo.status == crate::models::TodoStatus::Running
-        && !running_tasks.iter().any(|task| task.todo_id == todo_id);
-    if todo.status == crate::models::TodoStatus::Running {
-        if running_tasks.iter().any(|task| task.todo_id == todo_id) {
-            return Err(AppError::BadRequest(format!(
-                "Todo {} is already running. Cannot resume.",
-                todo_id
-            )));
-        } else if is_orphan {
-            tracing::warn!(
-                "Todo {} has status=Running in DB but not in task_manager (orphan state), will allow resume",
-                todo_id
-            );
-        }
-    }
-
-    // 检查全局并发数是否已达上限（排除孤儿任务，因为它们实际上并未运行）
+    // 检查该 todo 下正在执行的记录数量是否已达并发上限
+    // 需要过滤掉孤儿记录：状态为 running 但 task_manager 中没有对应 task
     let max_concurrent = state.config.read().await.max_concurrent_todos;
-    let running_count = state.db.get_running_todos().await.map(|v| v.len()).unwrap_or(0);
-    let running_count = if is_orphan { running_count.saturating_sub(1) } else { running_count };
-    if running_count >= max_concurrent as usize {
+    let running_tasks = state.task_manager.get_all_task_infos().await;
+    let running_records = state.db.get_running_execution_records().await?;
+    let running_count_for_todo = running_records
+        .iter()
+        .filter(|r| {
+            // 排除僵尸记录：状态为 running 但 task_manager 中没有对应 task
+            if let Some(task_id) = &r.task_id {
+                running_tasks.iter().any(|t| t.task_id == *task_id)
+            } else {
+                false
+            }
+        })
+        .filter(|r| r.todo_id == todo_id)
+        .count();
+    if running_count_for_todo >= max_concurrent as usize {
         return Err(AppError::BadRequest(format!(
-            "Concurrent limit reached ({}/{}). Please wait for a running task to finish.",
-            running_count, max_concurrent
+            "Todo {} has {} execution(s) still running (limit: {}). Cannot resume.",
+            todo_id, running_count_for_todo, max_concurrent
         )));
     }
 
