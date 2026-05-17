@@ -26,14 +26,13 @@ async fn create_test_app() -> axum::Router {
     let (tx, _rx) = broadcast::channel(100);
     let task_manager = Arc::new(TaskManager::new());
 
+    let config = Arc::new(tokio::sync::RwLock::new(Config::default()));
     let scheduler = Arc::new(TodoScheduler::new().await.unwrap());
     scheduler
-        .load_from_db(db.clone(), executor_registry.clone(), tx.clone(), task_manager.clone())
+        .load_from_db(db.clone(), executor_registry.clone(), tx.clone(), task_manager.clone(), config.clone())
         .await
         .unwrap();
     scheduler.start().await.unwrap();
-
-    let config = Arc::new(tokio::sync::RwLock::new(Config::default()));
 
     create_app(db, executor_registry, tx, scheduler, task_manager, config)
 }
