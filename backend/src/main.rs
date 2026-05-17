@@ -183,20 +183,9 @@ fn print_structured_error(e: &anyhow::Error) {
     eprintln!("{}", serde_json::to_string(&err).unwrap_or_else(|_| r#"{"error":true,"message":"unknown"}"#.to_string()));
 }
 
-/// Executor type → skill directory mapping (duplicated from handlers::skills for CLI use without server).
+/// Executor type → skill directory mapping (delegated to shared module).
 fn executor_skills_dir(et: &str) -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-    match et {
-        "claudecode" => Some(home.join(".claude").join("skills")),
-        "hermes" => Some(home.join(".hermes").join("skills")),
-        "codex" => Some(home.join(".codex").join("skills")),
-        "codebuddy" => Some(home.join(".codebuddy").join("skills")),
-        "opencode" => Some(home.join(".opencode").join("skills")),
-        "atomcode" => Some(home.join(".atomcode").join("skills")),
-        "kimi" => Some(home.join(".kimi").join("skills")),
-        "joinai" => Some(home.join(".joinai").join("skills")),
-        _ => None,
-    }
+    handlers::skills::executor_skills_dir_str(et)
 }
 
 const ALL_EXECUTORS: &[&str] = &[
@@ -230,7 +219,7 @@ fn handle_skill_install(force: bool, executor_filter: Option<&str>) -> anyhow::R
         let base_dir = match executor_skills_dir(et) {
             Some(d) => d,
             None => {
-                println!("  ⚠  Unknown executor '{}', skipping", et);
+                println!("  ✗ Unknown executor '{}', skipping", et);
                 continue;
             }
         };

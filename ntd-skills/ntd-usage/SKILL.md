@@ -36,6 +36,15 @@ ntd todo archive <id>
 ntd todo run <id> [--message "prompt"] [--stdin]         # 远程执行，使用 --stdin 从 stdin 读取内容
 ```
 
+### 执行管理
+
+```bash
+ntd execution resume <id> [--message "prompt"]        # 恢复/继续执行一个已完成的 todo
+ntd todo list --status running --output raw            # 查看正在运行的 todo
+```
+
+`execution resume` 用于在首次执行完成后，基于已有结果继续补充 prompt 重新执行。常用于分步调试或追加上下文。
+
 ### Tag 管理
 
 ```bash
