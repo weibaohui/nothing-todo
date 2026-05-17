@@ -69,9 +69,17 @@ impl Database {
         todo_id: i64,
         limit: i64,
         offset: i64,
+        status: Option<&str>,
     ) -> Result<(Vec<ExecutionRecord>, i64), sea_orm::DbErr> {
+        let base_filter = execution_records::Column::TodoId.eq(todo_id);
+        let filter = if let Some(s) = status {
+            base_filter.and(execution_records::Column::Status.eq(s))
+        } else {
+            base_filter
+        };
+
         let total: i64 = execution_records::Entity::find()
-            .filter(execution_records::Column::TodoId.eq(todo_id))
+            .filter(filter.clone())
             .count(&self.conn)
             .await? as i64;
 
@@ -79,7 +87,7 @@ impl Database {
         let offset_u = if offset < 0 { 0 } else { offset as u64 };
 
         let records = execution_records::Entity::find()
-            .filter(execution_records::Column::TodoId.eq(todo_id))
+            .filter(filter)
             .order_by_desc(execution_records::Column::StartedAt)
             .limit(limit_u)
             .offset(offset_u)

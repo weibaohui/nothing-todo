@@ -182,10 +182,11 @@ export async function deleteProjectDirectory(id: number): Promise<void> {
 
 // Execution APIs
 
-export async function getExecutionRecords(todoId: number, page?: number, limit?: number): Promise<ExecutionRecordsPage> {
+export async function getExecutionRecords(todoId: number, page?: number, limit?: number, status?: string): Promise<ExecutionRecordsPage> {
   const params: Record<string, unknown> = { todo_id: todoId };
   if (page !== undefined) params.page = page;
   if (limit !== undefined) params.limit = limit;
+  if (status !== undefined) params.status = status;
   return unwrap(await api.get<ApiResp<ExecutionRecordsPage>>(`/xyz/execution-records`, { params }));
 }
 

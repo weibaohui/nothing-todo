@@ -508,7 +508,8 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
   const loadExecutionRecords = async (page = 1, limit = historyLimit) => {
     if (!selectedTodo) return;
     try {
-      const pageData = await db.getExecutionRecords(selectedTodo.id, page, limit);
+      const statusFilter = historyStatusFilter === 'all' ? undefined : historyStatusFilter;
+      const pageData = await db.getExecutionRecords(selectedTodo.id, page, limit, statusFilter);
 
       // 只加载当前页的记录，不再预加载会话链（会话链在点击查看详情时单独加载）
       dispatch({
@@ -541,7 +542,8 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
     if (selectedTodo) {
       setHistoryPage(1);
 
-      db.getExecutionRecords(selectedTodo.id, 1, historyLimit).then(pageData => {
+      const statusFilter = historyStatusFilter === 'all' ? undefined : historyStatusFilter;
+      db.getExecutionRecords(selectedTodo.id, 1, historyLimit, statusFilter).then(pageData => {
         if (cancelled) return;
         dispatch({
           type: 'SET_EXECUTION_RECORDS',
@@ -559,7 +561,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
       setTodoDrawerOpen(false);
     }
     return () => { cancelled = true; };
-  }, [selectedTodoId, selectedTodo, dispatch, historyLimit]);
+  }, [selectedTodoId, selectedTodo, dispatch, historyLimit, historyStatusFilter]);
 
   useEffect(() => {
     setSelectedHistoryRecordId(null);
@@ -601,14 +603,8 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
   const [resumeMessage, setResumeMessage] = useState('');
   const [resumeLoading, setResumeLoading] = useState(false);
 
-  // Filter records by status
-  const filteredRecords = useMemo(() => {
-    if (historyStatusFilter === 'all') return records;
-    return records.filter(r => r.status === historyStatusFilter);
-  }, [records, historyStatusFilter]);
-
   // Always group execution records by session_id
-  const sessionGroups = useMemo(() => groupBySession(filteredRecords), [filteredRecords]);
+  const sessionGroups = useMemo(() => groupBySession(records), [records]);
 
   const handleOpenResume = (record: ExecutionRecord) => {
     setResumeRecordId(record.id);
