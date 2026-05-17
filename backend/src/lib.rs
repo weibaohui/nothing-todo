@@ -17,3 +17,8 @@ use rust_embed::RustEmbed;
 #[derive(RustEmbed)]
 #[folder = "../frontend/dist/"]
 pub struct Assets;
+
+/// Embedded ntd usage skill files, installed to executor skill directories.
+#[derive(RustEmbed)]
+#[folder = "../ntd-skills/"]
+pub struct NtdSkills;

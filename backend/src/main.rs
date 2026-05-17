@@ -3,7 +3,9 @@ use clap::{Parser, Subcommand};
 use tokio::sync::broadcast;
 use tracing::info;
 
+use std::path::PathBuf;
 use ntd::{adapters, cli, daemon, db, handlers, scheduler::TodoScheduler, task_manager::TaskManager};
+use ntd::NtdSkills;
 
 /// ntd - Nothing Todo
 #[derive(Parser)]
@@ -52,6 +54,24 @@ enum Commands {
     Daemon {
         #[command(subcommand)]
         action: daemon::DaemonAction,
+    },
+    /// Manage ntd usage skills for AI executors
+    Skill {
+        #[command(subcommand)]
+        action: SkillAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum SkillAction {
+    /// Install ntd usage skills to executor skill directories (e.g. ~/.claude/skills/ntd-usage/)
+    Install {
+        /// Force reinstall even if already installed
+        #[arg(short, long)]
+        force: bool,
+        /// Only install for specific executors (comma-separated, e.g. "claudecode,atomcode")
+        #[arg(short, long)]
+        executor: Option<String>,
     },
 }
 
@@ -140,6 +160,13 @@ async fn main() {
             daemon::handle_daemon_command(action);
             return;
         }
+        Some(Commands::Skill { action: SkillAction::Install { force, executor } }) => {
+            if let Err(e) = handle_skill_install(*force, executor.as_deref()) {
+                eprintln!("{}", serde_json::json!({"error": true, "message": e.to_string()}));
+                std::process::exit(1);
+            }
+            return;
+        }
         None => {
             // No subcommand: start server by default
             println!("Starting ntd server...");
@@ -154,6 +181,117 @@ fn print_structured_error(e: &anyhow::Error) {
         "message": e.to_string(),
     });
     eprintln!("{}", serde_json::to_string(&err).unwrap_or_else(|_| r#"{"error":true,"message":"unknown"}"#.to_string()));
+}
+
+/// Executor type → skill directory mapping (duplicated from handlers::skills for CLI use without server).
+fn executor_skills_dir(et: &str) -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    match et {
+        "claudecode" => Some(home.join(".claude").join("skills")),
+        "hermes" => Some(home.join(".hermes").join("skills")),
+        "codex" => Some(home.join(".codex").join("skills")),
+        "codebuddy" => Some(home.join(".codebuddy").join("skills")),
+        "opencode" => Some(home.join(".opencode").join("skills")),
+        "atomcode" => Some(home.join(".atomcode").join("skills")),
+        "kimi" => Some(home.join(".kimi").join("skills")),
+        "joinai" => Some(home.join(".joinai").join("skills")),
+        _ => None,
+    }
+}
+
+const ALL_EXECUTORS: &[&str] = &[
+    "claudecode", "hermes", "codex", "codebuddy",
+    "opencode", "atomcode", "kimi", "joinai",
+];
+
+/// Install embedded ntd-usage skill to executor skill directories.
+fn handle_skill_install(force: bool, executor_filter: Option<&str>) -> anyhow::Result<()> {
+    let executors: Vec<&str> = if let Some(filter) = executor_filter {
+        filter.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect()
+    } else {
+        ALL_EXECUTORS.to_vec()
+    };
+
+    if executors.is_empty() {
+        anyhow::bail!("No executors specified");
+    }
+
+    // Verify the embedded skill exists
+    let skill_dir = "ntd-usage";
+    let has_skill = NtdSkills::iter().any(|path| path.starts_with(skill_dir));
+    if !has_skill {
+        anyhow::bail!("Embedded skill '{}' not found in binary. Rebuild ntd to include skill files.", skill_dir);
+    }
+
+    let mut installed = 0;
+    let mut skipped = 0;
+
+    for et in &executors {
+        let base_dir = match executor_skills_dir(et) {
+            Some(d) => d,
+            None => {
+                println!("  ⚠  Unknown executor '{}', skipping", et);
+                continue;
+            }
+        };
+
+        let target = base_dir.join(skill_dir);
+
+        if target.exists() {
+            if !force {
+                println!("  ✓ {} already installed (use --force to reinstall)", et);
+                skipped += 1;
+                continue;
+            }
+            std::fs::remove_dir_all(&target)?;
+        }
+
+        // Create target directory
+        std::fs::create_dir_all(&target)?;
+
+        // Extract embedded skill files
+        let prefix = format!("{}/", skill_dir);
+        let mut extracted = 0;
+        for path in NtdSkills::iter() {
+            if !path.starts_with(&prefix) {
+                continue;
+            }
+            let relative_path = &path[prefix.len()..];
+            if relative_path.is_empty() {
+                continue; // skip the directory entry itself
+            }
+
+            let file = match NtdSkills::get(&path) {
+                Some(f) => f,
+                None => continue,
+            };
+
+            let file_path = target.join(relative_path);
+
+            // Create parent directories
+            if let Some(parent) = file_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+
+            std::fs::write(&file_path, &file.data)?;
+            extracted += 1;
+        }
+
+        if extracted > 0 {
+            println!("  ✓ Installed ntd-usage skill for {} ({} files)", et, extracted);
+            installed += 1;
+        } else {
+            anyhow::bail!("No files extracted for executor '{}'. Embedded skill data may be empty.", et);
+        }
+    }
+
+    if installed == 0 && skipped > 0 {
+        println!("All skills already installed. Use `ntd skill install --force` to reinstall.");
+    } else {
+        println!("Done. Installed for {} executor(s), skipped {} (already present).", installed, skipped);
+    }
+
+    Ok(())
 }
 
 async fn run_server(cli_port: Option<u16>) {
