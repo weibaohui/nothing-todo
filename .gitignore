@@ -1,54 +1,11 @@
-# Logs
-logs
-*.log
+# Rust build artifacts
+target/
+backend/target/
 
-# Dependencies
-node_modules/
+# Tauri build artifacts
+src-tauri/target/
 
-# Build outputs
-dist/
-dist-ssr/
-*.local
-
-# Rust build
-backend/target
-*.db
-
-# Editor
-.vscode/
-!.vscode/extensions.json
+# IDE
 .idea/
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-dist/
-.playwright-cli
-.claude
-1
-after-reload.png
-fix-test-1-first-click.png
-fix-test-2-second-click.png
-fix-test-3-third-click.png
-modal-test.png
-popover-final-test.png
-popover-test.png
-popover-test2.png
-select-dropdown-test.png
-settings-modal-test.png
-settings-modal.png
-status-picker-working.png
-step1-initial.png
-step2-after-click-status.png
-step3-click-status.png
-step4-click-again.png
-step5-different-status.png
-step6-same-again.png
-.atomcode
-datalog
-.cc-connect
-frontend/test-results/.last-run.json
-.deepseek/trusted
-.sisyphus/
+*.swp
+*.swo
