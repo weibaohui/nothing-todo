@@ -286,24 +286,44 @@ pub async fn update_auto_sync_config(
 
 /// Start custom template auto sync scheduler
 pub fn start_custom_template_auto_sync(
-    cron_expr: &str,
+    _cron_expr: &str,
     db: Arc<Database>,
+    config: std::sync::Arc<tokio::sync::RwLock<crate::config::Config>>,
 ) -> Result<(), String> {
-    let schedule = cron::Schedule::from_str(cron_expr)
+    // Validate initial cron expression but will re-read from config in the loop
+    let _ = cron::Schedule::from_str(_cron_expr)
         .map_err(|e| format!("Invalid cron: {}", e))?;
 
     let db_clone = db.clone();
     tokio::spawn(async move {
         loop {
-            let next = schedule.upcoming(chrono::Utc).next();
-            let delay = match next {
-                Some(dt) => {
-                    let now = chrono::Utc::now();
-                    (dt - now).to_std().unwrap_or(std::time::Duration::from_secs(60))
+            // Read current config from in-memory state
+            let (enabled, next_delay) = {
+                let cfg = config.read().await;
+                if !cfg.auto_sync_custom_templates_enabled {
+                    // Auto sync disabled, wait and check again
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    continue;
                 }
-                None => std::time::Duration::from_secs(3600),
+                let schedule = cron::Schedule::from_str(&cfg.auto_sync_custom_templates_cron)
+                    .unwrap_or_else(|_| cron::Schedule::from_str("0 0 * * *").unwrap());
+                let next = schedule.upcoming(chrono::Utc).next();
+                let delay = match next {
+                    Some(dt) => {
+                        let now = chrono::Utc::now();
+                        (dt - now).to_std().unwrap_or(std::time::Duration::from_secs(60))
+                    }
+                    None => std::time::Duration::from_secs(3600),
+                };
+                (cfg.auto_sync_custom_templates_enabled, delay)
             };
-            tokio::time::sleep(delay).await;
+
+            tokio::time::sleep(next_delay).await;
+
+            // Skip sync if disabled while sleeping
+            if !enabled {
+                continue;
+            }
 
             let db = db_clone.clone();
             match perform_sync(&db).await {
