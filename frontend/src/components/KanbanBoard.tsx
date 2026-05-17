@@ -254,6 +254,7 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
         style={{ borderTop: `3px solid ${column.color}` }}
       >
         <TodoCard
+          id={todo.id}
           title={todo.title}
           prompt={todo.prompt}
           resultText={resultText}
