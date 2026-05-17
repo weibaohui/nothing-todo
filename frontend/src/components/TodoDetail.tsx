@@ -1821,9 +1821,9 @@ function NarrowLogView({ record, isRunning, displayLogs, liveLogs, viewMode, onR
   onRefresh: (id: number) => Promise<void>;
   onViewModeChange: (mode: 'log' | 'chat') => void;
 }) {
-  if (!isRunning && displayLogs.length === 0) return null;
   const defaultOpen = isRunning || viewMode === 'chat';
   const [isExpanded, setIsExpanded] = useState(defaultOpen);
+  if (!isRunning && displayLogs.length === 0) return null;
   const title = viewMode === 'chat'
     ? `对话视图 (${displayLogs.length} 条)${isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}`
     : `查看日志 (${displayLogs.length} 条)${isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}`;
