@@ -112,9 +112,22 @@ pub async fn execute_handler(
         .ok_or_else(|| AppError::BadRequest(format!("Todo {} not found", req.todo_id)))?;
 
     // 检查该 todo 下正在执行的记录数量是否已达并发上限
+    // 需要过滤掉孤儿记录：状态为 running 但 task_manager 中没有对应 task
     let max_concurrent = state.config.read().await.max_concurrent_todos;
+    let running_tasks = state.task_manager.get_all_task_infos().await;
     let running_records = state.db.get_running_execution_records().await?;
-    let running_count_for_todo = running_records.iter().filter(|r| r.todo_id == req.todo_id).count();
+    let running_count_for_todo = running_records
+        .iter()
+        .filter(|r| {
+            // 排除僵尸记录：状态为 running 但 task_manager 中没有对应 task
+            if let Some(task_id) = &r.task_id {
+                running_tasks.iter().any(|t| t.task_id == *task_id)
+            } else {
+                false
+            }
+        })
+        .filter(|r| r.todo_id == req.todo_id)
+        .count();
     if running_count_for_todo >= max_concurrent as usize {
         return Err(AppError::BadRequest(format!(
             "Todo {} has {} execution(s) still running (limit: {}). Please stop them first.",
@@ -300,9 +313,22 @@ pub async fn resume_execution_handler(
         .ok_or(AppError::NotFound)?;
 
     // 检查该 todo 下正在执行的记录数量是否已达并发上限
+    // 需要过滤掉孤儿记录：状态为 running 但 task_manager 中没有对应 task
     let max_concurrent = state.config.read().await.max_concurrent_todos;
+    let running_tasks = state.task_manager.get_all_task_infos().await;
     let running_records = state.db.get_running_execution_records().await?;
-    let running_count_for_todo = running_records.iter().filter(|r| r.todo_id == todo_id).count();
+    let running_count_for_todo = running_records
+        .iter()
+        .filter(|r| {
+            // 排除僵尸记录：状态为 running 但 task_manager 中没有对应 task
+            if let Some(task_id) = &r.task_id {
+                running_tasks.iter().any(|t| t.task_id == *task_id)
+            } else {
+                false
+            }
+        })
+        .filter(|r| r.todo_id == todo_id)
+        .count();
     if running_count_for_todo >= max_concurrent as usize {
         return Err(AppError::BadRequest(format!(
             "Todo {} has {} execution(s) still running (limit: {}). Cannot resume.",
