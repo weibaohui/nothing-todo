@@ -616,6 +616,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
       await db.resumeExecutionRecord(resumeRecordId, resumeMessage);
       message.success('已继续对话，任务开始执行');
       setResumeModalOpen(false);
+      setResumeMessage('');
       await loadExecutionRecords(historyPage, historyLimit);
     } catch (error) {
       message.error('继续对话失败: ' + (error instanceof Error ? error.message : String(error)));
@@ -1320,7 +1321,10 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
         title="继续对话"
         open={resumeModalOpen}
         onOk={handleResumeConfirm}
-        onCancel={() => setResumeModalOpen(false)}
+        onCancel={() => {
+          setResumeModalOpen(false);
+          setResumeMessage('');
+        }}
         confirmLoading={resumeLoading}
         okText="开始执行"
         cancelText="取消"
