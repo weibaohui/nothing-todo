@@ -369,7 +369,7 @@ async fn run_server(cli_port: Option<u16>) {
 
         // 注册自动数据库备份定时任务
         if cfg.auto_backup_enabled {
-            match handlers::backup::start_auto_backup(&cfg.auto_backup_cron) {
+            match handlers::backup::start_auto_backup(&cfg.auto_backup_cron, config.clone()) {
                 Ok(()) => info!("Auto database backup enabled, cron: {}", cfg.auto_backup_cron),
                 Err(e) => tracing::warn!("Failed to start auto backup: {}", e),
             }
