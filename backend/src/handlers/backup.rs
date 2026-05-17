@@ -156,9 +156,13 @@ pub async fn download_database(
 }
 
 /// 将数据库复制到备份目录
-pub async fn trigger_local_backup() -> Result<ApiResponse<String>, AppError> {
-    let cfg = crate::config::Config::load();
+pub async fn trigger_local_backup(
+    State(state): State<AppState>,
+) -> Result<ApiResponse<String>, AppError> {
+    let cfg = state.config.read().await;
     let db_path = PathBuf::from(&cfg.db_path);
+    let max_files = cfg.auto_backup_max_files;
+    drop(cfg);
 
     if !db_path.exists() {
         return Err(AppError::Internal("Database file not found".to_string()));
@@ -180,7 +184,7 @@ pub async fn trigger_local_backup() -> Result<ApiResponse<String>, AppError> {
     .map_err(|e| AppError::Internal(format!("Failed to copy database: {}", e)))?;
 
     // 清理旧备份
-    cleanup_old_backups(cfg.auto_backup_max_files);
+    cleanup_old_backups(max_files);
 
     Ok(ApiResponse::ok(format!("备份成功: {}", backup_path.display())))
 }
@@ -224,9 +228,15 @@ pub struct BackupStatus {
 }
 
 /// 获取数据库备份状态
-pub async fn get_database_backup_status() -> Result<ApiResponse<BackupStatus>, AppError> {
-    let cfg = crate::config::Config::load();
+pub async fn get_database_backup_status(
+    State(state): State<AppState>,
+) -> Result<ApiResponse<BackupStatus>, AppError> {
+    let cfg = state.config.read().await;
     let dir = backup_dir();
+    let auto_backup_enabled = cfg.auto_backup_enabled;
+    let auto_backup_cron = cfg.auto_backup_cron.clone();
+    let auto_backup_max_files = cfg.auto_backup_max_files;
+    drop(cfg);
 
     let files = tokio::task::spawn_blocking(move || {
         let mut files = Vec::new();
@@ -261,9 +271,9 @@ pub async fn get_database_backup_status() -> Result<ApiResponse<BackupStatus>, A
     let last_backup = files.first().map(|f| f.created_at.clone());
 
     Ok(ApiResponse::ok(BackupStatus {
-        auto_backup_enabled: cfg.auto_backup_enabled,
-        auto_backup_cron: cfg.auto_backup_cron,
-        auto_backup_max_files: cfg.auto_backup_max_files,
+        auto_backup_enabled,
+        auto_backup_cron,
+        auto_backup_max_files,
         last_backup,
         files,
     }))
@@ -278,6 +288,7 @@ pub struct UpdateAutoBackupRequest {
 }
 
 pub async fn update_auto_backup(
+    State(state): State<AppState>,
     axum::Json(req): axum::Json<UpdateAutoBackupRequest>,
 ) -> Result<ApiResponse<String>, AppError> {
     // 验证 cron 表达式
@@ -289,7 +300,7 @@ pub async fn update_auto_backup(
             .ok_or_else(|| AppError::BadRequest("Cron expression has no future executions".to_string()))?;
     }
 
-    let mut cfg = crate::config::Config::load();
+    let mut cfg = state.config.write().await;
     cfg.auto_backup_enabled = req.enabled;
     cfg.auto_backup_cron = req.cron;
     if let Some(max_files) = req.max_files {
@@ -298,7 +309,13 @@ pub async fn update_auto_backup(
         }
         cfg.auto_backup_max_files = max_files;
     }
-    cfg.save().map_err(AppError::Internal)?;
+    cfg.normalize_paths();
+
+    let cfg_clone = cfg.clone();
+    tokio::task::spawn_blocking(move || cfg_clone.save())
+        .await
+        .map_err(|e| AppError::Internal(format!("Join error: {}", e)))?
+        .map_err(|e| AppError::Internal(format!("Failed to save config: {}", e)))?;
 
     Ok(ApiResponse::ok("自动备份配置已更新".to_string()))
 }
@@ -361,9 +378,8 @@ pub async fn download_backup_file(
 }
 
 /// 执行数据库文件备份（供定时任务调用）
-pub fn perform_database_backup() -> Result<String, String> {
-    let cfg = crate::config::Config::load();
-    let db_path = PathBuf::from(&cfg.db_path);
+pub fn perform_database_backup(db_path: &str, max_files: usize) -> Result<String, String> {
+    let db_path = PathBuf::from(db_path);
 
     if !db_path.exists() {
         return Err("Database file not found".to_string());
@@ -379,7 +395,7 @@ pub fn perform_database_backup() -> Result<String, String> {
     std::fs::copy(&db_path, &backup_path)
         .map_err(|e| format!("Failed to copy database: {}", e))?;
 
-    cleanup_old_backups(cfg.auto_backup_max_files);
+    cleanup_old_backups(max_files);
 
     Ok(format!("Auto backup: {}", backup_path.display()))
 }
@@ -416,7 +432,10 @@ fn cleanup_old_backups(keep: usize) {
 }
 
 /// 启动自动备份定时任务
-pub fn start_auto_backup(cron_expr: &str) -> Result<(), String> {
+pub fn start_auto_backup(
+    cron_expr: &str,
+    config: std::sync::Arc<tokio::sync::RwLock<crate::config::Config>>,
+) -> Result<(), String> {
     let schedule = cron::Schedule::from_str(cron_expr)
         .map_err(|e| format!("Invalid cron: {}", e))?;
 
@@ -431,7 +450,14 @@ pub fn start_auto_backup(cron_expr: &str) -> Result<(), String> {
                 None => std::time::Duration::from_secs(3600),
             };
             tokio::time::sleep(delay).await;
-            match tokio::task::spawn_blocking(perform_database_backup).await {
+
+            // Read current config from in-memory state
+            let (db_path, max_files) = {
+                let cfg = config.read().await;
+                (cfg.db_path.clone(), cfg.auto_backup_max_files)
+            };
+
+            match tokio::task::spawn_blocking(move || perform_database_backup(&db_path, max_files)).await {
                 Ok(Ok(msg)) => tracing::info!("{}", msg),
                 Ok(Err(e)) => tracing::error!("Auto backup failed: {}", e),
                 Err(e) => tracing::error!("Auto backup task panicked: {}", e),

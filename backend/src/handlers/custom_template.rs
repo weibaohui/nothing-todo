@@ -142,7 +142,10 @@ pub async fn fetch_remote_templates(url: &str) -> Result<Vec<RemoteTemplate>, St
 pub async fn get_custom_template_status(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<CustomTemplateStatus>, AppError> {
-    let cfg = crate::config::Config::load();
+    let cfg = state.config.read().await;
+    let auto_sync_enabled = cfg.auto_sync_custom_templates_enabled;
+    let auto_sync_cron = cfg.auto_sync_custom_templates_cron.clone();
+    drop(cfg);
 
     let subscription = state.db.get_custom_template_subscription().await?;
     let (subscribed, source_url, last_sync_at) = match subscription {
@@ -161,8 +164,8 @@ pub async fn get_custom_template_status(
         subscribed,
         source_url,
         last_sync_at,
-        auto_sync_enabled: cfg.auto_sync_custom_templates_enabled,
-        auto_sync_cron: cfg.auto_sync_custom_templates_cron.clone(),
+        auto_sync_enabled,
+        auto_sync_cron,
         templates: custom_templates,
     }))
 }
@@ -257,6 +260,7 @@ pub async fn sync_custom_template(
 
 /// Update auto sync configuration
 pub async fn update_auto_sync_config(
+    State(state): State<AppState>,
     ApiJson(req): ApiJson<UpdateAutoSyncRequest>,
 ) -> Result<ApiResponse<String>, AppError> {
     // Validate cron expression (accepts 5 or 6 field format)
@@ -267,10 +271,15 @@ pub async fn update_auto_sync_config(
             .ok_or_else(|| AppError::BadRequest("Cron expression has no future executions".to_string()))?;
     }
 
-    let mut cfg = crate::config::Config::load();
+    let mut cfg = state.config.write().await;
     cfg.auto_sync_custom_templates_enabled = req.enabled;
     cfg.auto_sync_custom_templates_cron = req.cron;
-    cfg.save().map_err(AppError::Internal)?;
+
+    let cfg_clone = cfg.clone();
+    tokio::task::spawn_blocking(move || cfg_clone.save())
+        .await
+        .map_err(|e| AppError::Internal(format!("Join error: {}", e)))?
+        .map_err(|e| AppError::Internal(format!("Failed to save config: {}", e)))?;
 
     Ok(ApiResponse::ok("自动同步配置已更新".to_string()))
 }
