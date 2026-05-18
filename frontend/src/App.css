@@ -3149,6 +3149,131 @@ code {
   font-size: 11px;
 }
 
+/* ============================================================
+   NTD Logo — 金色流光效果
+   ============================================================ */
+
+.ntd-logo {
+  position: relative;
+  font-family: 'Georgia', 'Times New Roman', serif;
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  background: linear-gradient(
+    135deg,
+    #7A5B0A 0%,
+    #B8860B 14%,
+    #DAA520 26%,
+    #FFD700 36%,
+    #FFF1A8 44%,
+    #FFFDE8 48%,
+    #FFF1A8 52%,
+    #FFD700 60%,
+    #DAA520 72%,
+    #CD950C 82%,
+    #B8860B 92%,
+    #8B6914 100%
+  );
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gold-flow 3.5s ease-in-out infinite;
+  filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.35)) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+  user-select: none;
+  cursor: default;
+  flex-shrink: 0;
+}
+
+/* ===== NTD 主文字 — 金色流光动画 ===== */
+@keyframes gold-flow {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* ===== 光带扫过 — 锐利高光 ===== */
+.ntd-logo::before {
+  content: 'NTD';
+  position: absolute;
+  inset: 0;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  background: linear-gradient(
+    112deg,
+    transparent 0%,
+    transparent 35%,
+    rgba(255, 255, 255, 0.06) 39%,
+    rgba(255, 255, 255, 0.3) 43%,
+    rgba(255, 253, 240, 0.85) 45.5%,
+    rgba(255, 255, 255, 1) 47%,
+    rgba(255, 253, 240, 0.85) 48.5%,
+    rgba(255, 255, 255, 0.3) 51%,
+    rgba(255, 255, 255, 0.06) 55%,
+    transparent 59%,
+    transparent 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shine-sweep 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes shine-sweep {
+  0%   { background-position: 160% 0; }
+  100% { background-position: -60% 0; }
+}
+
+/* ===== 溢彩层 — 精确贴合文字，color-dodge ===== */
+.ntd-logo::after {
+  content: 'NTD';
+  position: absolute;
+  inset: 0;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 60, 80, 0.35)   0%,
+    rgba(255, 160, 0, 0.4)    14%,
+    rgba(240, 240, 0, 0.35)   28%,
+    rgba(0, 230, 120, 0.4)    42%,
+    rgba(0, 180, 255, 0.4)    57%,
+    rgba(120, 60, 255, 0.35)  71%,
+    rgba(230, 50, 200, 0.35)  85%,
+    rgba(255, 60, 80, 0.35)   100%
+  );
+  background-size: 400% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: iridescent-flow 6s linear infinite;
+  mix-blend-mode: color-dodge;
+  pointer-events: none;
+}
+
+@keyframes iridescent-flow {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+/* ===== 减弱动画 ===== */
+@media (prefers-reduced-motion: reduce) {
+  .ntd-logo,
+  .ntd-logo::before,
+  .ntd-logo::after {
+    animation: none !important;
+  }
+}
+
 /* ─── Responsive ─── */
 @media (max-width: 768px) {
   .kanban-topbar {

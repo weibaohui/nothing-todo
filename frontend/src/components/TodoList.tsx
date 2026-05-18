@@ -69,6 +69,8 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
     <div className="todo-list-container">
       {/* Header */}
       <div className="todo-list-header">
+        {/* NTD Logo */}
+        <div className="ntd-logo" aria-label="NTD Logo">NTD</div>
         <div className="header-actions">
           <Button
             type="text"
