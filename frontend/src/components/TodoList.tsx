@@ -60,9 +60,6 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
   if (isLoading) {
     return (
       <div className="todo-list-container">
-        <div className="todo-list-header">
-          <h3 style={{ margin: 0, fontWeight: 700, fontSize: 16, color: 'var(--color-text)' }}>我的任务</h3>
-        </div>
         <SkeletonList />
       </div>
     );
@@ -72,12 +69,6 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
     <div className="todo-list-container">
       {/* Header */}
       <div className="todo-list-header">
-        <h3 style={{ margin: 0, fontWeight: 700, fontSize: 16, color: 'var(--color-text)' }}>
-          我的任务
-          <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)', fontWeight: 500, marginLeft: 8 }}>
-            ({filteredTodos.length})
-          </span>
-        </h3>
         <div className="header-actions">
           <Button
             type="text"
