@@ -35,12 +35,14 @@ pub async fn get_execution_records(
     let page = query.page.unwrap_or(1).max(1);
     let limit = query.limit.unwrap_or(10).clamp(1, 100);
     let offset = (page - 1) * limit;
-    let status = query
-        .status
-        .as_deref()
-        .map(|s| s.parse::<ExecutionStatus>().map(|v| v.as_str()))
-        .transpose()
-        .map_err(AppError::BadRequest)?;
+    let status = match query.status.as_deref() {
+        Some("all") | None => None,
+        Some(s) => Some(
+            s.parse::<ExecutionStatus>()
+                .map(|v| v.as_str())
+                .map_err(AppError::BadRequest)?
+        ),
+    };
     let (records, total) = state
         .db
         .get_execution_records(query.todo_id, limit, offset, status)
