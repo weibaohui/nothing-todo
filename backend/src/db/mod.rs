@@ -828,7 +828,7 @@ mod tests {
         let record_id = create_test_execution_record(&db, todo_id, "echo hi").await;
         let after = truncate_seconds(Utc::now());
 
-        let (records, _) = db.get_execution_records(todo_id, 100, 0).await.unwrap();
+        let (records, _) = db.get_execution_records(todo_id, 100, 0, None).await.unwrap();
         let record = records.into_iter().find(|r| r.id == record_id).unwrap();
         let started = truncate_seconds(parse_utc(&record.started_at));
 
@@ -856,7 +856,7 @@ mod tests {
         .unwrap();
         let after = truncate_seconds(Utc::now());
 
-        let (records, _) = db.get_execution_records(todo_id, 100, 0).await.unwrap();
+        let (records, _) = db.get_execution_records(todo_id, 100, 0, None).await.unwrap();
         let record = records.into_iter().find(|r| r.id == record_id).unwrap();
         let finished_at = record.finished_at.unwrap();
         let finished = truncate_seconds(parse_utc(&finished_at));
@@ -1135,7 +1135,7 @@ mod tests {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
         let record_id = create_test_execution_record(&db, todo_id, "echo hi").await;
-        let (records, total) = db.get_execution_records(todo_id, 100, 0).await.unwrap();
+        let (records, total) = db.get_execution_records(todo_id, 100, 0, None).await.unwrap();
         assert_eq!(total, 1);
         let record = records.iter().find(|r| r.id == record_id).unwrap();
         assert_eq!(record.status, crate::models::ExecutionStatus::Running);
@@ -1152,7 +1152,7 @@ mod tests {
         for i in 0..5 {
             create_test_execution_record(&db, todo_id, &format!("cmd{}", i)).await;
         }
-        let (records, total) = db.get_execution_records(todo_id, 2, 0).await.unwrap();
+        let (records, total) = db.get_execution_records(todo_id, 2, 0, None).await.unwrap();
         assert_eq!(total, 5);
         assert_eq!(records.len(), 2);
     }
@@ -1164,9 +1164,53 @@ mod tests {
         for i in 0..3 {
             create_test_execution_record(&db, todo_id, &format!("cmd{}", i)).await;
         }
-        let (records, total) = db.get_execution_records(todo_id, 10, 2).await.unwrap();
+        let (records, total) = db.get_execution_records(todo_id, 10, 2, None).await.unwrap();
         assert_eq!(total, 3);
         assert_eq!(records.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_execution_records_with_status_filter() {
+        let db = setup_db().await;
+        let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
+
+        let running_id = create_test_execution_record(&db, todo_id, "cmd-running").await;
+        let success_id = create_test_execution_record(&db, todo_id, "cmd-success").await;
+        db.update_execution_record(success_id, "success", "[]", "", None, None)
+            .await
+            .unwrap();
+        let failed_id = create_test_execution_record(&db, todo_id, "cmd-failed").await;
+        db.update_execution_record(failed_id, "failed", "[]", "", None, None)
+            .await
+            .unwrap();
+
+        let (running, total_running) =
+            db.get_execution_records(todo_id, 10, 0, Some("running"))
+                .await
+                .unwrap();
+        assert_eq!(total_running, 1);
+        assert_eq!(running.len(), 1);
+        assert_eq!(running[0].id, running_id);
+
+        let (success, total_success) =
+            db.get_execution_records(todo_id, 10, 0, Some("success"))
+                .await
+                .unwrap();
+        assert_eq!(total_success, 1);
+        assert_eq!(success.len(), 1);
+        assert_eq!(success[0].id, success_id);
+
+        let (failed, total_failed) =
+            db.get_execution_records(todo_id, 10, 0, Some("failed"))
+                .await
+                .unwrap();
+        assert_eq!(total_failed, 1);
+        assert_eq!(failed.len(), 1);
+        assert_eq!(failed[0].id, failed_id);
+
+        let (all, total_all) = db.get_execution_records(todo_id, 10, 0, None).await.unwrap();
+        assert_eq!(total_all, 3);
+        assert_eq!(all.len(), 3);
     }
 
     #[tokio::test]
@@ -1192,7 +1236,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let (records, _) = db.get_execution_records(todo_id, 100, 0).await.unwrap();
+        let (records, _) = db.get_execution_records(todo_id, 100, 0, None).await.unwrap();
         let record = records.iter().find(|r| r.id == record_id).unwrap();
         assert_eq!(record.status, crate::models::ExecutionStatus::Success);
         assert_eq!(record.result, Some("done".to_string()));
