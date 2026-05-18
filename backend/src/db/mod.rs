@@ -828,7 +828,7 @@ mod tests {
         let record_id = create_test_execution_record(&db, todo_id, "echo hi").await;
         let after = truncate_seconds(Utc::now());
 
-        let (records, _) = db.get_execution_records(todo_id, 100, 0).await.unwrap();
+        let (records, _) = db.get_execution_records(todo_id, 100, 0, None).await.unwrap();
         let record = records.into_iter().find(|r| r.id == record_id).unwrap();
         let started = truncate_seconds(parse_utc(&record.started_at));
 
@@ -856,7 +856,7 @@ mod tests {
         .unwrap();
         let after = truncate_seconds(Utc::now());
 
-        let (records, _) = db.get_execution_records(todo_id, 100, 0).await.unwrap();
+        let (records, _) = db.get_execution_records(todo_id, 100, 0, None).await.unwrap();
         let record = records.into_iter().find(|r| r.id == record_id).unwrap();
         let finished_at = record.finished_at.unwrap();
         let finished = truncate_seconds(parse_utc(&finished_at));
@@ -1135,7 +1135,7 @@ mod tests {
         let db = setup_db().await;
         let todo_id = db.create_todo("Test", "Prompt").await.unwrap();
         let record_id = create_test_execution_record(&db, todo_id, "echo hi").await;
-        let (records, total) = db.get_execution_records(todo_id, 100, 0).await.unwrap();
+        let (records, total) = db.get_execution_records(todo_id, 100, 0, None).await.unwrap();
         assert_eq!(total, 1);
         let record = records.iter().find(|r| r.id == record_id).unwrap();
         assert_eq!(record.status, crate::models::ExecutionStatus::Running);
@@ -1152,7 +1152,7 @@ mod tests {
         for i in 0..5 {
             create_test_execution_record(&db, todo_id, &format!("cmd{}", i)).await;
         }
-        let (records, total) = db.get_execution_records(todo_id, 2, 0).await.unwrap();
+        let (records, total) = db.get_execution_records(todo_id, 2, 0, None).await.unwrap();
         assert_eq!(total, 5);
         assert_eq!(records.len(), 2);
     }
@@ -1164,7 +1164,7 @@ mod tests {
         for i in 0..3 {
             create_test_execution_record(&db, todo_id, &format!("cmd{}", i)).await;
         }
-        let (records, total) = db.get_execution_records(todo_id, 10, 2).await.unwrap();
+        let (records, total) = db.get_execution_records(todo_id, 10, 2, None).await.unwrap();
         assert_eq!(total, 3);
         assert_eq!(records.len(), 1);
     }
@@ -1192,7 +1192,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let (records, _) = db.get_execution_records(todo_id, 100, 0).await.unwrap();
+        let (records, _) = db.get_execution_records(todo_id, 100, 0, None).await.unwrap();
         let record = records.iter().find(|r| r.id == record_id).unwrap();
         assert_eq!(record.status, crate::models::ExecutionStatus::Success);
         assert_eq!(record.result, Some("done".to_string()));

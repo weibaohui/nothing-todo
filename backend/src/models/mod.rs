@@ -331,6 +331,8 @@ pub struct TodoIdQuery {
     pub page: Option<i64>,
     #[serde(default)]
     pub limit: Option<i64>,
+    #[serde(default)]
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

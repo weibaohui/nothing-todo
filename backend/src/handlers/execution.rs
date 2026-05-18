@@ -37,7 +37,7 @@ pub async fn get_execution_records(
     let offset = (page - 1) * limit;
     let (records, total) = state
         .db
-        .get_execution_records(query.todo_id, limit, offset)
+        .get_execution_records(query.todo_id, limit, offset, query.status.as_deref())
         .await?;
     Ok(ApiResponse::ok(ExecutionRecordsPage {
         records,
