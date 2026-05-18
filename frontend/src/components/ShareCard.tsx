@@ -2,9 +2,13 @@ import { useState } from 'react';
 import { Card, Button, App } from 'antd';
 import { ShareAltOutlined, CopyOutlined, CheckOutlined } from '@ant-design/icons';
 
-const SHARE_PROMPT = `请在我的电脑上全局安装 ntd (Nothing Todo) 这个工具，执行命令：
+const getSharePrompt = () => {
+  const port = typeof window !== 'undefined' ? window.location.port : '8088';
+  const origin = typeof window !== 'undefined' ? window.location.origin : `http://localhost:${port}`;
+  return `请在我的电脑上全局安装 ntd (Nothing Todo) 这个工具，执行命令：
 npm install -g @weibaohui/nothing-todo
-安装完成后运行 ntd 启动服务，然后打开浏览器访问 http://localhost:8088`;
+安装完成后运行 ntd 启动服务，然后打开浏览器访问 ${origin}`;
+};
 
 export function ShareCard() {
   const { message } = App.useApp();
@@ -12,7 +16,7 @@ export function ShareCard() {
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(SHARE_PROMPT);
+      await navigator.clipboard.writeText(getSharePrompt());
       setCopied(true);
       message.success('安装提示词已复制到剪贴板');
       setTimeout(() => setCopied(false), 2000);
@@ -49,7 +53,7 @@ export function ShareCard() {
             position: 'relative',
           }}
         >
-          {SHARE_PROMPT}
+          {getSharePrompt()}
         </div>
         <Button
           type="primary"
