@@ -317,21 +317,6 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
 
           <Divider style={{ margin: '8px 0 16px' }} />
 
-          {/* Tags */}
-          {tags.length > 0 && (
-            <>
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ marginBottom: 10, fontWeight: 600, fontSize: 14 }}>标签</div>
-                <TagCheckCardGroup
-                  tags={tags}
-                  value={selectedTags[0] || null}
-                  onChange={(val) => setSelectedTags(val ? [val as number] : [])}
-                />
-              </div>
-              <Divider style={{ margin: '8px 0 16px' }} />
-            </>
-          )}
-
           {/* Prompt Editor */}
           <div style={{ marginBottom: 16 }}>
             <div style={{ marginBottom: 10, fontWeight: 600, fontSize: 14 }}>
@@ -518,6 +503,21 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
                 style={{ margin: 0 }}
               />
             </div>
+          )}
+
+          {/* Tags */}
+          {tags.length > 0 && (
+            <>
+              <Divider style={{ margin: '8px 0 16px' }} />
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ marginBottom: 10, fontWeight: 600, fontSize: 14 }}>标签</div>
+                <TagCheckCardGroup
+                  tags={tags}
+                  value={selectedTags[0] || null}
+                  onChange={(val) => setSelectedTags(val ? [val as number] : [])}
+                />
+              </div>
+            </>
           )}
 
           <Divider style={{ margin: '8px 0 16px' }} />
