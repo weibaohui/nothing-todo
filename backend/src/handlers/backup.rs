@@ -353,8 +353,6 @@ pub async fn update_auto_backup(
 #[derive(Deserialize)]
 pub struct DeleteBackupRequest {
     pub filename: String,
-    #[serde(default)]
-    pub backup_type: String, // "db" or "todo"
 }
 
 pub async fn delete_backup_file(
@@ -366,18 +364,13 @@ pub async fn delete_backup_file(
         return Err(AppError::BadRequest("Invalid filename".to_string()));
     }
 
-    let path = if req.backup_type == "todo" {
-        todo_backup_dir().join(&req.filename)
-    } else {
-        // backup_type 为空或 "db" 时按数据库备份处理
-        let cfg = state.config.read().await;
-        let db_path = PathBuf::from(&cfg.db_path);
-        let db_filename = db_path.file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        db_backup_dir(&db_filename).join(&req.filename)
-    };
+    let cfg = state.config.read().await;
+    let db_path = PathBuf::from(&cfg.db_path);
+    let db_filename = db_path.file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let path = db_backup_dir(&db_filename).join(&req.filename);
 
     if !path.exists() {
         return Err(AppError::NotFound);
@@ -389,12 +382,10 @@ pub async fn delete_backup_file(
     Ok(ApiResponse::ok("已删除".to_string()))
 }
 
-/// 下载指定备份文件
+/// 下载指定数据库备份文件
 #[derive(Deserialize)]
 pub struct DownloadBackupQuery {
     pub filename: String,
-    #[serde(default)]
-    pub backup_type: String, // "db" or "todo"
 }
 
 pub async fn download_backup_file(
@@ -405,18 +396,13 @@ pub async fn download_backup_file(
         return Err(AppError::BadRequest("Invalid filename".to_string()));
     }
 
-    let path = if query.backup_type == "todo" {
-        todo_backup_dir().join(&query.filename)
-    } else {
-        // backup_type 为空或 "db" 时按数据库备份处理
-        let cfg = state.config.read().await;
-        let db_path = PathBuf::from(&cfg.db_path);
-        let db_filename = db_path.file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        db_backup_dir(&db_filename).join(&query.filename)
-    };
+    let cfg = state.config.read().await;
+    let db_path = PathBuf::from(&cfg.db_path);
+    let db_filename = db_path.file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let path = db_backup_dir(&db_filename).join(&query.filename);
 
     if !path.exists() {
         return Err(AppError::NotFound);
