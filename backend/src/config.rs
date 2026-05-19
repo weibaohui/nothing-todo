@@ -147,7 +147,7 @@ impl Config {
     pub fn load() -> Self {
         let path = Self::config_path();
         if !path.exists() {
-            let cfg = if Self::is_dev_mode() {
+            let mut cfg = if Self::is_dev_mode() {
                 // Dev mode defaults: different port and database
                 let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
                 Config {
@@ -161,11 +161,14 @@ impl Config {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).ok();
             }
-            if let Ok(yaml) = serde_yaml::to_string(&cfg) {
+            let mut cfg_for_save = cfg.clone();
+            cfg_for_save.normalize_paths();
+            if let Ok(yaml) = serde_yaml::to_string(&cfg_for_save) {
                 if let Err(e) = std::fs::write(&path, yaml) {
                     eprintln!("Warning: failed to write config file ({}), using in-memory defaults", e);
                 }
             }
+            cfg.normalize_paths();
             return cfg;
         }
 

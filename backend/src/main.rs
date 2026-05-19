@@ -310,12 +310,23 @@ async fn run_server(cli_port: Option<u16>) {
         .with_timer(tracing_subscriber::fmt::time::time())
         .init();
 
-    let db_path = &cfg.db_path;
-    if let Some(parent) = std::path::Path::new(db_path).parent() {
+    // Expand tilde in db_path to home directory (normalize_paths is called in Config::load,
+    // but may not have expanded if config file didn't exist or was corrupted)
+    let db_path = if cfg.db_path.starts_with('~') {
+        if let Some(home) = dirs::home_dir() {
+            let relative = cfg.db_path.trim_start_matches('~').trim_start_matches(std::path::MAIN_SEPARATOR);
+            home.join(relative).to_string_lossy().to_string()
+        } else {
+            cfg.db_path.clone()
+        }
+    } else {
+        cfg.db_path.clone()
+    };
+    if let Some(parent) = std::path::Path::new(&db_path).parent() {
         std::fs::create_dir_all(parent).ok();
     }
 
-    let db = match db::Database::new(db_path).await {
+    let db = match db::Database::new(&db_path).await {
         Ok(db) => Arc::new(db),
         Err(e) => {
             eprintln!("Failed to open database at {}: {}", db_path, e);
