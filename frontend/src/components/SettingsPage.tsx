@@ -163,6 +163,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   }, [executors]);
   const [detectingExecutor, setDetectingExecutor] = useState<string | null>(null);
   const [testingExecutor, setTestingExecutor] = useState<string | null>(null);
+  const [batchDetecting, setBatchDetecting] = useState(false);
   const [detectResults, setDetectResults] = useState<Record<string, { found: boolean; resolved: string | null }>>({});
   const [testModalVisible, setTestModalVisible] = useState(false);
   const [testModalData, setTestModalData] = useState<{ name: string; result: { test_passed: boolean; output: string | null; error: string | null } } | null>(null);
@@ -1078,6 +1079,54 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
             <Paragraph type="secondary" style={{ marginBottom: 16 }}>
               管理执行器的路径、开关状态，并检测二进制是否可用。关闭开关的执行器不会出现在 Todo 的执行器选择列表中。
             </Paragraph>
+            <div style={{ marginBottom: 12 }}>
+              <Button
+                type="primary"
+                icon={<SearchOutlined />}
+                loading={batchDetecting}
+                onClick={async () => {
+                  setBatchDetecting(true);
+                  let availableCount = 0;
+                  try {
+                    for (const ec of executors) {
+                      try {
+                        const result = await db.detectExecutor(ec.name);
+                        // Update detect results immediately
+                        setDetectResults((prev) => ({
+                          ...prev,
+                          [ec.name]: { found: result.binary_found, resolved: result.path_resolved },
+                        }));
+
+                        // Update executor enabled state based on detection result
+                        if (result.binary_found) {
+                          availableCount++;
+                          if (!ec.enabled) {
+                            const updated = await db.updateExecutor(ec.name, { enabled: true });
+                            setExecutors((prev) =>
+                              prev.map((e) => (e.name === ec.name ? updated : e))
+                            );
+                          }
+                        } else if (ec.enabled) {
+                          const updated = await db.updateExecutor(ec.name, { enabled: false });
+                          setExecutors((prev) =>
+                            prev.map((e) => (e.name === ec.name ? updated : e))
+                          );
+                        }
+                      } catch (err) {
+                        // Continue with next executor on individual detection failure
+                      }
+                    }
+                    message.success(`批量检测完成：${availableCount}/${executors.length} 个执行器可用`);
+                  } catch (err: any) {
+                    message.error('批量检测失败: ' + (err?.message || String(err)));
+                  } finally {
+                    setBatchDetecting(false);
+                  }
+                }}
+              >
+                批量检测
+              </Button>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {executors.map((ec) => {
                 const detectResult = detectResults[ec.name];
