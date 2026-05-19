@@ -375,6 +375,14 @@ async fn run_server(cli_port: Option<u16>) {
             }
         }
 
+        // 注册 Todo 自动备份定时任务
+        if cfg.auto_todo_backup_enabled {
+            match handlers::backup::start_todo_auto_backup(db.clone(), config.clone()) {
+                Ok(()) => info!("Auto Todo backup enabled, cron: {}", cfg.auto_todo_backup_cron),
+                Err(e) => tracing::warn!("Failed to start Todo auto backup: {}", e),
+            }
+        }
+
         // 注册自定义模板自动同步定时任务
         if cfg.auto_sync_custom_templates_enabled {
             let db = Arc::clone(&db);

@@ -342,6 +342,44 @@ export function downloadBackupFileUrl(filename: string): string {
   return `/xyz/backup/database/file?filename=${encodeURIComponent(filename)}`;
 }
 
+// Todo Backup APIs
+
+export async function getTodoBackupStatus(): Promise<{
+  auto_backup_enabled: boolean;
+  auto_backup_cron: string;
+  auto_backup_max_files: number;
+  last_backup: string | null;
+  files: { name: string; size: number; created_at: string }[];
+}> {
+  return unwrap(await api.get<ApiResp<{
+    auto_backup_enabled: boolean;
+    auto_backup_cron: string;
+    auto_backup_max_files: number;
+    last_backup: string | null;
+    files: { name: string; size: number; created_at: string }[];
+  }>>('/xyz/backup/todo/status'));
+}
+
+export async function triggerTodoBackup(): Promise<string> {
+  return unwrap(await api.post<ApiResp<string>>('/xyz/backup/todo/trigger'));
+}
+
+export async function updateTodoAutoBackup(enabled: boolean, cron: string, maxFiles?: number): Promise<string> {
+  const body: Record<string, unknown> = { enabled, cron };
+  if (maxFiles !== undefined) {
+    body.max_files = maxFiles;
+  }
+  return unwrap(await api.put<ApiResp<string>>('/xyz/backup/todo/auto', body));
+}
+
+export async function deleteTodoBackupFile(filename: string): Promise<string> {
+  return unwrap(await api.delete<ApiResp<string>>('/xyz/backup/todo/file', { data: { filename } }));
+}
+
+export function downloadTodoBackupFileUrl(filename: string): string {
+  return `/xyz/backup/todo/file?filename=${encodeURIComponent(filename)}`;
+}
+
 // Config APIs
 
 export async function getConfig(): Promise<import('../types').Config> {
