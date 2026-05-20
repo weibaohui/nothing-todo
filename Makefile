@@ -49,9 +49,17 @@ clean:
 	rm -rf frontend/dist
 	rm -rf backend/target
 
-# Kill processes on ports used by dev servers
+# Detect OS once for all targets
+_UNAME := $(shell uname -s)
+
+# Kill processes on port 18088 (Linux fuser / macOS lsof)
+_KILL_PORT_18088 = fuser -k 18088/tcp 2>/dev/null || true
+ifeq ($(_UNAME),Darwin)
+  _KILL_PORT_18088 = lsof -ti:18088 | xargs kill -9 2>/dev/null || true
+endif
+
 kill-port:
-	@fuser -k 18088/tcp 2>/dev/null || true
+	@$(_KILL_PORT_18088)
 
 # Stop the dev instance
 stop:
@@ -60,7 +68,7 @@ stop:
 		kill -9 $$pid 2>/dev/null && echo "Killed dev process $$pid" || echo "Dev process $$pid not running"; \
 		rm -f ~/.ntd/dev.pid; \
 	fi
-	-@fuser -k 18088/tcp 2>/dev/null || true
+	@$(_KILL_PORT_18088)
 	@sleep 1
 
 # Development mode - build frontend + build backend + run on port 18088

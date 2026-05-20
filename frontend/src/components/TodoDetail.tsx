@@ -856,11 +856,11 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
             直接执行
           </Button>
           <Button
-            icon={<ThunderboltOutlined style={{ color: 'var(--color-primary)' }} />}
+            type="primary"
+            icon={<ThunderboltOutlined style={{ color: '#ffffff' }} />}
             onClick={handleOpenExecuteWithArgs}
             block
             className="btn-execute btn-execute-compact"
-            style={{ borderColor: 'var(--color-primary)', color: 'var(--color-primary)' }}
           >
             带参执行
           </Button>

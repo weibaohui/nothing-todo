@@ -298,17 +298,18 @@ fn handle_skill_install(force: bool, executor_filter: Option<&str>) -> anyhow::R
 }
 
 async fn run_server(cli_port: Option<u16>) {
-    let cfg = ntd::config::Config::load();
-
-    let level = cfg.log_level
-        .parse::<tracing::Level>()
-        .unwrap_or(tracing::Level::INFO);
-
+    // Initialize tracing early so any log is captured, even before config loads.
+    // Use RUST_LOG env var (e.g. RUST_LOG=debug) to override, default to "info".
     tracing_subscriber::fmt()
-        .with_max_level(level)
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
         .with_target(true)
         .with_timer(tracing_subscriber::fmt::time::time())
         .init();
+
+    let cfg = ntd::config::Config::load();
 
     // Expand tilde in db_path to home directory (normalize_paths is called in Config::load,
     // but may not have expanded if config file didn't exist or was corrupted)

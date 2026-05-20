@@ -467,10 +467,17 @@ pub fn create_app(
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
         .layer(CompressionLayer::new())
         .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
+            if crate::config::Config::is_dev_mode() {
+                CorsLayer::new()
+                    .allow_origin(Any)
+                    .allow_methods(Any)
+                    .allow_headers(Any)
+            } else {
+                CorsLayer::new()
+                    .allow_methods(Any)
+                    .allow_headers(Any)
+                    // Production: same-origin only (no explicit allow_origin)
+            },
         )
         .layer(TraceLayer::new_for_http())
         .with_state(state)
