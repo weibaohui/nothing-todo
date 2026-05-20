@@ -299,9 +299,12 @@ fn handle_skill_install(force: bool, executor_filter: Option<&str>) -> anyhow::R
 
 async fn run_server(cli_port: Option<u16>) {
     // Initialize tracing early so any log is captured, even before config loads.
-    // Override log level via RUST_LOG env var (e.g. RUST_LOG=debug).
+    // Use RUST_LOG env var (e.g. RUST_LOG=debug) to override, default to "info".
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
         .with_target(true)
         .with_timer(tracing_subscriber::fmt::time::time())
         .init();

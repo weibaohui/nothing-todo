@@ -28,7 +28,7 @@
 
 ### 2.1 整体架构
 
-```
+```text
 ┌─────────────────────────────────────────────┐
 │                  ntd binary                  │
 │  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
@@ -101,7 +101,7 @@
 | framer-motion | 12.38.0 | ✅ |
 | @uiw/react-md-editor | 4.1.0 | ✅ 大而全，但包较大 |
 | axios | 1.15.2 | ✅ |
-| vite chunk splitting | ✅ 已配置 manualChunks |
+| vite chunk splitting | 已配置 manualChunks | ✅ |
 
 ---
 
@@ -276,7 +276,7 @@ Handlers 直接调用 db 的方法，跨 handler 复用逻辑（如"创建一个
 
 ### 5.1 ✅ 好的
 
-- CI 矩阵构建 4 平台（linux x64/aarch64, windows x64, macos arm64）
+- CI 矩阵构建 4 平台（linux x64/aarch64, windows x64, macOS arm64）
 - `npm publish` 自动化到 npm registry
 - Cross 交叉编译容器配置完整
 - rust-embed 将前端 dist 嵌入静态二进制
@@ -397,7 +397,7 @@ GitHub Actions 没有测试步骤。
 
 ### 第一优先级（本轮实施，2 周）
 
-```
+```text
 Week 1: 稳定性加固
   ├── S1  日志 flush 重构 (channel 模式)        ← 最复杂，但收益最大
   ├── S2  tracing 优先初始化
@@ -414,7 +414,7 @@ Week 2: 工程基础
 
 ### 第二优先级（下一轮，2 周）
 
-```
+```text
 Week 3-4: 扩展性 + 性能
   ├── E2  执行器插件化
   ├── P2  日志存储优化 (逐行 INSERT)
@@ -425,7 +425,7 @@ Week 3-4: 扩展性 + 性能
 
 ### 第三优先级（后续持续）
 
-```
+```text
   ├── E3  React Router
   ├── E5  WebSocket 事件版本化
   ├── P3  前端渲染优化
@@ -441,7 +441,7 @@ Week 3-4: 扩展性 + 性能
 
 ### 当前：执行日志流（存在竞争条件）
 
-```
+```text
 stdout reader ──┐
                 ├──→ Arc<Mutex<Vec<ParsedLogEntry>>>
 stderr reader ──┘           │
@@ -452,7 +452,7 @@ stderr reader ──┘           │
 
 ### 优化后：统一管道
 
-```
+```text
 stdout reader ──┐
                 ├──→ mpsc::UnboundedSender<ParsedLogEntry>
 stderr reader ──┘           │

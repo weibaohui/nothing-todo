@@ -38,15 +38,20 @@ api.interceptors.response.use(
     return res;
   },
   async (error) => {
-    // Only retry on network errors (no response received) — up to MAX_RETRIES
+    // Only retry on network errors (no response received) — up to MAX_RETRIES,
+    // and only for idempotent HTTP methods to avoid duplicate mutations.
     if (!error.response && error.config) {
-      const cfg = error.config as Record<string, unknown>;
-      const retryCount = (cfg.__retryCount as number) || 0;
-      if (retryCount < MAX_RETRIES) {
-        cfg.__retryCount = retryCount + 1;
-        const delay = Math.min(Math.pow(2, retryCount + 1) * 500, 8000) + Math.floor(Math.random() * 500);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        return api(error.config);
+      const method = (error.config.method || 'get').toUpperCase();
+      const isIdempotent = ['GET', 'HEAD', 'OPTIONS'].includes(method);
+      if (isIdempotent) {
+        const cfg = error.config as Record<string, unknown>;
+        const retryCount = (cfg.__retryCount as number) || 0;
+        if (retryCount < MAX_RETRIES) {
+          cfg.__retryCount = retryCount + 1;
+          const delay = Math.min(Math.pow(2, retryCount + 1) * 500, 8000) + Math.floor(Math.random() * 500);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return api(error.config);
+        }
       }
     }
 
