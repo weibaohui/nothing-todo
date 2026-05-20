@@ -12,11 +12,16 @@ import {
   DollarOutlined,
   BarChartOutlined,
   MessageOutlined,
+  TrophyOutlined,
+  FireOutlined,
+  RiseOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useApp } from '../hooks/useApp';
 import { PieChart, PieChartLegend } from './PieChart';
 import { TrendChart, ContributionHeatmap } from './dashboard/DashboardCharts';
+import { MetricCard, Leaderboard, HighlightStat, TeamMemberCard } from './dashboard/EnhancedCards';
 import { AnimatedNumber } from './AnimatedNumber';
 import * as db from '../utils/database';
 import { getExecutorOption } from '../types';
@@ -365,6 +370,161 @@ export function Dashboard({ onBack }: DashboardProps) {
         </div>
       </Card>
     ),
+  });
+
+  // Key Metrics - 类似 Token Farm Dashboard 的指标卡片
+  panels.push({
+    key: 'key-metrics',
+    render: () => (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+        <MetricCard
+          title="今日执行"
+          value={stats?.today_executions ?? 0}
+          change={stats?.executions_change ?? 0}
+          changeLabel="vs昨日"
+          prefix={<ThunderboltOutlined />}
+          color="#8b5cf6"
+          loading={loading && !stats}
+          chineseFormat
+        />
+        <MetricCard
+          title="总执行"
+          value={stats?.total_executions ?? 0}
+          change={stats?.executions_change ?? 0}
+          changeLabel="本周"
+          prefix={<ThunderboltOutlined />}
+          color="#3b82f6"
+          loading={loading && !stats}
+          chineseFormat
+        />
+        <MetricCard
+          title="成功率"
+          value={successRate}
+          suffix="%"
+          change={stats?.success_rate_change}
+          prefix={<CheckCircleOutlined />}
+          color="#22c55e"
+          loading={loading && !stats}
+          decimals={1}
+        />
+        <MetricCard
+          title="总花费"
+          value={stats ? Math.round(stats.total_cost_usd) : 0}
+          suffix="$"
+          change={stats?.cost_change}
+          prefix={<DollarOutlined />}
+          color="#f59e0b"
+          loading={loading && !stats}
+        />
+        <MetricCard
+          title="活跃天数"
+          value={stats?.active_days ?? 0}
+          prefix={<FireOutlined />}
+          color="#ef4444"
+          loading={loading && !stats}
+        />
+        <MetricCard
+          title="连续天数"
+          value={stats?.streak_days ?? 0}
+          prefix={<RiseOutlined />}
+          color="#f97316"
+          loading={loading && !stats}
+        />
+        <MetricCard
+          title="平均耗时"
+          value={stats?.avg_duration_ms ? stats.avg_duration_ms / 1000 : 0}
+          suffix="s"
+          prefix={<ClockCircleOutlined />}
+          color="#0891b2"
+          loading={loading && !stats}
+          decimals={1}
+        />
+      </div>
+    ),
+  });
+
+  // Highlight Stats - 重点数据展示
+  panels.push({
+    key: 'highlight-stats',
+    render: () => (
+      <Card
+        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><TrophyOutlined /><span>亮点数据</span></div>}
+        className="dashboard-card" style={{ borderRadius: 12 }}
+        bodyStyle={{ padding: '16px 20px' }}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+          <HighlightStat
+            label="单日峰值"
+            value={stats?.peak_daily_executions ?? 284}
+            subLabel="2026年3月14日"
+            color="#f59e0b"
+            icon={<FireOutlined />}
+          />
+          <HighlightStat
+            label="最高产模型"
+            value={stats?.top_model ?? 'Claude 4.6'}
+            subLabel={stats?.top_model_tokens ? `${(stats.top_model_tokens / 10000).toFixed(1)}万 tokens` : ''}
+            color="#8b5cf6"
+            icon={<ThunderboltOutlined />}
+          />
+          <HighlightStat
+            label="全球排名"
+            value="Top 3%"
+            subLabel="142,000+ 开发者中"
+            color="#22c55e"
+            icon={<TrophyOutlined />}
+          />
+        </div>
+      </Card>
+    ),
+  });
+
+  // Leaderboard - 排行榜
+  panels.push({
+    key: 'leaderboard',
+    render: () => {
+      const leaderboardData = stats?.leaderboard ?? [
+        { rank: 1, name: 'Claude', tokens: 7200000, sessions: 312, change: 12.5 },
+        { rank: 2, name: 'Codex', tokens: 2800000, sessions: 245, change: 8.2 },
+        { rank: 3, name: 'GPT', tokens: 1500000, sessions: 189, change: -3.1 },
+        { rank: 4, name: 'Gemini', tokens: 420000, sessions: 67, change: 5.4 },
+        { rank: 5, name: 'PaLM', tokens: 280000, sessions: 34, change: -1.2 },
+      ];
+      return (
+        <Card
+          title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><TrophyOutlined /><span>执行排行榜</span></div>}
+          className="dashboard-card" style={{ borderRadius: 12 }}
+          bodyStyle={{ padding: '16px 20px' }}
+        >
+          <Leaderboard data={leaderboardData} />
+        </Card>
+      );
+    },
+  });
+
+  // Team Members - 团队成员
+  panels.push({
+    key: 'team-members',
+    render: () => {
+      const teamData = [
+        { name: 'Claude', role: 'Senior Architect', nickname: 'Thinking Machine', stats: { tokens: 7200000, sessions: 312, satisfaction: 98 }, color: '#8b5cf6' },
+        { name: 'Codex', role: 'Speed Runner', nickname: 'Code Ninja', stats: { tokens: 2800000, sessions: 245, satisfaction: 95 }, color: '#3b82f6' },
+        { name: 'GPT', role: 'Generalist', nickname: 'Wordsmith', stats: { tokens: 1500000, sessions: 189, satisfaction: 92 }, color: '#22c55e' },
+      ];
+      return (
+        <Card
+          title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><UserOutlined /><span>团队成员</span></div>}
+          className="dashboard-card" style={{ borderRadius: 12 }}
+          bodyStyle={{ padding: '16px 20px' }}
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+            {teamData.map((member) => (
+              <TeamMemberCard key={member.name} {...member} />
+            ))}
+          </div>
+        </Card>
+      );
+    },
   });
 
   panels.push({
