@@ -856,6 +856,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
             直接执行
           </Button>
           <Button
+            type="primary"
             icon={<ThunderboltOutlined style={{ color: '#ffffff' }} />}
             onClick={handleOpenExecuteWithArgs}
             block
