@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, Segmented, Skeleton, Empty, Button, Input } from 'antd';
 import {
   CheckCircleOutlined,
@@ -31,6 +32,7 @@ type BoardMode = 'memorial' | 'kanban';
 
 export function MemorialBoard({ onBack }: MemorialBoardProps) {
   const { state, dispatch } = useApp();
+  const navigate = useNavigate();
   const [boardMode, setBoardMode] = useState<BoardMode>('memorial');
   const [items, setItems] = useState<RecentCompletedTodo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,6 +85,7 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
   const handleSelectTodo = (todoId: number, e: React.MouseEvent) => {
     e.stopPropagation();
     dispatch({ type: 'SELECT_TODO', payload: todoId });
+    navigate(`/todo/${todoId}`);
   };
 
   const filteredItems = useMemo(() => {

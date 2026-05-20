@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ConfigProvider, Layout, Spin, App as AntApp } from 'antd';
 import { PlusOutlined, ThunderboltOutlined, CloseOutlined } from '@ant-design/icons';
+import { HashRouter, Routes, Route, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { AppProvider, useApp } from './hooks/useApp';
 import { useExecutionEvents } from './hooks/useExecutionEvents';
 import { ThemeProvider, useTheme } from './hooks/useTheme';
@@ -21,15 +22,84 @@ const { Content } = Layout;
 
 const MOBILE_BREAKPOINT = 768;
 
+/** 路由同步 Hook：将 URL 参数同步到 AppContext */
+function useRouteSync() {
+  const { dispatch, clearSelection } = useApp();
+  const location = useLocation();
+
+  useEffect(() => {
+    // 从 URL 路径解析状态
+    const path = location.pathname;
+    const todoMatch = path.match(/^\/todo\/(\d+)/);
+
+    if (todoMatch) {
+      dispatch({ type: 'SELECT_TODO', payload: Number(todoMatch[1]) });
+    } else if (path === '/settings') {
+      clearSelection();
+    } else if (path === '/memorial') {
+      clearSelection();
+    } else {
+      // / 或其他路径
+      clearSelection();
+    }
+  }, [location.pathname, dispatch, clearSelection]);
+}
+
+/** 获取当前路由决定的视图状态 */
+function useRouteView() {
+  const location = useLocation();
+  const path = location.pathname;
+
+  if (path.startsWith('/todo/')) {
+    const todoMatch = path.match(/^\/todo\/(\d+)/);
+    const executionMatch = path.match(/^\/todo\/\d+\/execution\/(\d+)/);
+    return {
+      selectedTodoId: todoMatch ? Number(todoMatch[1]) : null,
+      activeView: 'dashboard' as const,
+      highlightExecutionId: executionMatch ? Number(executionMatch[1]) : null,
+    };
+  }
+  if (path === '/settings') {
+    return { selectedTodoId: null, activeView: 'settings' as const, highlightExecutionId: null };
+  }
+  if (path === '/memorial') {
+    return { selectedTodoId: null, activeView: 'memorial' as const, highlightExecutionId: null };
+  }
+  return { selectedTodoId: null, activeView: 'dashboard' as const, highlightExecutionId: null };
+}
+
+/** Todo Detail 路由组件：从 URL 参数获取 todoId */
+function TodoDetailRoute({ onBack, highlightExecutionId }: { onBack?: () => void; highlightExecutionId?: number | null }) {
+  const params = useParams<{ id: string }>();
+  const { state, dispatch } = useApp();
+  const todoId = params.id ? Number(params.id) : null;
+
+  // 同步路由参数到 context
+  useEffect(() => {
+    if (todoId && todoId !== state.selectedTodoId) {
+      dispatch({ type: 'SELECT_TODO', payload: todoId });
+    }
+  }, [todoId, state.selectedTodoId, dispatch]);
+
+  if (!todoId || !state.todos.find(t => t.id === todoId)) {
+    return (
+      <div className="flex-center" style={{ height: '100%' }}>
+        <Spin />
+      </div>
+    );
+  }
+
+  return <TodoDetail onBack={onBack} highlightExecutionId={highlightExecutionId} />;
+}
+
 function AppContent() {
-  const { state, dispatch, clearSelection } = useApp();
+  const { state, dispatch } = useApp();
+  const navigate = useNavigate();
   const [todoModalOpen, setTodoModalOpen] = useState(false);
   const [smartCreateOpen, setSmartCreateOpen] = useState(false);
   const [fabExpanded, setFabExpanded] = useState(false);
   const [appConfig, setAppConfig] = useState<Config | null>(null);
   const [isMobile, setIsMobile] = useState(false);
-  const [selectedPanel, setSelectedPanel] = useState<'list' | 'detail'>('list');
-  const [activeView, setActiveView] = useState<'dashboard' | 'settings' | 'memorial'>('dashboard');
   const [panelCollapsed, setPanelCollapsed] = useState(() => {
     try {
       return localStorage.getItem('execution_panel_collapsed') === 'true';
@@ -39,9 +109,17 @@ function AppContent() {
   });
 
   useExecutionEvents();
+  useRouteSync();
 
+  const routeView = useRouteView();
   const hasRunningTasks = Object.keys(state.runningTasks).length > 0;
   const panelHeight = hasRunningTasks ? (panelCollapsed ? 40 : 280) : 0;
+
+  // 移动端：有 todo 选中或非 dashboard 视图时显示详情面板
+  const showDetailPanel = isMobile
+    ? (routeView.selectedTodoId !== null || routeView.activeView !== 'dashboard')
+    : true;
+  const showListPanel = isMobile ? !showDetailPanel : true;
 
   useEffect(() => {
     const checkMobile = () => {
@@ -65,38 +143,27 @@ function AppContent() {
     );
   }
 
-  const handleSelectTodo = (todoId: string | number | null) => {
-    if (todoId != null) {
-      setSelectedPanel('detail');
-    }
+  const handleSelectTodo = (todoId: string | number) => {
+    navigate(`/todo/${todoId}`);
   };
 
   const handleShowMemorial = () => {
-    clearSelection();
-    setActiveView('memorial');
-    setSelectedPanel('detail');
+    navigate('/memorial');
   };
 
   const handleShowDashboard = () => {
-    clearSelection();
-    setActiveView('dashboard');
-    setSelectedPanel('detail');
+    navigate('/');
   };
 
   const handleShowSettings = () => {
-    clearSelection();
-    setActiveView('settings');
-    setSelectedPanel('detail');
+    navigate('/settings');
   };
 
   const handleBackToList = () => {
-    clearSelection();
-    setActiveView('dashboard');
-    setSelectedPanel('list');
+    navigate('/');
   };
 
   const handleSmartCreateSubmitted = () => {
-    // 刷新 todo 列表
     db.getAllTodos().then(todos => {
       dispatch({ type: 'SET_TODOS', payload: todos });
     });
@@ -106,7 +173,6 @@ function AppContent() {
     handleShowSettings();
   };
 
-  // 点击 FAB 外部收起
   const handleFabBackdropClick = () => {
     setFabExpanded(false);
   };
@@ -114,7 +180,7 @@ function AppContent() {
   return (
     <Layout style={{ height: '100vh' }}>
       {/* Mobile FAB Group */}
-      {isMobile && selectedPanel === 'list' && (
+      {isMobile && showListPanel && (
         <>
           {fabExpanded && (
             <div className="mobile-fab-backdrop" onClick={handleFabBackdropClick} />
@@ -180,12 +246,12 @@ function AppContent() {
         >
           {/* Todo List Panel */}
           <div
-            className={(!isMobile || selectedPanel === 'list') ? 'animate-fade-in' : ''}
+            className={showListPanel ? 'animate-fade-in' : ''}
             style={{
               width: isMobile ? '100%' : 350,
               flexShrink: 0,
               height: '100%',
-              display: !isMobile || selectedPanel === 'list' ? 'block' : 'none',
+              display: showListPanel ? 'block' : 'none',
             }}
           >
             <TodoList
@@ -200,23 +266,31 @@ function AppContent() {
 
           {/* Detail Panel */}
           <div
-            className={(!isMobile || selectedPanel === 'detail') ? 'animate-slide-in-right' : ''}
+            className={showDetailPanel ? 'animate-slide-in-right' : ''}
             style={{
               flex: 1,
               height: '100%',
               overflow: 'hidden',
-              display: !isMobile || selectedPanel === 'detail' ? 'block' : 'none',
+              display: showDetailPanel ? 'block' : 'none',
             }}
           >
-            {state.selectedTodoId ? (
-              <TodoDetail onBack={isMobile ? handleBackToList : undefined} />
-            ) : activeView === 'settings' ? (
-              <SettingsPage onBack={isMobile ? handleBackToList : undefined} />
-            ) : activeView === 'memorial' ? (
-              <MemorialBoard onBack={isMobile ? handleBackToList : undefined} />
-            ) : (
-              <Dashboard onBack={isMobile ? handleBackToList : undefined} />
-            )}
+            <Routes>
+              <Route path="/todo/:id/execution/:executionId" element={
+                <TodoDetailRoute onBack={isMobile ? handleBackToList : undefined} highlightExecutionId={routeView.highlightExecutionId} />
+              } />
+              <Route path="/todo/:id" element={
+                <TodoDetailRoute onBack={isMobile ? handleBackToList : undefined} />
+              } />
+              <Route path="/settings" element={
+                <SettingsPage onBack={isMobile ? handleBackToList : undefined} />
+              } />
+              <Route path="/memorial" element={
+                <MemorialBoard onBack={isMobile ? handleBackToList : undefined} />
+              } />
+              <Route path="/" element={
+                <Dashboard onBack={isMobile ? handleBackToList : undefined} />
+              } />
+            </Routes>
           </div>
         </Content>
       </Layout>
@@ -265,9 +339,11 @@ function ThemedApp() {
       theme={themeConfig}
     >
       <AntApp>
-        <AppProvider>
-          <AppContent />
-        </AppProvider>
+        <HashRouter>
+          <AppProvider>
+            <AppContent />
+          </AppProvider>
+        </HashRouter>
       </AntApp>
     </ConfigProvider>
   );

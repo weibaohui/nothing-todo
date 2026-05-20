@@ -10,7 +10,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'vendor-react': ['react', 'react-dom'],
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
           'vendor-antd': ['antd'],
           'vendor-antd-icons': ['@ant-design/icons'],
           'vendor-md-editor': ['@uiw/react-md-editor', '@ant-design/x-markdown'],
@@ -25,7 +25,7 @@ export default defineConfig({
     port: 5173,
     strictPort: false,
     proxy: {
-      '/xyz': {
+      '/api': {
         target: 'http://127.0.0.1:8088',
         changeOrigin: true,
         ws: true,

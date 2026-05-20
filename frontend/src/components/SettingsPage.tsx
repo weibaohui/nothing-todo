@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Tabs,
   Form,
@@ -80,6 +81,7 @@ interface SettingsPageProps {
 export function SettingsPage({ onBack }: SettingsPageProps) {
   const { state, dispatch } = useApp();
   const { tags, todos } = state;
+  const navigate = useNavigate();
 
   const [configForm] = Form.useForm();
   const [configLoading, setConfigLoading] = useState(false);
@@ -757,7 +759,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
   const handleExportBackup = async () => {
     try {
-      const response = await fetch('/xyz/backup/export', {
+      const response = await fetch('/api/backup/export', {
         headers: { Accept: 'application/x-yaml' },
       });
       if (!response.ok) {
@@ -852,7 +854,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     }
     setExportingSelected(true);
     try {
-      const response = await fetch('/xyz/backup/export-selected', {
+      const response = await fetch('/api/backup/export-selected', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/x-yaml' },
         body: JSON.stringify({ todo_ids: exportTodoKeys }),
@@ -909,7 +911,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
   const handleDownloadDatabase = async () => {
     try {
-      const response = await fetch('/xyz/backup/database/download');
+      const response = await fetch('/api/backup/database/download');
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -2557,7 +2559,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                               style={{ fontSize: 12 }}
                               onClick={() => {
                                 dispatch({ type: 'SELECT_TODO', payload: record.processed_todo_id });
-                                onBack?.();
+                                navigate(`/todo/${record.processed_todo_id}`);
                               }}
                             >
                               #{record.processed_todo_id}

@@ -51,11 +51,11 @@ function unwrap<T>(res: { data: ApiResp<T> }): T {
 // Todo APIs
 
 export async function getAllTodos(): Promise<Todo[]> {
-  return unwrap(await api.get<ApiResp<Todo[]>>('/xyz/todos'));
+  return unwrap(await api.get<ApiResp<Todo[]>>('/api/todos'));
 }
 
 export async function createTodo(title: string, prompt: string = '', tagIds: number[] = []): Promise<Todo> {
-  return unwrap(await api.post<ApiResp<Todo>>('/xyz/todos', { title, prompt, tag_ids: tagIds }));
+  return unwrap(await api.post<ApiResp<Todo>>('/api/todos', { title, prompt, tag_ids: tagIds }));
 }
 
 export async function updateTodo(
@@ -76,43 +76,43 @@ export async function updateTodo(
   if (workspace !== undefined) body.workspace = workspace;
   if (worktree_enabled !== undefined) body.worktree_enabled = worktree_enabled;
 
-  return unwrap(await api.put<ApiResp<Todo>>(`/xyz/todos/${id}`, body));
+  return unwrap(await api.put<ApiResp<Todo>>(`/api/todos/${id}`, body));
 }
 
 export async function deleteTodo(id: number): Promise<void> {
-  await api.delete(`/xyz/todos/${id}`);
+  await api.delete(`/api/todos/${id}`);
 }
 
 export async function forceUpdateTodoStatus(id: number, status: string): Promise<Todo> {
-  return unwrap(await api.put<ApiResp<Todo>>(`/xyz/todos/${id}/force-status`, { status }));
+  return unwrap(await api.put<ApiResp<Todo>>(`/api/todos/${id}/force-status`, { status }));
 }
 
 export async function updateTodoTags(todoId: number, tagIds: number[]): Promise<void> {
-  await api.put(`/xyz/todos/${todoId}/tags`, { tag_ids: tagIds });
+  await api.put(`/api/todos/${todoId}/tags`, { tag_ids: tagIds });
 }
 
 // Tag APIs
 
 export async function getAllTags(): Promise<Tag[]> {
-  return unwrap(await api.get<ApiResp<Tag[]>>('/xyz/tags'));
+  return unwrap(await api.get<ApiResp<Tag[]>>('/api/tags'));
 }
 
 export async function createTag(name: string, color: string): Promise<Tag> {
-  return unwrap(await api.post<ApiResp<Tag>>('/xyz/tags', { name, color }));
+  return unwrap(await api.post<ApiResp<Tag>>('/api/tags', { name, color }));
 }
 
 export async function deleteTag(id: number): Promise<void> {
-  await api.delete(`/xyz/tags/${id}`);
+  await api.delete(`/api/tags/${id}`);
 }
 
 // Todo Template APIs
 
 export async function getTodoTemplates(): Promise<TodoTemplate[]> {
-  return unwrap(await api.get<ApiResp<TodoTemplate[]>>('/xyz/todo-templates'));
+  return unwrap(await api.get<ApiResp<TodoTemplate[]>>('/api/todo-templates'));
 }
 
 export async function createTodoTemplate(title: string, prompt: string | null, category: string, sort_order?: number): Promise<TodoTemplate> {
-  return unwrap(await api.post<ApiResp<TodoTemplate>>('/xyz/todo-templates', { title, prompt, category, sort_order }));
+  return unwrap(await api.post<ApiResp<TodoTemplate>>('/api/todo-templates', { title, prompt, category, sort_order }));
 }
 
 export async function updateTodoTemplate(id: number, title?: string, prompt?: string | null, category?: string, sort_order?: number): Promise<TodoTemplate> {
@@ -121,37 +121,37 @@ export async function updateTodoTemplate(id: number, title?: string, prompt?: st
   if (prompt !== undefined) body.prompt = prompt;
   if (category !== undefined) body.category = category;
   if (sort_order !== undefined) body.sort_order = sort_order;
-  return unwrap(await api.put<ApiResp<TodoTemplate>>(`/xyz/todo-templates/${id}`, body));
+  return unwrap(await api.put<ApiResp<TodoTemplate>>(`/api/todo-templates/${id}`, body));
 }
 
 export async function deleteTodoTemplate(id: number): Promise<void> {
-  await api.delete(`/xyz/todo-templates/${id}`);
+  await api.delete(`/api/todo-templates/${id}`);
 }
 
 export async function copyTodoTemplate(id: number): Promise<TodoTemplate> {
-  return unwrap(await api.post<ApiResp<TodoTemplate>>(`/xyz/todo-templates/${id}/copy`, {}));
+  return unwrap(await api.post<ApiResp<TodoTemplate>>(`/api/todo-templates/${id}/copy`, {}));
 }
 
 // Custom Template APIs (remote URL subscription)
 
 export async function getCustomTemplateStatus(): Promise<CustomTemplateStatus> {
-  return unwrap(await api.get<ApiResp<CustomTemplateStatus>>('/xyz/custom-templates/status'));
+  return unwrap(await api.get<ApiResp<CustomTemplateStatus>>('/api/custom-templates/status'));
 }
 
 export async function subscribeCustomTemplate(url: string): Promise<CustomTemplateStatus> {
-  return unwrap(await api.post<ApiResp<CustomTemplateStatus>>('/xyz/custom-templates/subscribe', { url }));
+  return unwrap(await api.post<ApiResp<CustomTemplateStatus>>('/api/custom-templates/subscribe', { url }));
 }
 
 export async function unsubscribeCustomTemplate(): Promise<void> {
-  await api.post('/xyz/custom-templates/unsubscribe', {});
+  await api.post('/api/custom-templates/unsubscribe', {});
 }
 
 export async function syncCustomTemplate(): Promise<CustomTemplateStatus> {
-  return unwrap(await api.post<ApiResp<CustomTemplateStatus>>('/xyz/custom-templates/sync', {}));
+  return unwrap(await api.post<ApiResp<CustomTemplateStatus>>('/api/custom-templates/sync', {}));
 }
 
 export async function updateCustomTemplateAutoSync(enabled: boolean, cron: string): Promise<void> {
-  await api.put('/xyz/custom-templates/auto-sync', { enabled, cron });
+  await api.put('/api/custom-templates/auto-sync', { enabled, cron });
 }
 
 // Project Directory APIs
@@ -165,19 +165,19 @@ export interface ProjectDirectory {
 }
 
 export async function getProjectDirectories(): Promise<ProjectDirectory[]> {
-  return unwrap(await api.get<ApiResp<ProjectDirectory[]>>('/xyz/project-directories'));
+  return unwrap(await api.get<ApiResp<ProjectDirectory[]>>('/api/project-directories'));
 }
 
 export async function createProjectDirectory(path: string, name?: string): Promise<ProjectDirectory> {
-  return unwrap(await api.post<ApiResp<ProjectDirectory>>('/xyz/project-directories', { path, name }));
+  return unwrap(await api.post<ApiResp<ProjectDirectory>>('/api/project-directories', { path, name }));
 }
 
 export async function updateProjectDirectory(id: number, name?: string): Promise<void> {
-  await api.put(`/xyz/project-directories/${id}`, { name });
+  await api.put(`/api/project-directories/${id}`, { name });
 }
 
 export async function deleteProjectDirectory(id: number): Promise<void> {
-  await api.delete(`/xyz/project-directories/${id}`);
+  await api.delete(`/api/project-directories/${id}`);
 }
 
 // Execution APIs
@@ -187,56 +187,56 @@ export async function getExecutionRecords(todoId: number, page?: number, limit?:
   if (page !== undefined) params.page = page;
   if (limit !== undefined) params.limit = limit;
   if (status !== undefined) params.status = status;
-  return unwrap(await api.get<ApiResp<ExecutionRecordsPage>>(`/xyz/execution-records`, { params }));
+  return unwrap(await api.get<ApiResp<ExecutionRecordsPage>>(`/api/execution-records`, { params }));
 }
 
 export async function getExecutionRecord(recordId: number): Promise<ExecutionRecord> {
-  return unwrap(await api.get<ApiResp<ExecutionRecord>>(`/xyz/execution-records/${recordId}`));
+  return unwrap(await api.get<ApiResp<ExecutionRecord>>(`/api/execution-records/${recordId}`));
 }
 
 export async function getExecutionLogs(recordId: number, page?: number, perPage?: number): Promise<ExecutionLogsPage> {
   const params: Record<string, unknown> = {};
   if (page !== undefined) params.page = page;
   if (perPage !== undefined) params.per_page = perPage;
-  return unwrap(await api.get<ApiResp<ExecutionLogsPage>>(`/xyz/execution-records/${recordId}/logs`, { params }));
+  return unwrap(await api.get<ApiResp<ExecutionLogsPage>>(`/api/execution-records/${recordId}/logs`, { params }));
 }
 
 export async function getExecutionRecordsBySession(sessionId: string): Promise<ExecutionRecord[]> {
-  return unwrap(await api.get<ApiResp<ExecutionRecord[]>>(`/xyz/execution-records/session/${encodeURIComponent(sessionId)}`));
+  return unwrap(await api.get<ApiResp<ExecutionRecord[]>>(`/api/execution-records/session/${encodeURIComponent(sessionId)}`));
 }
 
 export async function executeTodo(todoId: number, message: string, executor?: string): Promise<{ task_id: string }> {
-  return unwrap(await api.post<ApiResp<{ task_id: string }>>('/xyz/execute', { todo_id: todoId, message, executor }));
+  return unwrap(await api.post<ApiResp<{ task_id: string }>>('/api/execute', { todo_id: todoId, message, executor }));
 }
 
 export async function getExecutionSummary(todoId: number): Promise<ExecutionSummary> {
-  return unwrap(await api.get<ApiResp<ExecutionSummary>>(`/xyz/todos/${todoId}/summary`));
+  return unwrap(await api.get<ApiResp<ExecutionSummary>>(`/api/todos/${todoId}/summary`));
 }
 
 export async function getRecentCompletedTodos(hours?: number): Promise<import('../types').RecentCompletedTodo[]> {
   const params = hours !== undefined ? { hours } : undefined;
-  return unwrap(await api.get<ApiResp<import('../types').RecentCompletedTodo[]>>('/xyz/todos/recent-completed', { params }));
+  return unwrap(await api.get<ApiResp<import('../types').RecentCompletedTodo[]>>('/api/todos/recent-completed', { params }));
 }
 
 export async function getDashboardStats(hours?: number): Promise<import('../types').DashboardStats> {
   const params = hours !== undefined ? { hours } : undefined;
-  return unwrap(await api.get<ApiResp<import('../types').DashboardStats>>('/xyz/dashboard-stats', { params }));
+  return unwrap(await api.get<ApiResp<import('../types').DashboardStats>>('/api/dashboard-stats', { params }));
 }
 
 export async function stopExecution(recordId: number): Promise<void> {
-  await api.post('/xyz/execute/stop', { record_id: recordId });
+  await api.post('/api/execute/stop', { record_id: recordId });
 }
 
 export async function forceFailExecution(recordId: number): Promise<void> {
-  await api.post('/xyz/execute/force-fail', { record_id: recordId });
+  await api.post('/api/execute/force-fail', { record_id: recordId });
 }
 
 export async function getRunningExecutionRecords(): Promise<ExecutionRecord[]> {
-  return unwrap(await api.get<ApiResp<ExecutionRecord[]>>('/xyz/execution-records/running'));
+  return unwrap(await api.get<ApiResp<ExecutionRecord[]>>('/api/execution-records/running'));
 }
 
 export async function resumeExecutionRecord(recordId: number, message?: string): Promise<{ task_id: string; record_id: number }> {
-  return unwrap(await api.post<ApiResp<{ task_id: string; record_id: number }>>(`/xyz/execution-records/${recordId}/resume`, { message }));
+  return unwrap(await api.post<ApiResp<{ task_id: string; record_id: number }>>(`/api/execution-records/${recordId}/resume`, { message }));
 }
 
 // Smart Create API
@@ -249,7 +249,7 @@ export interface SmartCreateResult {
 }
 
 export async function smartCreate(content: string): Promise<SmartCreateResult> {
-  return unwrap(await api.post<ApiResp<SmartCreateResult>>('/xyz/smart-create', { content }));
+  return unwrap(await api.post<ApiResp<SmartCreateResult>>('/api/smart-create', { content }));
 }
 
 // Scheduler APIs
@@ -259,21 +259,21 @@ export async function updateScheduler(
   scheduler_enabled: boolean,
   scheduler_config: string | null,
 ): Promise<Todo> {
-  return unwrap(await api.put<ApiResp<Todo>>(`/xyz/todos/${id}/scheduler`, { scheduler_enabled, scheduler_config }));
+  return unwrap(await api.put<ApiResp<Todo>>(`/api/todos/${id}/scheduler`, { scheduler_enabled, scheduler_config }));
 }
 
 export async function getSchedulerTodos(): Promise<Todo[]> {
-  return unwrap(await api.get<ApiResp<Todo[]>>('/xyz/scheduler/todos'));
+  return unwrap(await api.get<ApiResp<Todo[]>>('/api/scheduler/todos'));
 }
 
 export async function getRunningTodos(): Promise<Todo[]> {
-  return unwrap(await api.get<ApiResp<Todo[]>>('/xyz/running-todos'));
+  return unwrap(await api.get<ApiResp<Todo[]>>('/api/running-todos'));
 }
 
 // Backup APIs
 
 export async function exportBackup(): Promise<string> {
-  const res = await api.get('/xyz/backup/export', {
+  const res = await api.get('/api/backup/export', {
     headers: { 'Accept': 'application/x-yaml' },
     responseType: 'text',
     transformResponse: [(data) => data],
@@ -283,17 +283,17 @@ export async function exportBackup(): Promise<string> {
 }
 
 export async function importBackup(yamlContent: string): Promise<string> {
-  return unwrap(await api.post<ApiResp<string>>('/xyz/backup/import', yamlContent, {
+  return unwrap(await api.post<ApiResp<string>>('/api/backup/import', yamlContent, {
     headers: { 'Content-Type': 'application/x-yaml' },
   }));
 }
 
 export async function mergeBackup(tags: { name: string; color: string }[], todos: { title: string; prompt: string; status: string; executor?: string; scheduler_enabled: boolean; scheduler_config?: string; tag_names: string[]; workspace?: string }[]): Promise<string> {
-  return unwrap(await api.post<ApiResp<string>>('/xyz/backup/merge', { tags, todos }));
+  return unwrap(await api.post<ApiResp<string>>('/api/backup/merge', { tags, todos }));
 }
 
 export async function exportSelectedBackup(todoIds: number[]): Promise<string> {
-  const res = await api.post('/xyz/backup/export-selected', { todo_ids: todoIds }, {
+  const res = await api.post('/api/backup/export-selected', { todo_ids: todoIds }, {
     headers: { 'Accept': 'application/x-yaml' },
     responseType: 'text',
     transformResponse: [(data: unknown) => data],
@@ -303,11 +303,11 @@ export async function exportSelectedBackup(todoIds: number[]): Promise<string> {
 }
 
 export async function triggerLocalBackup(): Promise<string> {
-  return unwrap(await api.post<ApiResp<string>>('/xyz/backup/database/trigger'));
+  return unwrap(await api.post<ApiResp<string>>('/api/backup/database/trigger'));
 }
 
 export async function optimizeDatabase(): Promise<string> {
-  return unwrap(await api.post<ApiResp<string>>('/xyz/backup/database/optimize'));
+  return unwrap(await api.post<ApiResp<string>>('/api/backup/database/optimize'));
 }
 
 export async function getDatabaseBackupStatus(): Promise<{
@@ -323,7 +323,7 @@ export async function getDatabaseBackupStatus(): Promise<{
     auto_backup_max_files: number;
     last_backup: string | null;
     files: { name: string; size: number; created_at: string }[];
-  }>>('/xyz/backup/database/status'));
+  }>>('/api/backup/database/status'));
 }
 
 export async function updateAutoBackup(enabled: boolean, cron: string, maxFiles?: number): Promise<string> {
@@ -331,58 +331,58 @@ export async function updateAutoBackup(enabled: boolean, cron: string, maxFiles?
   if (maxFiles !== undefined) {
     body.max_files = maxFiles;
   }
-  return unwrap(await api.put<ApiResp<string>>('/xyz/backup/database/auto', body));
+  return unwrap(await api.put<ApiResp<string>>('/api/backup/database/auto', body));
 }
 
 export async function deleteBackupFile(filename: string): Promise<string> {
-  return unwrap(await api.delete<ApiResp<string>>('/xyz/backup/database/file', { data: { filename } }));
+  return unwrap(await api.delete<ApiResp<string>>('/api/backup/database/file', { data: { filename } }));
 }
 
 export function downloadBackupFileUrl(filename: string): string {
-  return `/xyz/backup/database/file?filename=${encodeURIComponent(filename)}`;
+  return `/api/backup/database/file?filename=${encodeURIComponent(filename)}`;
 }
 
 // Config APIs
 
 export async function getConfig(): Promise<import('../types').Config> {
-  return unwrap(await api.get<ApiResp<import('../types').Config>>('/xyz/config'));
+  return unwrap(await api.get<ApiResp<import('../types').Config>>('/api/config'));
 }
 
 export async function updateConfig(config: import('../types').Config): Promise<import('../types').Config> {
-  return unwrap(await api.put<ApiResp<import('../types').Config>>('/xyz/config', config));
+  return unwrap(await api.put<ApiResp<import('../types').Config>>('/api/config', config));
 }
 
 // Executor Config APIs
 
 export async function getExecutors(): Promise<import('../types').ExecutorConfig[]> {
-  return unwrap(await api.get<ApiResp<import('../types').ExecutorConfig[]>>('/xyz/executors'));
+  return unwrap(await api.get<ApiResp<import('../types').ExecutorConfig[]>>('/api/executors'));
 }
 
 export async function updateExecutor(name: string, data: { path?: string; enabled?: boolean; display_name?: string; session_dir?: string }): Promise<import('../types').ExecutorConfig> {
-  return unwrap(await api.put<ApiResp<import('../types').ExecutorConfig>>(`/xyz/executors/${encodeURIComponent(name)}`, data));
+  return unwrap(await api.put<ApiResp<import('../types').ExecutorConfig>>(`/api/executors/${encodeURIComponent(name)}`, data));
 }
 
 export async function detectExecutor(name: string): Promise<{ binary_found: boolean; path_resolved: string | null }> {
-  return unwrap(await api.post<ApiResp<{ binary_found: boolean; path_resolved: string | null }>>(`/xyz/executors/${encodeURIComponent(name)}/detect`));
+  return unwrap(await api.post<ApiResp<{ binary_found: boolean; path_resolved: string | null }>>(`/api/executors/${encodeURIComponent(name)}/detect`));
 }
 
 export async function testExecutor(name: string): Promise<{ test_passed: boolean; output: string | null; error: string | null }> {
-  const result = unwrap(await api.post<ApiResp<{ test_passed: boolean; output: string | null; error: string | null }>>(`/xyz/executors/${encodeURIComponent(name)}/test`));
+  const result = unwrap(await api.post<ApiResp<{ test_passed: boolean; output: string | null; error: string | null }>>(`/api/executors/${encodeURIComponent(name)}/test`));
   return result;
 }
 
 // Skills APIs
 
 export async function getSkillsList(): Promise<ExecutorSkills[]> {
-  return unwrap(await api.get<ApiResp<ExecutorSkills[]>>('/xyz/skills'));
+  return unwrap(await api.get<ApiResp<ExecutorSkills[]>>('/api/skills'));
 }
 
 export async function getSkillsComparison(): Promise<SkillComparison[]> {
-  return unwrap(await api.get<ApiResp<SkillComparison[]>>('/xyz/skills/compare'));
+  return unwrap(await api.get<ApiResp<SkillComparison[]>>('/api/skills/compare'));
 }
 
 export async function syncSkill(sourceExecutor: string, skillName: string, targetExecutors: string[]): Promise<string> {
-  return unwrap(await api.post<ApiResp<string>>('/xyz/skills/sync', {
+  return unwrap(await api.post<ApiResp<string>>('/api/skills/sync', {
     source_executor: sourceExecutor,
     skill_name: skillName,
     target_executors: targetExecutors,
@@ -390,11 +390,11 @@ export async function syncSkill(sourceExecutor: string, skillName: string, targe
 }
 
 export async function getSkillInvocations(params?: { page?: number; limit?: number; skill_name?: string; executor?: string }): Promise<PaginatedInvocations> {
-  return unwrap(await api.get<ApiResp<PaginatedInvocations>>('/xyz/skills/invocations', { params }));
+  return unwrap(await api.get<ApiResp<PaginatedInvocations>>('/api/skills/invocations', { params }));
 }
 
 export async function recordSkillInvocation(data: { skill_name: string; executor: string; todo_id: number; status: string; duration_ms?: number }): Promise<number> {
-  return unwrap(await api.post<ApiResp<number>>('/xyz/skills/invocations', data));
+  return unwrap(await api.post<ApiResp<number>>('/api/skills/invocations', data));
 }
 
 // Skill content & files
@@ -412,14 +412,14 @@ export interface SkillContent {
 }
 
 export async function getSkillContent(executor: string, skillName: string): Promise<SkillContent> {
-  return unwrap(await api.get<ApiResp<SkillContent>>('/xyz/skills/content', {
+  return unwrap(await api.get<ApiResp<SkillContent>>('/api/skills/content', {
     params: { executor, skill_name: skillName },
   }));
 }
 
 // Export skill as .zip (returns blob)
 export async function exportSkill(executor: string, skillName: string): Promise<Blob> {
-  const response = await api.get('/xyz/skills/export', {
+  const response = await api.get('/api/skills/export', {
     params: { executor, skill_name: skillName },
     responseType: 'blob',
   });
@@ -438,7 +438,7 @@ export async function importSkill(executor: string, file: File, skillName?: stri
   if (skillName) params.skill_name = skillName;
   if (flatten !== undefined) params.flatten = String(flatten);
 
-  const response = await api.post<ApiResp<ImportResult>>('/xyz/skills/import', await file.arrayBuffer(), {
+  const response = await api.post<ApiResp<ImportResult>>('/api/skills/import', await file.arrayBuffer(), {
     params,
     headers: { 'Content-Type': 'application/zip' },
   });
@@ -453,7 +453,7 @@ export interface VersionInfo {
 }
 
 export async function getVersion(): Promise<VersionInfo> {
-  return unwrap(await api.get<ApiResp<VersionInfo>>('/xyz/version'));
+  return unwrap(await api.get<ApiResp<VersionInfo>>('/api/version'));
 }
 
 // Agent Bot APIs
@@ -489,27 +489,27 @@ export interface FeishuPollResponse {
 }
 
 export async function getAgentBots(): Promise<AgentBot[]> {
-  return unwrap(await api.get<ApiResp<AgentBot[]>>('/xyz/agent-bots'));
+  return unwrap(await api.get<ApiResp<AgentBot[]>>('/api/agent-bots'));
 }
 
 export async function deleteAgentBot(id: number): Promise<void> {
-  await api.delete(`/xyz/agent-bots/${id}`);
+  await api.delete(`/api/agent-bots/${id}`);
 }
 
 export async function updateAgentBotConfig(id: number, config: string): Promise<void> {
-  await api.put(`/xyz/agent-bots/${id}/config`, { config });
+  await api.put(`/api/agent-bots/${id}/config`, { config });
 }
 
 export async function feishuInit(): Promise<{ supported: boolean; auth_methods: string[] }> {
-  return unwrap(await api.post<ApiResp<{ supported: boolean; auth_methods: string[] }>>('/xyz/agent-bots/feishu/init'));
+  return unwrap(await api.post<ApiResp<{ supported: boolean; auth_methods: string[] }>>('/api/agent-bots/feishu/init'));
 }
 
 export async function feishuBegin(): Promise<FeishuBeginResponse> {
-  return unwrap(await api.post<ApiResp<FeishuBeginResponse>>('/xyz/agent-bots/feishu/begin'));
+  return unwrap(await api.post<ApiResp<FeishuBeginResponse>>('/api/agent-bots/feishu/begin'));
 }
 
 export async function feishuPoll(device_code: string, interval?: number, expire_in?: number): Promise<FeishuPollResponse> {
-  return unwrap(await api.post<ApiResp<FeishuPollResponse>>('/xyz/agent-bots/feishu/poll', {
+  return unwrap(await api.post<ApiResp<FeishuPollResponse>>('/api/agent-bots/feishu/poll', {
     device_code,
     interval,
     expire_in,
@@ -531,7 +531,7 @@ export interface FeishuPushStatus {
 }
 
 export async function getFeishuPush(): Promise<FeishuPushStatus[]> {
-  return unwrap(await api.get<ApiResp<FeishuPushStatus[]>>('/xyz/agent-bots/feishu/push'));
+  return unwrap(await api.get<ApiResp<FeishuPushStatus[]>>('/api/agent-bots/feishu/push'));
 }
 
 export interface UpdateFeishuPushParams {
@@ -547,7 +547,7 @@ export interface UpdateFeishuPushParams {
 }
 
 export async function updateFeishuPush(params: UpdateFeishuPushParams): Promise<FeishuPushStatus> {
-  return unwrap(await api.put<ApiResp<FeishuPushStatus>>('/xyz/agent-bots/feishu/push', {
+  return unwrap(await api.put<ApiResp<FeishuPushStatus>>('/api/agent-bots/feishu/push', {
     bot_id: params.botId,
     push_level: params.pushLevel,
     p2p_receive_id: params.p2pReceiveId,
@@ -569,12 +569,12 @@ export async function getFeishuHistoryMessages(params?: {
   page?: number;
   page_size?: number;
 }): Promise<FeishuHistoryMessagesPage> {
-  return unwrap(await api.get<ApiResp<FeishuHistoryMessagesPage>>('/xyz/feishu/history-messages', { params }));
+  return unwrap(await api.get<ApiResp<FeishuHistoryMessagesPage>>('/api/feishu/history-messages', { params }));
 }
 
 export async function getFeishuMessageStats(hours?: number): Promise<FeishuMessageStats> {
   const params = hours !== undefined ? { hours } : undefined;
-  return unwrap(await api.get<ApiResp<FeishuMessageStats>>('/xyz/feishu/message-stats', { params }));
+  return unwrap(await api.get<ApiResp<FeishuMessageStats>>('/api/feishu/message-stats', { params }));
 }
 
 export interface FeishuSenderItem {
@@ -585,11 +585,11 @@ export interface FeishuSenderItem {
 }
 
 export async function getFeishuSenders(): Promise<FeishuSenderItem[]> {
-  return unwrap(await api.get<ApiResp<FeishuSenderItem[]>>('/xyz/feishu/senders'));
+  return unwrap(await api.get<ApiResp<FeishuSenderItem[]>>('/api/feishu/senders'));
 }
 
 export async function getFeishuHistoryChats(): Promise<FeishuHistoryChat[]> {
-  return unwrap(await api.get<ApiResp<FeishuHistoryChat[]>>('/xyz/feishu/history-chats'));
+  return unwrap(await api.get<ApiResp<FeishuHistoryChat[]>>('/api/feishu/history-chats'));
 }
 
 export interface CreateFeishuHistoryChatParams {
@@ -599,7 +599,7 @@ export interface CreateFeishuHistoryChatParams {
 }
 
 export async function createFeishuHistoryChat(params: CreateFeishuHistoryChatParams): Promise<FeishuHistoryChat> {
-  return unwrap(await api.post<ApiResp<FeishuHistoryChat>>('/xyz/feishu/history-chats', params));
+  return unwrap(await api.post<ApiResp<FeishuHistoryChat>>('/api/feishu/history-chats', params));
 }
 
 export interface UpdateFeishuHistoryChatParams {
@@ -609,11 +609,11 @@ export interface UpdateFeishuHistoryChatParams {
 }
 
 export async function updateFeishuHistoryChat(id: number, params: UpdateFeishuHistoryChatParams): Promise<void> {
-  await api.put(`/xyz/feishu/history-chats/${id}`, params);
+  await api.put(`/api/feishu/history-chats/${id}`, params);
 }
 
 export async function deleteFeishuHistoryChat(id: number): Promise<void> {
-  await api.delete(`/xyz/feishu/history-chats/${id}`);
+  await api.delete(`/api/feishu/history-chats/${id}`);
 }
 
 // Group Whitelist APIs
@@ -627,11 +627,11 @@ export interface WhitelistEntry {
 }
 
 export async function getGroupWhitelist(botId: number): Promise<WhitelistEntry[]> {
-  return unwrap(await api.get<ApiResp<WhitelistEntry[]>>('/xyz/agent-bots/feishu/group-whitelist', { params: { bot_id: botId } }));
+  return unwrap(await api.get<ApiResp<WhitelistEntry[]>>('/api/agent-bots/feishu/group-whitelist', { params: { bot_id: botId } }));
 }
 
 export async function addGroupWhitelist(botId: number, senderOpenId: string, senderName?: string): Promise<WhitelistEntry> {
-  return unwrap(await api.post<ApiResp<WhitelistEntry>>('/xyz/agent-bots/feishu/group-whitelist', {
+  return unwrap(await api.post<ApiResp<WhitelistEntry>>('/api/agent-bots/feishu/group-whitelist', {
     bot_id: botId,
     sender_open_id: senderOpenId,
     sender_name: senderName || null,
@@ -639,7 +639,7 @@ export async function addGroupWhitelist(botId: number, senderOpenId: string, sen
 }
 
 export async function deleteGroupWhitelist(id: number): Promise<void> {
-  await api.delete(`/xyz/agent-bots/feishu/group-whitelist/${id}`);
+  await api.delete(`/api/agent-bots/feishu/group-whitelist/${id}`);
 }
 
 // ─── Session APIs ──────────────────────────────────────────
@@ -712,17 +712,17 @@ export async function listSessions(params: {
   project?: string;
   search?: string;
 }): Promise<SessionListResponse> {
-  return unwrap(await api.get<ApiResp<SessionListResponse>>('/xyz/sessions', { params }));
+  return unwrap(await api.get<ApiResp<SessionListResponse>>('/api/sessions', { params }));
 }
 
 export async function getSessionStats(): Promise<SessionStats> {
-  return unwrap(await api.get<ApiResp<SessionStats>>('/xyz/sessions/stats'));
+  return unwrap(await api.get<ApiResp<SessionStats>>('/api/sessions/stats'));
 }
 
 export async function getSessionDetail(sessionId: string): Promise<SessionDetail> {
-  return unwrap(await api.get<ApiResp<SessionDetail>>(`/xyz/sessions/${sessionId}`));
+  return unwrap(await api.get<ApiResp<SessionDetail>>(`/api/sessions/${sessionId}`));
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
-  await api.delete(`/xyz/sessions/${sessionId}`);
+  await api.delete(`/api/sessions/${sessionId}`);
 }

@@ -358,7 +358,7 @@ function hasLogsStatic(record: ExecutionRecord): boolean {
 }
 
 /** 任务详情面板，包含执行、编辑、历史记录等功能 */
-export function TodoDetail({ onBack }: { onBack?: () => void }) {
+export function TodoDetail({ onBack, highlightExecutionId }: { onBack?: () => void; highlightExecutionId?: number | null }) {
   const { state, dispatch } = useApp();
   const { message } = App.useApp();
   const { todos, selectedTodoId, executionRecords, runningTasks } = state;
@@ -367,6 +367,13 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
   const [selectedHistoryRecordId, setSelectedHistoryRecordId] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<'log' | 'chat'>('log');
   const selectedTodo = todos.find(t => t.id === selectedTodoId);
+
+  // 路由高亮：从 URL 中的 executionId 自动选中对应的执行记录
+  useEffect(() => {
+    if (highlightExecutionId) {
+      setSelectedHistoryRecordId(highlightExecutionId);
+    }
+  }, [highlightExecutionId]);
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);

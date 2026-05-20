@@ -166,6 +166,9 @@ export function Dashboard({ onBack }: DashboardProps) {
   const { message } = App.useApp();
   const { todos, tags, runningTasks } = state;
 
+  // 缓存随机语句，避免每次渲染都变化导致无限重绘
+  const [randomQuote] = useState(() => EMPTY_STATE_QUOTES[Math.floor(Math.random() * EMPTY_STATE_QUOTES.length)]);
+
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [msgStats, setMsgStats] = useState<FeishuMessageStats | null>(null);
@@ -358,7 +361,7 @@ export function Dashboard({ onBack }: DashboardProps) {
                 but everything is todo
               </div>
               <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>
-                {EMPTY_STATE_QUOTES[Math.floor(Math.random() * EMPTY_STATE_QUOTES.length)]}
+                {randomQuote}
               </div>
             </div>
           )}
