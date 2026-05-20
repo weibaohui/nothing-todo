@@ -43,7 +43,7 @@ impl Database {
         };
 
         let mut opt = ConnectOptions::new(url);
-        opt.max_connections(8)
+        opt.max_connections(1)
             .min_connections(1)
             .connect_timeout(Duration::from_secs(5))
             .sqlx_logging(false);
@@ -51,8 +51,9 @@ impl Database {
         let conn = SeaDatabase::connect(opt).await?;
         let db = Self { conn };
 
-        // Set busy_timeout via PRAGMA (SQLite connection-level setting)
+        // Optimize SQLite for concurrent read / write performance
         db.exec("PRAGMA busy_timeout = 5000").await?;
+        db.exec("PRAGMA journal_mode = WAL").await?;
 
         db.init_tables().await?;
         db.seed_default_templates().await?;

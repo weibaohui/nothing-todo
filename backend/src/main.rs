@@ -298,17 +298,15 @@ fn handle_skill_install(force: bool, executor_filter: Option<&str>) -> anyhow::R
 }
 
 async fn run_server(cli_port: Option<u16>) {
-    let cfg = ntd::config::Config::load();
-
-    let level = cfg.log_level
-        .parse::<tracing::Level>()
-        .unwrap_or(tracing::Level::INFO);
-
+    // Initialize tracing early so any log is captured, even before config loads.
+    // Override log level via RUST_LOG env var (e.g. RUST_LOG=debug).
     tracing_subscriber::fmt()
-        .with_max_level(level)
+        .with_max_level(tracing::Level::INFO)
         .with_target(true)
         .with_timer(tracing_subscriber::fmt::time::time())
         .init();
+
+    let cfg = ntd::config::Config::load();
 
     let db_path = &cfg.db_path;
     if let Some(parent) = std::path::Path::new(db_path).parent() {

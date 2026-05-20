@@ -19,7 +19,11 @@ export async function checkBackendHealth(): Promise<boolean> {
 const api = axios.create({
   baseURL: '',
   headers: { 'Content-Type': 'application/json' },
+  timeout: 15000,
 });
+
+/** Retry config: max 3 retries on network errors (no response), not on 4xx/5xx */
+const MAX_RETRIES = 3;
 
 api.interceptors.response.use(
   (res) => {
@@ -33,7 +37,20 @@ api.interceptors.response.use(
     }
     return res;
   },
-  (error) => {
+  async (error) => {
+    // Only retry on network errors (no response received) — up to MAX_RETRIES
+    if (!error.response && error.config) {
+      const cfg = error.config as Record<string, unknown>;
+      const retryCount = (cfg.__retryCount as number) || 0;
+      if (retryCount < MAX_RETRIES) {
+        cfg.__retryCount = retryCount + 1;
+        const delay = Math.min(Math.pow(2, retryCount + 1) * 500, 8000) + Math.floor(Math.random() * 500);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return api(error.config);
+      }
+    }
+
+    // For responses with server errors, still propagate a clean message
     if (error.response?.data?.message) {
       return Promise.reject(new Error(error.response.data.message));
     }
