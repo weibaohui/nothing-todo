@@ -54,15 +54,28 @@ impl Database {
         // Optimize SQLite for concurrent read / write performance
         db.exec("PRAGMA busy_timeout = 5000").await?;
         // Enable WAL mode and verify it took effect
-        if let Ok(Some(row)) = db.conn
+        match db.conn
             .query_one(Statement::from_string(DbBackend::Sqlite, "PRAGMA journal_mode = WAL".to_string()))
             .await
         {
-            if let Ok(mode) = row.try_get_by::<String, _>("journal_mode") {
-                tracing::info!("SQLite journal_mode set to: {}", mode);
-                if mode.to_lowercase() != "wal" {
-                    tracing::warn!("SQLite journal_mode expected 'wal', got '{}'", mode);
+            Ok(Some(row)) => {
+                match row.try_get_by::<String, _>("journal_mode") {
+                    Ok(mode) => {
+                        tracing::info!("SQLite journal_mode set to: {}", mode);
+                        if mode.to_lowercase() != "wal" {
+                            tracing::warn!("SQLite journal_mode expected 'wal', got '{}'", mode);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to extract journal_mode value: {}", e);
+                    }
                 }
+            }
+            Ok(None) => {
+                tracing::warn!("SQLite journal_mode query returned no row");
+            }
+            Err(e) => {
+                tracing::warn!("Failed to query SQLite journal_mode: {}", e);
             }
         }
 
