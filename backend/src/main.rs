@@ -298,24 +298,36 @@ fn handle_skill_install(force: bool, executor_filter: Option<&str>) -> anyhow::R
 }
 
 async fn run_server(cli_port: Option<u16>) {
-    let cfg = ntd::config::Config::load();
-
-    let level = cfg.log_level
-        .parse::<tracing::Level>()
-        .unwrap_or(tracing::Level::INFO);
-
+    // Initialize tracing early so any log is captured, even before config loads.
+    // Use RUST_LOG env var (e.g. RUST_LOG=debug) to override, default to "info".
     tracing_subscriber::fmt()
-        .with_max_level(level)
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
         .with_target(true)
         .with_timer(tracing_subscriber::fmt::time::time())
         .init();
 
-    let db_path = &cfg.db_path;
-    if let Some(parent) = std::path::Path::new(db_path).parent() {
+    let cfg = ntd::config::Config::load();
+
+    // Expand tilde in db_path to home directory (normalize_paths is called in Config::load,
+    // but may not have expanded if config file didn't exist or was corrupted)
+    let db_path = if cfg.db_path.starts_with('~') {
+        if let Some(home) = dirs::home_dir() {
+            let relative = cfg.db_path.trim_start_matches('~').trim_start_matches(std::path::MAIN_SEPARATOR);
+            home.join(relative).to_string_lossy().to_string()
+        } else {
+            cfg.db_path.clone()
+        }
+    } else {
+        cfg.db_path.clone()
+    };
+    if let Some(parent) = std::path::Path::new(&db_path).parent() {
         std::fs::create_dir_all(parent).ok();
     }
 
-    let db = match db::Database::new(db_path).await {
+    let db = match db::Database::new(&db_path).await {
         Ok(db) => Arc::new(db),
         Err(e) => {
             eprintln!("Failed to open database at {}: {}", db_path, e);
@@ -372,6 +384,14 @@ async fn run_server(cli_port: Option<u16>) {
             match handlers::backup::start_auto_backup(&cfg.auto_backup_cron, config.clone()) {
                 Ok(()) => info!("Auto database backup enabled, cron: {}", cfg.auto_backup_cron),
                 Err(e) => tracing::warn!("Failed to start auto backup: {}", e),
+            }
+        }
+
+        // 注册 Todo 自动备份定时任务
+        if cfg.auto_todo_backup_enabled {
+            match handlers::backup::start_todo_auto_backup(db.clone(), config.clone()) {
+                Ok(()) => info!("Auto Todo backup enabled, cron: {}", cfg.auto_todo_backup_cron),
+                Err(e) => tracing::warn!("Failed to start Todo auto backup: {}", e),
             }
         }
 

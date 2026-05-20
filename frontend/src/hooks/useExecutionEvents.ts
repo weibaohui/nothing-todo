@@ -53,10 +53,21 @@ export function useExecutionEvents() {
   const { dispatch } = useApp();
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptRef = useRef(0);
   const removeTaskTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+
+  /** Exponential backoff with jitter: min(2^n * 1000, 30000) + random(0, 1000) */
+  const getReconnectDelay = () => {
+    const n = reconnectAttemptRef.current;
+    const base = Math.min(Math.pow(2, n) * 1000, 30000);
+    const jitter = Math.floor(Math.random() * 1000);
+    return base + jitter;
+  };
 
   useEffect(() => {
     let shouldReconnect = true;
+    // Reset attempt count on fresh mount
+    reconnectAttemptRef.current = 0;
 
     function connect() {
       if (!shouldReconnect) return;
@@ -65,7 +76,10 @@ export function useExecutionEvents() {
       const ws = new WebSocket(`${protocol}//${window.location.host}/api/events`);
       wsRef.current = ws;
 
-      ws.onopen = () => {};
+      ws.onopen = () => {
+        // Reset backoff on successful connection
+        reconnectAttemptRef.current = 0;
+      };
 
       ws.onmessage = (event) => {
         if (event.data === 'Connected') return;
@@ -175,10 +189,12 @@ export function useExecutionEvents() {
       ws.onclose = () => {
         wsRef.current = null;
         if (shouldReconnect) {
+          const delay = getReconnectDelay();
+          reconnectAttemptRef.current += 1;
           reconnectTimerRef.current = setTimeout(() => {
             reconnectTimerRef.current = null;
             connect();
-          }, 2000);
+          }, delay);
         }
       };
 

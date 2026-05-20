@@ -19,7 +19,11 @@ export async function checkBackendHealth(): Promise<boolean> {
 const api = axios.create({
   baseURL: '',
   headers: { 'Content-Type': 'application/json' },
+  timeout: 15000,
 });
+
+/** Retry config: max 3 retries on network errors (no response), not on 4xx/5xx */
+const MAX_RETRIES = 3;
 
 api.interceptors.response.use(
   (res) => {
@@ -33,7 +37,25 @@ api.interceptors.response.use(
     }
     return res;
   },
-  (error) => {
+  async (error) => {
+    // Only retry on network errors (no response received) — up to MAX_RETRIES,
+    // and only for idempotent HTTP methods to avoid duplicate mutations.
+    if (!error.response && error.config) {
+      const method = (error.config.method || 'get').toUpperCase();
+      const isIdempotent = ['GET', 'HEAD', 'OPTIONS'].includes(method);
+      if (isIdempotent) {
+        const cfg = error.config as Record<string, unknown>;
+        const retryCount = (cfg.__retryCount as number) || 0;
+        if (retryCount < MAX_RETRIES) {
+          cfg.__retryCount = retryCount + 1;
+          const delay = Math.min(Math.pow(2, retryCount + 1) * 500, 8000) + Math.floor(Math.random() * 500);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return api(error.config);
+        }
+      }
+    }
+
+    // For responses with server errors, still propagate a clean message
     if (error.response?.data?.message) {
       return Promise.reject(new Error(error.response.data.message));
     }
@@ -342,6 +364,44 @@ export function downloadBackupFileUrl(filename: string): string {
   return `/api/backup/database/file?filename=${encodeURIComponent(filename)}`;
 }
 
+// Todo Backup APIs
+
+export async function getTodoBackupStatus(): Promise<{
+  auto_backup_enabled: boolean;
+  auto_backup_cron: string;
+  auto_backup_max_files: number;
+  last_backup: string | null;
+  files: { name: string; size: number; created_at: string }[];
+}> {
+  return unwrap(await api.get<ApiResp<{
+    auto_backup_enabled: boolean;
+    auto_backup_cron: string;
+    auto_backup_max_files: number;
+    last_backup: string | null;
+    files: { name: string; size: number; created_at: string }[];
+  }>>('/api/backup/todo/status'));
+}
+
+export async function triggerTodoBackup(): Promise<string> {
+  return unwrap(await api.post<ApiResp<string>>('/api/backup/todo/trigger'));
+}
+
+export async function updateTodoAutoBackup(enabled: boolean, cron: string, maxFiles?: number): Promise<string> {
+  const body: Record<string, unknown> = { enabled, cron };
+  if (maxFiles !== undefined) {
+    body.max_files = maxFiles;
+  }
+  return unwrap(await api.put<ApiResp<string>>('/api/backup/todo/auto', body));
+}
+
+export async function deleteTodoBackupFile(filename: string): Promise<string> {
+  return unwrap(await api.delete<ApiResp<string>>('/api/backup/todo/file', { data: { filename } }));
+}
+
+export function downloadTodoBackupFileUrl(filename: string): string {
+  return `/api/backup/todo/file?filename=${encodeURIComponent(filename)}`;
+}
+
 // Config APIs
 
 export async function getConfig(): Promise<import('../types').Config> {
@@ -369,6 +429,22 @@ export async function detectExecutor(name: string): Promise<{ binary_found: bool
 export async function testExecutor(name: string): Promise<{ test_passed: boolean; output: string | null; error: string | null }> {
   const result = unwrap(await api.post<ApiResp<{ test_passed: boolean; output: string | null; error: string | null }>>(`/api/executors/${encodeURIComponent(name)}/test`));
   return result;
+}
+
+export interface ExecutorBatchDetectResult {
+  results: {
+    name: string;
+    display_name: string;
+    binary_found: boolean;
+    path_resolved: string | null;
+    enabled: boolean;
+  }[];
+  total: number;
+  found_count: number;
+}
+
+export async function detectAllExecutors(): Promise<ExecutorBatchDetectResult> {
+  return unwrap(await api.post<ApiResp<ExecutorBatchDetectResult>>('/api/executors/detect-all'));
 }
 
 // Skills APIs

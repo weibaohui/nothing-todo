@@ -418,11 +418,16 @@ pub fn create_app(
         .route("/api/backup/database/auto", put(backup::update_auto_backup))
         .route("/api/backup/database/optimize", post(backup::database_optimize))
         .route("/api/backup/database/file", get(backup::download_backup_file).delete(backup::delete_backup_file))
+        .route("/api/backup/todo/status", get(backup::get_todo_backup_status))
+        .route("/api/backup/todo/trigger", post(backup::trigger_todo_backup))
+        .route("/api/backup/todo/auto", put(backup::update_todo_auto_backup))
+        .route("/api/backup/todo/file", get(backup::download_todo_backup_file).delete(backup::delete_todo_backup_file))
         .route("/api/config", get(config::get_config).put(config::update_config))
         .route("/api/executors", get(executor_config::list_executors))
         .route("/api/executors/{name}", put(executor_config::update_executor))
         .route("/api/executors/{name}/detect", post(executor_config::detect_executor))
         .route("/api/executors/{name}/test", post(executor_config::test_executor))
+        .route("/api/executors/detect-all", post(executor_config::detect_all_executors))
         .route("/api/skills", get(skills::list_skills))
         .route("/api/skills/compare", get(skills::compare_skills))
         .route("/api/skills/sync", post(skills::sync_skill))
@@ -462,10 +467,17 @@ pub fn create_app(
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
         .layer(CompressionLayer::new())
         .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
+            if crate::config::Config::is_dev_mode() {
+                CorsLayer::new()
+                    .allow_origin(Any)
+                    .allow_methods(Any)
+                    .allow_headers(Any)
+            } else {
+                CorsLayer::new()
+                    .allow_methods(Any)
+                    .allow_headers(Any)
+                    // Production: same-origin only (no explicit allow_origin)
+            },
         )
         .layer(TraceLayer::new_for_http())
         .with_state(state)

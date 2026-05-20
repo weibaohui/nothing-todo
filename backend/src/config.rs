@@ -39,6 +39,12 @@ pub struct Config {
     pub auto_backup_cron: String,
     /// 自动备份最大保留文件数
     pub auto_backup_max_files: usize,
+    /// 是否开启 Todo 自动备份
+    pub auto_todo_backup_enabled: bool,
+    /// Todo 自动备份 cron 表达式（6 字段，含秒）
+    pub auto_todo_backup_cron: String,
+    /// Todo 自动备份最大保留文件数
+    pub auto_todo_backup_max_files: usize,
     /// 是否开启自定义模板自动同步
     pub auto_sync_custom_templates_enabled: bool,
     /// 自定义模板自动同步 cron 表达式（6 字段，含秒）
@@ -121,6 +127,9 @@ impl Default for Config {
             auto_backup_enabled: false,
             auto_backup_cron: "0 0 3 * * *".to_string(),
             auto_backup_max_files: 30,
+            auto_todo_backup_enabled: false,
+            auto_todo_backup_cron: "0 0 4 * * *".to_string(),
+            auto_todo_backup_max_files: 30,
             auto_sync_custom_templates_enabled: false,
             auto_sync_custom_templates_cron: "0 0 4 * * *".to_string(),
             slash_command_rules: Vec::new(),
@@ -138,7 +147,7 @@ impl Config {
     pub fn load() -> Self {
         let path = Self::config_path();
         if !path.exists() {
-            let cfg = if Self::is_dev_mode() {
+            let mut cfg = if Self::is_dev_mode() {
                 // Dev mode defaults: different port and database
                 let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
                 Config {
@@ -149,14 +158,18 @@ impl Config {
             } else {
                 Config::default()
             };
+            cfg.normalize_paths();
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).ok();
             }
-            if let Ok(yaml) = serde_yaml::to_string(&cfg) {
+            let mut cfg_for_save = cfg.clone();
+            cfg_for_save.normalize_paths();
+            if let Ok(yaml) = serde_yaml::to_string(&cfg_for_save) {
                 if let Err(e) = std::fs::write(&path, yaml) {
                     eprintln!("Warning: failed to write config file ({}), using in-memory defaults", e);
                 }
             }
+            cfg.normalize_paths();
             return cfg;
         }
 
@@ -171,7 +184,9 @@ impl Config {
             }
             Err(e) => {
                 eprintln!("Warning: failed to read config file ({}), using defaults", e);
-                Config::default()
+                let mut cfg = Config::default();
+                cfg.normalize_paths();
+                cfg
             }
         }
     }

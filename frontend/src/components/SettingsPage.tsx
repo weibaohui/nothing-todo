@@ -126,6 +126,19 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [autoBackupMaxFiles, setAutoBackupMaxFiles] = useState(30);
   const [backupLoading, setBackupLoading] = useState(false);
 
+  // Todo backup state
+  const [todoBackupStatus, setTodoBackupStatus] = useState<{
+    auto_backup_enabled: boolean;
+    auto_backup_cron: string;
+    auto_backup_max_files: number;
+    last_backup: string | null;
+    files: { name: string; size: number; created_at: string }[];
+  } | null>(null);
+  const [autoTodoBackupEnabled, setAutoTodoBackupEnabled] = useState(false);
+  const [autoTodoBackupCron, setAutoTodoBackupCron] = useState('0 0 4 * * *');
+  const [autoTodoBackupMaxFiles, setAutoTodoBackupMaxFiles] = useState(30);
+  const [todoBackupLoading, setTodoBackupLoading] = useState(false);
+
   // Version info state
   const [versionInfo, setVersionInfo] = useState<{ version: string; git_sha: string; git_describe: string } | null>(null);
   const [versionLoading, setVersionLoading] = useState(false);
@@ -165,6 +178,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   }, [executors]);
   const [detectingExecutor, setDetectingExecutor] = useState<string | null>(null);
   const [testingExecutor, setTestingExecutor] = useState<string | null>(null);
+  const [batchDetecting, setBatchDetecting] = useState(false);
   const [detectResults, setDetectResults] = useState<Record<string, { found: boolean; resolved: string | null }>>({});
   const [testModalVisible, setTestModalVisible] = useState(false);
   const [testModalData, setTestModalData] = useState<{ name: string; result: { test_passed: boolean; output: string | null; error: string | null } } | null>(null);
@@ -269,6 +283,18 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         setAutoBackupEnabled(status.auto_backup_enabled);
         setAutoBackupCron(status.auto_backup_cron);
         setAutoBackupMaxFiles(status.auto_backup_max_files);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Load Todo backup status
+  useEffect(() => {
+    db.getTodoBackupStatus()
+      .then((status) => {
+        setTodoBackupStatus(status);
+        setAutoTodoBackupEnabled(status.auto_backup_enabled);
+        setAutoTodoBackupCron(status.auto_backup_cron);
+        setAutoTodoBackupMaxFiles(status.auto_backup_max_files);
       })
       .catch(() => {});
   }, []);
@@ -962,6 +988,54 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     document.body.removeChild(a);
   };
 
+  // Todo backup handlers
+  const handleTriggerTodoBackup = async () => {
+    setTodoBackupLoading(true);
+    try {
+      const msg = await db.triggerTodoBackup();
+      message.success(msg);
+      const status = await db.getTodoBackupStatus();
+      setTodoBackupStatus(status);
+    } catch (err: any) {
+      message.error(err?.message || '备份失败');
+    } finally {
+      setTodoBackupLoading(false);
+    }
+  };
+
+  const handleSaveTodoAutoBackup = async () => {
+    setTodoBackupLoading(true);
+    try {
+      await db.updateTodoAutoBackup(autoTodoBackupEnabled, autoTodoBackupCron, autoTodoBackupMaxFiles);
+      message.success('Todo自动备份配置已保存');
+    } catch (err: any) {
+      message.error(err?.message || '保存失败');
+    } finally {
+      setTodoBackupLoading(false);
+    }
+  };
+
+  const handleDeleteTodoBackup = async (filename: string) => {
+    try {
+      await db.deleteTodoBackupFile(filename);
+      message.success('已删除');
+      const status = await db.getTodoBackupStatus();
+      setTodoBackupStatus(status);
+    } catch (err: any) {
+      message.error(err?.message || '删除失败');
+    }
+  };
+
+  const handleDownloadTodoBackupFile = (filename: string) => {
+    const url = db.downloadTodoBackupFileUrl(filename);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   // Load running execution records from DB
   const loadRunningRecords = async () => {
     try {
@@ -1080,6 +1154,54 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
             <Paragraph type="secondary" style={{ marginBottom: 16 }}>
               管理执行器的路径、开关状态，并检测二进制是否可用。关闭开关的执行器不会出现在 Todo 的执行器选择列表中。
             </Paragraph>
+            <div style={{ marginBottom: 12 }}>
+              <Button
+                type="primary"
+                icon={<SearchOutlined />}
+                loading={batchDetecting}
+                onClick={async () => {
+                  setBatchDetecting(true);
+                  let availableCount = 0;
+                  try {
+                    for (const ec of executors) {
+                      try {
+                        const result = await db.detectExecutor(ec.name);
+                        // Update detect results immediately
+                        setDetectResults((prev) => ({
+                          ...prev,
+                          [ec.name]: { found: result.binary_found, resolved: result.path_resolved },
+                        }));
+
+                        // Update executor enabled state based on detection result
+                        if (result.binary_found) {
+                          availableCount++;
+                          if (!ec.enabled) {
+                            const updated = await db.updateExecutor(ec.name, { enabled: true });
+                            setExecutors((prev) =>
+                              prev.map((e) => (e.name === ec.name ? updated : e))
+                            );
+                          }
+                        } else if (ec.enabled) {
+                          const updated = await db.updateExecutor(ec.name, { enabled: false });
+                          setExecutors((prev) =>
+                            prev.map((e) => (e.name === ec.name ? updated : e))
+                          );
+                        }
+                      } catch (err) {
+                        // Continue with next executor on individual detection failure
+                      }
+                    }
+                    message.success(`批量检测完成：${availableCount}/${executors.length} 个执行器可用`);
+                  } catch (err: any) {
+                    message.error('批量检测失败: ' + (err?.message || String(err)));
+                  } finally {
+                    setBatchDetecting(false);
+                  }
+                }}
+              >
+                批量检测
+              </Button>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {executors.map((ec) => {
                 const detectResult = detectResults[ec.name];
@@ -1462,155 +1584,262 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         </span>
       ),
       children: (
-        <div style={{ maxWidth: 600 }}>
-          <Card title="导出备份" size="small" style={{ marginBottom: 24 }}>
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Paragraph type="secondary">
-                将 Todo 和标签导出为 YAML 文件，方便迁移和存档
-              </Paragraph>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Button
-                  type="primary"
-                  icon={<DownloadOutlined />}
-                  onClick={handleExportBackup}
-                  style={{ flex: 1 }}
-                >
-                  导出全部
-                </Button>
-                <Button
-                  icon={<DownloadOutlined />}
-                  onClick={() => setExportModalOpen(true)}
-                  style={{ flex: 1 }}
-                >
-                  选择性导出
-                </Button>
-              </div>
-            </Space>
-          </Card>
+        <Tabs
+          defaultActiveKey="todo"
+          items={[
+            {
+              key: 'todo',
+              label: 'Todo备份',
+              children: (
+                <div style={{ maxWidth: 600 }}>
+                  <Card title="导出备份" size="small" style={{ marginBottom: 24 }}>
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <Paragraph type="secondary">
+                        将 Todo 和标签导出为 YAML 文件，方便迁移和存档
+                      </Paragraph>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <Button
+                          type="primary"
+                          icon={<DownloadOutlined />}
+                          onClick={handleExportBackup}
+                          style={{ flex: 1 }}
+                        >
+                          导出全部
+                        </Button>
+                        <Button
+                          icon={<DownloadOutlined />}
+                          onClick={() => setExportModalOpen(true)}
+                          style={{ flex: 1 }}
+                        >
+                          选择性导出
+                        </Button>
+                      </div>
+                    </Space>
+                  </Card>
 
-          <Card title="导入备份" size="small" style={{ marginBottom: 24 }}>
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Paragraph type="secondary">
-                从 YAML 文件恢复数据，支持预览和选择性导入
-              </Paragraph>
-              <Dragger
-                accept=".yaml,.yml"
-                beforeUpload={handleImportFile}
-                showUploadList={false}
-                disabled={importing}
-                style={{ borderRadius: 12 }}
-              >
-                <p className="ant-upload-drag-icon">
-                  <InboxOutlined style={{ color: '#0891b2' }} />
-                </p>
-                <p className="ant-upload-text">点击或拖拽 YAML 文件到此处</p>
-                <p className="ant-upload-hint">将解析文件并展示预览，可选择性导入</p>
-              </Dragger>
-            </Space>
-          </Card>
-
-          <Card title="数据库备份" size="small">
-            <Space direction="vertical" style={{ width: '100%' }} size="middle">
-              <Paragraph type="secondary">
-                直接备份 SQLite 数据库文件，包含所有数据（含执行记录）
-              </Paragraph>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Button
-                  icon={<DownloadOutlined />}
-                  onClick={handleDownloadDatabase}
-                >
-                  下载数据库
-                </Button>
-                <Button
-                  icon={<DatabaseOutlined />}
-                  onClick={handleTriggerBackup}
-                  loading={backupLoading}
-                >
-                  备份到服务器
-                </Button>
-                <Button
-                  icon={<SettingOutlined />}
-                  onClick={handleOptimizeDatabase}
-                  loading={backupLoading}
-                >
-                  压缩优化
-                </Button>
-              </div>
-
-              <div style={{ borderTop: '1px solid var(--color-border-light)', paddingTop: 12, marginTop: 4 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <span style={{ fontWeight: 600 }}><ClockCircleOutlined style={{ marginRight: 6 }} />自动备份</span>
-                  <Switch checked={autoBackupEnabled} onChange={setAutoBackupEnabled} />
-                </div>
-                {autoBackupEnabled && (
-                  <CronPresetSelect
-                    value={autoBackupCron}
-                    onChange={(val) => setAutoBackupCron(val)}
-                  />
-                )}
-                {autoBackupEnabled && (
-                  <Cron
-                    value={cronTo5(autoBackupCron)}
-                    setValue={(val: string) => {
-                      setAutoBackupCron(cronTo6(val));
-                    }}
-                    locale={CRON_ZH_LOCALE}
-                    defaultPeriod="day"
-                    humanizeLabels
-                    allowClear={false}
-                  />
-                )}
-                {autoBackupEnabled && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-                    <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>保留数量</span>
-                    <InputNumber
-                      min={1}
-                      max={1000}
-                      value={autoBackupMaxFiles}
-                      onChange={(v) => v && setAutoBackupMaxFiles(v)}
-                      style={{ width: 80 }}
-                      size="small"
-                    />
-                    <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>个备份文件</span>
-                  </div>
-                )}
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-                  <Button size="small" type="primary" onClick={handleSaveAutoBackup} loading={backupLoading}>
-                    保存
-                  </Button>
-                </div>
-              </div>
-
-              {backupStatus && backupStatus.files.length > 0 && (
-                <div style={{ borderTop: '1px solid var(--color-border-light)', paddingTop: 12 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 8 }}>备份文件 ({backupStatus.files.length})</div>
-                  <List
-                    size="small"
-                    dataSource={backupStatus.files}
-                    renderItem={(file) => (
-                      <List.Item
-                        style={{ padding: '6px 0', fontSize: 12 }}
+                  <Card title="导入备份" size="small" style={{ marginBottom: 24 }}>
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <Paragraph type="secondary">
+                        从 YAML 文件恢复数据，支持预览和选择性导入
+                      </Paragraph>
+                      <Dragger
+                        accept=".yaml,.yml"
+                        beforeUpload={handleImportFile}
+                        showUploadList={false}
+                        disabled={importing}
+                        style={{ borderRadius: 12 }}
                       >
-                        <div>
-                          <div style={{ fontWeight: 500 }}>{file.name}</div>
-                          <div style={{ color: 'var(--color-text-tertiary)', fontSize: 11 }}>
-                            {(file.size / 1024).toFixed(1)} KB · {file.created_at}
-                          </div>
+                        <p className="ant-upload-drag-icon">
+                          <InboxOutlined style={{ color: '#0891b2' }} />
+                        </p>
+                        <p className="ant-upload-text">点击或拖拽 YAML 文件到此处</p>
+                        <p className="ant-upload-hint">将解析文件并展示预览，可选择性导入</p>
+                      </Dragger>
+                    </Space>
+                  </Card>
+
+                  <Card title="Todo自动备份" size="small">
+                    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                      <Paragraph type="secondary">
+                        将 Todo 和标签打包备份到服务器，支持定时自动备份
+                      </Paragraph>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <Button
+                          icon={<DatabaseOutlined />}
+                          onClick={handleTriggerTodoBackup}
+                          loading={todoBackupLoading}
+                        >
+                          立即备份
+                        </Button>
+                      </div>
+
+                      <div style={{ borderTop: '1px solid var(--color-border-light)', paddingTop: 12, marginTop: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <span style={{ fontWeight: 600 }}><ClockCircleOutlined style={{ marginRight: 6 }} />自动备份</span>
+                          <Switch checked={autoTodoBackupEnabled} onChange={setAutoTodoBackupEnabled} />
                         </div>
-                        <Space size={4}>
-                          <Button type="text" icon={<DownloadOutlined />} size="small" onClick={() => handleDownloadBackupFile(file.name)} />
-                          <Popconfirm title="确定删除此备份？" onConfirm={() => handleDeleteBackup(file.name)}>
-                            <Button type="text" danger icon={<DeleteOutlined />} size="small" />
-                          </Popconfirm>
-                        </Space>
-                      </List.Item>
-                    )}
-                  />
+                        {autoTodoBackupEnabled && (
+                          <CronPresetSelect
+                            value={autoTodoBackupCron}
+                            onChange={(val) => setAutoTodoBackupCron(val)}
+                          />
+                        )}
+                        {autoTodoBackupEnabled && (
+                          <Cron
+                            value={cronTo5(autoTodoBackupCron)}
+                            setValue={(val: string) => {
+                              setAutoTodoBackupCron(cronTo6(val));
+                            }}
+                            locale={CRON_ZH_LOCALE}
+                            defaultPeriod="day"
+                            humanizeLabels
+                            allowClear={false}
+                          />
+                        )}
+                        {autoTodoBackupEnabled && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                            <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>保留数量</span>
+                            <InputNumber
+                              min={1}
+                              max={1000}
+                              value={autoTodoBackupMaxFiles}
+                              onChange={(v) => v && setAutoTodoBackupMaxFiles(v)}
+                              style={{ width: 80 }}
+                              size="small"
+                            />
+                            <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>个备份文件</span>
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                          <Button size="small" type="primary" onClick={handleSaveTodoAutoBackup} loading={todoBackupLoading}>
+                            保存
+                          </Button>
+                        </div>
+                      </div>
+
+                      {todoBackupStatus && todoBackupStatus.files.length > 0 && (
+                        <div style={{ borderTop: '1px solid var(--color-border-light)', paddingTop: 12 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 8 }}>备份文件 ({todoBackupStatus.files.length})</div>
+                          <List
+                            size="small"
+                            dataSource={todoBackupStatus.files}
+                            renderItem={(file) => (
+                              <List.Item
+                                style={{ padding: '6px 0', fontSize: 12 }}
+                              >
+                                <div>
+                                  <div style={{ fontWeight: 500 }}>{file.name}</div>
+                                  <div style={{ color: 'var(--color-text-tertiary)', fontSize: 11 }}>
+                                    {(file.size / 1024).toFixed(1)} KB · {file.created_at}
+                                  </div>
+                                </div>
+                                <Space size={4}>
+                                  <Button type="text" icon={<DownloadOutlined />} size="small" onClick={() => handleDownloadTodoBackupFile(file.name)} />
+                                  <Popconfirm title="确定删除此备份？" onConfirm={() => handleDeleteTodoBackup(file.name)}>
+                                    <Button type="text" danger icon={<DeleteOutlined />} size="small" />
+                                  </Popconfirm>
+                                </Space>
+                              </List.Item>
+                            )}
+                          />
+                        </div>
+                      )}
+                    </Space>
+                  </Card>
                 </div>
-              )}
-            </Space>
-          </Card>
-        </div>
+              ),
+            },
+            {
+              key: 'database',
+              label: '数据库备份',
+              children: (
+                <div style={{ maxWidth: 600 }}>
+                  <Card title="数据库备份" size="small">
+                    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                      <Paragraph type="secondary">
+                        直接备份 SQLite 数据库文件，包含所有数据（含执行记录）
+                      </Paragraph>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <Button
+                          icon={<DownloadOutlined />}
+                          onClick={handleDownloadDatabase}
+                        >
+                          下载数据库
+                        </Button>
+                        <Button
+                          icon={<DatabaseOutlined />}
+                          onClick={handleTriggerBackup}
+                          loading={backupLoading}
+                        >
+                          备份到服务器
+                        </Button>
+                        <Button
+                          icon={<SettingOutlined />}
+                          onClick={handleOptimizeDatabase}
+                          loading={backupLoading}
+                        >
+                          压缩优化
+                        </Button>
+                      </div>
+
+                      <div style={{ borderTop: '1px solid var(--color-border-light)', paddingTop: 12, marginTop: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <span style={{ fontWeight: 600 }}><ClockCircleOutlined style={{ marginRight: 6 }} />自动备份</span>
+                          <Switch checked={autoBackupEnabled} onChange={setAutoBackupEnabled} />
+                        </div>
+                        {autoBackupEnabled && (
+                          <CronPresetSelect
+                            value={autoBackupCron}
+                            onChange={(val) => setAutoBackupCron(val)}
+                          />
+                        )}
+                        {autoBackupEnabled && (
+                          <Cron
+                            value={cronTo5(autoBackupCron)}
+                            setValue={(val: string) => {
+                              setAutoBackupCron(cronTo6(val));
+                            }}
+                            locale={CRON_ZH_LOCALE}
+                            defaultPeriod="day"
+                            humanizeLabels
+                            allowClear={false}
+                          />
+                        )}
+                        {autoBackupEnabled && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                            <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>保留数量</span>
+                            <InputNumber
+                              min={1}
+                              max={1000}
+                              value={autoBackupMaxFiles}
+                              onChange={(v) => v && setAutoBackupMaxFiles(v)}
+                              style={{ width: 80 }}
+                              size="small"
+                            />
+                            <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>个备份文件</span>
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                          <Button size="small" type="primary" onClick={handleSaveAutoBackup} loading={backupLoading}>
+                            保存
+                          </Button>
+                        </div>
+                      </div>
+
+                      {backupStatus && backupStatus.files.length > 0 && (
+                        <div style={{ borderTop: '1px solid var(--color-border-light)', paddingTop: 12 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 8 }}>备份文件 ({backupStatus.files.length})</div>
+                          <List
+                            size="small"
+                            dataSource={backupStatus.files}
+                            renderItem={(file) => (
+                              <List.Item
+                                style={{ padding: '6px 0', fontSize: 12 }}
+                              >
+                                <div>
+                                  <div style={{ fontWeight: 500 }}>{file.name}</div>
+                                  <div style={{ color: 'var(--color-text-tertiary)', fontSize: 11 }}>
+                                    {(file.size / 1024).toFixed(1)} KB · {file.created_at}
+                                  </div>
+                                </div>
+                                <Space size={4}>
+                                  <Button type="text" icon={<DownloadOutlined />} size="small" onClick={() => handleDownloadBackupFile(file.name)} />
+                                  <Popconfirm title="确定删除此备份？" onConfirm={() => handleDeleteBackup(file.name)}>
+                                    <Button type="text" danger icon={<DeleteOutlined />} size="small" />
+                                  </Popconfirm>
+                                </Space>
+                              </List.Item>
+                            )}
+                          />
+                        </div>
+                      )}
+                    </Space>
+                  </Card>
+                </div>
+              ),
+            },
+          ]}
+        />
       ),
     },
     {

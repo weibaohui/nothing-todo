@@ -411,11 +411,48 @@ pub async fn get_execution_summary(
     Ok(ApiResponse::ok(state.db.get_execution_summary(id).await?))
 }
 
+/// Dashboard stats cache: 30-second TTL to avoid repeated heavy aggregation queries.
+use std::sync::LazyLock;
+use std::time::{Duration, Instant as StdInstant};
+use tokio::sync::Mutex;
+
+struct DashboardCacheEntry {
+    stats: DashboardStats,
+    expires_at: StdInstant,
+}
+
+static DASHBOARD_CACHE: LazyLock<Mutex<Option<DashboardCacheEntry>>> = LazyLock::new(|| Mutex::new(None));
+
 pub async fn get_dashboard_stats(
     State(state): State<AppState>,
     Query(params): Query<DashboardStatsParams>,
 ) -> Result<ApiResponse<DashboardStats>, AppError> {
-    Ok(ApiResponse::ok(state.db.get_dashboard_stats(params.hours).await?))
+    let hours_key = params.hours.unwrap_or(24 * 7); // default: 7 days
+    // Only cache the default time range (7 days); custom ranges bypass cache
+    if hours_key == 24 * 7 {
+        {
+            let cache = DASHBOARD_CACHE.lock().await;
+            if let Some(ref entry) = *cache {
+                if entry.expires_at > StdInstant::now() {
+                    // Cache hit — validate key matches (hours_key is fixed here)
+                    return Ok(ApiResponse::ok(entry.stats.clone()));
+                }
+            }
+        }
+    }
+
+    let stats = state.db.get_dashboard_stats(params.hours).await?;
+
+    // Cache the default time range for 30 seconds
+    if hours_key == 24 * 7 {
+        let mut cache = DASHBOARD_CACHE.lock().await;
+        *cache = Some(DashboardCacheEntry {
+            stats: stats.clone(),
+            expires_at: StdInstant::now() + Duration::from_secs(30),
+        });
+    }
+
+    Ok(ApiResponse::ok(stats))
 }
 
 #[derive(Deserialize)]
@@ -487,11 +524,15 @@ pub async fn smart_create_handler(
 
     let mut message = todo.prompt.clone();
 
-    // 如果 prompt 模板中没有任何占位符，说明模板不期望用户输入作为参数，
-    // 此时直接用用户内容作为消息，而不是追加到模板末尾（避免模板中的其他占位符被保留）
+    // 如果 prompt 模板中没有任何占位符，将用户内容追加到 message 末尾，
+    // 确保用户提交的内容一定能传递到执行器
     let has_placeholder = params.keys().any(|key| message.contains(&format!("{{{{{}}}}}", key)));
     if !has_placeholder {
-        message = content.to_string();
+        if message.is_empty() {
+            message = content.to_string();
+        } else {
+            message = format!("{}\n\n{}", message, content);
+        }
     }
 
     let result = start_todo_execution(RunTodoExecutionRequest {
