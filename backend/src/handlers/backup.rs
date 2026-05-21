@@ -1184,22 +1184,36 @@ pub async fn get_skill_backup_status(
     }))
 }
 
-/// 复制目录到目标位置（用于备份）
+/// 复制目录到目标位置（用于备份），遇到错误时记录并继续
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<u32> {
     if !src.is_dir() {
         return Ok(0);
     }
-    std::fs::create_dir_all(dst)?;
+    if let Err(e) = std::fs::create_dir_all(dst) {
+        tracing::warn!("Failed to create directory {:?}: {}", dst, e);
+        return Err(e);
+    }
     let mut count = 0u32;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
+    let entries = match std::fs::read_dir(src) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!("Failed to read directory {:?}: {}", src, e);
+            return Err(e);
+        }
+    };
+    for entry in entries.flatten() {
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
         if src_path.is_dir() {
-            count += copy_dir_recursive(&src_path, &dst_path)?;
+            match copy_dir_recursive(&src_path, &dst_path) {
+                Ok(n) => count += n,
+                Err(e) => tracing::warn!("Failed to backup directory {:?}: {}", src_path, e),
+            }
         } else {
-            std::fs::copy(&src_path, &dst_path)?;
-            count += 1;
+            match std::fs::copy(&src_path, &dst_path) {
+                Ok(_) => count += 1,
+                Err(e) => tracing::warn!("Failed to copy file {:?}: {}", src_path, e),
+            }
         }
     }
     Ok(count)
@@ -1400,7 +1414,7 @@ pub async fn download_skill_backup_file(
     let disposition = format!("attachment; filename=\"{}\"", filename);
     Ok((
         [
-            (header::CONTENT_TYPE, "application/octent-stream".to_string()),
+            (header::CONTENT_TYPE, "application/octet-stream".to_string()),
             (header::CONTENT_DISPOSITION, disposition),
         ],
         bytes,
@@ -1465,7 +1479,12 @@ pub fn start_skill_auto_backup(
 
             tokio::time::sleep(next_delay).await;
 
-            if !enabled {
+            // Sleep 之后重新检查 enabled 状态，避免使用过期值
+            let enabled_now = {
+                let cfg = config.read().await;
+                cfg.auto_skill_backup_enabled
+            };
+            if !enabled_now {
                 continue;
             }
 
