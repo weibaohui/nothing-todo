@@ -218,11 +218,11 @@ impl Database {
             ("ntd文件夹备份", Some("使用技能skill：/devops/r2-backup 备份~/.ntd文件夹，但是要排除 .zip。"), "DevOps/监控", Some(2)),
 
             // 自动化
-            ("智能调度", Some("收到{{message}}\n请你根据收到消息内容决定下一步工作。\n1如果收到的是PR 创建事件或者PR 更新事件，启动6号TODO（名称Github代码评审）。\n执行ntd todo execute 6 --message {{message}}\n\n2如果收的是Issue 创建，那么要执行11号issue 处理任务。\n执行ntd todo execute 11 --message {{message}}"), "自动化", Some(1)),
+            ("智能调度", Some("收到{{message}}\n请你根据收到消息内容决定下一步工作。\n1如果收到的是PR 创建事件或者PR 更新事件，启动Github代码评审TODO。\n执行ntd todo execute 〈Github代码评审的todo id〉 --message {{message}}\n\n2如果收的是Issue 创建，那么要执行Issue处理任务。\n执行ntd todo execute 〈Issue处理的todo id〉 --message {{message}}"), "自动化", Some(1)),
 
             // Git/CI
             ("Github代码评审", Some("请根据{{message}}提取当前代码分支，对这个代码分支进行评审。\n请用gh 工具读取 PR信息，对修改的代码进行评审。\n\ngit fetch origin main:main\ngit worktree add  /tmp/<评审名称-hhmmsss时间戳> <待评审分支>\ncd  /tmp/<评审名称-hhmmsss时间戳>\n\n使用评审skill：/github/github-code-review\n\n评审完毕，删除该worktree。必须进行清理。"), "Git/CI", Some(5)),
-            ("git worktree 清理", Some("请你对本目录下的git worktree 进行清理。\n删除所有的worktree\n到项目backend下执行cargo clean\n然后依次执行下面的命令\ncargo cache --remove-all  \nrm -rf ~/.cache/*      \nrm -rf /tmp/git-* /tmp/node-*"), "Git/CI", Some(6)),
+            ("git worktree 清理", Some("请你对本目录下的git worktree 进行清理。\n\n执行步骤：\n1. 列出所有 worktree：git worktree list\n2. 移除所有 worktree（除了当前目录和主仓库）：git worktree remove <path> --force\n3. 清理主仓库的构建产物：cargo clean\n4. 清理仓库本地缓存：rm -rf target ~/.cargo/registry/cache 2>/dev/null || true\n\n注意：只清理当前仓库相关路径，不要执行全局删除命令。"), "Git/CI", Some(6)),
 
             // 团队协作
             ("Issue处理", Some("请根据{{message}}提取Issue 内容。\n可使用gh 工具读取 Issue 信息。\n选取一个没有 处理中 tag的issue 进行处理。\n\n执行过程：\n选定一个issue后，先把该issue 标记为处理中，防止其他AI重复处理。\ngit fetch origin main:main\ngit worktree add  /tmp/<issue名称-hhmmsss时间戳> main\ncd  /tmp/<issue名称-hhmmsss时间戳>\n\n进行代码编写、完成基本的测试\n\n提交代码，推送形成PR，删除该worktree。必须进行清理。"), "团队协作", Some(5)),
