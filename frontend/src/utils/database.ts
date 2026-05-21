@@ -227,8 +227,8 @@ export async function getExecutionRecordsBySession(sessionId: string): Promise<E
   return unwrap(await api.get<ApiResp<ExecutionRecord[]>>(`/xyz/execution-records/session/${encodeURIComponent(sessionId)}`));
 }
 
-export async function executeTodo(todoId: number, message: string, executor?: string): Promise<{ task_id: string }> {
-  return unwrap(await api.post<ApiResp<{ task_id: string }>>('/xyz/execute', { todo_id: todoId, message, executor }));
+export async function executeTodo(todoId: number, executor?: string, params?: Record<string, string>): Promise<{ task_id: string }> {
+  return unwrap(await api.post<ApiResp<{ task_id: string }>>('/xyz/execute', { todo_id: todoId, executor, params }));
 }
 
 export async function getExecutionSummary(todoId: number): Promise<ExecutionSummary> {
