@@ -71,7 +71,7 @@ export function MetricCard({
           <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-secondary)' }}>{suffix}</span>
         )}
       </div>
-      {change !== undefined && (
+      {change !== undefined && change !== null && change !== 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           {ChangeIcon && <ChangeIcon style={{ fontSize: 10, color: changeColor }} />}
           <span style={{ fontSize: 11, color: changeColor, fontWeight: 600 }}>

@@ -14,13 +14,12 @@ import {
   MessageOutlined,
   TrophyOutlined,
   FireOutlined,
-  UserOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useApp } from '../hooks/useApp';
 import { PieChart, PieChartLegend } from './PieChart';
 import { TrendChart, ContributionHeatmap } from './dashboard/DashboardCharts';
-import { MetricCard, Leaderboard, HighlightStat, TeamMemberCard } from './dashboard/EnhancedCards';
+import { MetricCard, Leaderboard, HighlightStat } from './dashboard/EnhancedCards';
 import { AnimatedNumber } from './AnimatedNumber';
 import * as db from '../utils/database';
 import { getExecutorOption } from '../types';
@@ -371,74 +370,80 @@ export function Dashboard({ onBack }: DashboardProps) {
     ),
   });
 
-  // TODO: 新增面板暂时注释掉，排查崩溃问题
+  // Key Metrics - 关键指标卡片
   panels.push({
     key: 'key-metrics',
     render: () => (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
-        <MetricCard
-          title="今日执行"
-          value={stats?.today_executions ?? 0}
-          change={stats?.executions_change ?? 0}
-          changeLabel="vs昨日"
-          prefix={<ThunderboltOutlined />}
-          color="#8b5cf6"
-          loading={loading && !stats}
-          chineseFormat
-        />
-        <MetricCard
-          title="总执行"
-          value={stats?.total_executions ?? 0}
-          change={stats?.executions_change ?? 0}
-          changeLabel="本周"
-          prefix={<ThunderboltOutlined />}
-          color="#3b82f6"
-          loading={loading && !stats}
-          chineseFormat
-        />
-        <MetricCard
-          title="成功率"
-          value={successRate}
-          suffix="%"
-          change={stats?.success_rate_change}
-          prefix={<CheckCircleOutlined />}
-          color="#22c55e"
-          loading={loading && !stats}
-          decimals={1}
-        />
-        <MetricCard
-          title="总花费"
-          value={stats ? Math.round(stats.total_cost_usd) : 0}
-          suffix="$"
-          change={stats?.cost_change}
-          prefix={<DollarOutlined />}
-          color="#f59e0b"
-          loading={loading && !stats}
-        />
-        <MetricCard
-          title="活跃天数"
-          value={stats?.active_days ?? 0}
-          prefix={<ClockCircleOutlined />}
-          color="#ef4444"
-          loading={loading && !stats}
-        />
-        <MetricCard
-          title="连续天数"
-          value={stats?.streak_days ?? 0}
-          prefix={<TagOutlined />}
-          color="#f97316"
-          loading={loading && !stats}
-        />
-        <MetricCard
-          title="平均耗时"
-          value={stats?.avg_duration_ms ? stats.avg_duration_ms / 1000 : 0}
-          suffix="s"
-          prefix={<BarChartOutlined />}
-          color="#0891b2"
-          loading={loading && !stats}
-          decimals={1}
-        />
-      </div>
+      <Card
+        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BarChartOutlined /><span>关键指标</span></div>}
+        className="dashboard-card" style={{ borderRadius: 12 }}
+        bodyStyle={{ padding: '16px 20px' }}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+          <MetricCard
+            title="今日执行"
+            value={stats?.today_executions ?? 0}
+            change={stats?.executions_change}
+            changeLabel="vs昨日"
+            prefix={<ThunderboltOutlined />}
+            color="#8b5cf6"
+            loading={loading && !stats}
+            chineseFormat
+          />
+          <MetricCard
+            title="总执行"
+            value={stats?.total_executions ?? 0}
+            change={stats?.executions_change}
+            changeLabel="本周"
+            prefix={<ThunderboltOutlined />}
+            color="#3b82f6"
+            loading={loading && !stats}
+            chineseFormat
+          />
+          <MetricCard
+            title="成功率"
+            value={successRate}
+            suffix="%"
+            change={stats?.success_rate_change}
+            prefix={<CheckCircleOutlined />}
+            color="#22c55e"
+            loading={loading && !stats}
+            decimals={1}
+          />
+          <MetricCard
+            title="总花费"
+            value={stats ? Math.round(stats.total_cost_usd) : 0}
+            suffix="$"
+            change={stats?.cost_change}
+            prefix={<DollarOutlined />}
+            color="#f59e0b"
+            loading={loading && !stats}
+          />
+          <MetricCard
+            title="活跃天数"
+            value={stats?.active_days ?? 0}
+            prefix={<ClockCircleOutlined />}
+            color="#ef4444"
+            loading={loading && !stats}
+          />
+          <MetricCard
+            title="连续天数"
+            value={stats?.streak_days ?? 0}
+            prefix={<TagOutlined />}
+            color="#f97316"
+            loading={loading && !stats}
+          />
+          <MetricCard
+            title="平均耗时"
+            value={stats?.avg_duration_ms ? stats.avg_duration_ms / 1000 : 0}
+            suffix="s"
+            prefix={<BarChartOutlined />}
+            color="#0891b2"
+            loading={loading && !stats}
+            decimals={1}
+          />
+        </div>
+      </Card>
     ),
   });
 
@@ -490,44 +495,6 @@ export function Dashboard({ onBack }: DashboardProps) {
           bodyStyle={{ padding: '16px 20px' }}
         >
           <Leaderboard data={leaderboardData} />
-        </Card>
-      );
-    },
-  });
-
-  // Team Members - 团队成员
-  panels.push({
-    key: 'team-members',
-    render: () => {
-      const teamData = stats?.leaderboard?.slice(0, 3).map((item, i) => ({
-        name: item.name,
-        role: 'Member',
-        nickname: `Rank #${i + 1}`,
-        stats: { tokens: item.tokens, sessions: item.sessions, satisfaction: 95 },
-        color: ['#8b5cf6', '#3b82f6', '#22c55e'][i] ?? '#8b5cf6',
-      })) ?? [];
-      if (teamData.length === 0) {
-        return (
-          <Card
-            title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><UserOutlined /><span>团队成员</span></div>}
-            className="dashboard-card" style={{ borderRadius: 12 }}
-            bodyStyle={{ padding: '16px 20px' }}
-          >
-            <div style={{ textAlign: 'center', color: 'var(--color-text-tertiary)', padding: '20px 0' }}>暂无数据</div>
-          </Card>
-        );
-      }
-      return (
-        <Card
-          title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><UserOutlined /><span>团队成员</span></div>}
-          className="dashboard-card" style={{ borderRadius: 12 }}
-          bodyStyle={{ padding: '16px 20px' }}
-        >
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-            {teamData.map((member) => (
-              <TeamMemberCard key={member.name} {...member} />
-            ))}
-          </div>
         </Card>
       );
     },
