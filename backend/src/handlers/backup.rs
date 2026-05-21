@@ -16,6 +16,9 @@ use crate::handlers::{AppError, AppState};
 use crate::models::{ApiResponse, BackupData, TagBackup, TodoBackup, utc_timestamp};
 use crate::db::Database;
 
+/// 数据库备份压缩级别 (0-9, 9 为最强压缩)
+const BACKUP_COMPRESSION_LEVEL: Option<i64> = Some(9);
+
 /// 导出备份（返回 YAML 格式字符串）
 pub async fn export_backup(
     State(state): State<AppState>,
@@ -128,7 +131,7 @@ fn todo_backup_dir() -> PathBuf {
     backup_dir().join("todo")
 }
 
-/// 手动下载数据库文件
+/// 手动下载数据库文件（zip 压缩格式）
 pub async fn download_database(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -151,13 +154,28 @@ pub async fn download_database(
         return Err(AppError::Internal("Database file not found".to_string()));
     }
 
-    let path = db_path.clone();
-    let bytes = tokio::task::spawn_blocking(move || std::fs::read(&path))
-        .await
-        .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?
-        .map_err(|e| AppError::Internal(format!("Failed to read database: {}", e)))?;
+    // 使用规范化后的路径读取并压缩数据库
+    let canonical_path = canonicalized;
+    let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, std::io::Error> {
+        let db_data = std::fs::read(&canonical_path)?;
 
-    let filename = format!("ntd-database-{}.db",
+        // 创建 zip 文件，使用最强压缩级别
+        let file = std::io::Cursor::new(Vec::new());
+        let mut zip = ZipWriter::new(file);
+        let options = FileOptions::<()>::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .compression_level(BACKUP_COMPRESSION_LEVEL)
+            .unix_permissions(0o644);
+
+        zip.start_file("database.db", options)?;
+        zip.write_all(&db_data)?;
+        Ok(zip.finish()?.into_inner())
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?
+    .map_err(|e| AppError::Internal(format!("Failed to create zip: {}", e)))?;
+
+    let filename = format!("ntd-database-{}.zip",
         chrono::Utc::now().format("%Y%m%d-%H%M%S"));
 
     let disposition = format!("attachment; filename=\"{}\"", filename);
@@ -210,7 +228,7 @@ pub async fn trigger_local_backup(
         let mut zip = ZipWriter::new(file);
         let options = FileOptions::<()>::default()
             .compression_method(zip::CompressionMethod::Deflated)
-            .compression_level(Some(9))
+            .compression_level(BACKUP_COMPRESSION_LEVEL)
             .unix_permissions(0o644);
 
         zip.start_file("database.db", options)?;
@@ -535,7 +553,7 @@ pub fn perform_database_backup(db_path: &str, max_files: usize) -> Result<String
     let mut zip = ZipWriter::new(file);
     let options = FileOptions::<()>::default()
         .compression_method(zip::CompressionMethod::Deflated)
-        .compression_level(Some(9))
+        .compression_level(BACKUP_COMPRESSION_LEVEL)
         .unix_permissions(0o644);
 
     zip.start_file("database.db", options)
