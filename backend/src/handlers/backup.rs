@@ -1064,6 +1064,31 @@ fn all_executor_skills_dirs() -> Vec<(&'static str, PathBuf)> {
     ]
 }
 
+/// 递归统计目录下包含 SKILL.md 的目录数量（跟随符号链接）
+fn count_skills_recursive(dir: &std::path::Path) -> usize {
+    if !dir.is_dir() {
+        return 0;
+    }
+    let mut count = 0;
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            // 使用 is_dir() 会跟随符号链接
+            if path.is_dir() {
+                // 使用 canonicalize 获取真实路径，以正确处理符号链接
+                let real_path = std::fs::canonicalize(&path).unwrap_or(path.clone());
+                if real_path.join("SKILL.md").exists() {
+                    count += 1;
+                } else {
+                    // 递归检查子目录
+                    count += count_skills_recursive(&real_path);
+                }
+            }
+        }
+    }
+    count
+}
+
 /// Skill 备份状态
 #[derive(Serialize)]
 pub struct SkillBackupStatus {
@@ -1101,22 +1126,7 @@ pub async fn get_skill_backup_status(
             .into_iter()
             .map(|(name, path)| {
                 let skills_count = if path.exists() {
-                    std::fs::read_dir(&path)
-                        .map(|entries| {
-                            entries
-                                .flatten()
-                                .filter(|e| e.path().is_dir())
-                                .filter(|e| {
-                                    // 检查是否有 SKILL.md 或子目录中有 SKILL.md
-                                    let skill_dir = e.path();
-                                    skill_dir.join("SKILL.md").exists()
-                                        || std::fs::read_dir(&skill_dir)
-                                            .map(|sub| sub.flatten().any(|s| s.path().join("SKILL.md").exists()))
-                                            .unwrap_or(false)
-                                })
-                                .count()
-                        })
-                        .unwrap_or(0)
+                    count_skills_recursive(&path)
                 } else {
                     0
                 };
