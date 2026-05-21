@@ -1037,3 +1037,511 @@ pub async fn trigger_log_cleanup(
 
     Ok(ApiResponse::ok(format!("已清理 {} 条日志记录", count)))
 }
+
+// ============ Skill 备份 ============
+
+/// Skill 备份目录
+fn skill_backup_dir() -> PathBuf {
+    backup_dir().join("skills")
+}
+
+/// 获取所有执行器的 skills 目录
+fn all_executor_skills_dirs() -> Vec<(&'static str, PathBuf)> {
+    let home = dirs::home_dir();
+    if home.is_none() {
+        return vec![];
+    }
+    let home = home.unwrap();
+    vec![
+        ("claudecode", home.join(".claude").join("skills")),
+        ("hermes", home.join(".hermes").join("skills")),
+        ("codex", home.join(".codex").join("skills")),
+        ("codebuddy", home.join(".codebuddy").join("skills")),
+        ("opencode", home.join(".opencode").join("skills")),
+        ("atomcode", home.join(".atomcode").join("skills")),
+        ("kimi", home.join(".kimi").join("skills")),
+        ("joinai", home.join(".joinai").join("skills")),
+    ]
+}
+
+/// Skill 备份状态
+#[derive(Serialize)]
+pub struct SkillBackupStatus {
+    pub auto_backup_enabled: bool,
+    pub auto_backup_cron: String,
+    pub auto_backup_max_files: usize,
+    pub last_backup: Option<String>,
+    pub files: Vec<BackupFile>,
+    pub executor_skills: Vec<ExecutorSkillInfo>,
+}
+
+/// 执行器 skills 信息
+#[derive(Serialize)]
+pub struct ExecutorSkillInfo {
+    pub executor: String,
+    pub skills_count: usize,
+    pub skills_dir_exists: bool,
+}
+
+/// 获取 Skill 备份状态
+pub async fn get_skill_backup_status(
+    State(state): State<AppState>,
+) -> Result<ApiResponse<SkillBackupStatus>, AppError> {
+    let cfg = state.config.read().await;
+    let auto_backup_enabled = cfg.auto_skill_backup_enabled;
+    let auto_backup_cron = cfg.auto_skill_backup_cron.clone();
+    let auto_backup_max_files = cfg.auto_skill_backup_max_files;
+    drop(cfg);
+
+    let dir = skill_backup_dir();
+
+    // 获取执行器 skills 信息
+    let executor_skills = tokio::task::spawn_blocking(move || {
+        all_executor_skills_dirs()
+            .into_iter()
+            .map(|(name, path)| {
+                let skills_count = if path.exists() {
+                    std::fs::read_dir(&path)
+                        .map(|entries| {
+                            entries
+                                .flatten()
+                                .filter(|e| e.path().is_dir())
+                                .filter(|e| {
+                                    // 检查是否有 SKILL.md 或子目录中有 SKILL.md
+                                    let skill_dir = e.path();
+                                    skill_dir.join("SKILL.md").exists()
+                                        || std::fs::read_dir(&skill_dir)
+                                            .map(|sub| sub.flatten().any(|s| s.path().join("SKILL.md").exists()))
+                                            .unwrap_or(false)
+                                })
+                                .count()
+                        })
+                        .unwrap_or(0)
+                } else {
+                    0
+                };
+                ExecutorSkillInfo {
+                    executor: name.to_string(),
+                    skills_count,
+                    skills_dir_exists: path.exists(),
+                }
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?;
+
+    // 获取备份文件列表
+    let files = tokio::task::spawn_blocking(move || {
+        let mut files = Vec::new();
+        if dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().is_some_and(|ext| ext == "zip") {
+                        let meta = entry.metadata().ok();
+                        let created = meta.as_ref()
+                            .and_then(|m| m.created().ok())
+                            .map(|t| {
+                                let dt: chrono::DateTime<chrono::Local> = t.into();
+                                dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                            })
+                            .unwrap_or_default();
+                        files.push(BackupFile {
+                            name: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                            size: meta.map(|m| m.len()).unwrap_or(0),
+                            created_at: created,
+                        });
+                    }
+                }
+            }
+        }
+        files.sort_by(|a, b| b.name.cmp(&a.name));
+        files
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?;
+
+    let last_backup = files.first().map(|f| f.created_at.clone());
+
+    Ok(ApiResponse::ok(SkillBackupStatus {
+        auto_backup_enabled,
+        auto_backup_cron,
+        auto_backup_max_files,
+        last_backup,
+        files,
+        executor_skills,
+    }))
+}
+
+/// 复制目录到目标位置（用于备份）
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<u32> {
+    if !src.is_dir() {
+        return Ok(0);
+    }
+    std::fs::create_dir_all(dst)?;
+    let mut count = 0u32;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            count += copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path)?;
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+/// 手动触发 Skill 备份
+pub async fn trigger_skill_backup(
+    State(state): State<AppState>,
+) -> Result<ApiResponse<String>, AppError> {
+    let cfg = state.config.read().await;
+    let max_files = cfg.auto_skill_backup_max_files;
+    drop(cfg);
+
+    let dir = skill_backup_dir();
+    let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let backup_filename = format!("skill-backup-{}.zip", timestamp);
+    let backup_path = dir.join(&backup_filename);
+    let backup_path_display = backup_path.display().to_string();
+
+    // 获取所有执行器的 skills 目录
+    let executor_dirs = all_executor_skills_dirs();
+
+    // 在 /tmp 创建临时聚合目录
+    let temp_base = std::env::temp_dir().join(format!("ntd-skill-backup-{}", timestamp));
+    let temp_base_clone = temp_base.clone();
+
+    // 复制各个执行器的 skills 到临时目录
+    let copied_count = tokio::task::spawn_blocking(move || {
+        std::fs::create_dir_all(&temp_base_clone)?;
+
+        let mut total_files = 0u32;
+        for (executor_name, skills_path) in &executor_dirs {
+            if skills_path.exists() {
+                let executor_temp_dir = temp_base_clone.join(executor_name);
+                let count = copy_dir_recursive(skills_path, &executor_temp_dir)?;
+                total_files += count;
+            }
+        }
+        Ok::<u32, std::io::Error>(total_files)
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?
+    .map_err(|e| AppError::Internal(format!("Failed to copy skills: {}", e)))?;
+
+    // 创建 zip 文件
+    let temp_base_for_zip = temp_base.clone();
+    let backup_path_clone = backup_path.clone();
+    let dir_clone = dir.clone();
+    tokio::task::spawn_blocking(move || {
+        std::fs::create_dir_all(&dir_clone)?;
+
+        let file = std::fs::File::create(&backup_path_clone)?;
+        let mut zip = ZipWriter::new(file);
+        let options = FileOptions::<()>::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .unix_permissions(0o644);
+
+        // 将临时目录打包为 zip
+        add_dir_to_zip_skill(&mut zip, &temp_base_for_zip, "", &options)?;
+
+        zip.finish()?;
+
+        // 清理临时目录
+        std::fs::remove_dir_all(&temp_base_for_zip).ok();
+
+        Ok::<(), std::io::Error>(())
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?
+    .map_err(|e| AppError::Internal(format!("Failed to create zip: {}", e)))?;
+
+    // 清理旧备份
+    cleanup_old_skill_backups(&dir, max_files);
+
+    Ok(ApiResponse::ok(format!("备份成功: {} ({} 个文件)", backup_path_display, copied_count)))
+}
+
+/// 将目录添加到 zip
+fn add_dir_to_zip_skill<W: std::io::Write + std::io::Seek>(
+    zip_writer: &mut ZipWriter<W>,
+    dir: &std::path::Path,
+    prefix: &str,
+    options: &FileOptions<()>,
+) -> std::io::Result<()> {
+    if !dir.is_dir() {
+        return Ok(());
+    }
+
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = if prefix.is_empty() {
+            path.file_name().unwrap().to_string_lossy().to_string()
+        } else {
+            format!("{}/{}", prefix, path.file_name().unwrap().to_string_lossy())
+        };
+
+        if path.is_dir() {
+            add_dir_to_zip_skill(zip_writer, &path, &name, options)?;
+        } else {
+            zip_writer.start_file(name, *options)?;
+            let mut file = std::fs::File::open(&path)?;
+            std::io::copy(&mut file, zip_writer)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// 更新 Skill 自动备份配置
+#[derive(Deserialize)]
+pub struct UpdateSkillAutoBackupRequest {
+    pub enabled: bool,
+    pub cron: String,
+    pub max_files: Option<usize>,
+}
+
+pub async fn update_skill_auto_backup(
+    State(state): State<AppState>,
+    axum::Json(req): axum::Json<UpdateSkillAutoBackupRequest>,
+) -> Result<ApiResponse<String>, AppError> {
+    // 验证 cron 表达式
+    if req.enabled {
+        let schedule = cron::Schedule::from_str(&req.cron)
+            .map_err(|e| AppError::BadRequest(format!("Invalid cron expression: {}", e)))?;
+        schedule.upcoming(chrono::Utc).next()
+            .ok_or_else(|| AppError::BadRequest("Cron expression has no future executions".to_string()))?;
+    }
+
+    let mut cfg = state.config.write().await;
+    cfg.auto_skill_backup_enabled = req.enabled;
+    cfg.auto_skill_backup_cron = req.cron;
+    if let Some(max_files) = req.max_files {
+        if max_files == 0 {
+            return Err(AppError::BadRequest("保留数量不能为 0".to_string()));
+        }
+        cfg.auto_skill_backup_max_files = max_files;
+    }
+    cfg.normalize_paths();
+
+    let cfg_clone = cfg.clone();
+    tokio::task::spawn_blocking(move || cfg_clone.save())
+        .await
+        .map_err(|e| AppError::Internal(format!("Join error: {}", e)))?
+        .map_err(|e| AppError::Internal(format!("Failed to save config: {}", e)))?;
+
+    Ok(ApiResponse::ok("Skill 自动备份配置已更新".to_string()))
+}
+
+/// 删除 Skill 备份文件
+#[derive(Deserialize)]
+pub struct DeleteSkillBackupRequest {
+    pub filename: String,
+}
+
+pub async fn delete_skill_backup_file(
+    State(_state): State<AppState>,
+    axum::Json(req): axum::Json<DeleteSkillBackupRequest>,
+) -> Result<ApiResponse<String>, AppError> {
+    // 安全检查：文件名不能包含路径分隔符
+    if req.filename.contains('/') || req.filename.contains('\\') || req.filename.contains("..") {
+        return Err(AppError::BadRequest("Invalid filename".to_string()));
+    }
+    let path = skill_backup_dir().join(&req.filename);
+    if !path.exists() {
+        return Err(AppError::NotFound);
+    }
+    tokio::task::spawn_blocking(move || std::fs::remove_file(&path))
+        .await
+        .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?
+        .map_err(|e| AppError::Internal(format!("Failed to delete: {}", e)))?;
+    Ok(ApiResponse::ok("已删除".to_string()))
+}
+
+/// 下载 Skill 备份文件
+#[derive(Deserialize)]
+pub struct DownloadSkillBackupQuery {
+    pub filename: String,
+}
+
+pub async fn download_skill_backup_file(
+    Query(query): Query<DownloadSkillBackupQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    if query.filename.contains('/') || query.filename.contains('\\') || query.filename.contains("..") {
+        return Err(AppError::BadRequest("Invalid filename".to_string()));
+    }
+    let path = skill_backup_dir().join(&query.filename);
+    if !path.exists() {
+        return Err(AppError::NotFound);
+    }
+
+    let filename = query.filename.clone();
+    let bytes = tokio::task::spawn_blocking(move || std::fs::read(&path))
+        .await
+        .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?
+        .map_err(|e| AppError::Internal(format!("Failed to read backup file: {}", e)))?;
+
+    let disposition = format!("attachment; filename=\"{}\"", filename);
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/octent-stream".to_string()),
+            (header::CONTENT_DISPOSITION, disposition),
+        ],
+        bytes,
+    ))
+}
+
+/// 清理旧 Skill 备份
+fn cleanup_old_skill_backups(dir: &PathBuf, keep: usize) {
+    if !dir.exists() {
+        return;
+    }
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|ext| ext == "zip"))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if files.len() <= keep {
+        return;
+    }
+
+    files.sort_by(|a, b| {
+        let a_time = std::fs::metadata(a).and_then(|m| m.created()).ok();
+        let b_time = std::fs::metadata(b).and_then(|m| m.created()).ok();
+        b_time.cmp(&a_time)
+    });
+
+    for old_file in files.iter().skip(keep) {
+        std::fs::remove_file(old_file).ok();
+    }
+}
+
+/// Start Skill auto backup scheduler
+pub fn start_skill_auto_backup(
+    config: std::sync::Arc<tokio::sync::RwLock<crate::config::Config>>,
+) -> Result<(), String> {
+    tokio::spawn(async move {
+        loop {
+            let (enabled, next_delay) = {
+                let cfg = config.read().await;
+                if !cfg.auto_skill_backup_enabled {
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    continue;
+                }
+                let schedule = cron::Schedule::from_str(&cfg.auto_skill_backup_cron)
+                    .unwrap_or_else(|_| cron::Schedule::from_str("0 0 5 * * *").unwrap());
+                let next = schedule.upcoming(chrono::Utc).next();
+                let delay = match next {
+                    Some(dt) => {
+                        let now = chrono::Utc::now();
+                        (dt - now).to_std().unwrap_or(std::time::Duration::from_secs(60))
+                    }
+                    None => std::time::Duration::from_secs(3600),
+                };
+                (cfg.auto_skill_backup_enabled, delay)
+            };
+
+            tokio::time::sleep(next_delay).await;
+
+            if !enabled {
+                continue;
+            }
+
+            let max_files = {
+                let cfg = config.read().await;
+                cfg.auto_skill_backup_max_files
+            };
+
+            match perform_skill_backup_async(max_files).await {
+                Ok(msg) => tracing::info!("{}", msg),
+                Err(e) => tracing::error!("Auto Skill backup failed: {}", e),
+            }
+        }
+    });
+
+    Ok(())
+}
+
+/// 执行 Skill 备份
+async fn perform_skill_backup_async(max_files: usize) -> Result<String, String> {
+    let dir = skill_backup_dir();
+    let dir_clone = dir.clone();
+    tokio::task::spawn_blocking(move || {
+        std::fs::create_dir_all(&dir_clone)
+            .map_err(|e| format!("Failed to create backup dir: {}", e))?;
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))??;
+
+    // 获取所有执行器的 skills 目录
+    let executor_dirs = all_executor_skills_dirs();
+
+    // 在 /tmp 创建临时聚合目录
+    let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let temp_base = std::env::temp_dir().join(format!("ntd-skill-backup-{}", timestamp));
+
+    // 复制各个执行器的 skills 到临时目录
+    let temp_base_clone = temp_base.clone();
+    tokio::task::spawn_blocking(move || {
+        std::fs::create_dir_all(&temp_base_clone)?;
+
+        for (executor_name, skills_path) in &executor_dirs {
+            if skills_path.exists() {
+                let executor_temp_dir = temp_base_clone.join(executor_name);
+                copy_dir_recursive(skills_path, &executor_temp_dir)?;
+            }
+        }
+        Ok::<(), std::io::Error>(())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+    .map_err(|e| format!("Failed to copy skills: {}", e))?;
+
+    let backup_filename = format!("skill-backup-{}.zip", timestamp);
+    let backup_path = dir.join(&backup_filename);
+    let backup_path_for_display = backup_path.display().to_string();
+
+    // 创建 zip 文件
+    let temp_base_for_zip = temp_base.clone();
+    let backup_path_clone = backup_path.clone();
+    tokio::task::spawn_blocking(move || {
+        let file = std::fs::File::create(&backup_path_clone)?;
+        let mut zip = ZipWriter::new(file);
+        let options = FileOptions::<()>::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .unix_permissions(0o644);
+
+        add_dir_to_zip_skill(&mut zip, &temp_base_for_zip, "", &options)?;
+        zip.finish()?;
+
+        // 清理临时目录
+        std::fs::remove_dir_all(&temp_base_for_zip).ok();
+
+        Ok::<(), std::io::Error>(())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+    .map_err(|e| format!("Failed to create zip: {}", e))?;
+
+    // 清理旧备份
+    let dir_for_cleanup = dir.clone();
+    tokio::task::spawn_blocking(move || {
+        cleanup_old_skill_backups(&dir_for_cleanup, max_files);
+    }).await
+    .map_err(|e| format!("Task join error: {}", e))?;
+
+    Ok(format!("Auto Skill backup: {}", backup_path_for_display))
+}

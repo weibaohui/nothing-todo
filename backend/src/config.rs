@@ -61,6 +61,12 @@ pub struct Config {
     pub execution_timeout_secs: u64,
     /// 日志清理保留天数（None 表示不清理）
     pub auto_cleanup_logs_days: Option<usize>,
+    /// 是否开启 Skill 自动备份
+    pub auto_skill_backup_enabled: bool,
+    /// Skill 自动备份 cron 表达式（6 字段，含秒）
+    pub auto_skill_backup_cron: String,
+    /// Skill 自动备份最大保留文件数
+    pub auto_skill_backup_max_files: usize,
 }
 
 /// Paths for each supported executor binary.
@@ -140,6 +146,9 @@ impl Default for Config {
             max_concurrent_todos: 3,
             execution_timeout_secs: 3600,
             auto_cleanup_logs_days: Some(30),
+            auto_skill_backup_enabled: false,
+            auto_skill_backup_cron: "0 0 5 * * *".to_string(),
+            auto_skill_backup_max_files: 30,
         }
     }
 }
