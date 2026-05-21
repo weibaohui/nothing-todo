@@ -578,8 +578,8 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
     try {
       await db.executeTodo(
         selectedTodo.id,
-        selectedTodo.prompt || selectedTodo.title,
-        selectedTodo.executor || undefined
+        selectedTodo.executor || undefined,
+        undefined
       );
       message.success('任务已开始执行');
     } catch (error) {
@@ -601,13 +601,11 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
     if (!selectedTodo) return;
     setExecuteWithArgsLoading(true);
     try {
-      const combinedMessage = executeArgs.trim()
-        ? `${selectedTodo.prompt || selectedTodo.title}\n\n用户补充信息：${executeArgs.trim()}`
-        : selectedTodo.prompt || selectedTodo.title;
+      const params = executeArgs.trim() ? { message: executeArgs.trim() } : undefined;
       await db.executeTodo(
         selectedTodo.id,
-        combinedMessage,
-        selectedTodo.executor || undefined
+        selectedTodo.executor || undefined,
+        params
       );
       message.success('任务已开始执行');
       setExecuteWithArgsModalOpen(false);
