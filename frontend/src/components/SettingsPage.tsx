@@ -140,6 +140,20 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [autoTodoBackupMaxFiles, setAutoTodoBackupMaxFiles] = useState(30);
   const [todoBackupLoading, setTodoBackupLoading] = useState(false);
 
+  // Skill backup state
+  const [skillBackupStatus, setSkillBackupStatus] = useState<{
+    auto_backup_enabled: boolean;
+    auto_backup_cron: string;
+    auto_backup_max_files: number;
+    last_backup: string | null;
+    files: { name: string; size: number; created_at: string }[];
+    executor_skills: { executor: string; skills_count: number; skills_dir_exists: boolean }[];
+  } | null>(null);
+  const [autoSkillBackupEnabled, setAutoSkillBackupEnabled] = useState(false);
+  const [autoSkillBackupCron, setAutoSkillBackupCron] = useState('0 0 5 * * *');
+  const [autoSkillBackupMaxFiles, setAutoSkillBackupMaxFiles] = useState(30);
+  const [skillBackupLoading, setSkillBackupLoading] = useState(false);
+
   // Version info state
   const [versionInfo, setVersionInfo] = useState<{ version: string; git_sha: string; git_describe: string } | null>(null);
   const [versionLoading, setVersionLoading] = useState(false);
@@ -302,6 +316,18 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         setAutoTodoBackupEnabled(status.auto_backup_enabled);
         setAutoTodoBackupCron(status.auto_backup_cron);
         setAutoTodoBackupMaxFiles(status.auto_backup_max_files);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Load Skill backup status
+  useEffect(() => {
+    db.getSkillBackupStatus()
+      .then((status) => {
+        setSkillBackupStatus(status);
+        setAutoSkillBackupEnabled(status.auto_backup_enabled);
+        setAutoSkillBackupCron(status.auto_backup_cron);
+        setAutoSkillBackupMaxFiles(status.auto_backup_max_files);
       })
       .catch(() => {});
   }, []);
@@ -1068,6 +1094,54 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     document.body.removeChild(a);
   };
 
+  // Skill backup handlers
+  const handleTriggerSkillBackup = async () => {
+    setSkillBackupLoading(true);
+    try {
+      const msg = await db.triggerSkillBackup();
+      message.success(msg);
+      const status = await db.getSkillBackupStatus();
+      setSkillBackupStatus(status);
+    } catch (err: any) {
+      message.error(err?.message || '备份失败');
+    } finally {
+      setSkillBackupLoading(false);
+    }
+  };
+
+  const handleSaveSkillAutoBackup = async () => {
+    setSkillBackupLoading(true);
+    try {
+      await db.updateSkillAutoBackup(autoSkillBackupEnabled, autoSkillBackupCron, autoSkillBackupMaxFiles);
+      message.success('Skill自动备份配置已保存');
+    } catch (err: any) {
+      message.error(err?.message || '保存失败');
+    } finally {
+      setSkillBackupLoading(false);
+    }
+  };
+
+  const handleDeleteSkillBackup = async (filename: string) => {
+    try {
+      await db.deleteSkillBackupFile(filename);
+      message.success('已删除');
+      const status = await db.getSkillBackupStatus();
+      setSkillBackupStatus(status);
+    } catch (err: any) {
+      message.error(err?.message || '删除失败');
+    }
+  };
+
+  const handleDownloadSkillBackupFile = (filename: string) => {
+    const url = db.downloadSkillBackupFileUrl(filename);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   // Load running execution records from DB
   const loadRunningRecords = async () => {
     try {
@@ -1748,6 +1822,120 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                                 <Space size={4}>
                                   <Button type="text" icon={<DownloadOutlined />} size="small" onClick={() => handleDownloadTodoBackupFile(file.name)} />
                                   <Popconfirm title="确定删除此备份？" onConfirm={() => handleDeleteTodoBackup(file.name)}>
+                                    <Button type="text" danger icon={<DeleteOutlined />} size="small" />
+                                  </Popconfirm>
+                                </Space>
+                              </List.Item>
+                            )}
+                          />
+                        </div>
+                      )}
+                    </Space>
+                  </Card>
+                </div>
+              ),
+            },
+            {
+              key: 'skill-backup',
+              label: 'Skill备份',
+              children: (
+                <div style={{ maxWidth: 600 }}>
+                  <Card title="Skill备份" size="small">
+                    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                      <Paragraph type="secondary">
+                        备份各执行器下的 skills 文件夹，包含所有自定义和内置技能
+                      </Paragraph>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <Button
+                          icon={<DatabaseOutlined />}
+                          onClick={handleTriggerSkillBackup}
+                          loading={skillBackupLoading}
+                        >
+                          立即备份
+                        </Button>
+                      </div>
+
+                      {skillBackupStatus && skillBackupStatus.executor_skills.length > 0 && (
+                        <div style={{ marginTop: 12, padding: '12px 16px', background: 'var(--color-bg-secondary)', borderRadius: 8 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 8 }}>执行器 Skills 概览</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                            {skillBackupStatus.executor_skills.map((executor) => (
+                              <div key={executor.executor} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                                <span style={{ color: executor.skills_dir_exists ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }}>
+                                  {executor.executor}
+                                </span>
+                                <span style={{ color: executor.skills_dir_exists ? 'var(--color-text-secondary)' : 'var(--color-text-tertiary)' }}>
+                                  {executor.skills_dir_exists ? `${executor.skills_count} skills` : '目录不存在'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div style={{ borderTop: '1px solid var(--color-border-light)', paddingTop: 12, marginTop: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <span style={{ fontWeight: 600 }}><ClockCircleOutlined style={{ marginRight: 6 }} />自动备份</span>
+                          <Switch checked={autoSkillBackupEnabled} onChange={setAutoSkillBackupEnabled} />
+                        </div>
+                        {autoSkillBackupEnabled && (
+                          <CronPresetSelect
+                            value={autoSkillBackupCron}
+                            onChange={(val) => setAutoSkillBackupCron(val)}
+                          />
+                        )}
+                        {autoSkillBackupEnabled && (
+                          <Cron
+                            value={cronTo5(autoSkillBackupCron)}
+                            setValue={(val: string) => {
+                              setAutoSkillBackupCron(cronTo6(val));
+                            }}
+                            locale={CRON_ZH_LOCALE}
+                            defaultPeriod="day"
+                            humanizeLabels
+                            allowClear={false}
+                          />
+                        )}
+                        {autoSkillBackupEnabled && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                            <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>保留数量</span>
+                            <InputNumber
+                              min={1}
+                              max={1000}
+                              value={autoSkillBackupMaxFiles}
+                              onChange={(v) => v && setAutoSkillBackupMaxFiles(v)}
+                              style={{ width: 80 }}
+                              size="small"
+                            />
+                            <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>个备份文件</span>
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                          <Button size="small" type="primary" onClick={handleSaveSkillAutoBackup} loading={skillBackupLoading}>
+                            保存
+                          </Button>
+                        </div>
+                      </div>
+
+                      {skillBackupStatus && skillBackupStatus.files.length > 0 && (
+                        <div style={{ borderTop: '1px solid var(--color-border-light)', paddingTop: 12 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 8 }}>备份文件 ({skillBackupStatus.files.length})</div>
+                          <List
+                            size="small"
+                            dataSource={skillBackupStatus.files}
+                            renderItem={(file) => (
+                              <List.Item
+                                style={{ padding: '6px 0', fontSize: 12 }}
+                              >
+                                <div>
+                                  <div style={{ fontWeight: 500 }}>{file.name}</div>
+                                  <div style={{ color: 'var(--color-text-tertiary)', fontSize: 11 }}>
+                                    {(file.size / 1024).toFixed(1)} KB · {file.created_at}
+                                  </div>
+                                </div>
+                                <Space size={4}>
+                                  <Button type="text" icon={<DownloadOutlined />} size="small" onClick={() => handleDownloadSkillBackupFile(file.name)} />
+                                  <Popconfirm title="确定删除此备份？" onConfirm={() => handleDeleteSkillBackup(file.name)}>
                                     <Button type="text" danger icon={<DeleteOutlined />} size="small" />
                                   </Popconfirm>
                                 </Space>
