@@ -13,6 +13,7 @@ use std::io::Write;
 
 use crate::handlers::{AppError, AppState};
 use crate::models::{ApiResponse, BackupData, TagBackup, TodoBackup, utc_timestamp};
+use crate::db::Database;
 
 /// 导出备份（返回 YAML 格式字符串）
 pub async fn export_backup(
@@ -514,6 +515,22 @@ pub fn perform_database_backup(db_path: &str, max_files: usize) -> Result<String
     Ok(format!("Auto backup: {}", backup_path.display()))
 }
 
+/// 清理早于指定天数的 execution_logs 记录
+pub async fn cleanup_old_logs(db: &Database, days: usize) -> Result<u64, String> {
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(days as i64);
+    let cutoff_str = cutoff.format("%Y-%m-%dT%H:%M:%S").to_string();
+
+    // 使用 DELETE FROM execution_logs WHERE timestamp < cutoff
+    // 由于 timestamp 格式是 ISO8601 字符串，可以直接字符串比较
+    let sql = format!(
+        "DELETE FROM execution_logs WHERE timestamp < '{}'",
+        cutoff_str
+    );
+
+    db.exec(&sql).await.map_err(|e| format!("Failed to cleanup logs: {}", e))?;
+    Ok(0) // SQLite 不返回删除的行数，这里简单返回 0
+}
+
 fn cleanup_old_db_backups(dir: &PathBuf, keep: usize) {
     if !dir.exists() {
         return;
@@ -547,6 +564,7 @@ fn cleanup_old_db_backups(dir: &PathBuf, keep: usize) {
 /// 启动自动备份定时任务
 pub fn start_auto_backup(
     cron_expr: &str,
+    db: std::sync::Arc<Database>,
     config: std::sync::Arc<tokio::sync::RwLock<crate::config::Config>>,
 ) -> Result<(), String> {
     let schedule = cron::Schedule::from_str(cron_expr)
@@ -565,13 +583,23 @@ pub fn start_auto_backup(
             tokio::time::sleep(delay).await;
 
             // Read current config from in-memory state
-            let (db_path, max_files) = {
+            let (db_path, max_files, cleanup_days) = {
                 let cfg = config.read().await;
-                (cfg.db_path.clone(), cfg.auto_backup_max_files)
+                (cfg.db_path.clone(), cfg.auto_backup_max_files, cfg.auto_cleanup_logs_days)
             };
 
             match tokio::task::spawn_blocking(move || perform_database_backup(&db_path, max_files)).await {
-                Ok(Ok(msg)) => tracing::info!("{}", msg),
+                Ok(Ok(msg)) => {
+                    tracing::info!("{}", msg);
+                    // 执行日志清理
+                    if let Some(days) = cleanup_days {
+                        let db = db.clone();
+                        match cleanup_old_logs(&db, days).await {
+                            Ok(count) => tracing::info!("Cleaned up {} old log entries", count),
+                            Err(e) => tracing::error!("Log cleanup failed: {}", e),
+                        }
+                    }
+                }
                 Ok(Err(e)) => tracing::error!("Auto backup failed: {}", e),
                 Err(e) => tracing::error!("Auto backup task panicked: {}", e),
             }
@@ -883,4 +911,64 @@ fn cleanup_old_todo_backups(dir: &PathBuf, keep: usize) {
     for old_file in files.iter().skip(keep) {
         std::fs::remove_file(old_file).ok();
     }
+}
+
+// ============ 日志清理 ============
+
+#[derive(Serialize)]
+pub struct LogCleanupStatus {
+    pub cleanup_days: Option<usize>,
+}
+
+pub async fn get_log_cleanup_status(
+    State(state): State<AppState>,
+) -> Result<ApiResponse<LogCleanupStatus>, AppError> {
+    let cfg = state.config.read().await;
+    Ok(ApiResponse::ok(LogCleanupStatus {
+        cleanup_days: cfg.auto_cleanup_logs_days,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateLogCleanupRequest {
+    pub days: Option<usize>,
+}
+
+pub async fn update_log_cleanup(
+    State(state): State<AppState>,
+    axum::Json(req): axum::Json<UpdateLogCleanupRequest>,
+) -> Result<ApiResponse<String>, AppError> {
+    if let Some(days) = req.days {
+        if days == 0 {
+            return Err(AppError::BadRequest("保留天数不能为 0".to_string()));
+        }
+    }
+
+    let mut cfg = state.config.write().await;
+    cfg.auto_cleanup_logs_days = req.days;
+
+    let cfg_clone = cfg.clone();
+    tokio::task::spawn_blocking(move || cfg_clone.save())
+        .await
+        .map_err(|e| AppError::Internal(format!("Join error: {}", e)))?
+        .map_err(|e| AppError::Internal(format!("Failed to save config: {}", e)))?;
+
+    Ok(ApiResponse::ok("日志清理配置已更新".to_string()))
+}
+
+pub async fn trigger_log_cleanup(
+    State(state): State<AppState>,
+) -> Result<ApiResponse<String>, AppError> {
+    let days = {
+        let cfg = state.config.read().await;
+        cfg.auto_cleanup_logs_days
+    };
+
+    let days = days.ok_or_else(|| AppError::BadRequest("日志清理未启用，请先设置保留天数".to_string()))?;
+
+    let db = state.db.clone();
+    let count = cleanup_old_logs(&db, days).await
+        .map_err(|e| AppError::Internal(format!("Cleanup failed: {}", e)))?;
+
+    Ok(ApiResponse::ok(format!("已清理 {} 条日志记录", count)))
 }

@@ -124,6 +124,9 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [autoBackupMaxFiles, setAutoBackupMaxFiles] = useState(30);
   const [backupLoading, setBackupLoading] = useState(false);
 
+  // Log cleanup state
+  const [logCleanupDays, setLogCleanupDays] = useState<number | null>(30);
+
   // Todo backup state
   const [todoBackupStatus, setTodoBackupStatus] = useState<{
     auto_backup_enabled: boolean;
@@ -281,6 +284,12 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         setAutoBackupEnabled(status.auto_backup_enabled);
         setAutoBackupCron(status.auto_backup_cron);
         setAutoBackupMaxFiles(status.auto_backup_max_files);
+      })
+      .catch(() => {});
+
+    db.getLogCleanupStatus()
+      .then((status) => {
+        setLogCleanupDays(status.cleanup_days);
       })
       .catch(() => {});
   }, []);
@@ -984,6 +993,31 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+  };
+
+  // Log cleanup handlers
+  const handleSaveLogCleanup = async () => {
+    setBackupLoading(true);
+    try {
+      await db.updateLogCleanup(logCleanupDays);
+      message.success('日志清理配置已保存');
+    } catch (err: any) {
+      message.error(err?.message || '保存失败');
+    } finally {
+      setBackupLoading(false);
+    }
+  };
+
+  const handleTriggerLogCleanup = async () => {
+    setBackupLoading(true);
+    try {
+      const result = await db.triggerLogCleanup();
+      message.success(result);
+    } catch (err: any) {
+      message.error(err?.message || '清理失败');
+    } finally {
+      setBackupLoading(false);
+    }
   };
 
   // Todo backup handlers
@@ -1831,6 +1865,41 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                           />
                         </div>
                       )}
+                    </Space>
+                  </Card>
+
+                  <Card title="清理日志" size="small" style={{ marginTop: 16 }}>
+                    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                      <Paragraph type="secondary">
+                        清理 execution_logs 表中早于指定天数的日志记录，释放数据库空间
+                      </Paragraph>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>保留日志</span>
+                        <InputNumber
+                          min={1}
+                          max={365}
+                          value={logCleanupDays ?? 30}
+                          onChange={(v) => setLogCleanupDays(v)}
+                          style={{ width: 80 }}
+                          size="small"
+                        />
+                        <span style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>天</span>
+                        <Button
+                          size="small"
+                          type="primary"
+                          onClick={handleSaveLogCleanup}
+                          style={{ marginLeft: 8 }}
+                        >
+                          保存
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={handleTriggerLogCleanup}
+                          style={{ marginLeft: 4 }}
+                        >
+                          立即清理
+                        </Button>
+                      </div>
                     </Space>
                   </Card>
                 </div>

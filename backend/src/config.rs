@@ -59,6 +59,8 @@ pub struct Config {
     pub max_concurrent_todos: u32,
     /// 执行超时时间（秒，默认 3600 = 60 分钟），超过此时间将自动终止进程
     pub execution_timeout_secs: u64,
+    /// 日志清理保留天数（None 表示不清理）
+    pub auto_cleanup_logs_days: Option<usize>,
 }
 
 /// Paths for each supported executor binary.
@@ -137,6 +139,7 @@ impl Default for Config {
             history_message_max_age_secs: 600,
             max_concurrent_todos: 3,
             execution_timeout_secs: 3600,
+            auto_cleanup_logs_days: Some(30),
         }
     }
 }

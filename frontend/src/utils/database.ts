@@ -364,6 +364,24 @@ export function downloadBackupFileUrl(filename: string): string {
   return `/xyz/backup/database/file?filename=${encodeURIComponent(filename)}`;
 }
 
+// Log Cleanup APIs
+
+export async function getLogCleanupStatus(): Promise<{
+  cleanup_days: number | null;
+}> {
+  return unwrap(await api.get<ApiResp<{
+    cleanup_days: number | null;
+  }>>('/xyz/backup/log-cleanup/status'));
+}
+
+export async function updateLogCleanup(days: number | null): Promise<string> {
+  return unwrap(await api.put<ApiResp<string>>('/xyz/backup/log-cleanup', { days }));
+}
+
+export async function triggerLogCleanup(): Promise<string> {
+  return unwrap(await api.post<ApiResp<string>>('/xyz/backup/log-cleanup/trigger'));
+}
+
 // Todo Backup APIs
 
 export async function getTodoBackupStatus(): Promise<{
