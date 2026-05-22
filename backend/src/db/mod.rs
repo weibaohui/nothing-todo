@@ -346,8 +346,6 @@ impl Database {
         )
         .await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_todo_finished ON execution_records(todo_id, finished_at DESC)").await?;
-        self.exec("CREATE INDEX IF NOT EXISTS idx_feishu_messages_chat_id ON feishu_messages(chat_id)").await?;
-        self.exec("CREATE INDEX IF NOT EXISTS idx_feishu_messages_created_at ON feishu_messages(created_at)").await?;
 
         // Trigger: fill created_at with UTC time on INSERT if not set
         self.exec(
@@ -516,6 +514,10 @@ impl Database {
             )",
         )
         .await?;
+
+        // Feishu Messages table indexes (created after table to ensure table exists)
+        self.exec("CREATE INDEX IF NOT EXISTS idx_feishu_messages_chat_id ON feishu_messages(chat_id)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_feishu_messages_created_at ON feishu_messages(created_at)").await?;
 
         // Feishu Push Targets — one row per bot, p2p and group IDs as separate fields
         self.exec(

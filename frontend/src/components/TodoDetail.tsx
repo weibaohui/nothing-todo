@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useApp } from '../hooks/useApp';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { Button, Empty, App, Popconfirm, Tag, Badge, Pagination, Segmented, Modal, Input, Tooltip, Select } from 'antd';
@@ -678,7 +678,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
     message.success('导出成功');
   };
 
-  const handleStatusChange = async (newStatus: string) => {
+  const handleStatusChange = useCallback(async (newStatus: string) => {
     if (!selectedTodo) return;
     try {
       const updated = await db.updateTodo(selectedTodo.id, selectedTodo.title, selectedTodo.prompt || '', newStatus);
@@ -687,7 +687,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
     } catch {
       // ignore: interceptor already shows error
     }
-  };
+  }, [selectedTodo, dispatch]);
 
   const handleDelete = async () => {
     if (!selectedTodo) return;

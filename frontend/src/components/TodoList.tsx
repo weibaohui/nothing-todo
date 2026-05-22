@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useApp } from '../hooks/useApp';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { Button, Empty, Tooltip } from 'antd';
@@ -49,6 +49,15 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
       : todos,
     [todos, selectedTagId]
   );
+
+  const handleStatusChange = useCallback(async (todoId: number, title: string, prompt: string, newStatus: string) => {
+    try {
+      const updated = await db.updateTodo(todoId, title, prompt, newStatus);
+      dispatch({ type: 'UPDATE_TODO', payload: updated });
+    } catch {
+      // ignore: interceptor already shows error
+    }
+  }, [dispatch]);
 
   const tagMap = useMemo(() => {
     const map = new Map<number, typeof tags[0]>();
@@ -268,22 +277,7 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
                   >
                     <StatusPicker
                       value={todo.status}
-                      onChange={async (newStatus) => {
-                        try {
-                          const updated = await db.updateTodo(
-                            todo.id,
-                            todo.title,
-                            todo.prompt || '',
-                            newStatus
-                          );
-                          dispatch({
-                            type: 'UPDATE_TODO',
-                            payload: updated
-                          });
-                        } catch {
-                          // ignore: interceptor already shows error
-                        }
-                      }}
+                      onChange={(newStatus) => handleStatusChange(todo.id, todo.title, todo.prompt || '', newStatus)}
                     />
                   </div>
                 </div>

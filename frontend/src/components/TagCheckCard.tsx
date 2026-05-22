@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useCallback } from 'react';
 import { CheckOutlined } from '@ant-design/icons';
 
 interface Tag {
@@ -10,19 +10,19 @@ interface Tag {
 interface TagCheckCardProps {
   tag: Tag;
   selected: boolean;
-  onClick: () => void;
+  onClick: (tagId: number) => void;
 }
 
 const TagCheckCard = memo(function TagCheckCard({ tag, selected, onClick }: TagCheckCardProps) {
   return (
     <div
-      onClick={onClick}
+      onClick={() => onClick(tag.id)}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          onClick();
+          onClick(tag.id);
         }
       }}
       style={{
@@ -107,7 +107,7 @@ export function TagCheckCardGroup({ tags, value, onChange, multiple = false }: T
     return value === tagId;
   };
 
-  const handleClick = (tagId: number) => {
+  const handleClick = useCallback((tagId: number) => {
     if (multiple) {
       const current = (value as number[] | null) || [];
       if (current.includes(tagId)) {
@@ -118,7 +118,7 @@ export function TagCheckCardGroup({ tags, value, onChange, multiple = false }: T
     } else {
       onChange(isSelected(tagId) ? null : tagId);
     }
-  };
+  }, [multiple, onChange, value]);
 
   return (
     <div
@@ -133,7 +133,7 @@ export function TagCheckCardGroup({ tags, value, onChange, multiple = false }: T
           key={tag.id}
           tag={tag}
           selected={isSelected(tag.id)}
-          onClick={() => handleClick(tag.id)}
+          onClick={handleClick}
         />
       ))}
     </div>

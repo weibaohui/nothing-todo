@@ -27,15 +27,18 @@ function AppContent() {
   const [fabExpanded, setFabExpanded] = useState(false);
   const [appConfig, setAppConfig] = useState<Config | null>(null);
   const isMobile = useIsMobile();
-  const [selectedPanel, setSelectedPanel] = useState<'list' | 'detail'>('list');
-
-  // Read initial state from URL
-  const [activeView, setActiveView] = useState<'dashboard' | 'settings' | 'memorial'>(() => {
+  // Read initial state from URL - derive both activeView and selectedPanel from URL
+  const getInitialView = () => {
     const params = new URLSearchParams(window.location.search);
     const view = params.get('view');
     if (view === 'settings' || view === 'memorial') return view;
     return 'dashboard';
-  });
+  };
+  const getInitialPanel = (view: 'dashboard' | 'settings' | 'memorial') => {
+    return view === 'dashboard' ? 'list' : 'detail';
+  };
+  const [activeView, setActiveView] = useState<'dashboard' | 'settings' | 'memorial'>(getInitialView);
+  const [selectedPanel, setSelectedPanel] = useState<'list' | 'detail'>(() => getInitialPanel(getInitialView()));
 
   const [panelCollapsed, setPanelCollapsed] = useState(() => {
     try {
