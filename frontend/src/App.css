@@ -2758,7 +2758,7 @@ code {
   flex: 1;
   display: flex;
   gap: var(--space-md);
-  padding: var(--space-md) var(--space-lg);
+  padding: var(--space-md) 0;
   overflow-x: auto;
   overflow-y: hidden;
   align-items: flex-start;
@@ -2780,8 +2780,6 @@ code {
 /* ─── Column ─── */
 .kanban-column {
   flex: 1;
-  min-width: 240px;
-  max-width: 340px;
   display: flex;
   flex-direction: column;
   background: var(--color-fill-quaternary, #f1f5f9);
@@ -3323,13 +3321,12 @@ code {
   }
 
   .kanban-columns-container {
-    padding: var(--space-sm);
+    padding: var(--space-sm) 0;
     gap: var(--space-sm);
   }
 
   .kanban-column {
-    min-width: 200px;
-    max-width: 260px;
+    min-width: 0;
   }
 
   .kanban-mobile-tabs {
