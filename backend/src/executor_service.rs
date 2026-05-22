@@ -79,7 +79,7 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
             // 检查该 todo 下正在执行的记录数量是否已达并发上限
             // 需要过滤掉孤儿记录：状态为 running 但 task_manager 中没有对应 task
             let running_tasks = task_manager.get_all_task_infos().await;
-            let running_records = match db.get_running_execution_records().await {
+            let running_records = match db.get_running_records_by_todo_id(todo_id).await {
                 Ok(records) => records,
                 Err(e) => {
                     tracing::error!("Failed to get running execution records: {}", e);
@@ -99,7 +99,6 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
                         false
                     }
                 })
-                .filter(|r| r.todo_id == todo_id)
                 .count();
             if running_count_for_todo >= max_concurrent as usize {
                 tracing::warn!(
