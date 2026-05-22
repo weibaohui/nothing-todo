@@ -189,6 +189,9 @@ impl Database {
         timezone: Option<&str>,
     ) -> Result<(), sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
+        // Normalize empty strings to None
+        let timezone = timezone.filter(|s| !s.is_empty());
+        let config = config.filter(|s| !s.is_empty());
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
             scheduler_enabled: ActiveValue::Set(Some(enabled)),

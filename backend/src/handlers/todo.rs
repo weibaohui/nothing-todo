@@ -146,14 +146,16 @@ pub async fn update_todo(
         .filter(|s| !s.is_empty())
         .cloned();
 
-    // Get timezone from request, or fall back to system default
+    // Get timezone: req > existing > system default
     let system_default_tz = state.config.read().await.scheduler_default_timezone.clone();
+    let existing_tz = current.scheduler_timezone.clone();
     let scheduler_timezone = req
         .scheduler_timezone
         .as_ref()
         .filter(|s| !s.is_empty())
         .cloned()
-        .or(system_default_tz.filter(|s| !s.is_empty()));
+        .or_else(|| existing_tz.filter(|s| !s.is_empty()))
+        .or_else(|| system_default_tz.filter(|s| !s.is_empty()));
 
     // Validate cron expression if scheduler config is provided
     if let Some(ref config) = scheduler_config {
