@@ -127,6 +127,21 @@ impl Database {
         Ok(m.map(Into::into))
     }
 
+    /// 批量根据 task_id 列表获取执行记录（用于 WebSocket 同步等场景）
+    pub async fn get_execution_records_by_task_ids(
+        &self,
+        task_ids: &[String],
+    ) -> Result<Vec<ExecutionRecord>, sea_orm::DbErr> {
+        if task_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let models = execution_records::Entity::find()
+            .filter(execution_records::Column::TaskId.is_in(task_ids.iter().map(|s| s.as_str())))
+            .all(&self.conn)
+            .await?;
+        Ok(models.into_iter().map(Into::into).collect())
+    }
+
     pub async fn create_execution_record(
         &self,
         record: NewExecutionRecord<'_>,
@@ -1154,6 +1169,20 @@ impl Database {
     ) -> Result<Vec<ExecutionRecord>, sea_orm::DbErr> {
         let models = execution_records::Entity::find()
             .filter(execution_records::Column::Status.eq("running"))
+            .order_by_desc(execution_records::Column::StartedAt)
+            .all(&self.conn)
+            .await?;
+        Ok(models.into_iter().map(Into::into).collect())
+    }
+
+    /// 查询指定 todo_id 下 status='running' 的执行记录
+    pub async fn get_running_records_by_todo_id(
+        &self,
+        todo_id: i64,
+    ) -> Result<Vec<ExecutionRecord>, sea_orm::DbErr> {
+        let models = execution_records::Entity::find()
+            .filter(execution_records::Column::Status.eq("running"))
+            .filter(execution_records::Column::TodoId.eq(todo_id))
             .order_by_desc(execution_records::Column::StartedAt)
             .all(&self.conn)
             .await?;

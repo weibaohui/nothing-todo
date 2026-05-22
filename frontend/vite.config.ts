@@ -14,7 +14,7 @@ export default defineConfig({
           'vendor-antd': ['antd'],
           'vendor-antd-icons': ['@ant-design/icons'],
           'vendor-md-editor': ['@uiw/react-md-editor', '@ant-design/x-markdown'],
-          'vendor-motion': ['framer-motion'],
+
           'vendor-icons': ['react-icons'],
           'vendor-misc': ['qrcode', 'react-countup', 'react-js-cron'],
         },

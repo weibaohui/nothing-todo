@@ -162,17 +162,18 @@ pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade)
         let mut rx = state.tx.subscribe();
 
         // 连接时发送当前实际运行的任务列表
-        // 每个任务需要从数据库获取最新的日志
+        // 批量获取执行记录，避免 N+1 查询
         let mut running_tasks = state.task_manager.get_all_task_infos().await;
+        let task_ids: Vec<String> = running_tasks.iter().map(|t| t.task_id.clone()).collect();
+        let records = state.db.get_execution_records_by_task_ids(&task_ids).await.unwrap_or_default();
+        let record_map: std::collections::HashMap<String, _> = records
+            .into_iter()
+            .filter_map(|r| r.task_id.clone().map(|tid| (tid, r)))
+            .collect();
         for task in &mut running_tasks {
-            // 从 execution_logs 表获取该任务的执行记录日志
-            match state.db.get_execution_record_by_task_id(&task.task_id).await {
-                Ok(Some(record)) => {
-                    let logs = state.db.get_all_execution_logs(record.id).await.unwrap_or_default();
-                    task.logs = serde_json::to_string(&logs).unwrap_or_default();
-                }
-                Ok(None) => {}
-                Err(e) => tracing::debug!("No execution record found for task_id {}: {}", task.task_id, e),
+            if let Some(record) = record_map.get(&task.task_id) {
+                let logs = state.db.get_all_execution_logs(record.id).await.unwrap_or_default();
+                task.logs = serde_json::to_string(&logs).unwrap_or_default();
             }
         }
         let sync_event = ExecEvent::Sync { tasks: running_tasks };

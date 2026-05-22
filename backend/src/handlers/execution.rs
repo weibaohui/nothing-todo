@@ -123,7 +123,7 @@ pub async fn execute_handler(
     // 需要过滤掉孤儿记录：状态为 running 但 task_manager 中没有对应 task
     let max_concurrent = state.config.read().await.max_concurrent_todos;
     let running_tasks = state.task_manager.get_all_task_infos().await;
-    let running_records = state.db.get_running_execution_records().await?;
+    let running_records = state.db.get_running_records_by_todo_id(req.todo_id).await?;
     let running_count_for_todo = running_records
         .iter()
         .filter(|r| {
@@ -134,7 +134,6 @@ pub async fn execute_handler(
                 false
             }
         })
-        .filter(|r| r.todo_id == req.todo_id)
         .count();
     if running_count_for_todo >= max_concurrent as usize {
         return Err(AppError::BadRequest(format!(
@@ -345,7 +344,7 @@ pub async fn resume_execution_handler(
     // 需要过滤掉孤儿记录：状态为 running 但 task_manager 中没有对应 task
     let max_concurrent = state.config.read().await.max_concurrent_todos;
     let running_tasks = state.task_manager.get_all_task_infos().await;
-    let running_records = state.db.get_running_execution_records().await?;
+    let running_records = state.db.get_running_records_by_todo_id(todo_id).await?;
     let running_count_for_todo = running_records
         .iter()
         .filter(|r| {
@@ -356,7 +355,6 @@ pub async fn resume_execution_handler(
                 false
             }
         })
-        .filter(|r| r.todo_id == todo_id)
         .count();
     if running_count_for_todo >= max_concurrent as usize {
         return Err(AppError::BadRequest(format!(
@@ -414,7 +412,8 @@ pub async fn get_execution_summary(
     Ok(ApiResponse::ok(state.db.get_execution_summary(id).await?))
 }
 
-/// Dashboard stats cache: 30-second TTL to avoid repeated heavy aggregation queries.
+/// Dashboard stats cache: 30-second TTL, supports multiple time ranges.
+use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant as StdInstant};
 use tokio::sync::Mutex;
@@ -424,32 +423,29 @@ struct DashboardCacheEntry {
     expires_at: StdInstant,
 }
 
-static DASHBOARD_CACHE: LazyLock<Mutex<Option<DashboardCacheEntry>>> = LazyLock::new(|| Mutex::new(None));
+static DASHBOARD_CACHE: LazyLock<Mutex<HashMap<u32, DashboardCacheEntry>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub async fn get_dashboard_stats(
     State(state): State<AppState>,
     Query(params): Query<DashboardStatsParams>,
 ) -> Result<ApiResponse<DashboardStats>, AppError> {
     let hours_key = params.hours.unwrap_or(24 * 7); // default: 7 days
-    // Only cache the default time range (7 days); custom ranges bypass cache
-    if hours_key == 24 * 7 {
-        {
-            let cache = DASHBOARD_CACHE.lock().await;
-            if let Some(ref entry) = *cache {
-                if entry.expires_at > StdInstant::now() {
-                    // Cache hit — validate key matches (hours_key is fixed here)
-                    return Ok(ApiResponse::ok(entry.stats.clone()));
-                }
+
+    {
+        let cache = DASHBOARD_CACHE.lock().await;
+        if let Some(entry) = cache.get(&hours_key) {
+            if entry.expires_at > StdInstant::now() {
+                return Ok(ApiResponse::ok(entry.stats.clone()));
             }
         }
     }
 
     let stats = state.db.get_dashboard_stats(params.hours).await?;
 
-    // Cache the default time range for 30 seconds
-    if hours_key == 24 * 7 {
+    {
         let mut cache = DASHBOARD_CACHE.lock().await;
-        *cache = Some(DashboardCacheEntry {
+        cache.insert(hours_key, DashboardCacheEntry {
             stats: stats.clone(),
             expires_at: StdInstant::now() + Duration::from_secs(30),
         });
@@ -500,7 +496,7 @@ pub async fn smart_create_handler(
     // 检查并发限制
     let max_concurrent = state.config.read().await.max_concurrent_todos;
     let running_tasks = state.task_manager.get_all_task_infos().await;
-    let running_records = state.db.get_running_execution_records().await?;
+    let running_records = state.db.get_running_records_by_todo_id(todo_id).await?;
     let running_count_for_todo = running_records
         .iter()
         .filter(|r| {
@@ -510,7 +506,6 @@ pub async fn smart_create_handler(
                 false
             }
         })
-        .filter(|r| r.todo_id == todo_id)
         .count();
     if running_count_for_todo >= max_concurrent as usize {
         return Err(AppError::BadRequest(format!(

@@ -46,8 +46,7 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
   }, []);
 
   useEffect(() => {
-    const timer = setTimeout(() => setIsLoading(false), 400);
-    return () => clearTimeout(timer);
+    setIsLoading(false);
   }, []);
 
   const filteredTodos = useMemo(() =>
@@ -56,6 +55,12 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
       : todos,
     [todos, selectedTagId]
   );
+
+  const tagMap = useMemo(() => {
+    const map = new Map<number, typeof tags[0]>();
+    for (const tag of tags) map.set(tag.id, tag);
+    return map;
+  }, [tags]);
 
   if (isLoading) {
     return (
@@ -181,7 +186,7 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
           </div>
         ) : (
           filteredTodos.map(todo => {
-            const todoTags = tags.filter(t => (todo as any).tag_ids?.includes(t.id));
+            const todoTags = ((todo as any).tag_ids as number[] | undefined)?.map(id => tagMap.get(id)).filter((t): t is typeof tags[0] => !!t) ?? [];
             const primaryTag = todoTags[0];
             const isCompleted = todo.status === 'completed';
 
