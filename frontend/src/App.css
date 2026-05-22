@@ -2780,6 +2780,8 @@ code {
 /* ─── Column ─── */
 .kanban-column {
   flex: 1;
+  min-width: 200px;
+  max-width: 360px;
   display: flex;
   flex-direction: column;
   background: var(--color-fill-quaternary, #f1f5f9);

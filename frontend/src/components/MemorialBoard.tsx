@@ -172,7 +172,7 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
 
   /* ─── Responsive column count ─── */
   const [columnCount, setColumnCount] = useState(() => {
-    const w = window.innerWidth;
+    const w = typeof window !== 'undefined' ? window.innerWidth : 1600;
     if (w >= 1600) return 4;
     if (w >= 1100) return 3;
     if (w >= 769) return 2;
@@ -207,7 +207,7 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
       cols[i % columnCount].push(item);
     });
     return cols;
-  }, [filteredItems, columnCount]);
+  }, [filteredItems, columnCount, loading]);
 
   const successCount = filteredItems.filter(i => i.execution_status === 'success').length;
   const failedCount = filteredItems.filter(i => i.execution_status === 'failed').length;
@@ -369,27 +369,15 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
         <KanbanBoard searchText={searchText} hours={hours} onSearchChange={setSearchText} onHoursChange={setHours} />
       ) : loading ? (
         <div className="memorial-grid">
-          {columns.some(col => col.length > 0) ? (
-            columns.map((col, colIdx) => (
-              <div key={colIdx} className="memorial-column">
-                {col.map((item) => (
-                  <Card key={item.todo_id} className="memorial-card" size="small" bodyStyle={{ padding: 12 }}>
-                    <Skeleton active paragraph={{ rows: 4 }} />
-                  </Card>
-                ))}
-              </div>
-            ))
-          ) : (
-            Array.from({ length: columnCount }).map((_, colIdx) => (
-              <div key={colIdx} className="memorial-column">
-                {Array.from({ length: 6 }).map((__, idx) => (
-                  <Card key={`skeleton-${colIdx}-${idx}`} className="memorial-card" size="small" bodyStyle={{ padding: 12 }}>
-                    <Skeleton active paragraph={{ rows: 4 }} />
-                  </Card>
-                ))}
-              </div>
-            ))
-          )}
+          {Array.from({ length: columnCount }).map((_, colIdx) => (
+            <div key={colIdx} className="memorial-column">
+              {Array.from({ length: 6 }).map((__, idx) => (
+                <Card key={`skeleton-${colIdx}-${idx}`} className="memorial-card" size="small" bodyStyle={{ padding: 12 }}>
+                  <Skeleton active paragraph={{ rows: 4 }} />
+                </Card>
+              ))}
+            </div>
+          ))}
         </div>
       ) : items.length === 0 ? (
         <div className="memorial-empty">
