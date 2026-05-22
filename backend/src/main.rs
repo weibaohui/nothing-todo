@@ -311,6 +311,11 @@ async fn run_server(cli_port: Option<u16>) {
 
     let cfg = ntd::config::Config::load();
 
+    // Ensure ~/.ntd/ directory exists on first startup
+    if let Some(home) = dirs::home_dir() {
+        std::fs::create_dir_all(home.join(".ntd")).ok();
+    }
+
     // Expand tilde in db_path to home directory (normalize_paths is called in Config::load,
     // but may not have expanded if config file didn't exist or was corrupted)
     let db_path = if cfg.db_path.starts_with('~') {
@@ -381,7 +386,7 @@ async fn run_server(cli_port: Option<u16>) {
 
         // 注册自动数据库备份定时任务
         if cfg.auto_backup_enabled {
-            match handlers::backup::start_auto_backup(&cfg.auto_backup_cron, config.clone()) {
+            match handlers::backup::start_auto_backup(&cfg.auto_backup_cron, db.clone(), config.clone()) {
                 Ok(()) => info!("Auto database backup enabled, cron: {}", cfg.auto_backup_cron),
                 Err(e) => tracing::warn!("Failed to start auto backup: {}", e),
             }
@@ -392,6 +397,14 @@ async fn run_server(cli_port: Option<u16>) {
             match handlers::backup::start_todo_auto_backup(db.clone(), config.clone()) {
                 Ok(()) => info!("Auto Todo backup enabled, cron: {}", cfg.auto_todo_backup_cron),
                 Err(e) => tracing::warn!("Failed to start Todo auto backup: {}", e),
+            }
+        }
+
+        // 注册 Skill 自动备份定时任务
+        if cfg.auto_skill_backup_enabled {
+            match handlers::backup::start_skill_auto_backup(config.clone()) {
+                Ok(()) => info!("Auto Skill backup enabled, cron: {}", cfg.auto_skill_backup_cron),
+                Err(e) => tracing::warn!("Failed to start Skill auto backup: {}", e),
             }
         }
 

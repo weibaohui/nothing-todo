@@ -48,6 +48,14 @@ pub async fn update_config(
         }
         cfg.execution_timeout_secs = execution_timeout_secs;
     }
+    if let Some(scheduler_default_timezone) = req.scheduler_default_timezone {
+        let tz = scheduler_default_timezone.trim();
+        cfg.scheduler_default_timezone = if tz.is_empty() {
+            None
+        } else {
+            Some(tz.to_string())
+        };
+    }
 
     cfg.normalize_paths();
 

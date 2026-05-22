@@ -74,6 +74,25 @@ const { Option } = Select;
 
 const LOG_LEVELS = ['DEBUG', 'INFO', 'WARN', 'ERROR'];
 
+// 常用时区列表
+const TIMEZONES = [
+  { value: 'UTC', label: 'UTC (世界协调时间)' },
+  { value: 'Asia/Shanghai', label: 'Asia/Shanghai (北京时间, UTC+8)' },
+  { value: 'Asia/Tokyo', label: 'Asia/Tokyo (东京时间, UTC+9)' },
+  { value: 'Asia/Seoul', label: 'Asia/Seoul (首尔时间, UTC+9)' },
+  { value: 'Asia/Singapore', label: 'Asia/Singapore (新加坡时间, UTC+8)' },
+  { value: 'Asia/Hong_Kong', label: 'Asia/Hong_Kong (香港时间, UTC+8)' },
+  { value: 'Asia/Dubai', label: 'Asia/Dubai (迪拜时间, UTC+4)' },
+  { value: 'Europe/London', label: 'Europe/London (伦敦时间, UTC+0)' },
+  { value: 'Europe/Paris', label: 'Europe/Paris (巴黎时间, UTC+1)' },
+  { value: 'Europe/Berlin', label: 'Europe/Berlin (柏林时间, UTC+1)' },
+  { value: 'America/New_York', label: 'America/New_York (纽约时间, UTC-5)' },
+  { value: 'America/Los_Angeles', label: 'America/Los_Angeles (洛杉矶时间, UTC-8)' },
+  { value: 'America/Chicago', label: 'America/Chicago (芝加哥时间, UTC-6)' },
+  { value: 'America/Sao_Paulo', label: 'America/Sao_Paulo (圣保罗时间, UTC-3)' },
+  { value: 'Australia/Sydney', label: 'Australia/Sydney (悉尼时间, UTC+10)' },
+];
+
 interface SettingsPageProps {
   onBack?: () => void;
 }
@@ -126,6 +145,9 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [autoBackupMaxFiles, setAutoBackupMaxFiles] = useState(30);
   const [backupLoading, setBackupLoading] = useState(false);
 
+  // Log cleanup state
+  const [logCleanupDays, setLogCleanupDays] = useState<number | null>(30);
+
   // Todo backup state
   const [todoBackupStatus, setTodoBackupStatus] = useState<{
     auto_backup_enabled: boolean;
@@ -138,6 +160,20 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [autoTodoBackupCron, setAutoTodoBackupCron] = useState('0 0 4 * * *');
   const [autoTodoBackupMaxFiles, setAutoTodoBackupMaxFiles] = useState(30);
   const [todoBackupLoading, setTodoBackupLoading] = useState(false);
+
+  // Skill backup state
+  const [skillBackupStatus, setSkillBackupStatus] = useState<{
+    auto_backup_enabled: boolean;
+    auto_backup_cron: string;
+    auto_backup_max_files: number;
+    last_backup: string | null;
+    files: { name: string; size: number; created_at: string }[];
+    executor_skills: { executor: string; skills_count: number; skills_dir_exists: boolean }[];
+  } | null>(null);
+  const [autoSkillBackupEnabled, setAutoSkillBackupEnabled] = useState(false);
+  const [autoSkillBackupCron, setAutoSkillBackupCron] = useState('0 0 5 * * *');
+  const [autoSkillBackupMaxFiles, setAutoSkillBackupMaxFiles] = useState(30);
+  const [skillBackupLoading, setSkillBackupLoading] = useState(false);
 
   // Version info state
   const [versionInfo, setVersionInfo] = useState<{ version: string; git_sha: string; git_describe: string } | null>(null);
@@ -285,6 +321,12 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         setAutoBackupMaxFiles(status.auto_backup_max_files);
       })
       .catch(() => {});
+
+    db.getLogCleanupStatus()
+      .then((status) => {
+        setLogCleanupDays(status.cleanup_days);
+      })
+      .catch(() => {});
   }, []);
 
   // Load Todo backup status
@@ -295,6 +337,18 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         setAutoTodoBackupEnabled(status.auto_backup_enabled);
         setAutoTodoBackupCron(status.auto_backup_cron);
         setAutoTodoBackupMaxFiles(status.auto_backup_max_files);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Load Skill backup status
+  useEffect(() => {
+    db.getSkillBackupStatus()
+      .then((status) => {
+        setSkillBackupStatus(status);
+        setAutoSkillBackupEnabled(status.auto_backup_enabled);
+        setAutoSkillBackupCron(status.auto_backup_cron);
+        setAutoSkillBackupMaxFiles(status.auto_backup_max_files);
       })
       .catch(() => {});
   }, []);
@@ -988,6 +1042,31 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     document.body.removeChild(a);
   };
 
+  // Log cleanup handlers
+  const handleSaveLogCleanup = async () => {
+    setBackupLoading(true);
+    try {
+      await db.updateLogCleanup(logCleanupDays);
+      message.success('日志清理配置已保存');
+    } catch (err: any) {
+      message.error(err?.message || '保存失败');
+    } finally {
+      setBackupLoading(false);
+    }
+  };
+
+  const handleTriggerLogCleanup = async () => {
+    setBackupLoading(true);
+    try {
+      const result = await db.triggerLogCleanup();
+      message.success(result);
+    } catch (err: any) {
+      message.error(err?.message || '清理失败');
+    } finally {
+      setBackupLoading(false);
+    }
+  };
+
   // Todo backup handlers
   const handleTriggerTodoBackup = async () => {
     setTodoBackupLoading(true);
@@ -1028,6 +1107,54 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
   const handleDownloadTodoBackupFile = (filename: string) => {
     const url = db.downloadTodoBackupFileUrl(filename);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  // Skill backup handlers
+  const handleTriggerSkillBackup = async () => {
+    setSkillBackupLoading(true);
+    try {
+      const msg = await db.triggerSkillBackup();
+      message.success(msg);
+      const status = await db.getSkillBackupStatus();
+      setSkillBackupStatus(status);
+    } catch (err: any) {
+      message.error(err?.message || '备份失败');
+    } finally {
+      setSkillBackupLoading(false);
+    }
+  };
+
+  const handleSaveSkillAutoBackup = async () => {
+    setSkillBackupLoading(true);
+    try {
+      await db.updateSkillAutoBackup(autoSkillBackupEnabled, autoSkillBackupCron, autoSkillBackupMaxFiles);
+      message.success('Skill自动备份配置已保存');
+    } catch (err: any) {
+      message.error(err?.message || '保存失败');
+    } finally {
+      setSkillBackupLoading(false);
+    }
+  };
+
+  const handleDeleteSkillBackup = async (filename: string) => {
+    try {
+      await db.deleteSkillBackupFile(filename);
+      message.success('已删除');
+      const status = await db.getSkillBackupStatus();
+      setSkillBackupStatus(status);
+    } catch (err: any) {
+      message.error(err?.message || '删除失败');
+    }
+  };
+
+  const handleDownloadSkillBackupFile = (filename: string) => {
+    const url = db.downloadSkillBackupFileUrl(filename);
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
@@ -1125,6 +1252,21 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                   </Option>
                 ))}
               </Select>
+            </Form.Item>
+            <Form.Item
+              name="scheduler_default_timezone"
+              label="定时任务默认时区"
+              tooltip="设置创建定时任务时的默认时区。例如：选择 Asia/Shanghai 后，每天 9:00 执行的任务会按北京时间 9:00 执行（而不是服务器本地时间）。"
+            >
+              <Select
+                showSearch
+                placeholder="选择默认时区"
+                allowClear
+                filterOption={(input, option) =>
+                  (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                }
+                options={TIMEZONES}
+              />
             </Form.Item>
             <Form.Item>
               <Button
@@ -1730,6 +1872,120 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               ),
             },
             {
+              key: 'skill-backup',
+              label: 'Skill备份',
+              children: (
+                <div style={{ maxWidth: 600 }}>
+                  <Card title="Skill备份" size="small">
+                    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                      <Paragraph type="secondary">
+                        备份各执行器下的 skills 文件夹，包含所有自定义和内置技能
+                      </Paragraph>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <Button
+                          icon={<DatabaseOutlined />}
+                          onClick={handleTriggerSkillBackup}
+                          loading={skillBackupLoading}
+                        >
+                          立即备份
+                        </Button>
+                      </div>
+
+                      {skillBackupStatus && skillBackupStatus.executor_skills.length > 0 && (
+                        <div style={{ marginTop: 12, padding: '12px 16px', background: 'var(--color-bg-secondary)', borderRadius: 8 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 8 }}>执行器 Skills 概览</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                            {skillBackupStatus.executor_skills.map((executor) => (
+                              <div key={executor.executor} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                                <span style={{ color: executor.skills_dir_exists ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }}>
+                                  {executor.executor}
+                                </span>
+                                <span style={{ color: executor.skills_dir_exists ? 'var(--color-text-secondary)' : 'var(--color-text-tertiary)' }}>
+                                  {executor.skills_dir_exists ? `${executor.skills_count} skills` : '目录不存在'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div style={{ borderTop: '1px solid var(--color-border-light)', paddingTop: 12, marginTop: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <span style={{ fontWeight: 600 }}><ClockCircleOutlined style={{ marginRight: 6 }} />自动备份</span>
+                          <Switch checked={autoSkillBackupEnabled} onChange={setAutoSkillBackupEnabled} />
+                        </div>
+                        {autoSkillBackupEnabled && (
+                          <CronPresetSelect
+                            value={autoSkillBackupCron}
+                            onChange={(val) => setAutoSkillBackupCron(val)}
+                          />
+                        )}
+                        {autoSkillBackupEnabled && (
+                          <Cron
+                            value={cronTo5(autoSkillBackupCron)}
+                            setValue={(val: string) => {
+                              setAutoSkillBackupCron(cronTo6(val));
+                            }}
+                            locale={CRON_ZH_LOCALE}
+                            defaultPeriod="day"
+                            humanizeLabels
+                            allowClear={false}
+                          />
+                        )}
+                        {autoSkillBackupEnabled && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                            <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>保留数量</span>
+                            <InputNumber
+                              min={1}
+                              max={1000}
+                              value={autoSkillBackupMaxFiles}
+                              onChange={(v) => v && setAutoSkillBackupMaxFiles(v)}
+                              style={{ width: 80 }}
+                              size="small"
+                            />
+                            <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>个备份文件</span>
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                          <Button size="small" type="primary" onClick={handleSaveSkillAutoBackup} loading={skillBackupLoading}>
+                            保存
+                          </Button>
+                        </div>
+                      </div>
+
+                      {skillBackupStatus && skillBackupStatus.files.length > 0 && (
+                        <div style={{ borderTop: '1px solid var(--color-border-light)', paddingTop: 12 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 8 }}>备份文件 ({skillBackupStatus.files.length})</div>
+                          <List
+                            size="small"
+                            dataSource={skillBackupStatus.files}
+                            renderItem={(file) => (
+                              <List.Item
+                                style={{ padding: '6px 0', fontSize: 12 }}
+                              >
+                                <div>
+                                  <div style={{ fontWeight: 500 }}>{file.name}</div>
+                                  <div style={{ color: 'var(--color-text-tertiary)', fontSize: 11 }}>
+                                    {(file.size / 1024).toFixed(1)} KB · {file.created_at}
+                                  </div>
+                                </div>
+                                <Space size={4}>
+                                  <Button type="text" icon={<DownloadOutlined />} size="small" onClick={() => handleDownloadSkillBackupFile(file.name)} />
+                                  <Popconfirm title="确定删除此备份？" onConfirm={() => handleDeleteSkillBackup(file.name)}>
+                                    <Button type="text" danger icon={<DeleteOutlined />} size="small" />
+                                  </Popconfirm>
+                                </Space>
+                              </List.Item>
+                            )}
+                          />
+                        </div>
+                      )}
+                    </Space>
+                  </Card>
+                </div>
+              ),
+            },
+            {
               key: 'database',
               label: '数据库备份',
               children: (
@@ -1833,6 +2089,41 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
                           />
                         </div>
                       )}
+                    </Space>
+                  </Card>
+
+                  <Card title="清理日志" size="small" style={{ marginTop: 16 }}>
+                    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                      <Paragraph type="secondary">
+                        清理 execution_logs 表中早于指定天数的日志记录，释放数据库空间
+                      </Paragraph>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>保留日志</span>
+                        <InputNumber
+                          min={1}
+                          max={365}
+                          value={logCleanupDays ?? undefined}
+                          onChange={(v) => setLogCleanupDays(v ?? null)}
+                          style={{ width: 80 }}
+                          size="small"
+                        />
+                        <span style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>天</span>
+                        <Button
+                          size="small"
+                          type="primary"
+                          onClick={handleSaveLogCleanup}
+                          style={{ marginLeft: 8 }}
+                        >
+                          保存
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={handleTriggerLogCleanup}
+                          style={{ marginLeft: 4 }}
+                        >
+                          立即清理
+                        </Button>
+                      </div>
                     </Space>
                   </Card>
                 </div>

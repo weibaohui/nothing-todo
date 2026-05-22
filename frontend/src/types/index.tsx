@@ -13,6 +13,7 @@ export interface Todo {
   executor?: string;
   scheduler_enabled?: boolean;
   scheduler_config?: string | null;
+  scheduler_timezone?: string | null;
   scheduler_next_run_at?: string | null;
   task_id?: string | null;
   workspace?: string | null;
@@ -203,6 +204,25 @@ export interface DashboardStats {
   trigger_type_distribution: TriggerTypeCount[];
   executor_duration_stats: ExecutorDuration[];
   model_cache_stats: ModelCacheStat[];
+  // 增强指标卡片字段
+  today_executions?: number;
+  executions_change?: number;
+  success_rate_change?: number;
+  cost_change?: number;
+  active_days?: number;
+  streak_days?: number;
+  peak_daily_executions?: number;
+  top_model?: string;
+  top_model_tokens?: number;
+  leaderboard?: LeaderboardItem[];
+}
+
+export interface LeaderboardItem {
+  rank: number;
+  name: string;
+  tokens: number;
+  sessions: number;
+  change?: number;
 }
 
 export interface TriggerTypeCount {
@@ -338,6 +358,7 @@ export interface Config {
   history_message_max_age_secs?: number;
   max_concurrent_todos?: number;
   execution_timeout_secs?: number;
+  scheduler_default_timezone?: string;
 }
 
 export const RESUMABLE_EXECUTORS = new Set(['claudecode', 'kimi', 'opencode', 'joinai', 'hermes']);

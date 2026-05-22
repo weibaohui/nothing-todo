@@ -7,7 +7,6 @@
 use std::str::FromStr;
 use std::time::Duration;
 
-use chrono::Utc;
 use sea_orm::{
     ActiveModelBehavior, ActiveModelTrait, ConnectOptions, ConnectionTrait,
     Database as SeaDatabase, DatabaseConnection, DbBackend, EntityTrait, IntoActiveModel,
@@ -17,14 +16,24 @@ use sea_orm::{
 pub mod entity;
 pub use entity::prelude::*;
 
-fn compute_next_run(cron_expr: &str) -> Option<String> {
-    cron::Schedule::from_str(cron_expr)
-        .ok()
-        .and_then(|schedule| {
-            schedule
-                .upcoming(Utc)
-                .next()
-                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+fn compute_next_run(cron_expr: &str, timezone: Option<&str>) -> Option<String> {
+    let schedule = cron::Schedule::from_str(cron_expr).ok()?;
+
+    // Parse timezone, default to UTC if not specified, invalid, or empty string.
+    // An empty timezone string is treated as UTC (use UTC time).
+    let tz: chrono_tz::Tz = timezone
+        .and_then(|tz| tz.parse::<chrono_tz::Tz>().ok())
+        .unwrap_or(chrono_tz::UTC);
+
+    // Get next occurrence in the specified timezone
+    schedule
+        .upcoming(tz)
+        .next()
+        .map(|dt| {
+            // Convert to UTC for storage and display
+            dt.with_timezone(&chrono::Utc)
+                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                .to_string()
         })
 }
 
@@ -282,6 +291,11 @@ impl Database {
 
         // 添加 resume_message 字段的迁移（向后兼容）
         self.exec("ALTER TABLE execution_records ADD COLUMN resume_message TEXT")
+            .await
+            .ok();
+
+        // 添加 scheduler_timezone 字段的迁移（向后兼容）
+        self.exec("ALTER TABLE todos ADD COLUMN scheduler_timezone TEXT")
             .await
             .ok(); // 忽略错误，因为字段可能已存在
 
@@ -793,6 +807,7 @@ mod tests {
             executor: None,
             scheduler_enabled: None,
             scheduler_config: None,
+            scheduler_timezone: None,
             workspace: None,
             worktree_enabled: None,
         })
@@ -936,6 +951,7 @@ mod tests {
             executor: Some("opencode"),
             scheduler_enabled: Some(true),
             scheduler_config: Some("0 0 * * *"),
+            scheduler_timezone: None,
             workspace: Some("/tmp/workspace"),
             worktree_enabled: None,
         })
@@ -976,7 +992,7 @@ mod tests {
     async fn test_update_todo_scheduler() {
         let db = setup_db().await;
         let id = db.create_todo("Test", "Prompt").await.unwrap();
-        db.update_todo_scheduler(id, true, Some("0 0 * * *"))
+        db.update_todo_scheduler(id, true, Some("0 0 * * *"), None)
             .await
             .unwrap();
         let todo = db.get_todo(id).await.unwrap().unwrap();
@@ -1040,7 +1056,7 @@ mod tests {
     async fn test_get_scheduler_todos() {
         let db = setup_db().await;
         let id1 = db.create_todo("Scheduled", "Prompt").await.unwrap();
-        db.update_todo_scheduler(id1, true, Some("0 0 * * *"))
+        db.update_todo_scheduler(id1, true, Some("0 0 * * *"), None)
             .await
             .unwrap();
         let id2 = db.create_todo("Normal", "Prompt").await.unwrap();

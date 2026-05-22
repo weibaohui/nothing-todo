@@ -364,6 +364,24 @@ export function downloadBackupFileUrl(filename: string): string {
   return `/api/backup/database/file?filename=${encodeURIComponent(filename)}`;
 }
 
+// Log Cleanup APIs
+
+export async function getLogCleanupStatus(): Promise<{
+  cleanup_days: number | null;
+}> {
+  return unwrap(await api.get<ApiResp<{
+    cleanup_days: number | null;
+  }>>('/xyz/backup/log-cleanup/status'));
+}
+
+export async function updateLogCleanup(days: number | null): Promise<string> {
+  return unwrap(await api.put<ApiResp<string>>('/xyz/backup/log-cleanup', { days }));
+}
+
+export async function triggerLogCleanup(): Promise<string> {
+  return unwrap(await api.post<ApiResp<string>>('/xyz/backup/log-cleanup/trigger'));
+}
+
 // Todo Backup APIs
 
 export async function getTodoBackupStatus(): Promise<{
@@ -400,6 +418,52 @@ export async function deleteTodoBackupFile(filename: string): Promise<string> {
 
 export function downloadTodoBackupFileUrl(filename: string): string {
   return `/api/backup/todo/file?filename=${encodeURIComponent(filename)}`;
+}
+
+// Skill Backup APIs
+
+export interface ExecutorSkillInfo {
+  executor: string;
+  skills_count: number;
+  skills_dir_exists: boolean;
+}
+
+export async function getSkillBackupStatus(): Promise<{
+  auto_backup_enabled: boolean;
+  auto_backup_cron: string;
+  auto_backup_max_files: number;
+  last_backup: string | null;
+  files: { name: string; size: number; created_at: string }[];
+  executor_skills: ExecutorSkillInfo[];
+}> {
+  return unwrap(await api.get<ApiResp<{
+    auto_backup_enabled: boolean;
+    auto_backup_cron: string;
+    auto_backup_max_files: number;
+    last_backup: string | null;
+    files: { name: string; size: number; created_at: string }[];
+    executor_skills: ExecutorSkillInfo[];
+  }>>('/xyz/backup/skills/status'));
+}
+
+export async function triggerSkillBackup(): Promise<string> {
+  return unwrap(await api.post<ApiResp<string>>('/xyz/backup/skills/trigger'));
+}
+
+export async function updateSkillAutoBackup(enabled: boolean, cron: string, maxFiles?: number): Promise<string> {
+  const body: Record<string, unknown> = { enabled, cron };
+  if (maxFiles !== undefined) {
+    body.max_files = maxFiles;
+  }
+  return unwrap(await api.put<ApiResp<string>>('/xyz/backup/skills/auto', body));
+}
+
+export async function deleteSkillBackupFile(filename: string): Promise<string> {
+  return unwrap(await api.delete<ApiResp<string>>('/xyz/backup/skills/file', { data: { filename } }));
+}
+
+export function downloadSkillBackupFileUrl(filename: string): string {
+  return `/xyz/backup/skills/file?filename=${encodeURIComponent(filename)}`;
 }
 
 // Config APIs

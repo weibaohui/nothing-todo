@@ -177,6 +177,11 @@ pub enum TodoAction {
         /// Override executor
         #[arg(long)]
         executor: Option<String>,
+
+        /// Parameters for placeholder replacement (key=value format, can be repeated)
+        /// Example: --param project_name=myproject --param env=production
+        #[arg(long = "param", num_args = 1, value_parser = parse_key_value)]
+        params: Option<Vec<(String, String)>>,
     },
     /// Stop todo execution
     Stop {
@@ -266,6 +271,14 @@ fn parse_tags(tags: &Option<String>) -> Vec<i64> {
     }
 }
 
+fn parse_key_value(s: &str) -> Result<(String, String), String> {
+    let parts: Vec<&str> = s.splitn(2, '=').collect();
+    if parts.len() != 2 {
+        return Err(format!("Invalid key=value format: {}", s));
+    }
+    Ok((parts[0].trim().to_string(), parts[1].trim().to_string()))
+}
+
 fn read_stdin_json() -> Result<Value> {
     let mut buffer = String::new();
     std::io::stdin().read_to_string(&mut buffer)?;
@@ -338,6 +351,7 @@ async fn handle_todo(
                         executor: value.get("executor").and_then(|v| v.as_str()).map(|s| s.to_string()),
                         scheduler_enabled: None,
                         scheduler_config: None,
+                        scheduler_timezone: None,
                     });
                 if workspace.is_some() {
                     // workspace is sent separately in the full JSON body
@@ -358,6 +372,7 @@ async fn handle_todo(
                     executor: executor.clone(),
                     scheduler_enabled: None,
                     scheduler_config: None,
+                    scheduler_timezone: None,
                 }
             };
 
@@ -458,11 +473,15 @@ async fn handle_todo(
             let resp: ClientResponse<()> = client.delete(&format!("/todos/{}", id)).await?;
             print_response(resp, output, fields)?;
         }
-        TodoAction::Execute { id, message, executor } => {
+        TodoAction::Execute { id, message, executor, params } => {
+            let params: Option<std::collections::HashMap<String, String>> = params.as_ref().map(|vec| {
+                vec.iter().cloned().collect()
+            });
             let req = ExecuteRequest {
                 todo_id: *id,
                 message: message.clone(),
                 executor: executor.clone(),
+                params,
             };
             let resp: ClientResponse<Value> = client.post("/execute", &req).await?;
             print_response(resp, output, fields)?;

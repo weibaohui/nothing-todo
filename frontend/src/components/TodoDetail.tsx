@@ -585,7 +585,7 @@ export function TodoDetail({ onBack, highlightExecutionId }: { onBack?: () => vo
     try {
       await db.executeTodo(
         selectedTodo.id,
-        selectedTodo.prompt || selectedTodo.title,
+        '',
         selectedTodo.executor || undefined
       );
       message.success('任务已开始执行');
@@ -608,12 +608,9 @@ export function TodoDetail({ onBack, highlightExecutionId }: { onBack?: () => vo
     if (!selectedTodo) return;
     setExecuteWithArgsLoading(true);
     try {
-      const combinedMessage = executeArgs.trim()
-        ? `${selectedTodo.prompt || selectedTodo.title}\n\n用户补充信息：${executeArgs.trim()}`
-        : selectedTodo.prompt || selectedTodo.title;
       await db.executeTodo(
         selectedTodo.id,
-        combinedMessage,
+        executeArgs.trim(),
         selectedTodo.executor || undefined
       );
       message.success('任务已开始执行');
