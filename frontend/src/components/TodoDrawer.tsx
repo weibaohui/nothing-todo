@@ -518,7 +518,7 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
                 <div style={{ marginBottom: 10 }}>
                   <Input
                     prefix={<SearchOutlined style={{ color: 'var(--color-text-quaternary)' }} />}
-                    placeholder="搜索 Skill..."
+                    placeholder="搜索 Skills..."
                     value={skillSearchText}
                     onChange={(e) => setSkillSearchText(e.target.value)}
                     allowClear
