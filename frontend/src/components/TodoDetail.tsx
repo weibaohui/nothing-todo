@@ -522,6 +522,9 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
     }
   };
 
+  // Note: historyLimit is intentionally kept in deps — when user changes page size via pagination,
+  // we want to refetch with the new limit. The setter (setHistoryLimit) is NOT called here to avoid
+  // triggering extra renders; the page size comes from the pagination component's local state.
   useEffect(() => {
     let cancelled = false;
     if (selectedTodoId) {
