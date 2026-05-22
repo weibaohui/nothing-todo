@@ -84,17 +84,19 @@ export function ExecutionPanel({ collapsed, onToggleCollapse }: ExecutionPanelPr
   const logsEndRef = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
 
-  // Tick for elapsed time display - triggers re-render every second
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const interval = setInterval(() => setTick(t => t + 1), 1000);
-    return () => clearInterval(interval);
-  }, []);
-
   const logTypeColors = themeMode === 'dark' ? darkLogTypeColors : lightLogTypeColors;
 
   const taskIds = Object.keys(runningTasks);
   const activeTask = activeTaskId ? runningTasks[activeTaskId] : null;
+
+  // Tick for elapsed time display - only runs when tasks are active
+  const hasRunningTasks = taskIds.some(id => runningTasks[id]?.status === 'running');
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!hasRunningTasks || collapsed) return;
+    const interval = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, [hasRunningTasks, collapsed]);
 
   useEffect(() => {
     if (logsEndRef.current && !collapsed && activeTask) {

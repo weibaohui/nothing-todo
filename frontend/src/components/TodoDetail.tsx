@@ -396,7 +396,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
     t => t.todoId === selectedTodoId && t.status === 'running'
   );
 
-  const [tick, setTick] = useState(0);
+  const [, setTick] = useState(0);
   useEffect(() => {
     if (!isExecuting) return;
     const interval = setInterval(() => {
@@ -404,8 +404,6 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
     }, 1000);
     return () => clearInterval(interval);
   }, [isExecuting]);
-  // Access tick to prevent unused warning (triggers re-render awareness)
-  useEffect(() => { void tick; }, [tick]);
 
   const records = selectedTodoId ? executionRecords[selectedTodoId] || [] : [];
 

@@ -46,8 +46,7 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
   }, []);
 
   useEffect(() => {
-    const timer = setTimeout(() => setIsLoading(false), 400);
-    return () => clearTimeout(timer);
+    setIsLoading(false);
   }, []);
 
   const filteredTodos = useMemo(() =>

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useMemo, useCallback, ReactNode } from 'react';
 import { Todo, Tag, ExecutionRecord, RunningTask, LogEntry, TodoItem, ExecutionStats } from '../types';
 import * as db from '../utils/database';
 
@@ -225,8 +225,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     loadData();
   }, []);
 
+  const contextValue = useMemo(() => ({ state, dispatch }), [state, dispatch]);
+
   return (
-    <AppContext.Provider value={{ state, dispatch }}>
+    <AppContext.Provider value={contextValue}>
       {children}
     </AppContext.Provider>
   );
@@ -237,11 +239,11 @@ export function useApp() {
   if (!context) {
     throw new Error('useApp must be used within AppProvider');
   }
-  
-  const clearSelection = () => {
+
+  const clearSelection = useCallback(() => {
     context.dispatch({ type: 'SELECT_TODO', payload: null });
     context.dispatch({ type: 'SELECT_TAG', payload: null });
-  };
-  
-  return { ...context, clearSelection };
+  }, [context.dispatch]);
+
+  return useMemo(() => ({ ...context, clearSelection }), [context, clearSelection]);
 }
