@@ -170,6 +170,38 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
     );
   }, [items, searchText]);
 
+  /* ─── Responsive column count ─── */
+  const [columnCount, setColumnCount] = useState(() => {
+    const w = window.innerWidth;
+    if (w >= 1600) return 4;
+    if (w >= 1100) return 3;
+    if (w >= 769) return 2;
+    return 1;
+  });
+
+  useEffect(() => {
+    const onResize = () => {
+      const w = window.innerWidth;
+      setColumnCount(
+        w >= 1600 ? 4 :
+        w >= 1100 ? 3 :
+        w >= 769  ? 2 :
+                    1
+      );
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  /* ─── Split items into columns ─── */
+  const columns = useMemo(() => {
+    const cols: typeof filteredItems[] = Array.from({ length: columnCount }, () => []);
+    filteredItems.forEach((item, i) => {
+      cols[i % columnCount].push(item);
+    });
+    return cols;
+  }, [filteredItems, columnCount]);
+
   const successCount = filteredItems.filter(i => i.execution_status === 'success').length;
   const failedCount = filteredItems.filter(i => i.execution_status === 'failed').length;
 
@@ -330,10 +362,14 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
         <KanbanBoard searchText={searchText} hours={hours} onSearchChange={setSearchText} onHoursChange={setHours} />
       ) : loading ? (
         <div className="memorial-grid">
-          {[1, 2, 3, 4].map(i => (
-            <Card key={i} className="memorial-card" size="small" bodyStyle={{ padding: 12 }}>
-              <Skeleton active paragraph={{ rows: 4 }} />
-            </Card>
+          {columns.map((col, colIdx) => (
+            <div key={colIdx} className="memorial-column">
+              {col.map((item) => (
+                <Card key={item.todo_id} className="memorial-card" size="small" bodyStyle={{ padding: 12 }}>
+                  <Skeleton active paragraph={{ rows: 4 }} />
+                </Card>
+              ))}
+            </div>
           ))}
         </div>
       ) : items.length === 0 ? (
@@ -342,7 +378,11 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
         </div>
       ) : (
         <div className="memorial-grid">
-          {filteredItems.map(renderCard)}
+          {columns.map((col, colIdx) => (
+            <div key={colIdx} className="memorial-column">
+              {col.map(item => renderCard(item))}
+            </div>
+          ))}
         </div>
       )}
     </div>
