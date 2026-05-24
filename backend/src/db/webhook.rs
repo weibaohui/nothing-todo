@@ -35,6 +35,7 @@ impl Database {
     pub async fn get_default_webhook(&self) -> Result<Option<webhooks::Model>, sea_orm::DbErr> {
         webhooks::Entity::find()
             .filter(webhooks::Column::Enabled.eq(true))
+            .order_by_desc(webhooks::Column::Id)
             .one(&self.conn)
             .await
     }

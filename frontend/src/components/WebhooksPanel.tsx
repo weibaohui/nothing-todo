@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Table,
   Card,
@@ -138,7 +138,7 @@ export function WebhooksPanel({ todos }: WebhooksPanelProps) {
 
   const baseUrl = window.location.origin;
 
-  const webhookColumns = [
+  const webhookColumns = useMemo(() => [
     {
       title: '名称',
       dataIndex: 'name',
@@ -216,9 +216,9 @@ export function WebhooksPanel({ todos }: WebhooksPanelProps) {
         </Space>
       ),
     },
-  ];
+  ], [todos, baseUrl, handleToggleEnabled, handleEditWebhook, handleDeleteWebhook]);
 
-  const recordColumns = [
+  const recordColumns = useMemo(() => [
     {
       title: '时间',
       dataIndex: 'created_at',
@@ -278,7 +278,7 @@ export function WebhooksPanel({ todos }: WebhooksPanelProps) {
         </Button>
       ),
     },
-  ];
+  ], [setViewRecord]);
 
   return (
     <div>

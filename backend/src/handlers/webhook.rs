@@ -110,43 +110,65 @@ pub async fn get_webhook_records(
     State(state): State<AppState>,
     Query(query): Query<WebhookRecordQuery>,
 ) -> Result<impl IntoResponse, AppError> {
+    use std::collections::HashMap;
+
     let limit = query.limit.unwrap_or(50).min(100);
     let offset = query.offset.unwrap_or(0);
 
     let records = state.db.get_webhook_records(limit, offset).await?;
     let total = state.db.get_webhook_records_count().await?;
 
+    // Collect unique webhook_ids and todo_ids
+    let webhook_ids: Vec<i64> = records.iter().filter_map(|r| r.webhook_id).collect();
+    let todo_ids: Vec<i64> = records.iter().filter_map(|r| r.triggered_todo_id).collect();
+
+    // Fetch all webhooks and todos in parallel using tokio::task::spawn
+    let state_db = state.db.clone();
+    let webhook_ids_clone = webhook_ids.clone();
+    let webhook_handle = tokio::spawn(async move {
+        let mut map = HashMap::new();
+        for id in webhook_ids_clone {
+            if let Ok(Some(w)) = state_db.get_webhook(id).await {
+                map.insert(id, w.name);
+            }
+        }
+        map
+    });
+
+    let state_db = state.db.clone();
+    let todo_ids_clone = todo_ids.clone();
+    let todo_handle = tokio::spawn(async move {
+        let mut map = HashMap::new();
+        for id in todo_ids_clone {
+            if let Ok(Some(t)) = state_db.get_todo(id).await {
+                map.insert(id, t.title);
+            }
+        }
+        map
+    });
+
+    let webhook_map = webhook_handle.await.unwrap_or_default();
+    let todo_map = todo_handle.await.unwrap_or_default();
+
     // Enrich records with webhook name and todo title
-    let mut response_records = Vec::new();
-    for record in records {
-        let webhook_name = if let Some(wid) = record.webhook_id {
-            state.db.get_webhook(wid).await.ok().flatten().map(|w| w.name)
-        } else {
-            None
-        };
-
-        let triggered_todo_title = if let Some(tid) = record.triggered_todo_id {
-            state.db.get_todo(tid).await.ok().flatten().map(|t| t.title)
-        } else {
-            None
-        };
-
-        response_records.push(WebhookRecordResponse {
+    let response_records: Vec<WebhookRecordResponse> = records
+        .into_iter()
+        .map(|record| WebhookRecordResponse {
             id: record.id,
             webhook_id: record.webhook_id,
-            webhook_name,
+            webhook_name: record.webhook_id.and_then(|id| webhook_map.get(&id).cloned()),
             method: record.method,
             path: record.path,
             query_params: record.query_params,
             body: record.body,
             content_type: record.content_type,
             triggered_todo_id: record.triggered_todo_id,
-            triggered_todo_title,
+            triggered_todo_title: record.triggered_todo_id.and_then(|id| todo_map.get(&id).cloned()),
             status_code: record.status_code,
             response_body: record.response_body,
             created_at: record.created_at,
-        });
-    }
+        })
+        .collect();
 
     Ok(ApiResponse::ok(WebhookRecordsPage {
         records: response_records,
@@ -332,7 +354,7 @@ async fn trigger_webhook_internal(
     };
 
     // Record the webhook call
-    let _ = state.db.create_webhook_record(NewWebhookRecord {
+    if let Err(e) = state.db.create_webhook_record(NewWebhookRecord {
         webhook_id,
         method,
         path,
@@ -342,7 +364,9 @@ async fn trigger_webhook_internal(
         triggered_todo_id: Some(todo_id),
         status_code: Some(status_code.as_u16() as i32),
         response_body: Some(response_body.clone()),
-    }).await;
+    }).await {
+        tracing::warn!("Failed to create webhook record: {:?}", e);
+    }
 
     let status_code_for_response = status_code.as_u16();
     Ok((
