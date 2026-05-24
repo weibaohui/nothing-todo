@@ -221,8 +221,8 @@ pub async fn trigger_webhook_default(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, AppError> {
-    // Get the default webhook
-    let webhook = state.db.get_default_webhook().await?;
+    // Get the most recently created enabled webhook
+    let webhook = state.db.get_most_recent_enabled_webhook().await?;
     let webhook = webhook.ok_or_else(|| AppError::BadRequest("No enabled webhook configured".to_string()))?;
 
     let default_todo_id = webhook.default_todo_id
@@ -246,8 +246,8 @@ pub async fn trigger_webhook_default_post_json(
     axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, AppError> {
-    // Get the default webhook
-    let webhook = state.db.get_default_webhook().await?;
+    // Get the most recently created enabled webhook
+    let webhook = state.db.get_most_recent_enabled_webhook().await?;
     let webhook = webhook.ok_or_else(|| AppError::BadRequest("No enabled webhook configured".to_string()))?;
 
     let default_todo_id = webhook.default_todo_id

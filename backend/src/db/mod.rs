@@ -774,6 +774,7 @@ impl Database {
         // Indexes for webhook_records (improve N+1 query performance)
         self.exec("CREATE INDEX IF NOT EXISTS idx_webhook_records_webhook_id ON webhook_records(webhook_id)").await?;
         self.exec("CREATE INDEX IF NOT EXISTS idx_webhook_records_triggered_todo_id ON webhook_records(triggered_todo_id)").await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_webhook_records_created_at ON webhook_records(created_at)").await?;
 
         // Webhook records timestamps triggers
         self.exec(
