@@ -459,6 +459,10 @@ pub struct DashboardStats {
     pub top_model: Option<String>,
     pub top_model_tokens: Option<u64>,
     pub leaderboard: Vec<LeaderboardItem>,
+    // Skills metrics
+    pub skills_stats: Option<SkillsStats>,
+    // Backup metrics
+    pub backup_stats: Option<BackupStats>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -507,6 +511,70 @@ pub struct ModelCacheStat {
     pub total_input_tokens: u64,
     pub total_cache_read_tokens: u64,
     pub cache_hit_rate: f64,
+}
+
+// Skills invocation statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillsStats {
+    pub total_invocations: i64,
+    pub success_invocations: i64,
+    pub failed_invocations: i64,
+    pub avg_duration_ms: f64,
+    pub invocations_today: i64,
+    pub top_skills: Vec<SkillTop>,
+    pub executor_skills_count: Vec<ExecutorSkillCount>,
+    pub daily_invocations: Vec<DailySkillInvocation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillTop {
+    pub skill_name: String,
+    pub count: i64,
+    pub success_rate: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutorSkillCount {
+    pub executor: String,
+    pub skills_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DailySkillInvocation {
+    pub date: String,
+    pub count: i64,
+    pub success: i64,
+}
+
+// Backup statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupStats {
+    pub auto_backup_enabled: bool,
+    pub last_backup: Option<String>,
+    pub auto_backup_cron: String,
+    pub database: BackupCategoryStats,
+    pub todo: BackupCategoryStats,
+    pub skills: BackupCategoryStats,
+    pub total_file_count: i64,
+    pub total_size: i64,
+    pub total_size_formatted: String,
+    pub recent_backups: Vec<RecentBackup>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupCategoryStats {
+    pub file_count: i64,
+    pub total_size: i64,
+    pub last_backup: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecentBackup {
+    #[serde(rename = "type")]
+    pub backup_type: String,
+    pub name: String,
+    pub size: i64,
+    pub created_at: String,
 }
 
 #[derive(Deserialize)]

@@ -1125,6 +1125,109 @@ export function Dashboard({ onBack }: DashboardProps) {
     ),
   });
 
+  // Skills Invocation Statistics
+  panels.push({
+    key: 'skills-stats',
+    render: () => {
+      const skillsStats = stats?.skills_stats;
+      const skillsSuccessRate = skillsStats && skillsStats.total_invocations > 0
+        ? (skillsStats.success_invocations / skillsStats.total_invocations * 100)
+        : 0;
+
+      return (
+        <Card
+          title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ThunderboltOutlined /><span>Skills 调用统计</span></div>}
+          extra={<ClockCircleOutlined style={{ color: 'var(--color-text-tertiary)' }} />}
+          className="dashboard-card" style={{ borderRadius: 12 }}
+          bodyStyle={{ padding: '16px 20px' }}
+        >
+          {skillsStats ? (
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+                <MetricCard
+                  title="总调用"
+                  value={skillsStats.total_invocations}
+                  prefix={<ThunderboltOutlined />}
+                  color="#6366f1"
+                  loading={loading}
+                  chineseFormat
+                />
+                <MetricCard
+                  title="今日调用"
+                  value={skillsStats.invocations_today}
+                  prefix={<ThunderboltOutlined />}
+                  color="#22c55e"
+                  loading={loading}
+                />
+                <MetricCard
+                  title="成功率"
+                  value={skillsSuccessRate}
+                  suffix="%"
+                  prefix={<CheckCircleOutlined />}
+                  color="#3b82f6"
+                  loading={loading}
+                  decimals={1}
+                />
+                <MetricCard
+                  title="平均耗时"
+                  value={skillsStats.avg_duration_ms}
+                  suffix="ms"
+                  prefix={<BarChartOutlined />}
+                  color="#f59e0b"
+                  loading={loading}
+                />
+              </div>
+              {skillsStats.top_skills && skillsStats.top_skills.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 8 }}>Top Skills</div>
+                  {skillsStats.top_skills.slice(0, 5).map((skill) => (
+                    <CompactRow
+                      key={skill.skill_name}
+                      name={skill.skill_name}
+                      value={skill.count}
+                      sub={`成功率 ${skill.success_rate.toFixed(1)}%`}
+                      color="#6366f1"
+                      barPct={(skill.count / (skillsStats.top_skills[0]?.count || 1)) * 100}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无 Skills 调用数据" />
+          )}
+        </Card>
+      );
+    },
+  });
+
+  // Backup Statistics
+  panels.push({
+    key: 'backup-stats',
+    render: () => {
+      const backupStats = stats?.backup_stats;
+
+      return (
+        <Card
+          title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><FileTextOutlined /><span>备份统计</span></div>}
+          className="dashboard-card" style={{ borderRadius: 12 }}
+          bodyStyle={{ padding: '16px 20px' }}
+        >
+          {backupStats ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+              <MiniStat title="数据库备份" value={backupStats.database.file_count} suffix="个" prefix={<FileTextOutlined />} color="#3b82f6" loading={loading} />
+              <MiniStat title="Todo 备份" value={backupStats.todo.file_count} suffix="个" prefix={<FileTextOutlined />} color="#22c55e" loading={loading} />
+              <MiniStat title="Skills 备份" value={backupStats.skills.file_count} suffix="个" prefix={<FileTextOutlined />} color="#f59e0b" loading={loading} />
+              <MiniStat title="总大小" value={parseFloat(backupStats.total_size_formatted) || 0} suffix={backupStats.total_size_formatted.replace(/[\d.]+/g, '')} prefix={<FileTextOutlined />} color="#8b5cf6" loading={loading} />
+            </div>
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无备份数据" />
+          )}
+        </Card>
+      );
+    },
+  });
+
   return (
     <div style={{ height: '100%', overflow: 'auto', padding: '16px 20px', background: 'var(--color-bg-layout)' }}>
       <style>{`
