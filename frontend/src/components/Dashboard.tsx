@@ -1218,7 +1218,17 @@ export function Dashboard({ onBack }: DashboardProps) {
               <MiniStat title="数据库备份" value={backupStats.database.file_count} suffix="个" prefix={<FileTextOutlined />} color="#3b82f6" loading={loading} />
               <MiniStat title="Todo 备份" value={backupStats.todo.file_count} suffix="个" prefix={<FileTextOutlined />} color="#22c55e" loading={loading} />
               <MiniStat title="Skills 备份" value={backupStats.skills.file_count} suffix="个" prefix={<FileTextOutlined />} color="#f59e0b" loading={loading} />
-              <MiniStat title="总大小" value={parseFloat(backupStats.total_size_formatted) || 0} suffix={backupStats.total_size_formatted.replace(/[\d.]+/g, '')} prefix={<FileTextOutlined />} color="#8b5cf6" loading={loading} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 10, background: 'var(--color-fill-quaternary)' }}>
+                <div style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: '#8b5f616', color: '#8b5cf6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
+                  <FileTextOutlined />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 2 }}>总大小</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--color-text)', lineHeight: 1.2 }}>
+                    {backupStats.total_size_formatted || '0 B'}
+                  </div>
+                </div>
+              </div>
             </div>
           ) : (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无备份数据" />

@@ -1101,10 +1101,22 @@ impl Database {
             .collect();
 
         // Skills invocation statistics
-        let skills_stats = self.get_skills_stats(&time_filter).await;
+        let skills_stats = match self.get_skills_stats(&time_filter).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("Failed to load skills stats: {}", e);
+                None
+            }
+        };
 
         // Backup statistics (filesystem scan)
-        let backup_stats = self.get_backup_stats().await;
+        let backup_stats = match self.get_backup_stats().await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("Failed to load backup stats: {}", e);
+                None
+            }
+        };
 
         Ok(crate::models::DashboardStats {
             total_todos,
@@ -1144,8 +1156,8 @@ impl Database {
             top_model_tokens,
             leaderboard,
             // Skills & Backup metrics
-            skills_stats: skills_stats.unwrap_or(None),
-            backup_stats: backup_stats.unwrap_or(None),
+            skills_stats,
+            backup_stats,
         })
     }
 
@@ -1558,6 +1570,9 @@ impl Database {
                 }
             }
         }
+
+        // Sort by created_at descending (newest first)
+        files.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
         Some(files)
     }
