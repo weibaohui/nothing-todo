@@ -111,8 +111,6 @@ pub async fn get_webhook_records(
     State(state): State<AppState>,
     Query(query): Query<WebhookRecordQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    use std::collections::HashMap;
-
     let limit = query.limit.unwrap_or(50).min(100);
     let offset = query.offset.unwrap_or(0);
 
@@ -253,7 +251,11 @@ pub async fn trigger_webhook_default_post_json(
     let default_todo_id = webhook.default_todo_id
         .ok_or_else(|| AppError::BadRequest("Webhook has no default todo configured".to_string()))?;
 
-    let body_str = serde_json::to_string(&body).unwrap_or_default();
+    let body_str = serde_json::to_string(&body)
+        .map_err(|e| {
+            tracing::warn!("Failed to serialize webhook body: {}", e);
+            AppError::BadRequest(format!("Invalid body: {}", e))
+        })?;
     trigger_webhook_internal(
         Arc::new(state),
         default_todo_id,
@@ -299,7 +301,11 @@ pub async fn trigger_webhook_with_todo_post_json(
     let webhook = state.db.get_webhook_by_default_todo(todo_id).await?
         .ok_or_else(|| AppError::BadRequest("No enabled webhook configured for this todo".to_string()))?;
 
-    let body_str = serde_json::to_string(&body).unwrap_or_default();
+    let body_str = serde_json::to_string(&body)
+        .map_err(|e| {
+            tracing::warn!("Failed to serialize webhook body: {}", e);
+            AppError::BadRequest(format!("Invalid body: {}", e))
+        })?;
     trigger_webhook_internal(
         Arc::new(state),
         todo_id,
@@ -364,11 +370,23 @@ async fn trigger_webhook_internal(
     let response_body = response_json.to_string();
 
     // Record the webhook call
+    let query_params_json = if query_params.is_empty() {
+        None
+    } else {
+        match serde_json::to_string(&query_params) {
+            Ok(json) => Some(json),
+            Err(e) => {
+                tracing::warn!("Failed to serialize query_params: {}", e);
+                None
+            }
+        }
+    };
+
     if let Err(e) = state.db.create_webhook_record(NewWebhookRecord {
         webhook_id,
         method,
         path,
-        query_params: if query_params.is_empty() { None } else { Some(serde_json::to_string(&query_params).unwrap_or_default()) },
+        query_params: query_params_json,
         body,
         content_type,
         triggered_todo_id: Some(todo_id),

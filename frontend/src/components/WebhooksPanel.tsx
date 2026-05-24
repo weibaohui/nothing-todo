@@ -278,7 +278,7 @@ export function WebhooksPanel({ todos }: WebhooksPanelProps) {
         </Button>
       ),
     },
-  ], [setViewRecord]);
+  ], []);
 
   return (
     <div>
