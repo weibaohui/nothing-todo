@@ -2,6 +2,7 @@ use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, Paginator
 use crate::db::Database;
 use crate::db::entity::webhooks;
 use crate::db::entity::webhook_records;
+use crate::db::entity::todos;
 
 #[derive(Debug, Clone)]
 pub struct NewWebhookRecord {
@@ -31,11 +32,42 @@ impl Database {
             .await
     }
 
+    /// Get multiple webhooks by ids (batch query).
+    pub async fn get_webhooks_by_ids(&self, ids: &[i64]) -> Result<Vec<webhooks::Model>, sea_orm::DbErr> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        webhooks::Entity::find()
+            .filter(webhooks::Column::Id.is_in(ids.iter().cloned()))
+            .all(&self.conn)
+            .await
+    }
+
+    /// Get multiple todos by ids (batch query).
+    pub async fn get_todos_by_ids(&self, ids: &[i64]) -> Result<Vec<todos::Model>, sea_orm::DbErr> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        todos::Entity::find()
+            .filter(todos::Column::Id.is_in(ids.iter().cloned()))
+            .all(&self.conn)
+            .await
+    }
+
     /// Get the first enabled webhook (default webhook).
     pub async fn get_default_webhook(&self) -> Result<Option<webhooks::Model>, sea_orm::DbErr> {
         webhooks::Entity::find()
             .filter(webhooks::Column::Enabled.eq(true))
             .order_by_desc(webhooks::Column::Id)
+            .one(&self.conn)
+            .await
+    }
+
+    /// Get an enabled webhook that has the given todo_id as its default_todo_id.
+    pub async fn get_webhook_by_default_todo(&self, todo_id: i64) -> Result<Option<webhooks::Model>, sea_orm::DbErr> {
+        webhooks::Entity::find()
+            .filter(webhooks::Column::Enabled.eq(true))
+            .filter(webhooks::Column::DefaultTodoId.eq(todo_id))
             .one(&self.conn)
             .await
     }

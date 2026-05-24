@@ -122,33 +122,13 @@ pub async fn get_webhook_records(
     let webhook_ids: Vec<i64> = records.iter().filter_map(|r| r.webhook_id).collect();
     let todo_ids: Vec<i64> = records.iter().filter_map(|r| r.triggered_todo_id).collect();
 
-    // Fetch all webhooks and todos in parallel using tokio::task::spawn
-    let state_db = state.db.clone();
-    let webhook_ids_clone = webhook_ids.clone();
-    let webhook_handle = tokio::spawn(async move {
-        let mut map = HashMap::new();
-        for id in webhook_ids_clone {
-            if let Ok(Some(w)) = state_db.get_webhook(id).await {
-                map.insert(id, w.name);
-            }
-        }
-        map
-    });
+    // Batch fetch all webhooks and todos in a single query each
+    let webhooks = state.db.get_webhooks_by_ids(&webhook_ids).await?;
+    let todos = state.db.get_todos_by_ids(&todo_ids).await?;
 
-    let state_db = state.db.clone();
-    let todo_ids_clone = todo_ids.clone();
-    let todo_handle = tokio::spawn(async move {
-        let mut map = HashMap::new();
-        for id in todo_ids_clone {
-            if let Ok(Some(t)) = state_db.get_todo(id).await {
-                map.insert(id, t.title);
-            }
-        }
-        map
-    });
-
-    let webhook_map = webhook_handle.await.unwrap_or_default();
-    let todo_map = todo_handle.await.unwrap_or_default();
+    // Build lookup maps
+    let webhook_map: HashMap<i64, String> = webhooks.into_iter().map(|w| (w.id, w.name)).collect();
+    let todo_map: HashMap<i64, String> = todos.into_iter().map(|t| (t.id, t.title)).collect();
 
     // Enrich records with webhook name and todo title
     let response_records: Vec<WebhookRecordResponse> = records
@@ -291,10 +271,14 @@ pub async fn trigger_webhook_with_todo(
     Path(todo_id): Path<i64>,
     axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, AppError> {
+    // Find webhook that has this todo as default and is enabled
+    let webhook = state.db.get_webhook_by_default_todo(todo_id).await?
+        .ok_or_else(|| AppError::BadRequest("No enabled webhook configured for this todo".to_string()))?;
+
     trigger_webhook_internal(
         Arc::new(state),
         todo_id,
-        None,
+        Some(webhook.id),
         "GET".to_string(),
         format!("/webhook/trigger/{}", todo_id),
         params,
@@ -310,11 +294,15 @@ pub async fn trigger_webhook_with_todo_post_json(
     axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, AppError> {
+    // Find webhook that has this todo as default and is enabled
+    let webhook = state.db.get_webhook_by_default_todo(todo_id).await?
+        .ok_or_else(|| AppError::BadRequest("No enabled webhook configured for this todo".to_string()))?;
+
     let body_str = serde_json::to_string(&body).unwrap_or_default();
     trigger_webhook_internal(
         Arc::new(state),
         todo_id,
-        None,
+        Some(webhook.id),
         "POST".to_string(),
         format!("/webhook/trigger/{}", todo_id),
         params,

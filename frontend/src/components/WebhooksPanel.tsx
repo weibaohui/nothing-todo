@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Table,
   Card,
@@ -78,13 +78,13 @@ export function WebhooksPanel({ todos }: WebhooksPanelProps) {
     loadRecords(1, recordsPageSize);
   }, []);
 
-  const handleCreateWebhook = () => {
+  const handleCreateWebhook = useCallback(() => {
     setEditingWebhook(null);
     webhookForm.resetFields();
     setWebhookFormOpen(true);
-  };
+  }, [webhookForm]);
 
-  const handleEditWebhook = (webhook: Webhook) => {
+  const handleEditWebhook = useCallback((webhook: Webhook) => {
     setEditingWebhook(webhook);
     webhookForm.setFieldsValue({
       name: webhook.name,
@@ -92,9 +92,9 @@ export function WebhooksPanel({ todos }: WebhooksPanelProps) {
       default_todo_id: webhook.default_todo_id,
     });
     setWebhookFormOpen(true);
-  };
+  }, [webhookForm]);
 
-  const handleSaveWebhook = async () => {
+  const handleSaveWebhook = useCallback(async () => {
     try {
       const values = await webhookForm.validateFields();
       setWebhookFormSaving(true);
@@ -115,9 +115,9 @@ export function WebhooksPanel({ todos }: WebhooksPanelProps) {
     } finally {
       setWebhookFormSaving(false);
     }
-  };
+  }, [webhookForm, editingWebhook]);
 
-  const handleDeleteWebhook = async (id: number) => {
+  const handleDeleteWebhook = useCallback(async (id: number) => {
     try {
       await db.deleteWebhook(id);
       message.success('Webhook 已删除');
@@ -125,16 +125,16 @@ export function WebhooksPanel({ todos }: WebhooksPanelProps) {
     } catch (e: any) {
       message.error('删除失败: ' + (e?.message || String(e)));
     }
-  };
+  }, []);
 
-  const handleToggleEnabled = async (webhook: Webhook) => {
+  const handleToggleEnabled = useCallback(async (webhook: Webhook) => {
     try {
       await db.updateWebhook(webhook.id, webhook.name, !webhook.enabled, webhook.default_todo_id ?? undefined);
       loadWebhooks();
     } catch (e: any) {
       message.error('更新失败: ' + (e?.message || String(e)));
     }
-  };
+  }, []);
 
   const baseUrl = window.location.origin;
 
