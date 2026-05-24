@@ -1100,6 +1100,24 @@ impl Database {
             })
             .collect();
 
+        // Skills invocation statistics
+        let skills_stats = match self.get_skills_stats(&time_filter).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("Failed to load skills stats: {}", e);
+                None
+            }
+        };
+
+        // Backup statistics (filesystem scan)
+        let backup_stats = match self.get_backup_stats().await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("Failed to load backup stats: {}", e);
+                None
+            }
+        };
+
         Ok(crate::models::DashboardStats {
             total_todos,
             pending_todos,
@@ -1137,6 +1155,9 @@ impl Database {
             top_model,
             top_model_tokens,
             leaderboard,
+            // Skills & Backup metrics
+            skills_stats,
+            backup_stats,
         })
     }
 
@@ -1272,5 +1293,311 @@ impl Database {
             tracing::info!("Cleaned up {} orphan execution records", rows);
         }
         Ok(())
+    }
+
+    /// Get skills invocation statistics
+    async fn get_skills_stats(
+        &self,
+        time_filter: &str,
+    ) -> Result<Option<crate::models::SkillsStats>, sea_orm::DbErr> {
+        let backend = self.conn.get_database_backend();
+
+        // Skills overall stats
+        let skills_overall_sql = format!(
+            "SELECT \
+            COUNT(*) as total, \
+            COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success, \
+            COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed, \
+            COALESCE(AVG(duration_ms), 0) as avg_duration, \
+            COALESCE(SUM(CASE WHEN date(invoked_at) = date('now') THEN 1 ELSE 0 END), 0) as today \
+            FROM skill_invocations \
+            WHERE invoked_at >= {}",
+            time_filter
+        );
+
+        let (total_invocations, success_invocations, failed_invocations, avg_duration_ms, invocations_today) =
+            if let Some(row) = self.conn.query_one(Statement::from_string(backend, skills_overall_sql)).await? {
+                (
+                    row.try_get_by::<i64, _>("total").unwrap_or(0),
+                    row.try_get_by::<i64, _>("success").unwrap_or(0),
+                    row.try_get_by::<i64, _>("failed").unwrap_or(0),
+                    row.try_get_by::<f64, _>("avg_duration").unwrap_or(0.0),
+                    row.try_get_by::<i64, _>("today").unwrap_or(0),
+                )
+            } else {
+                (0, 0, 0, 0.0, 0)
+            };
+
+        // If no invocations, return None
+        if total_invocations == 0 {
+            return Ok(None);
+        }
+
+        // Top skills by invocation count
+        let top_skills_sql = format!(
+            "SELECT skill_name, COUNT(*) as count, \
+            CAST(COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) AS FLOAT) / COUNT(*) * 100 as success_rate \
+            FROM skill_invocations \
+            WHERE invoked_at >= {} \
+            GROUP BY skill_name \
+            ORDER BY count DESC LIMIT 10",
+            time_filter
+        );
+
+        let top_skills: Vec<crate::models::SkillTop> = self.conn
+            .query_all(Statement::from_string(backend, top_skills_sql))
+            .await?
+            .into_iter()
+            .filter_map(|row| {
+                let skill_name: String = row.try_get_by("skill_name").ok()?;
+                let count: i64 = row.try_get_by("count").ok()?;
+                let success_rate: f64 = row.try_get_by("success_rate").ok()?;
+                Some(crate::models::SkillTop {
+                    skill_name,
+                    count,
+                    success_rate,
+                })
+            })
+            .collect();
+
+        // Executor skills count (distinct skill names per executor)
+        let executor_skills_sql = format!(
+            "SELECT executor, COUNT(DISTINCT skill_name) as skills_count \
+            FROM skill_invocations \
+            WHERE invoked_at >= {} \
+            GROUP BY executor",
+            time_filter
+        );
+
+        let executor_skills_count: Vec<crate::models::ExecutorSkillCount> = self.conn
+            .query_all(Statement::from_string(backend, executor_skills_sql))
+            .await?
+            .into_iter()
+            .filter_map(|row| {
+                let executor: String = row.try_get_by("executor").ok()?;
+                let skills_count: i64 = row.try_get_by("skills_count").ok()?;
+                Some(crate::models::ExecutorSkillCount {
+                    executor,
+                    skills_count,
+                })
+            })
+            .collect();
+
+        // Daily skill invocations (last 30 days)
+        let daily_skills_sql = format!(
+            "SELECT SUBSTR(COALESCE(invoked_at, ''), 1, 10) as day, \
+            COUNT(*) as count, \
+            COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success \
+            FROM skill_invocations \
+            WHERE invoked_at IS NOT NULL AND LENGTH(invoked_at) >= 10 AND invoked_at >= {} \
+            GROUP BY SUBSTR(invoked_at, 1, 10) \
+            ORDER BY day DESC LIMIT 30",
+            time_filter
+        );
+
+        let daily_invocations: Vec<crate::models::DailySkillInvocation> = self.conn
+            .query_all(Statement::from_string(backend, daily_skills_sql))
+            .await?
+            .into_iter()
+            .filter_map(|row| {
+                let date: String = row.try_get_by("day").ok()?;
+                let count: i64 = row.try_get_by("count").ok()?;
+                let success: i64 = row.try_get_by("success").ok()?;
+                Some(crate::models::DailySkillInvocation {
+                    date,
+                    count,
+                    success,
+                })
+            })
+            .collect();
+
+        Ok(Some(crate::models::SkillsStats {
+            total_invocations,
+            success_invocations,
+            failed_invocations,
+            avg_duration_ms,
+            invocations_today,
+            top_skills,
+            executor_skills_count,
+            daily_invocations,
+        }))
+    }
+
+    /// Get backup statistics by scanning filesystem
+    async fn get_backup_stats(&self) -> Result<Option<crate::models::BackupStats>, sea_orm::DbErr> {
+        let backup_dir = dirs::home_dir()
+            .map(|h| h.join(".ntd").join("backups"))
+            .unwrap_or_else(|| std::path::PathBuf::from(".ntd/backups"));
+
+        if !backup_dir.exists() {
+            return Ok(None);
+        }
+
+        // Scan backup subdirectories
+        let database_stats = Self::scan_backup_category(&backup_dir.join("db"));
+        let todo_stats = Self::scan_backup_category(&backup_dir.join("todo"));
+        let skills_stats = Self::scan_backup_category(&backup_dir.join("skills"));
+
+        let total_file_count = database_stats.file_count + todo_stats.file_count + skills_stats.file_count;
+        let total_size = database_stats.total_size + todo_stats.total_size + skills_stats.total_size;
+
+        // Collect recent backups from all categories
+        let mut recent_backups: Vec<crate::models::RecentBackup> = Vec::new();
+
+        if let Some(files) = Self::collect_backup_files(&backup_dir.join("db")) {
+            for f in files.into_iter().take(5) {
+                recent_backups.push(crate::models::RecentBackup {
+                    backup_type: "database".to_string(),
+                    name: f.name,
+                    size: f.size,
+                    created_at: f.created_at,
+                });
+            }
+        }
+        if let Some(files) = Self::collect_backup_files(&backup_dir.join("todo")) {
+            for f in files.into_iter().take(5) {
+                recent_backups.push(crate::models::RecentBackup {
+                    backup_type: "todo".to_string(),
+                    name: f.name,
+                    size: f.size,
+                    created_at: f.created_at,
+                });
+            }
+        }
+        if let Some(files) = Self::collect_backup_files(&backup_dir.join("skills")) {
+            for f in files.into_iter().take(5) {
+                recent_backups.push(crate::models::RecentBackup {
+                    backup_type: "skills".to_string(),
+                    name: f.name,
+                    size: f.size,
+                    created_at: f.created_at,
+                });
+            }
+        }
+
+        // Sort by created_at desc and take top 10
+        recent_backups.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        recent_backups.truncate(10);
+
+        // Find overall last backup time
+        let last_backup = recent_backups.first().map(|b| b.created_at.clone());
+
+        // Format total size
+        let total_size_formatted = Self::format_bytes(total_size as u64);
+
+        Ok(Some(crate::models::BackupStats {
+            auto_backup_enabled: false,
+            last_backup,
+            auto_backup_cron: String::new(),
+            database: database_stats,
+            todo: todo_stats,
+            skills: skills_stats,
+            total_file_count,
+            total_size,
+            total_size_formatted,
+            recent_backups,
+        }))
+    }
+
+    /// Scan a backup category directory and return stats
+    fn scan_backup_category(dir: &std::path::Path) -> crate::models::BackupCategoryStats {
+        use std::fs;
+
+        if !dir.exists() {
+            return crate::models::BackupCategoryStats {
+                file_count: 0,
+                total_size: 0,
+                last_backup: None,
+            };
+        }
+
+        let mut file_count = 0i64;
+        let mut total_size = 0i64;
+        let mut last_backup: Option<String> = None;
+
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if let Ok(metadata) = entry.metadata() {
+                    if metadata.is_file() {
+                        file_count += 1;
+                        total_size += metadata.len() as i64;
+
+                        if let Ok(modified) = metadata.modified() {
+                            let modified_str = Self::system_time_to_iso_string(modified);
+                            if last_backup.is_none() || modified_str > *last_backup.as_ref().unwrap() {
+                                last_backup = Some(modified_str);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        crate::models::BackupCategoryStats {
+            file_count,
+            total_size,
+            last_backup,
+        }
+    }
+
+    /// Collect backup files from a directory
+    fn collect_backup_files(dir: &std::path::Path) -> Option<Vec<crate::models::RecentBackup>> {
+        use std::fs;
+
+        if !dir.exists() {
+            return None;
+        }
+
+        let mut files: Vec<crate::models::RecentBackup> = Vec::new();
+
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if let Ok(metadata) = entry.metadata() {
+                    if metadata.is_file() {
+                        let name = entry.file_name().to_string_lossy().to_string();
+                        let size = metadata.len() as i64;
+                        let created_at = metadata.modified().ok()
+                            .map(|t| Self::system_time_to_iso_string(t))
+                            .unwrap_or_default();
+
+                        files.push(crate::models::RecentBackup {
+                            backup_type: String::new(), // Will be set by caller
+                            name,
+                            size,
+                            created_at,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Sort by created_at descending (newest first)
+        files.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+        Some(files)
+    }
+
+    /// Convert SystemTime to ISO string
+    fn system_time_to_iso_string(time: std::time::SystemTime) -> String {
+        use chrono::{DateTime, Utc};
+        let datetime: DateTime<Utc> = time.into();
+        datetime.format("%Y-%m-%dT%H:%M:%SZ").to_string()
+    }
+
+    /// Format bytes to human readable string
+    fn format_bytes(bytes: u64) -> String {
+        const KB: u64 = 1024;
+        const MB: u64 = KB * 1024;
+        const GB: u64 = MB * 1024;
+
+        if bytes >= GB {
+            format!("{:.2} GB", bytes as f64 / GB as f64)
+        } else if bytes >= MB {
+            format!("{:.2} MB", bytes as f64 / MB as f64)
+        } else if bytes >= KB {
+            format!("{:.2} KB", bytes as f64 / KB as f64)
+        } else {
+            format!("{} B", bytes)
+        }
     }
 }

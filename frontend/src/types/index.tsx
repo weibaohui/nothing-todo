@@ -215,6 +215,10 @@ export interface DashboardStats {
   top_model?: string;
   top_model_tokens?: number;
   leaderboard?: LeaderboardItem[];
+  // Skills metrics
+  skills_stats?: SkillsStats;
+  // Backup metrics
+  backup_stats?: BackupStats;
 }
 
 export interface LeaderboardItem {
@@ -486,4 +490,60 @@ export interface FeishuHistoryChat {
   last_fetch_time: string | null;
   polling_interval_secs: number;
   created_at: string | null;
+}
+
+// Skills statistics
+export interface SkillsStats {
+  total_invocations: number;
+  success_invocations: number;
+  failed_invocations: number;
+  avg_duration_ms: number;
+  invocations_today: number;
+  top_skills: SkillTop[];
+  executor_skills_count: ExecutorSkillCount[];
+  daily_invocations: DailySkillInvocation[];
+}
+
+export interface SkillTop {
+  skill_name: string;
+  count: number;
+  success_rate: number;
+}
+
+export interface ExecutorSkillCount {
+  executor: string;
+  skills_count: number;
+}
+
+export interface DailySkillInvocation {
+  date: string;
+  count: number;
+  success: number;
+}
+
+// Backup statistics
+export interface BackupStats {
+  auto_backup_enabled: boolean;
+  last_backup: string | null;
+  auto_backup_cron: string;
+  database: BackupCategoryStats;
+  todo: BackupCategoryStats;
+  skills: BackupCategoryStats;
+  total_file_count: number;
+  total_size: number;
+  total_size_formatted: string;
+  recent_backups: RecentBackup[];
+}
+
+export interface BackupCategoryStats {
+  file_count: number;
+  total_size: number;
+  last_backup: string | null;
+}
+
+export interface RecentBackup {
+  type: string;
+  name: string;
+  size: number;
+  created_at: string;
 }
