@@ -1,3 +1,5 @@
+import type { Todo } from '../../types';
+
 export const TIME_OPTIONS: { label: string; value: number }[] = [
   { label: '6h',  value: 6 },
   { label: '12h', value: 12 },
@@ -18,5 +20,3 @@ export const COLUMNS: ColumnDef[] = [
   { status: 'completed', label: '已完成',   color: '#22c55e' },
   { status: 'failed',    label: '失败',     color: '#ef4444' },
 ];
-
-import type { Todo } from '../../types';
