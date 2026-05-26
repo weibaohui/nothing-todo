@@ -435,7 +435,16 @@ async fn run_server(cli_port: Option<u16>) {
         sched
     });
 
-    let app = handlers::create_app(db, executor_registry, tx, scheduler, task_manager, config.clone());
+    let app = handlers::create_app(
+        ntd::service_context::ServiceContext {
+            db: db.clone(),
+            executor_registry: executor_registry.clone(),
+            tx: tx.clone(),
+            task_manager: task_manager.clone(),
+            config: config.clone(),
+        },
+        scheduler,
+    );
 
     let port = cli_port.unwrap_or(cfg.port);
 

@@ -50,7 +50,7 @@ pub async fn update_scheduler(
                 Ok(_) => {
                     state
                         .db
-                        .update_todo_scheduler(id, req.scheduler_enabled, req.scheduler_config.as_deref(), scheduler_timezone.as_deref())
+                        .update_todo_scheduler(crate::db::SchedulerUpdate { id, enabled: req.scheduler_enabled, config: req.scheduler_config.as_deref(), timezone: scheduler_timezone.as_deref() })
                         .await
                         .map_err(AppError::from)?;
                 }
@@ -63,7 +63,7 @@ pub async fn update_scheduler(
             state.scheduler.remove_task_for_todo(id).await;
             state
                 .db
-                .update_todo_scheduler(id, req.scheduler_enabled, req.scheduler_config.as_deref(), scheduler_timezone.as_deref())
+                .update_todo_scheduler(crate::db::SchedulerUpdate { id, enabled: req.scheduler_enabled, config: req.scheduler_config.as_deref(), timezone: scheduler_timezone.as_deref() })
                 .await
                 .map_err(AppError::from)?;
         }
@@ -71,7 +71,7 @@ pub async fn update_scheduler(
         state.scheduler.remove_task_for_todo(id).await;
         state
             .db
-            .update_todo_scheduler(id, req.scheduler_enabled, req.scheduler_config.as_deref(), scheduler_timezone.as_deref())
+            .update_todo_scheduler(crate::db::SchedulerUpdate { id, enabled: req.scheduler_enabled, config: req.scheduler_config.as_deref(), timezone: scheduler_timezone.as_deref() })
             .await
             .map_err(AppError::from)?;
     }

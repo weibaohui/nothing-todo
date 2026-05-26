@@ -297,20 +297,14 @@ async fn version_handler() -> impl IntoResponse {
 
 // Build router
 pub fn create_app(
-    db: Arc<Database>,
-    executor_registry: Arc<ExecutorRegistry>,
-    tx: broadcast::Sender<ExecEvent>,
+    ctx: ServiceContext,
     scheduler: Arc<TodoScheduler>,
-    task_manager: Arc<TaskManager>,
-    config: Arc<tokio::sync::RwLock<Config>>,
 ) -> Router {
-    let ctx = ServiceContext {
-        db: db.clone(),
-        executor_registry: executor_registry.clone(),
-        tx: tx.clone(),
-        task_manager: task_manager.clone(),
-        config: config.clone(),
-    };
+    let db = ctx.db.clone();
+    let executor_registry = ctx.executor_registry.clone();
+    let tx = ctx.tx.clone();
+    let task_manager = ctx.task_manager.clone();
+    let config = ctx.config.clone();
 
     // Create message debounce service (shared between listener and history fetcher)
     use crate::services::message_debounce::MessageDebounce;
