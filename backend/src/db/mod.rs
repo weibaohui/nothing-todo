@@ -8,9 +8,9 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use sea_orm::{
-    ActiveModelBehavior, ActiveModelTrait, ConnectOptions, ConnectionTrait,
+    ActiveModelBehavior, ActiveModelTrait, ColumnTrait, ConnectOptions, ConnectionTrait,
     Database as SeaDatabase, DatabaseConnection, DbBackend, EntityTrait, IntoActiveModel,
-    Statement,
+    Order, QueryFilter, QueryOrder, Statement,
 };
 
 pub mod entity;
@@ -786,7 +786,399 @@ impl Database {
         )
         .await?;
 
+        // Usage daily stats table (stores aggregated usage statistics)
+        self.exec(
+            "CREATE TABLE IF NOT EXISTS usage_daily_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                project_path TEXT,
+                session_id TEXT,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                extra_total_tokens INTEGER NOT NULL DEFAULT 0,
+                total_cost REAL NOT NULL DEFAULT 0.0,
+                credits REAL,
+                message_count INTEGER,
+                models_used TEXT NOT NULL DEFAULT '[]',
+                project TEXT,
+                versions TEXT,
+                last_activity TEXT,
+                stats_type TEXT NOT NULL DEFAULT 'daily',
+                created_at TEXT
+            )",
+        )
+        .await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_usage_daily_stats_date ON usage_daily_stats(date)")
+            .await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_usage_daily_stats_stats_type ON usage_daily_stats(stats_type)")
+            .await?;
+
+        // Usage model breakdowns table (stores per-model breakdown for each daily stat)
+        self.exec(
+            "CREATE TABLE IF NOT EXISTS usage_model_breakdowns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                daily_stat_id INTEGER NOT NULL,
+                model_name TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                extra_total_tokens INTEGER NOT NULL DEFAULT 0,
+                cost REAL NOT NULL DEFAULT 0.0,
+                FOREIGN KEY (daily_stat_id) REFERENCES usage_daily_stats(id) ON DELETE CASCADE
+            )",
+        )
+        .await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_usage_model_breakdowns_daily_stat_id ON usage_model_breakdowns(daily_stat_id)")
+            .await?;
+
+        // Usage stats timestamps triggers
+        self.exec(
+            "CREATE TRIGGER IF NOT EXISTS set_usage_daily_stats_created_at_utc AFTER INSERT ON usage_daily_stats
+             WHEN new.created_at IS NULL OR new.created_at = ''
+             BEGIN
+                 UPDATE usage_daily_stats SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+             END",
+        )
+        .await?;
+
+        // Usage executor daily stats table (stores per-executor daily token usage)
+        self.exec(
+            "CREATE TABLE IF NOT EXISTS usage_executor_daily_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                executor TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                extra_total_tokens INTEGER NOT NULL DEFAULT 0,
+                total_cost REAL NOT NULL DEFAULT 0.0,
+                credits REAL,
+                message_count INTEGER,
+                model TEXT,
+                execution_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT,
+                UNIQUE(date, executor)
+            )",
+        )
+        .await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_usage_executor_daily_stats_date ON usage_executor_daily_stats(date)")
+            .await?;
+        self.exec("CREATE INDEX IF NOT EXISTS idx_usage_executor_daily_stats_executor ON usage_executor_daily_stats(executor)")
+            .await?;
+
+        // Usage executor daily stats timestamps triggers
+        self.exec(
+            "CREATE TRIGGER IF NOT EXISTS set_usage_executor_daily_stats_created_at_utc AFTER INSERT ON usage_executor_daily_stats
+             WHEN new.created_at IS NULL OR new.created_at = ''
+             BEGIN
+                 UPDATE usage_executor_daily_stats SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+             END",
+        )
+        .await?;
+
         Ok(())
+    }
+
+    // ===== Usage Stats methods =====
+
+    /// Create a new usage daily stat record
+    pub async fn create_usage_daily_stat(
+        &self,
+        date: &str,
+        project_path: Option<&str>,
+        session_id: Option<&str>,
+        input_tokens: i64,
+        output_tokens: i64,
+        cache_creation_tokens: i64,
+        cache_read_tokens: i64,
+        extra_total_tokens: i64,
+        total_cost: f64,
+        credits: Option<f64>,
+        message_count: Option<i64>,
+        models_used: &[String],
+        project: Option<&str>,
+        versions: Option<&[String]>,
+        last_activity: Option<&str>,
+        stats_type: &str,
+    ) -> Result<i64, sea_orm::DbErr> {
+        let models_used_json = serde_json::to_string(models_used).unwrap_or_else(|_| "[]".to_string());
+        let versions_json = versions.map(|v| serde_json::to_string(v).ok()).flatten().unwrap_or_else(|| "null".to_string());
+
+        let sql = format!(
+            r#"INSERT INTO usage_daily_stats
+               (date, project_path, session_id, input_tokens, output_tokens, cache_creation_tokens,
+                cache_read_tokens, extra_total_tokens, total_cost, credits, message_count,
+                models_used, project, versions, last_activity, stats_type)
+               VALUES ('{}', {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, '{}', {}, {}, '{}', '{}')"#,
+            date,
+            Self::opt_string_to_sql(project_path),
+            Self::opt_string_to_sql(session_id),
+            input_tokens,
+            output_tokens,
+            cache_creation_tokens,
+            cache_read_tokens,
+            extra_total_tokens,
+            total_cost,
+            Self::opt_f64_to_sql(credits),
+            Self::opt_i64_to_sql(message_count),
+            models_used_json,
+            Self::opt_string_to_sql(project),
+            versions_json,
+            Self::opt_string_to_sql(last_activity),
+            stats_type
+        );
+
+        let result = self.conn
+            .execute(Statement::from_string(DbBackend::Sqlite, sql))
+            .await?;
+
+        Ok(result.last_insert_id() as i64)
+    }
+
+    /// Create a model breakdown record
+    pub async fn create_usage_model_breakdown(
+        &self,
+        daily_stat_id: i64,
+        model_name: &str,
+        input_tokens: i64,
+        output_tokens: i64,
+        cache_creation_tokens: i64,
+        cache_read_tokens: i64,
+        extra_total_tokens: i64,
+        cost: f64,
+    ) -> Result<i64, sea_orm::DbErr> {
+        let sql = format!(
+            r#"INSERT INTO usage_model_breakdowns
+               (daily_stat_id, model_name, input_tokens, output_tokens, cache_creation_tokens,
+                cache_read_tokens, extra_total_tokens, cost)
+               VALUES ({}, '{}', {}, {}, {}, {}, {}, {})"#,
+            daily_stat_id,
+            model_name,
+            input_tokens,
+            output_tokens,
+            cache_creation_tokens,
+            cache_read_tokens,
+            extra_total_tokens,
+            cost
+        );
+
+        let result = self.conn
+            .execute(Statement::from_string(DbBackend::Sqlite, sql))
+            .await?;
+
+        Ok(result.last_insert_id() as i64)
+    }
+
+    /// Get usage stats by type and date range
+    pub async fn get_usage_stats(
+        &self,
+        stats_type: &str,
+        since: Option<&str>,
+        until: Option<&str>,
+    ) -> Result<Vec<entity::usage_stats::Model>, sea_orm::DbErr> {
+        use sea_orm::{EntityTrait, QueryFilter};
+
+        let mut query = entity::usage_stats::Entity::find();
+
+        // Filter by stats_type
+        query = query.filter(entity::usage_stats::Column::StatsType.eq(stats_type));
+
+        // Filter by date range if provided
+        if let Some(since_date) = since {
+            query = query.filter(entity::usage_stats::Column::Date.gte(since_date));
+        }
+        if let Some(until_date) = until {
+            query = query.filter(entity::usage_stats::Column::Date.lte(until_date));
+        }
+
+        let results = query
+            .order_by(entity::usage_stats::Column::Date, Order::Desc)
+            .all(&self.conn)
+            .await?;
+
+        Ok(results)
+    }
+
+    /// Get model breakdowns for a specific daily stat
+    pub async fn get_usage_model_breakdowns(
+        &self,
+        daily_stat_id: i64,
+    ) -> Result<Vec<entity::usage_model_breakdown::Model>, sea_orm::DbErr> {
+        use sea_orm::EntityTrait;
+
+        let results = entity::usage_model_breakdown::Entity::find()
+            .filter(entity::usage_model_breakdown::Column::DailyStatId.eq(daily_stat_id))
+            .all(&self.conn)
+            .await?;
+
+        Ok(results)
+    }
+
+    /// Delete existing stats for a specific date and type (for re-computation)
+    pub async fn delete_usage_stats_by_date(
+        &self,
+        date: &str,
+        stats_type: &str,
+    ) -> Result<(), sea_orm::DbErr> {
+        // First delete breakdowns for the daily stats
+        let daily_stats: Vec<entity::usage_stats::Model> = entity::usage_stats::Entity::find()
+            .filter(entity::usage_stats::Column::Date.eq(date))
+            .filter(entity::usage_stats::Column::StatsType.eq(stats_type))
+            .all(&self.conn)
+            .await?;
+
+        for stat in daily_stats {
+            let sql = format!(
+                "DELETE FROM usage_model_breakdowns WHERE daily_stat_id = {}",
+                stat.id
+            );
+            self.exec(&sql).await?;
+        }
+
+        // Then delete the daily stats
+        let sql = format!(
+            "DELETE FROM usage_daily_stats WHERE date = '{}' AND stats_type = '{}'",
+            date, stats_type
+        );
+        self.exec(&sql).await?;
+
+        Ok(())
+    }
+
+    /// Get the most recent stat for a specific date and type
+    pub async fn get_latest_usage_stat(
+        &self,
+        date: &str,
+        stats_type: &str,
+    ) -> Result<Option<entity::usage_stats::Model>, sea_orm::DbErr> {
+        use sea_orm::EntityTrait;
+
+        let result = entity::usage_stats::Entity::find()
+            .filter(entity::usage_stats::Column::Date.eq(date))
+            .filter(entity::usage_stats::Column::StatsType.eq(stats_type))
+            .one(&self.conn)
+            .await?;
+
+        Ok(result)
+    }
+
+    // ===== Usage Executor Daily Stats methods =====
+
+    /// Create or update usage executor daily stat record
+    pub async fn upsert_usage_executor_daily_stat(
+        &self,
+        date: &str,
+        executor: &str,
+        input_tokens: i64,
+        output_tokens: i64,
+        cache_creation_tokens: i64,
+        cache_read_tokens: i64,
+        extra_total_tokens: i64,
+        total_cost: f64,
+        credits: Option<f64>,
+        message_count: Option<i64>,
+        model: Option<&str>,
+        execution_count: i64,
+    ) -> Result<i64, sea_orm::DbErr> {
+        let sql = format!(
+            r#"INSERT INTO usage_executor_daily_stats
+               (date, executor, input_tokens, output_tokens, cache_creation_tokens,
+                cache_read_tokens, extra_total_tokens, total_cost, credits, message_count,
+                model, execution_count)
+               VALUES ('{}', '{}', {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+               ON CONFLICT(date, executor) DO UPDATE SET
+                input_tokens = input_tokens + excluded.input_tokens,
+                output_tokens = output_tokens + excluded.output_tokens,
+                cache_creation_tokens = cache_creation_tokens + excluded.cache_creation_tokens,
+                cache_read_tokens = cache_read_tokens + excluded.cache_read_tokens,
+                extra_total_tokens = extra_total_tokens + excluded.extra_total_tokens,
+                total_cost = total_cost + excluded.total_cost,
+                credits = COALESCE(credits, 0) + COALESCE(excluded.credits, 0),
+                message_count = COALESCE(message_count, 0) + COALESCE(excluded.message_count, 0),
+                model = excluded.model,
+                execution_count = execution_count + excluded.execution_count"#,
+            date,
+            executor,
+            input_tokens,
+            output_tokens,
+            cache_creation_tokens,
+            cache_read_tokens,
+            extra_total_tokens,
+            total_cost,
+            Self::opt_f64_to_sql(credits),
+            Self::opt_i64_to_sql(message_count),
+            Self::opt_string_to_sql(model.as_deref()),
+            execution_count,
+        );
+
+        let result = self.conn
+            .execute(Statement::from_string(DbBackend::Sqlite, sql))
+            .await?;
+        Ok(result.last_insert_id() as i64)
+    }
+
+    /// Get usage executor daily stats by date range
+    pub async fn get_usage_executor_daily_stats(
+        &self,
+        since: Option<&str>,
+        until: Option<&str>,
+    ) -> Result<Vec<entity::usage_executor_daily::Model>, sea_orm::DbErr> {
+        use sea_orm::{EntityTrait, QueryFilter};
+
+        let mut query = entity::usage_executor_daily::Entity::find();
+
+        if let Some(since_date) = since {
+            query = query.filter(entity::usage_executor_daily::Column::Date.gte(since_date));
+        }
+        if let Some(until_date) = until {
+            query = query.filter(entity::usage_executor_daily::Column::Date.lte(until_date));
+        }
+
+        let results = query
+            .order_by_desc(entity::usage_executor_daily::Column::Date)
+            .order_by_asc(entity::usage_executor_daily::Column::Executor)
+            .all(&self.conn)
+            .await?;
+
+        Ok(results)
+    }
+
+    /// Delete usage executor stats for a specific date
+    pub async fn delete_usage_executor_stats_by_date(&self, date: &str) -> Result<(), sea_orm::DbErr> {
+        let sql = format!(
+            "DELETE FROM usage_executor_daily_stats WHERE date = '{}'",
+            date
+        );
+        self.exec(&sql).await?;
+        Ok(())
+    }
+
+    /// Helper to convert optional string to SQL NULL or quoted string
+    fn opt_string_to_sql(s: Option<&str>) -> String {
+        match s {
+            Some(s) => format!("'{}'", s.replace("'", "''")),
+            None => "NULL".to_string(),
+        }
+    }
+
+    /// Helper to convert optional f64 to SQL NULL or value
+    fn opt_f64_to_sql(v: Option<f64>) -> String {
+        match v {
+            Some(v) => v.to_string(),
+            None => "NULL".to_string(),
+        }
+    }
+
+    /// Helper to convert optional i64 to SQL NULL or value
+    fn opt_i64_to_sql(v: Option<i64>) -> String {
+        match v {
+            Some(v) => v.to_string(),
+            None => "NULL".to_string(),
+        }
     }
 }
 

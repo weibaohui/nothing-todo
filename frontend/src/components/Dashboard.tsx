@@ -14,6 +14,7 @@ import {
   KeyMetricsCard, HighlightStatsCard, TaskStatsCard, ExecStatsCard,
   InferenceStatsCard, OverviewCard, MessageStatsCard, BackupStatsCard,
 } from './dashboard/StatsGridCards';
+import { UsageStatsCard } from './dashboard/UsageStatsCard';
 import {
   ExecutorChartCard, ExecutorDurationCard, TagChartCard,
   ModelTaskChartCard, ModelTokenChartCard, ModelCacheCard, SkillsStatsCard,
@@ -169,6 +170,7 @@ export function Dashboard({ onBack }: { onBack?: () => void }) {
     { key: 'message-stats', render: () => <MessageStatsCard msgStats={msgStats} msgStatsError={msgStatsError} processingRate={processingRate} /> },
     { key: 'skills-stats', render: () => <SkillsStatsCard stats={stats} loading={loading} /> },
     { key: 'backup-stats', render: () => <BackupStatsCard stats={stats} loading={loading} /> },
+    { key: 'usage-stats', render: () => <UsageStatsCard /> },
     { key: 'share-card', render: () => <ShareCardPanel /> },
   ];
 
