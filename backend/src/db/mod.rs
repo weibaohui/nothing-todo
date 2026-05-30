@@ -16,6 +16,19 @@ use sea_orm::{
 pub mod entity;
 pub use entity::prelude::*;
 
+/// Model breakdown with date (for API responses)
+#[derive(Debug, Clone)]
+pub struct ModelBreakdownWithDate {
+    pub date: String,
+    pub model_name: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_creation_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub extra_total_tokens: i64,
+    pub cost: f64,
+}
+
 fn compute_next_run(cron_expr: &str, timezone: Option<&str>) -> Option<String> {
     let schedule = cron::Schedule::from_str(cron_expr).ok()?;
 
@@ -1016,6 +1029,52 @@ impl Database {
             .await?;
 
         Ok(results)
+    }
+
+    /// Get model breakdowns for a date range (via join with daily_stats)
+    pub async fn get_usage_model_breakdowns_by_date_range(
+        &self,
+        stats_type: &str,
+        since: Option<&str>,
+        until: Option<&str>,
+    ) -> Result<Vec<ModelBreakdownWithDate>, sea_orm::DbErr> {
+        use sea_orm::EntityTrait;
+
+        // First get daily stats in date range
+        let daily_stats = self.get_usage_stats(stats_type, since, until).await?;
+
+        if daily_stats.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Get all stat IDs and their dates
+        let stat_ids: Vec<i64> = daily_stats.iter().map(|s| s.id).collect();
+        let stat_dates: std::collections::HashMap<i64, String> = daily_stats
+            .iter()
+            .map(|s| (s.id, s.date.clone()))
+            .collect();
+
+        // Get all breakdowns for these stats
+        let mut all_breakdowns: Vec<ModelBreakdownWithDate> = vec![];
+
+        for stat_id in stat_ids {
+            let breakdowns = self.get_usage_model_breakdowns(stat_id).await?;
+            let date = stat_dates.get(&stat_id).cloned().unwrap_or_default();
+            for bd in breakdowns {
+                all_breakdowns.push(ModelBreakdownWithDate {
+                    date: date.clone(),
+                    model_name: bd.model_name,
+                    input_tokens: bd.input_tokens,
+                    output_tokens: bd.output_tokens,
+                    cache_creation_tokens: bd.cache_creation_tokens,
+                    cache_read_tokens: bd.cache_read_tokens,
+                    extra_total_tokens: bd.extra_total_tokens,
+                    cost: bd.cost,
+                });
+            }
+        }
+
+        Ok(all_breakdowns)
     }
 
     /// Delete existing stats for a specific date and type (for re-computation)

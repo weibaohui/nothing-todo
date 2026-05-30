@@ -566,6 +566,7 @@ export interface UsageStat {
 }
 
 export interface ModelBreakdown {
+  date: string;
   model_name: string;
   input_tokens: number;
   output_tokens: number;
@@ -579,4 +580,5 @@ export interface UsageStatsResponse {
   daily: UsageStat[];
   weekly: UsageStat[];
   monthly: UsageStat[];
+  breakdowns: ModelBreakdown[];
 }

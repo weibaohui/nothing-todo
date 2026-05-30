@@ -57,6 +57,9 @@ export function UsageStatsCard({ since, until }: UsageStatsCardProps) {
     { input: 0, output: 0, cost: 0 }
   );
 
+  // Get breakdowns for the selected period
+  const currentBreakdowns = stats?.breakdowns ?? [];
+
   // Format number: if >= 10000 show as 万, otherwise show raw number
   const formatToken = (v: number) => {
     if (v >= 10000) {
@@ -117,6 +120,56 @@ export function UsageStatsCard({ since, until }: UsageStatsCardProps) {
     },
   ];
 
+  const breakdownColumns = [
+    {
+      title: '日期',
+      dataIndex: 'date',
+      key: 'date',
+      width: 120,
+    },
+    {
+      title: 'Model',
+      dataIndex: 'model_name',
+      key: 'model_name',
+      width: 150,
+    },
+    {
+      title: 'Input Tokens',
+      dataIndex: 'input_tokens',
+      key: 'input_tokens',
+      width: 140,
+      render: (v: number) => formatToken(v),
+    },
+    {
+      title: 'Output Tokens',
+      dataIndex: 'output_tokens',
+      key: 'output_tokens',
+      width: 140,
+      render: (v: number) => formatToken(v),
+    },
+    {
+      title: 'Cache Read',
+      dataIndex: 'cache_read_tokens',
+      key: 'cache_read_tokens',
+      width: 120,
+      render: (v: number) => formatToken(v),
+    },
+    {
+      title: 'Cache Create',
+      dataIndex: 'cache_creation_tokens',
+      key: 'cache_creation_tokens',
+      width: 120,
+      render: (v: number) => formatToken(v),
+    },
+    {
+      title: 'Cost',
+      dataIndex: 'cost',
+      key: 'cost',
+      width: 100,
+      render: (v: number) => `$${v.toFixed(4)}`,
+    },
+  ];
+
   return (
     <Card
       title="Token 用量统计"
@@ -171,9 +224,24 @@ export function UsageStatsCard({ since, until }: UsageStatsCardProps) {
               pagination={false}
               size="small"
               scroll={{ x: 'max-content' }}
+              style={{ marginBottom: 24 }}
             />
           ) : (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`暂无${activeTab === 'daily' ? '日' : activeTab === 'weekly' ? '周' : '月'}度统计数据`} />
+          )}
+
+          {currentBreakdowns.length > 0 && (
+            <>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>模型维度统计</div>
+              <Table
+                columns={breakdownColumns}
+                dataSource={currentBreakdowns}
+                rowKey={(record) => `${record.date}-${record.model_name}`}
+                pagination={false}
+                size="small"
+                scroll={{ x: 'max-content' }}
+              />
+            </>
           )}
         </>
       ) : (

@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use super::{AppError, AppState};
 use crate::models::ApiResponse;
-use crate::services::usage_stats::{UsageReport, UsageStat, UsageStatsService};
+use crate::services::usage_stats::{ModelBreakdown, UsageReport, UsageStat, UsageStatsService};
 
 #[derive(Debug, Deserialize)]
 pub struct UsageStatsQuery {
@@ -17,6 +17,7 @@ pub struct UsageStatsResponse {
     pub daily: Vec<UsageStat>,
     pub weekly: Vec<UsageStat>,
     pub monthly: Vec<UsageStat>,
+    pub breakdowns: Vec<ModelBreakdown>,
 }
 
 impl From<UsageReport> for UsageStatsResponse {
@@ -25,6 +26,7 @@ impl From<UsageReport> for UsageStatsResponse {
             daily: report.daily,
             weekly: report.weekly,
             monthly: report.monthly,
+            breakdowns: vec![],
         }
     }
 }
@@ -50,10 +52,31 @@ pub async fn get_usage_stats(
         .await
         .map_err(|e| AppError::Internal(e))?;
 
+    // Get model breakdowns from database
+    let db_breakdowns = state.db
+        .get_usage_model_breakdowns_by_date_range("daily", query.since.as_deref(), query.until.as_deref())
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    let breakdowns: Vec<ModelBreakdown> = db_breakdowns
+        .into_iter()
+        .map(|bd| ModelBreakdown {
+            date: bd.date,
+            model_name: bd.model_name,
+            input_tokens: bd.input_tokens,
+            output_tokens: bd.output_tokens,
+            cache_creation_tokens: bd.cache_creation_tokens,
+            cache_read_tokens: bd.cache_read_tokens,
+            extra_total_tokens: bd.extra_total_tokens,
+            cost: bd.cost,
+        })
+        .collect();
+
     Ok(ApiResponse::ok(UsageStatsResponse {
         daily,
         weekly,
         monthly,
+        breakdowns,
     }))
 }
 

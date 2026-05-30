@@ -1578,10 +1578,10 @@ async fn archive_yesterday_stats(service: &UsageStatsService) -> Result<String, 
     }
 
     // Aggregate by day
-    let daily_stats = UsageStatsService::aggregate_by_day(&yesterday_entries);
+    let (daily_stats, breakdowns) = UsageStatsService::aggregate_by_day(&yesterday_entries);
 
     // Save to database
-    service.save_daily_stats(&daily_stats).await?;
+    service.save_daily_stats(&daily_stats, &breakdowns).await?;
 
     Ok(format!("Usage stats archival: saved {} stats for {}", daily_stats.len(), yesterday))
 }
