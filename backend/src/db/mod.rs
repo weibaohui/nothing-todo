@@ -918,38 +918,38 @@ impl Database {
         last_activity: Option<&str>,
         stats_type: &str,
     ) -> Result<i64, sea_orm::DbErr> {
+        use entity::usage_stats;
+        use sea_orm::ActiveValue::Set;
+        use sea_orm::EntityTrait;
+
         let models_used_json = serde_json::to_string(models_used).unwrap_or_else(|_| "[]".to_string());
-        let versions_json = versions.map(|v| serde_json::to_string(v).ok()).flatten().unwrap_or_else(|| "null".to_string());
+        let versions_json = versions.and_then(|v| serde_json::to_string(v).ok());
 
-        let sql = format!(
-            r#"INSERT INTO usage_daily_stats
-               (date, project_path, session_id, input_tokens, output_tokens, cache_creation_tokens,
-                cache_read_tokens, extra_total_tokens, total_cost, credits, message_count,
-                models_used, project, versions, last_activity, stats_type)
-               VALUES ('{}', {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, '{}', {}, {}, '{}', '{}')"#,
-            date,
-            Self::opt_string_to_sql(project_path),
-            Self::opt_string_to_sql(session_id),
-            input_tokens,
-            output_tokens,
-            cache_creation_tokens,
-            cache_read_tokens,
-            extra_total_tokens,
-            total_cost,
-            Self::opt_f64_to_sql(credits),
-            Self::opt_i64_to_sql(message_count),
-            models_used_json,
-            Self::opt_string_to_sql(project),
-            versions_json,
-            Self::opt_string_to_sql(last_activity),
-            stats_type
-        );
+        let active_model = usage_stats::ActiveModel {
+            date: Set(date.to_string()),
+            project_path: Set(project_path.map(|s| s.to_string())),
+            session_id: Set(session_id.map(|s| s.to_string())),
+            input_tokens: Set(input_tokens),
+            output_tokens: Set(output_tokens),
+            cache_creation_tokens: Set(cache_creation_tokens),
+            cache_read_tokens: Set(cache_read_tokens),
+            extra_total_tokens: Set(extra_total_tokens),
+            total_cost: Set(total_cost),
+            credits: Set(credits),
+            message_count: Set(message_count),
+            models_used: Set(models_used_json),
+            project: Set(project.map(|s| s.to_string())),
+            versions: Set(versions_json),
+            last_activity: Set(last_activity.map(|s| s.to_string())),
+            stats_type: Set(stats_type.to_string()),
+            ..Default::default()
+        };
 
-        let result = self.conn
-            .execute(Statement::from_string(DbBackend::Sqlite, sql))
+        let result = usage_stats::Entity::insert(active_model)
+            .exec(&self.conn)
             .await?;
 
-        Ok(result.last_insert_id() as i64)
+        Ok(result.last_insert_id)
     }
 
     /// Create a model breakdown record
@@ -964,26 +964,27 @@ impl Database {
         extra_total_tokens: i64,
         cost: f64,
     ) -> Result<i64, sea_orm::DbErr> {
-        let sql = format!(
-            r#"INSERT INTO usage_model_breakdowns
-               (daily_stat_id, model_name, input_tokens, output_tokens, cache_creation_tokens,
-                cache_read_tokens, extra_total_tokens, cost)
-               VALUES ({}, '{}', {}, {}, {}, {}, {}, {})"#,
-            daily_stat_id,
-            model_name,
-            input_tokens,
-            output_tokens,
-            cache_creation_tokens,
-            cache_read_tokens,
-            extra_total_tokens,
-            cost
-        );
+        use entity::usage_model_breakdown;
+        use sea_orm::ActiveValue::Set;
+        use sea_orm::EntityTrait;
 
-        let result = self.conn
-            .execute(Statement::from_string(DbBackend::Sqlite, sql))
+        let active_model = usage_model_breakdown::ActiveModel {
+            daily_stat_id: Set(daily_stat_id),
+            model_name: Set(model_name.to_string()),
+            input_tokens: Set(input_tokens),
+            output_tokens: Set(output_tokens),
+            cache_creation_tokens: Set(cache_creation_tokens),
+            cache_read_tokens: Set(cache_read_tokens),
+            extra_total_tokens: Set(extra_total_tokens),
+            cost: Set(cost),
+            ..Default::default()
+        };
+
+        let result = usage_model_breakdown::Entity::insert(active_model)
+            .exec(&self.conn)
             .await?;
 
-        Ok(result.last_insert_id() as i64)
+        Ok(result.last_insert_id)
     }
 
     /// Get usage stats by type and date range
@@ -1038,8 +1039,6 @@ impl Database {
         since: Option<&str>,
         until: Option<&str>,
     ) -> Result<Vec<ModelBreakdownWithDate>, sea_orm::DbErr> {
-        use sea_orm::EntityTrait;
-
         // First get daily stats in date range
         let daily_stats = self.get_usage_stats(stats_type, since, until).await?;
 
@@ -1141,12 +1140,11 @@ impl Database {
         model: Option<&str>,
         execution_count: i64,
     ) -> Result<i64, sea_orm::DbErr> {
-        let sql = format!(
-            r#"INSERT INTO usage_executor_daily_stats
+        let sql = r#"INSERT INTO usage_executor_daily_stats
                (date, executor, input_tokens, output_tokens, cache_creation_tokens,
                 cache_read_tokens, extra_total_tokens, total_cost, credits, message_count,
                 model, execution_count)
-               VALUES ('{}', '{}', {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(date, executor) DO UPDATE SET
                 input_tokens = input_tokens + excluded.input_tokens,
                 output_tokens = output_tokens + excluded.output_tokens,
@@ -1157,24 +1155,28 @@ impl Database {
                 credits = COALESCE(credits, 0) + COALESCE(excluded.credits, 0),
                 message_count = COALESCE(message_count, 0) + COALESCE(excluded.message_count, 0),
                 model = excluded.model,
-                execution_count = execution_count + excluded.execution_count"#,
-            date,
-            executor,
-            input_tokens,
-            output_tokens,
-            cache_creation_tokens,
-            cache_read_tokens,
-            extra_total_tokens,
-            total_cost,
-            Self::opt_f64_to_sql(credits),
-            Self::opt_i64_to_sql(message_count),
-            Self::opt_string_to_sql(model.as_deref()),
-            execution_count,
+                execution_count = execution_count + excluded.execution_count"#;
+
+        let stmt = Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            sql,
+            vec![
+                date.into(),
+                executor.into(),
+                input_tokens.into(),
+                output_tokens.into(),
+                cache_creation_tokens.into(),
+                cache_read_tokens.into(),
+                extra_total_tokens.into(),
+                total_cost.into(),
+                credits.into(),
+                message_count.into(),
+                model.into(),
+                execution_count.into(),
+            ],
         );
 
-        let result = self.conn
-            .execute(Statement::from_string(DbBackend::Sqlite, sql))
-            .await?;
+        let result = self.conn.execute(stmt).await?;
         Ok(result.last_insert_id() as i64)
     }
 
@@ -1215,30 +1217,6 @@ impl Database {
             .await?;
 
         Ok(())
-    }
-
-    /// Helper to convert optional string to SQL NULL or quoted string
-    fn opt_string_to_sql(s: Option<&str>) -> String {
-        match s {
-            Some(s) => format!("'{}'", s.replace("'", "''")),
-            None => "NULL".to_string(),
-        }
-    }
-
-    /// Helper to convert optional f64 to SQL NULL or value
-    fn opt_f64_to_sql(v: Option<f64>) -> String {
-        match v {
-            Some(v) => v.to_string(),
-            None => "NULL".to_string(),
-        }
-    }
-
-    /// Helper to convert optional i64 to SQL NULL or value
-    fn opt_i64_to_sql(v: Option<i64>) -> String {
-        match v {
-            Some(v) => v.to_string(),
-            None => "NULL".to_string(),
-        }
     }
 }
 

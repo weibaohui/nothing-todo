@@ -252,7 +252,18 @@ export function ExecutorsPanel({ executors, setExecutors, executorsLoading }: {
           extra={
             <Switch
               checked={usageStatsEnabled}
-              onChange={(checked) => setUsageStatsEnabled(checked)}
+              onChange={async (checked) => {
+                setUsageStatsEnabled(checked);
+                try {
+                  setUsageStatsSaving(true);
+                  await db.updateUsageStatsSettings(checked, usageStatsCron);
+                  message.success('AI 使用统计配置已更新');
+                } catch (err: any) {
+                  message.error('保存失败: ' + (err?.message || String(err)));
+                } finally {
+                  setUsageStatsSaving(false);
+                }
+              }}
               loading={usageStatsLoading}
             />
           }
