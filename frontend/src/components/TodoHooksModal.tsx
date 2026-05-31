@@ -81,9 +81,9 @@ export function TodoHooksModal({ open, todoId, onClose }: TodoHooksModalProps) {
   if (!config) return null;
 
   const hookTableColumns: ColumnsType<HookRule> = [
-    { title: 'Name', dataIndex: 'name', key: 'name' },
+    { title: '名称', dataIndex: 'name', key: 'name' },
     {
-      title: 'Trigger',
+      title: '触发器',
       dataIndex: 'trigger',
       key: 'trigger',
       render: (t: string) => {
@@ -92,7 +92,7 @@ export function TodoHooksModal({ open, todoId, onClose }: TodoHooksModalProps) {
       },
     },
     {
-      title: 'Selected',
+      title: '已选择',
       key: 'selected',
       render: (_, record) => (
         <Switch
@@ -123,7 +123,7 @@ export function TodoHooksModal({ open, todoId, onClose }: TodoHooksModalProps) {
       <Form layout="vertical">
         <Row gutter={16}>
           <Col span={12}>
-            <Form.Item label="Hook Mode (模式)">
+            <Form.Item label="Hook 模式">
               <Select
                 value={config.hook_mode}
                 onChange={(v) => setConfig({ ...config, hook_mode: v })}
@@ -135,7 +135,7 @@ export function TodoHooksModal({ open, todoId, onClose }: TodoHooksModalProps) {
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item label="Override Enabled (覆盖启用)">
+            <Form.Item label="覆盖启用">
               <Switch
                 checked={config.override_enabled}
                 onChange={(v) => setConfig({ ...config, override_enabled: v })}
