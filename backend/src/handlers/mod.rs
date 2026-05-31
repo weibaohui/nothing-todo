@@ -490,7 +490,7 @@ pub fn create_app(
         .route("/xyz/hooks/config", get(hook::get_global_config).put(hook::update_global_config))
         .route("/xyz/hooks/defaults", put(hook::set_global_default_hooks))
         .route("/xyz/todos/{id}/hooks", get(hook::get_todo_hooks).put(hook::update_todo_hooks))
-        .route("/xyz/hook-logs", get(hook::get_hook_logs).delete(hook::clear_hook_logs))
+        .route("/xyz/hooks/logs", get(hook::get_hook_logs).delete(hook::clear_hook_logs))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
         .layer(CompressionLayer::new())
         .layer(
