@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -165,7 +165,7 @@ pub async fn update_todo_hooks(
 /// Get hook logs
 pub async fn get_hook_logs(
     State(state): State<AppState>,
-    ApiJson(query): ApiJson<HookLogQuery>,
+    Query(query): Query<HookLogQuery>,
 ) -> Result<impl IntoResponse, AppError> {
     let (logs, total) = HookDb::get_hook_logs(&state.db.conn, query.clone()).await?;
 

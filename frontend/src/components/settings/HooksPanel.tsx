@@ -32,7 +32,7 @@ function HookFilterEditor({ value, onChange }: { value?: HookFilter; onChange?: 
               <Select.Option value="pending">Pending</Select.Option>
               <Select.Option value="in_progress">In Progress</Select.Option>
               <Select.Option value="completed">Completed</Select.Option>
-              <Select.Option value="failed">Failed</Select.Option>
+              <Select.Option value="failed">失败</Select.Option>
             </Select>
           </Form.Item>
         </Col>
@@ -203,7 +203,7 @@ function HookListTab() {
       const data = await db.getHooks();
       setHooks(data);
     } catch (e: any) {
-      message.error('Failed to load hooks: ' + e.message);
+      message.error('加载 hooks 失败: ' + e.message);
     } finally {
       setLoading(false);
     }
@@ -244,31 +244,31 @@ function HookListTab() {
   };
 
   const columns: ColumnsType<HookRule> = [
-    { title: 'Name', dataIndex: 'name', key: 'name' },
+    { title: '名称', dataIndex: 'name', key: 'name' },
     {
-      title: 'Trigger', dataIndex: 'trigger', key: 'trigger',
+      title: '触发器', dataIndex: 'trigger', key: 'trigger',
       render: (t: string) => HOOK_TRIGGERS.find(x => x.value === t)?.label || t,
     },
     {
-      title: 'Enabled', dataIndex: 'enabled', key: 'enabled',
+      title: '启用', dataIndex: 'enabled', key: 'enabled',
       render: (v: boolean) => v ? <CheckCircleOutlined style={{ color: 'green' }} /> : <CloseCircleOutlined style={{ color: 'red' }} />,
     },
     {
-      title: 'Async', dataIndex: 'is_async', key: 'is_async',
-      render: (v: boolean) => v ? <Tag>Async</Tag> : <Tag color="orange">Sync</Tag>,
+      title: '异步', dataIndex: 'is_async', key: 'is_async',
+      render: (v: boolean) => v ? <Tag>异步</Tag> : <Tag color="orange">同步</Tag>,
     },
     {
-      title: 'Command', dataIndex: ['action', 'command'], key: 'command',
+      title: '命令', dataIndex: ['action', 'command'], key: 'command',
       ellipsis: true,
     },
     {
-      title: 'Action', key: 'action', width: 200,
+      title: '操作', key: 'action', width: 200,
       render: (_, record) => (
         <Space>
           <Button size="small" icon={<PlayCircleOutlined />} loading={testingId === record.id}
-            onClick={() => handleTest(record)}>Test</Button>
+            onClick={() => handleTest(record)}>测试</Button>
           <Button size="small" icon={<EditOutlined />} onClick={() => { setEditingHook(record); setModalOpen(true); }} />
-          <Popconfirm title="Delete?" onConfirm={() => handleDelete(record.id)}>
+          <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record.id)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
@@ -280,13 +280,13 @@ function HookListTab() {
     <div>
       <div style={{ marginBottom: 16 }}>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditingHook(undefined); setModalOpen(true); }}>
-          Create Hook
+          创建 Hook
         </Button>
-        <Button icon={<ReloadOutlined />} onClick={loadHooks} style={{ marginLeft: 8 }}>Refresh</Button>
+        <Button icon={<ReloadOutlined />} onClick={loadHooks} style={{ marginLeft: 8 }}>刷新</Button>
       </div>
       <Table columns={columns} dataSource={hooks} rowKey="id" loading={loading} size="small" />
       {testingResult && (
-        <Card title="Test Result" size="small" style={{ marginTop: 16 }}>
+        <Card title="测试结果" size="small" style={{ marginTop: 16 }}>
           <pre style={{ maxHeight: 300, overflow: 'auto', fontSize: 12 }}>{testingResult}</pre>
         </Card>
       )}
@@ -311,7 +311,7 @@ function GlobalConfigTab() {
       const data = await db.getGlobalHookConfig();
       setConfig(data);
     } catch (e: any) {
-      message.error('Failed to load config: ' + e.message);
+      message.error('加载配置失败: ' + e.message);
     }
   };
 
@@ -320,9 +320,9 @@ function GlobalConfigTab() {
     setSaving(true);
     try {
       await db.updateGlobalHookConfig(config);
-      message.success('Config saved');
+      message.success('配置已保存');
     } catch (e: any) {
-      message.error('Failed to save: ' + e.message);
+      message.error('保存失败: ' + e.message);
     } finally {
       setSaving(false);
     }
@@ -334,12 +334,12 @@ function GlobalConfigTab() {
     <Card>
       <Row gutter={16}>
         <Col span={8}>
-          <Form.Item label="Enabled (启用)">
+          <Form.Item label="启用">
             <Switch checked={config.enabled} onChange={(v) => setConfig({ ...config, enabled: v })} />
           </Form.Item>
         </Col>
         <Col span={8}>
-          <Form.Item label="Default Timeout (默认超时秒数)">
+          <Form.Item label="默认超时秒数">
             <InputNumber
               value={config.default_timeout_secs}
               onChange={(v) => setConfig({ ...config, default_timeout_secs: v || 30 })}
@@ -348,7 +348,7 @@ function GlobalConfigTab() {
           </Form.Item>
         </Col>
         <Col span={8}>
-          <Form.Item label="Max Concurrency (最大并发数)">
+          <Form.Item label="最大并发数">
             <InputNumber
               value={config.max_concurrency}
               onChange={(v) => setConfig({ ...config, max_concurrency: v || 5 })}
@@ -357,7 +357,7 @@ function GlobalConfigTab() {
           </Form.Item>
         </Col>
       </Row>
-      <Button type="primary" onClick={handleSave} loading={saving}>Save Config</Button>
+      <Button type="primary" onClick={handleSave} loading={saving}>保存配置</Button>
     </Card>
   );
 }
@@ -376,7 +376,7 @@ function LogsTab() {
       setLogs(data.logs);
       setTotal(data.total);
     } catch (e: any) {
-      message.error('Failed to load logs: ' + e.message);
+      message.error('加载日志失败: ' + e.message);
     } finally {
       setLoading(false);
     }
@@ -390,47 +390,47 @@ function LogsTab() {
       message.success('Logs cleared');
       loadLogs();
     } catch (e: any) {
-      message.error('Failed to clear: ' + e.message);
+      message.error('清空失败: ' + e.message);
     }
   };
 
   const columns: ColumnsType<HookLogEntry> = [
     {
-      title: 'Time', dataIndex: 'created_at', key: 'created_at',
+      title: '时间', dataIndex: 'created_at', key: 'created_at',
       render: (t: string) => new Date(t).toLocaleString(),
       width: 160,
     },
-    { title: 'Hook Name', dataIndex: 'hook_name', key: 'hook_name' },
-    { title: 'Trigger', dataIndex: 'trigger', key: 'trigger' },
+    { title: 'Hook 名称', dataIndex: 'hook_name', key: 'hook_name' },
+    { title: '触发器', dataIndex: 'trigger', key: 'trigger' },
     { title: 'Todo ID', dataIndex: 'todo_id', key: 'todo_id' },
     {
-      title: 'Status', dataIndex: 'success', key: 'success',
-      render: (v: boolean | null) => v ? <Tag color="green">Success</Tag> : <Tag color="red">Failed</Tag>,
+      title: '状态', dataIndex: 'success', key: 'success',
+      render: (v: boolean | null) => v ? <Tag color="green">成功</Tag> : <Tag color="red">失败</Tag>,
     },
     {
-      title: 'Duration', dataIndex: 'duration_ms', key: 'duration_ms',
+      title: '耗时', dataIndex: 'duration_ms', key: 'duration_ms',
       render: (v: number | null) => v ? `${v}ms` : '-',
     },
     {
-      title: 'Exit Code', dataIndex: 'exit_code', key: 'exit_code',
+      title: '退出码', dataIndex: 'exit_code', key: 'exit_code',
       render: (v: number | null) => v ?? '-',
     },
-    { title: 'Error', dataIndex: 'error_msg', key: 'error_msg', ellipsis: true },
+    { title: '错误', dataIndex: 'error_msg', key: 'error_msg', ellipsis: true },
   ];
 
   return (
     <div>
       <div style={{ marginBottom: 16 }}>
-        <Select placeholder="Filter by status" allowClear style={{ width: 150, marginRight: 8 }}
+        <Select placeholder="按状态筛选" allowClear style={{ width: 150, marginRight: 8 }}
           onChange={(v) => { setStatus(v); setPage(1); }}>
-          <Select.Option value="success">Success</Select.Option>
-          <Select.Option value="failed">Failed</Select.Option>
+          <Select.Option value="success">成功</Select.Option>
+          <Select.Option value="failed">失败</Select.Option>
         </Select>
-        <Button icon={<ReloadOutlined />} onClick={loadLogs}>Refresh</Button>
-        <Popconfirm title="Clear all logs?" onConfirm={handleClear}>
-          <Button danger icon={<ClearOutlined />} style={{ marginLeft: 8 }}>Clear All</Button>
+        <Button icon={<ReloadOutlined />} onClick={loadLogs}>刷新</Button>
+        <Popconfirm title="确认清空所有日志？" onConfirm={handleClear}>
+          <Button danger icon={<ClearOutlined />} style={{ marginLeft: 8 }}>清空全部</Button>
         </Popconfirm>
-        <Text type="secondary" style={{ marginLeft: 16 }}>Total: {total}</Text>
+        <Text type="secondary" style={{ marginLeft: 16 }}>总计：{total}</Text>
       </div>
       <Table columns={columns} dataSource={logs} rowKey="id" loading={loading} size="small"
         pagination={{ current: page, pageSize: 20, total, onChange: setPage }} />
@@ -440,9 +440,9 @@ function LogsTab() {
 
 export function HooksPanel() {
   const tabItems = [
-    { key: 'hooks', label: 'Hook Rules', children: <HookListTab /> },
-    { key: 'config', label: 'Global Config', children: <GlobalConfigTab /> },
-    { key: 'logs', label: 'Execution Logs', children: <LogsTab /> },
+    { key: 'hooks', label: 'Hook 规则', children: <HookListTab /> },
+    { key: 'config', label: '全局配置', children: <GlobalConfigTab /> },
+    { key: 'logs', label: '执行日志', children: <LogsTab /> },
   ];
 
   return <Tabs items={tabItems} />;
