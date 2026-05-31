@@ -14,6 +14,7 @@ import {
   FileTextOutlined,
   LeftOutlined,
   ApiOutlined,
+  HolderOutlined,
 } from '@ant-design/icons';
 import { useApp } from '../hooks/useApp';
 import * as db from '../utils/database';
@@ -30,6 +31,7 @@ import { RuntimePanel } from './settings/RuntimePanel';
 import { MessagesPanel } from './settings/MessagesPanel';
 import { TemplatesPanel } from './settings/TemplatesPanel';
 import { AboutPanel } from './settings/AboutPanel';
+import { HooksPanel } from './settings/HooksPanel';
 
 interface SettingsPageProps {
   onBack?: () => void;
@@ -215,6 +217,11 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       key: 'templates',
       label: <span><FileTextOutlined style={{ marginRight: 6 }} />模板管理</span>,
       children: <TemplatesPanel />,
+    },
+    {
+      key: 'hooks',
+      label: <span><HolderOutlined style={{ marginRight: 6 }} />Hooks</span>,
+      children: <HooksPanel />,
     },
     {
       key: 'webhooks',
