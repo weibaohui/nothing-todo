@@ -1,27 +1,25 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::process::Command;
 use tokio::sync::{Semaphore, OwnedSemaphorePermit};
 use tracing::{error, info, warn};
 
 use crate::db::Database;
+use crate::executor_service::RunTodoExecutionRequest;
+use crate::handlers::execution::start_todo_execution;
 use crate::hooks::db::HookDb;
 use crate::hooks::models::*;
-use crate::hooks::template::TemplateRenderer;
+use crate::service_context::ServiceContext;
 
 pub struct HookService {
-    db: Arc<Database>,
+    ctx: ServiceContext,
     semaphore: Arc<Semaphore>,
-    default_timeout_secs: u64,
 }
 
 impl HookService {
-    pub fn new(db: Arc<Database>, max_concurrency: u64, default_timeout_secs: u64) -> Self {
+    pub fn new(ctx: ServiceContext, max_concurrency: u64, _default_timeout_secs: u64) -> Self {
         Self {
-            db,
+            ctx,
             semaphore: Arc::new(Semaphore::new(max_concurrency as usize)),
-            default_timeout_secs,
         }
     }
 
@@ -58,10 +56,9 @@ impl HookService {
                 );
             } else {
                 let msg = format!(
-                    "Hook '{}' failed: exit_code={}, stderr={}",
+                    "Hook '{}' failed: {}",
                     rule.name,
-                    result.exit_code.unwrap_or(-1),
-                    result.stderr
+                    result.error_msg.unwrap_or_else(|| "unknown error".to_string())
                 );
                 error!(hook_id = rule.id, "{}", msg);
                 return Err(msg);
@@ -72,50 +69,65 @@ impl HookService {
     }
 
     /// Fire after_* hooks asynchronously - does not block
-    pub fn fire_after_hooks(self: Arc<Self>, ctx: HookContext, _tag_ids: Vec<i64>) {
-        let db = self.db.clone();
-        let semaphore = self.semaphore.clone();
-        let default_timeout = self.default_timeout_secs;
+    pub fn fire_after_hooks(self: Arc<Self>, ctx: HookContext, tag_ids: Vec<i64>) {
+        let this = self.clone();
 
         tokio::spawn(async move {
             let trigger = ctx.trigger;
             if !trigger.is_sync() {
-                // This is an after_* hook
-                if let Ok(rules) = HookDb::get_hooks_by_trigger(&db.conn, trigger).await {
-                    for rule in rules {
-                        if !matches!(&rule.trigger, t if t.is_sync()) {
-                            // This is an after hook, execute asynchronously
-                            let permit = semaphore.clone().acquire_owned().await.ok();
+                // Use get_matching_rules to respect per-todo hook config (inherit/custom/disabled)
+                let rules = match this.get_matching_rules(trigger, &ctx, &tag_ids).await {
+                    Ok(r) => r.into_iter().filter(|r| !r.trigger.is_sync()).collect::<Vec<_>>(),
+                    Err(_) => return,
+                };
 
-                            let ctx_clone = ctx.clone();
-                            let db_clone = db.clone();
-
-                            tokio::spawn(async move {
-                                let result = execute_hook_internal(&rule, &ctx_clone, default_timeout).await;
-
-                                // Log result
-                                let args_json = serde_json::to_string(&ctx_clone).ok();
-                                let _ = HookDb::insert_hook_log(
-                                    &db_clone.conn,
-                                    rule.id,
-                                    Some(rule.name.clone()),
-                                    ctx_clone.trigger.as_str(),
-                                    ctx_clone.todo_id,
-                                    args_json.as_deref(),
-                                    None,
-                                    result.exit_code,
-                                    Some(&result.stdout),
-                                    Some(&result.stderr),
-                                    result.duration_ms,
-                                    result.success,
-                                    result.error_msg.as_deref(),
-                                )
-                                .await;
-
-                                drop(permit);
-                            });
-                        }
+                for rule in rules {
+                    if !this.matches_filter(&rule.filter, &ctx, &tag_ids) {
+                        continue;
                     }
+
+                    let permit = this.acquire_permit().await;
+                    let ctx_clone = ctx.clone();
+                    let db_clone = this.ctx.db.clone();
+                    let executor_registry = this.ctx.executor_registry.clone();
+                    let tx = this.ctx.tx.clone();
+                    let task_manager = this.ctx.task_manager.clone();
+                    let config = this.ctx.config.clone();
+
+                    tokio::spawn(async move {
+                        let start = Instant::now();
+                        let result = execute_target_todo(
+                            &db_clone,
+                            &executor_registry,
+                            tx,
+                            &task_manager,
+                            &config,
+                            &rule,
+                            &ctx_clone,
+                        )
+                        .await;
+                        let duration_ms = start.elapsed().as_millis() as i64;
+
+                        let args_json = serde_json::to_string(&ctx_clone).ok();
+                        let _ = HookDb::insert_hook_log(
+                            &db_clone.conn,
+                            rule.id,
+                            Some(rule.name.clone()),
+                            ctx_clone.trigger.as_str(),
+                            ctx_clone.todo_id,
+                            args_json.as_deref(),
+                            None,
+                            result.exit_code,
+                            Some(&result.stdout),
+                            Some(&result.stderr),
+                            duration_ms,
+                            result.success,
+                            result.error_msg.as_deref(),
+                        )
+                        .await;
+
+                        drop(permit);
+                    });
                 }
             }
         });
@@ -128,7 +140,7 @@ impl HookService {
         _tag_ids: &[i64],
     ) -> Result<Vec<HookRule>, String> {
         // Get global config
-        let global_config = HookDb::get_global_config(&self.db.conn)
+        let global_config = HookDb::get_global_config(&self.ctx.db.conn)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -137,13 +149,13 @@ impl HookService {
         }
 
         // Get hooks by trigger
-        let mut rules = HookDb::get_hooks_by_trigger(&self.db.conn, trigger)
+        let mut rules = HookDb::get_hooks_by_trigger(&self.ctx.db.conn, trigger)
             .await
             .map_err(|e| e.to_string())?;
 
         // If this todo has custom hooks, use those instead
         if let Some(todo_id) = ctx.todo_id {
-            let todo_config = HookDb::get_todo_hook_config(&self.db.conn, todo_id)
+            let todo_config = HookDb::get_todo_hook_config(&self.ctx.db.conn, todo_id)
                 .await
                 .map_err(|e| e.to_string())?;
 
@@ -152,7 +164,7 @@ impl HookService {
                     HookMode::Disabled => return Ok(vec![]),
                     HookMode::Custom => {
                         // Get custom rule IDs for this todo
-                        let custom_rule_ids = HookDb::get_todo_hook_rule_ids(&self.db.conn, todo_id)
+                        let custom_rule_ids = HookDb::get_todo_hook_rule_ids(&self.ctx.db.conn, todo_id)
                             .await
                             .map_err(|e| e.to_string())?;
 
@@ -163,7 +175,7 @@ impl HookService {
                     }
                     HookMode::Inherit => {
                         // Use global defaults + trigger-specific hooks
-                        let default_ids = HookDb::get_global_default_hook_ids(&self.db.conn)
+                        let default_ids = HookDb::get_global_default_hook_ids(&self.ctx.db.conn)
                             .await
                             .map_err(|e| e.to_string())?;
 
@@ -175,7 +187,7 @@ impl HookService {
             }
         } else {
             // For new todos (no todo_id), use global defaults
-            let default_ids = HookDb::get_global_default_hook_ids(&self.db.conn)
+            let default_ids = HookDb::get_global_default_hook_ids(&self.ctx.db.conn)
                 .await
                 .map_err(|e| e.to_string())?;
 
@@ -201,83 +213,140 @@ impl HookService {
     }
 
     async fn execute_hook(&self, rule: &HookRule, ctx: &HookContext) -> HookResult {
-        execute_hook_internal(rule, ctx, rule.action.timeout_secs).await
+        execute_target_todo(
+            &self.ctx.db,
+            &self.ctx.executor_registry,
+            self.ctx.tx.clone(),
+            &self.ctx.task_manager,
+            &self.ctx.config,
+            rule,
+            ctx,
+        )
+        .await
     }
 }
 
-/// Execute a single hook (non-async version for reuse)
-async fn execute_hook_internal(rule: &HookRule, ctx: &HookContext, _timeout_secs: u64) -> HookResult {
-    let start = Instant::now();
-
-    // Render template
-    let args = TemplateRenderer::render_args(&rule.action.args, ctx);
-    let env = TemplateRenderer::render_env(&rule.action.env, ctx);
-
-    // Execute command
-    match Command::new(&rule.action.command)
-        .args(&args)
-        .envs(&env)
-        .output()
-        .await
-    {
-        Ok(output) => {
-            let duration = start.elapsed().as_millis() as i64;
-            let exit_code = output.status.code().unwrap_or(-1);
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-            HookResult::success(
-                exit_code,
-                stdout,
-                stderr,
-                duration,
-            )
+/// Trigger the target todo associated with this hook rule.
+///
+/// Returns a `HookResult` whose `stdout` field carries a JSON summary on success
+/// and whose `error_msg` carries the reason on failure.
+async fn execute_target_todo(
+    db: &Arc<Database>,
+    executor_registry: &Arc<crate::adapters::ExecutorRegistry>,
+    tx: tokio::sync::broadcast::Sender<crate::handlers::ExecEvent>,
+    task_manager: &Arc<crate::task_manager::TaskManager>,
+    config: &Arc<tokio::sync::RwLock<crate::config::Config>>,
+    rule: &HookRule,
+    ctx: &HookContext,
+) -> HookResult {
+    // 1. Look up the target todo
+    let target_todo = match db.get_todo(rule.action.target_todo_id).await {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            let msg = format!(
+                "Hook '{}' target todo #{} not found",
+                rule.name, rule.action.target_todo_id
+            );
+            if rule.action.skip_if_missing {
+                warn!("{}", msg);
+                return HookResult::success(
+                    0,
+                    format!("{{\"skipped\": true, \"reason\": \"target todo not found\"}}"),
+                    String::new(),
+                    0,
+                );
+            }
+            return HookResult::error(msg, 0);
         }
         Err(e) => {
-            let duration = start.elapsed().as_millis() as i64;
-            warn!(
-                error = %e,
-                command = %rule.action.command,
-                "failed to execute hook command"
+            return HookResult::error(
+                format!("Failed to look up target todo: {}", e),
+                0,
             );
-            HookResult::error(e.to_string(), duration)
         }
-    }
-}
+    };
 
-/// Execute a hook command with timeout
-pub async fn execute_with_timeout(
-    command: &str,
-    args: &[String],
-    env: &HashMap<String, String>,
-    timeout_secs: u64,
-) -> HookResult {
-    let start = Instant::now();
+    // 2. Determine the message to send to the target todo
+    let raw_message = rule
+        .action
+        .prompt_template
+        .clone()
+        .unwrap_or_else(|| target_todo.prompt.clone());
 
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_secs),
-        Command::new(command)
-            .args(args)
-            .envs(env)
-            .output(),
-    )
-    .await
-    {
-        Ok(Ok(output)) => {
-            let duration = start.elapsed().as_millis() as i64;
-            let exit_code = output.status.code().unwrap_or(-1);
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    // 3. Build params from hook context
+    let mut params = ctx.to_params();
+    // Also include the source todo's full context for easy templating
+    params.insert("source_todo_id".to_string(), ctx.todo_id.map(|id| id.to_string()).unwrap_or_default());
+    params.insert("source_todo_title".to_string(), ctx.todo_title.clone());
 
-            HookResult::success(exit_code, stdout, stderr, duration)
-        }
-        Ok(Err(e)) => {
-            let duration = start.elapsed().as_millis() as i64;
-            HookResult::error(format!("execution error: {}", e), duration)
-        }
+    // 4. Trigger the target todo
+    //
+    // NOTE: We dispatch the call to `start_todo_execution` on a dedicated
+    // thread with its own runtime to break an async type-cycle. The path is:
+    // run_todo_execution -> fire_before_hooks -> ... -> start_todo_execution
+    // -> run_todo_execution. Without runtime-level indirection, Rust
+    // computes an infinitely-sized future. Running the call in a fresh
+    // runtime preserves the "block the hook caller until the record is
+    // created" semantic — we still `await` the oneshot reply, so a sync hook
+    // caller still gets the result before returning.
+    let trigger_type = format!("hook:{}", ctx.trigger.as_str());
+    let request = RunTodoExecutionRequest {
+        db: db.clone(),
+        executor_registry: executor_registry.clone(),
+        tx: tx.clone(),
+        task_manager: task_manager.clone(),
+        config: config.clone(),
+        hook_service: None,
+        todo_id: target_todo.id,
+        message: raw_message,
+        req_executor: target_todo.executor.clone().or(ctx.executor.clone()),
+        trigger_type,
+        params: Some(params),
+        resume_session_id: None,
+        resume_message: None,
+    };
+
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to build runtime for hook trigger");
+        let result = rt.block_on(start_todo_execution(request));
+        let _ = reply_tx.send(result);
+    });
+
+    let result = match reply_rx.await {
+        Ok(r) => r,
         Err(_) => {
-            let duration = start.elapsed().as_millis() as i64;
-            HookResult::error("execution timed out".to_string(), duration)
+            return HookResult::error(
+                format!("Hook trigger thread for todo #{} dropped reply channel", target_todo.id),
+                0,
+            );
         }
+    };
+
+    match result {
+        Ok(exec_result) => {
+            let summary = serde_json::json!({
+                "target_todo_id": target_todo.id,
+                "target_todo_title": target_todo.title,
+                "task_id": exec_result.task_id,
+                "record_id": exec_result.record_id,
+            });
+            HookResult::success(
+                0,
+                summary.to_string(),
+                String::new(),
+                0,
+            )
+        }
+        Err(e) => HookResult::error(
+            format!(
+                "Failed to trigger target todo #{} '{}': {:?}",
+                target_todo.id, target_todo.title, e
+            ),
+            0,
+        ),
     }
 }

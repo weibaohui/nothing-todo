@@ -368,9 +368,17 @@ pub fn create_app(
         fetcher.start(bots_for_fetcher);
     });
 
-    // Create HookService
+    // Create HookService with a ServiceContext so it can trigger target todos.
+    // Reuse the live ServiceContext values rather than re-cloning its fields.
+    let hook_ctx = ServiceContext {
+        db: db.clone(),
+        executor_registry: executor_registry.clone(),
+        tx: tx.clone(),
+        task_manager: task_manager.clone(),
+        config: config.clone(),
+    };
     let hook_service = Arc::new(HookService::new(
-        db.clone(),
+        hook_ctx,
         5,  // max_concurrency
         30, // default_timeout_secs
     ));

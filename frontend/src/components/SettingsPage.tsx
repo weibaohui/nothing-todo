@@ -221,7 +221,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     {
       key: 'hooks',
       label: <span><HolderOutlined style={{ marginRight: 6 }} />Hooks</span>,
-      children: <HooksPanel />,
+      children: <HooksPanel onBack={onBack} />,
     },
     {
       key: 'webhooks',

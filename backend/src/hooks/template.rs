@@ -61,7 +61,7 @@ mod tests {
             workspace: Some("/home/user/project".to_string()),
             task_id: Some("task_abc".to_string()),
             trigger_time: "2026-05-31T10:00:00.000Z".to_string(),
-            trigger: HookTrigger::AfterStatusChange,
+            trigger: HookTrigger::StateChangedToCompleted,
         }
     }
 

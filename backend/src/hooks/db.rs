@@ -414,7 +414,7 @@ impl HookDb {
         let models = hook_logs::Entity::find()
             .filter(base_filter)
             .order_by_desc(hook_logs::Column::Id)
-            .offset((query.page * query.limit) as u64)
+            .offset(((query.page - 1) * query.limit) as u64)
             .limit(query.limit as u64)
             .all(conn)
             .await?;
@@ -450,7 +450,18 @@ impl HookDb {
 
     // Helper: convert entity model to HookRule
     fn model_to_rule(m: hooks::Model) -> Result<HookRule, DbErr> {
+        // Map legacy trigger strings to the new state-specific triggers.
+        // Old `after_status_change` / `before_status_change` / `before_execute`
+        // no longer exist; default them to `state_changed_to_completed` so
+        // historical rules stay visible in the UI (and can be edited/deleted)
+        // rather than vanishing with a parse error.
         let trigger = HookTrigger::from_str(&m.trigger)
+            .or_else(|| match m.trigger.as_str() {
+                "before_status_change" | "after_status_change" | "before_execute" => {
+                    Some(HookTrigger::StateChangedToCompleted)
+                }
+                _ => None,
+            })
             .ok_or_else(|| DbErr::Custom(format!("Invalid trigger: {}", m.trigger)))?;
 
         let filter: HookFilter = m
@@ -459,8 +470,18 @@ impl HookDb {
             .and_then(|f| serde_json::from_str(f).ok())
             .unwrap_or_default();
 
-        let action: HookAction = serde_json::from_str(&m.action)
-            .map_err(|e| DbErr::Custom(format!("Invalid action JSON: {}", e)))?;
+        // Action is now a small struct (target_todo_id + optional prompt_template + skip_if_missing).
+        // For legacy rows that stored the old `command`/`args`/`env` shape, fall back to
+        // a sentinel target_todo_id of -1 so callers can surface a clear validation error
+        // rather than silently dropping the rule.
+        let action: HookAction = match serde_json::from_str::<HookAction>(&m.action) {
+            Ok(a) => a,
+            Err(_) => HookAction {
+                target_todo_id: -1,
+                prompt_template: None,
+                skip_if_missing: true,
+            },
+        };
 
         Ok(HookRule {
             id: Some(m.id),

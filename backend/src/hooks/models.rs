@@ -2,16 +2,22 @@ use serde::{Deserialize, Serialize};
 use crate::models::TodoStatus;
 
 /// Hook trigger types
+///
+/// Triggers are tied to todo lifecycle events. State-change triggers are
+/// per-target-state: each fires when a todo transitions INTO that status.
+/// There is intentionally no "before status change" trigger — hooks observe
+/// state changes, they don't gate them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HookTrigger {
     BeforeCreate,
     AfterCreate,
-    BeforeStatusChange,
-    AfterStatusChange,
+    StateChangedToPending,
+    StateChangedToInProgress,
+    StateChangedToCompleted,
+    StateChangedToFailed,
     BeforeDelete,
     AfterDelete,
-    BeforeExecute,
 }
 
 impl HookTrigger {
@@ -19,11 +25,12 @@ impl HookTrigger {
         match self {
             Self::BeforeCreate => "before_create",
             Self::AfterCreate => "after_create",
-            Self::BeforeStatusChange => "before_status_change",
-            Self::AfterStatusChange => "after_status_change",
+            Self::StateChangedToPending => "state_changed_to_pending",
+            Self::StateChangedToInProgress => "state_changed_to_in_progress",
+            Self::StateChangedToCompleted => "state_changed_to_completed",
+            Self::StateChangedToFailed => "state_changed_to_failed",
             Self::BeforeDelete => "before_delete",
             Self::AfterDelete => "after_delete",
-            Self::BeforeExecute => "before_execute",
         }
     }
 
@@ -31,21 +38,33 @@ impl HookTrigger {
         match s {
             "before_create" => Some(Self::BeforeCreate),
             "after_create" => Some(Self::AfterCreate),
-            "before_status_change" => Some(Self::BeforeStatusChange),
-            "after_status_change" => Some(Self::AfterStatusChange),
+            "state_changed_to_pending" => Some(Self::StateChangedToPending),
+            "state_changed_to_in_progress" => Some(Self::StateChangedToInProgress),
+            "state_changed_to_completed" => Some(Self::StateChangedToCompleted),
+            "state_changed_to_failed" => Some(Self::StateChangedToFailed),
             "before_delete" => Some(Self::BeforeDelete),
             "after_delete" => Some(Self::AfterDelete),
-            "before_execute" => Some(Self::BeforeExecute),
             _ => None,
         }
     }
 
-    /// Whether this trigger runs synchronously and can block the operation
+    /// Whether this trigger runs synchronously and can block the operation.
+    /// Only `before_*` lifecycle gates are sync; state-change triggers observe.
     pub fn is_sync(&self) -> bool {
-        matches!(
-            self,
-            Self::BeforeCreate | Self::BeforeStatusChange | Self::BeforeDelete | Self::BeforeExecute
-        )
+        matches!(self, Self::BeforeCreate | Self::BeforeDelete)
+    }
+
+    /// Map a target `TodoStatus` to its corresponding state-change trigger.
+    /// Returns `None` for statuses without a dedicated trigger (e.g. `running`,
+    /// `cancelled`) so callers can decide whether to fire any hook at all.
+    pub fn for_target_status(status: TodoStatus) -> Option<Self> {
+        match status {
+            TodoStatus::Pending => Some(Self::StateChangedToPending),
+            TodoStatus::InProgress | TodoStatus::Running => Some(Self::StateChangedToInProgress),
+            TodoStatus::Completed => Some(Self::StateChangedToCompleted),
+            TodoStatus::Failed => Some(Self::StateChangedToFailed),
+            TodoStatus::Cancelled => None,
+        }
     }
 }
 
@@ -79,9 +98,9 @@ impl HookFilter {
             return false;
         }
 
-        // Check title filter
+        // Check title filter (treat None and empty string as "no filter")
         if let Some(ref title_filter) = self.title_contains {
-            if !title.to_lowercase().contains(&title_filter.to_lowercase()) {
+            if !title_filter.is_empty() && !title.to_lowercase().contains(&title_filter.to_lowercase()) {
                 return false;
             }
         }
@@ -93,9 +112,9 @@ impl HookFilter {
             }
         }
 
-        // Check executor filter
+        // Check executor filter (treat None and empty string as "no filter")
         if let Some(ref executor_filter) = self.executor {
-            if executor != Some(executor_filter.as_str()) {
+            if !executor_filter.is_empty() && executor != Some(executor_filter.as_str()) {
                 return false;
             }
         }
@@ -104,20 +123,26 @@ impl HookFilter {
     }
 }
 
-/// Hook action to execute
+/// Hook action: trigger a specific todo item, similar to the message default response.
+///
+/// When a hook fires, the service will:
+/// 1. Look up the target todo by `target_todo_id`
+/// 2. Use the target todo's stored prompt as the message (rendered with hook context params)
+/// 3. If `prompt_template` is provided, use it instead of the target todo's prompt
+/// 4. Call `start_todo_execution` to trigger the target todo
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HookAction {
-    pub command: String,
+    /// The id of the todo to trigger when this hook fires.
+    pub target_todo_id: i64,
+    /// Optional prompt override. If set, replaces the target todo's stored prompt.
+    /// Supports `{{todo_id}}`, `{{todo_title}}`, `{{old_status}}`, `{{new_status}}`,
+    /// `{{executor}}`, `{{workspace}}`, `{{task_id}}`, `{{trigger_time}}`, `{{trigger}}`.
     #[serde(default)]
-    pub args: Vec<String>,
+    pub prompt_template: Option<String>,
+    /// If true, missing target todo is logged as warning and the hook succeeds silently.
+    /// If false (default), missing target todo causes the hook to fail.
     #[serde(default)]
-    pub env: std::collections::HashMap<String, String>,
-    #[serde(default = "default_timeout")]
-    pub timeout_secs: u64,
-}
-
-fn default_timeout() -> u64 {
-    30
+    pub skip_if_missing: bool,
 }
 
 /// Complete hook rule definition
@@ -213,6 +238,25 @@ pub struct HookContext {
 }
 
 impl HookContext {
+    /// Convert the context to a `HashMap<String, String>` for placeholder substitution
+    /// in target todo prompts.
+    pub fn to_params(&self) -> std::collections::HashMap<String, String> {
+        let mut params = std::collections::HashMap::new();
+        params.insert(
+            "todo_id".to_string(),
+            self.todo_id.map(|id| id.to_string()).unwrap_or_default(),
+        );
+        params.insert("todo_title".to_string(), self.todo_title.clone());
+        params.insert("old_status".to_string(), self.old_status.clone().unwrap_or_default());
+        params.insert("new_status".to_string(), self.new_status.clone().unwrap_or_default());
+        params.insert("executor".to_string(), self.executor.clone().unwrap_or_default());
+        params.insert("workspace".to_string(), self.workspace.clone().unwrap_or_default());
+        params.insert("task_id".to_string(), self.task_id.clone().unwrap_or_default());
+        params.insert("trigger_time".to_string(), self.trigger_time.clone());
+        params.insert("trigger".to_string(), self.trigger.to_string());
+        params
+    }
+
     pub fn for_create(todo_title: String, executor: Option<String>, workspace: Option<String>) -> Self {
         Self {
             todo_id: None,
@@ -227,15 +271,34 @@ impl HookContext {
         }
     }
 
-    pub fn for_status_change(
+    pub fn for_create_after(todo_id: i64, todo_title: String, executor: Option<String>, workspace: Option<String>) -> Self {
+        Self {
+            todo_id: Some(todo_id),
+            todo_title,
+            old_status: None,
+            new_status: Some("pending".to_string()),
+            executor,
+            workspace,
+            task_id: None,
+            trigger_time: crate::models::utc_timestamp(),
+            trigger: HookTrigger::AfterCreate,
+        }
+    }
+
+    /// Build a state-change context for a todo transitioning to `new_status`.
+    /// The trigger is selected from `HookTrigger::for_target_status(new_status)`.
+    /// Returns `None` when the target status has no dedicated trigger
+    /// (e.g. `cancelled`).
+    pub fn for_state_change(
         todo_id: i64,
         todo_title: String,
         old_status: TodoStatus,
         new_status: TodoStatus,
         executor: Option<String>,
         workspace: Option<String>,
-    ) -> Self {
-        Self {
+    ) -> Option<Self> {
+        let trigger = HookTrigger::for_target_status(new_status)?;
+        Some(Self {
             todo_id: Some(todo_id),
             todo_title,
             old_status: Some(old_status.to_string()),
@@ -244,8 +307,8 @@ impl HookContext {
             workspace,
             task_id: None,
             trigger_time: crate::models::utc_timestamp(),
-            trigger: HookTrigger::BeforeStatusChange,
-        }
+            trigger,
+        })
     }
 
     pub fn for_delete(
@@ -268,24 +331,23 @@ impl HookContext {
         }
     }
 
-    pub fn for_execute(
+    pub fn for_delete_after(
         todo_id: i64,
         todo_title: String,
         status: TodoStatus,
         executor: Option<String>,
         workspace: Option<String>,
-        task_id: Option<String>,
     ) -> Self {
         Self {
             todo_id: Some(todo_id),
             todo_title,
             old_status: Some(status.to_string()),
-            new_status: Some(status.to_string()),
+            new_status: None,
             executor,
             workspace,
-            task_id,
+            task_id: None,
             trigger_time: crate::models::utc_timestamp(),
-            trigger: HookTrigger::BeforeExecute,
+            trigger: HookTrigger::AfterDelete,
         }
     }
 }

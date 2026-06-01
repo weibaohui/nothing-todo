@@ -7,8 +7,6 @@ use axum::{
 use crate::handlers::{ApiJson, AppError, AppState};
 use crate::hooks::db::HookDb;
 use crate::hooks::models::*;
-use crate::hooks::template::TemplateRenderer;
-use crate::hooks::service::execute_with_timeout;
 
 /// List all hooks
 pub async fn list_hooks(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
@@ -56,7 +54,8 @@ pub async fn delete_hook(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Test a hook (dry run with sample data)
+/// Test a hook: validate the action points at an existing todo and return a summary.
+/// Does not start a real execution — use the dry-run summary to confirm wiring.
 pub async fn test_hook(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -65,28 +64,43 @@ pub async fn test_hook(
         .await?
         .ok_or(AppError::NotFound)?;
 
-    // Create a sample context for testing
-    let ctx = HookContext {
-        todo_id: Some(1),
-        todo_title: "Test Todo".to_string(),
-        old_status: Some("pending".to_string()),
-        new_status: Some("completed".to_string()),
-        executor: Some("claude".to_string()),
-        workspace: Some("/tmp".to_string()),
-        task_id: Some("test_task".to_string()),
-        trigger_time: crate::models::utc_timestamp(),
-        trigger: hook.trigger,
+    let result = match state.db.get_todo(hook.action.target_todo_id).await {
+        Ok(Some(target)) => {
+            let rendered = hook
+                .action
+                .prompt_template
+                .clone()
+                .unwrap_or_else(|| target.prompt.clone());
+            let summary = serde_json::json!({
+                "valid": true,
+                "target_todo_id": target.id,
+                "target_todo_title": target.title,
+                "rendered_prompt_preview": rendered.chars().take(200).collect::<String>(),
+                "trigger": hook.trigger.as_str(),
+                "message": format!(
+                    "Hook would trigger todo #{} ('{}') with rendered prompt ({} chars).",
+                    target.id, target.title, rendered.len()
+                ),
+            });
+            crate::hooks::models::HookResult::success(
+                0,
+                summary.to_string(),
+                String::new(),
+                0,
+            )
+        }
+        Ok(None) => crate::hooks::models::HookResult::error(
+            format!(
+                "Target todo #{} not found. Edit the hook to point at a real todo.",
+                hook.action.target_todo_id
+            ),
+            0,
+        ),
+        Err(e) => crate::hooks::models::HookResult::error(
+            format!("Failed to look up target todo: {}", e),
+            0,
+        ),
     };
-
-    // Execute the hook with timeout
-    let timeout = hook.action.timeout_secs.max(5); // At least 5 seconds for test
-    let result = execute_with_timeout(
-        &hook.action.command,
-        &TemplateRenderer::render_args(&hook.action.args, &ctx),
-        &TemplateRenderer::render_env(&hook.action.env, &ctx),
-        timeout,
-    )
-    .await;
 
     Ok(crate::models::ApiResponse::ok(result))
 }

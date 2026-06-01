@@ -252,29 +252,9 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         }
     };
 
-    // Fire before_execute hooks (synchronously - can block execution)
-    if let Some(ref svc) = hook_service {
-        if let Some(ref t) = todo {
-            let ctx = crate::hooks::models::HookContext::for_execute(
-                todo_id,
-                t.title.clone(),
-                t.status,
-                t.executor.clone(),
-                t.workspace.clone(),
-                Some(task_id.clone()),
-            );
-            if let Err(e) = svc.fire_before_hooks(&ctx, &t.tag_ids).await {
-                tracing::warn!("before_execute hook rejected: {}", e);
-                // Hook rejected - abort execution
-                let _ = db.finish_todo_execution(todo_id, false).await;
-                task_manager.remove(&task_id).await;
-                return ExecutionResult {
-                    task_id,
-                    record_id: Some(record_id),
-                };
-            }
-        }
-    }
+    // State-change hooks for "进入执行中" fire from the update_todo handler when
+    // the user transitions the todo into in_progress. The executor no longer
+    // gates execution on a hook — it just runs.
 
     // Update todo status to running and associate with task
     if let Err(e) = db.start_todo_execution(todo_id, &task_id).await {
@@ -321,6 +301,7 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
     let tx_clone = tx.clone();
     let executor_spawn = executor.clone();
     let task_manager_spawn = task_manager.clone();
+    let hook_service_spawn = hook_service.clone();
 
     let todo_title = todo.as_ref().map(|t| t.title.clone()).unwrap_or_default();
     let execution_timeout_secs = timeout_secs;
@@ -933,6 +914,30 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
             .await;
 
         let _ = db_clone.finish_todo_execution(todo_id, success).await;
+
+        // Fire the state-change hook for "进入已完成/失败". The executor
+        // bypasses the update_todo handler, so this is the only place the
+        // transition to a terminal state is observed.
+        if let Some(svc) = hook_service_spawn.as_ref() {
+            let new_status = if success {
+                crate::models::TodoStatus::Completed
+            } else {
+                crate::models::TodoStatus::Failed
+            };
+            if let Some(t) = todo.as_ref() {
+                if let Some(ctx) = crate::hooks::models::HookContext::for_state_change(
+                    todo_id,
+                    t.title.clone(),
+                    crate::models::TodoStatus::Running,
+                    new_status,
+                    t.executor.clone(),
+                    t.workspace.clone(),
+                ) {
+                    let tag_ids = t.tag_ids.clone();
+                    svc.clone().fire_after_hooks(ctx, tag_ids);
+                }
+            }
+        }
 
         let entry = ParsedLogEntry::new(
             if success { "info" } else { "error" },

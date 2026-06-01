@@ -8,10 +8,9 @@ export interface HookFilter {
 }
 
 export interface HookAction {
-  command: string;
-  args: string[];
-  env: Record<string, string>;
-  timeout_secs: number;
+  target_todo_id: number;
+  prompt_template?: string | null;
+  skip_if_missing?: boolean;
 }
 
 export interface HookRule {
@@ -161,11 +160,12 @@ export async function updateTodoHookConfig(
 export const HOOK_TRIGGERS = [
   { value: 'before_create', label: 'Before Create (创建前)' },
   { value: 'after_create', label: 'After Create (创建后)' },
-  { value: 'before_status_change', label: 'Before Status Change (状态变更前)' },
-  { value: 'after_status_change', label: 'After Status Change (状态变更后)' },
+  { value: 'state_changed_to_pending', label: '状态变为待执行' },
+  { value: 'state_changed_to_in_progress', label: '状态变为执行中' },
+  { value: 'state_changed_to_completed', label: '状态变为已完成' },
+  { value: 'state_changed_to_failed', label: '状态变为失败' },
   { value: 'before_delete', label: 'Before Delete (删除前)' },
   { value: 'after_delete', label: 'After Delete (删除后)' },
-  { value: 'before_execute', label: 'Before Execute (执行前)' },
 ] as const;
 
 export const HOOK_MODES = [

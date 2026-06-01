@@ -114,7 +114,8 @@ pub async fn create_todo(
     }
 
     // Fire after_create hooks (asynchronously)
-    let ctx = HookContext::for_create(
+    let ctx = HookContext::for_create_after(
+        id,
         title.to_string(),
         Some(executor.clone()),
         None,
@@ -169,22 +170,6 @@ pub async fn update_todo(
     // Check if status is actually changing
     let status_changed = req.status.is_some() && req.status.unwrap() != current.status;
 
-    // Fire before_status_change hooks (synchronously - can block change)
-    if status_changed {
-        let old_status = current.status;
-        let ctx = HookContext::for_status_change(
-            id,
-            title.clone(),
-            old_status,
-            new_status,
-            executor.clone(),
-            workspace.clone(),
-        );
-        if let Err(e) = state.hook_service.fire_before_hooks(&ctx, &current.tag_ids).await {
-            return Err(AppError::BadRequest(format!("Hook rejected: {}", e)));
-        }
-    }
-
     let scheduler_config = req
         .scheduler_config
         .as_ref()
@@ -223,18 +208,19 @@ pub async fn update_todo(
         .await
         .map_err(AppError::from)?;
 
-    // Fire after_status_change hooks (asynchronously)
+    // Fire state-change hooks (asynchronously)
     if status_changed {
         let old_status = current.status;
-        let ctx = HookContext::for_status_change(
+        if let Some(ctx) = HookContext::for_state_change(
             id,
             title.clone(),
             old_status,
             new_status,
             executor.clone(),
             workspace.clone(),
-        );
-        state.hook_service.clone().fire_after_hooks(ctx, current.tag_ids.clone());
+        ) {
+            state.hook_service.clone().fire_after_hooks(ctx, current.tag_ids.clone());
+        }
     }
 
     let todo = state.require_todo(id).await?;
@@ -292,7 +278,7 @@ pub async fn delete_todo(
 
     // Fire after_delete hooks (asynchronously)
     if let Some(ref t) = todo_opt {
-        let ctx = HookContext::for_delete(
+        let ctx = HookContext::for_delete_after(
             id,
             t.title.clone(),
             t.status,
@@ -314,38 +300,24 @@ pub async fn force_update_todo_status(
         let current = state.require_todo(id).await?;
         let old_status = current.status;
 
-        // Fire before_status_change hooks (synchronously)
-        if old_status != new_status {
-            let ctx = HookContext::for_status_change(
-                id,
-                current.title.clone(),
-                old_status,
-                new_status,
-                current.executor.clone(),
-                current.workspace.clone(),
-            );
-            if let Err(e) = state.hook_service.fire_before_hooks(&ctx, &current.tag_ids).await {
-                return Err(AppError::BadRequest(format!("Hook rejected: {}", e)));
-            }
-        }
-
         state
             .db
             .force_update_todo_status(id, new_status)
             .await
             .map_err(AppError::from)?;
 
-        // Fire after_status_change hooks (asynchronously)
+        // Fire state-change hooks (asynchronously)
         if old_status != new_status {
-            let ctx = HookContext::for_status_change(
+            if let Some(ctx) = HookContext::for_state_change(
                 id,
                 current.title.clone(),
                 old_status,
                 new_status,
                 current.executor.clone(),
                 current.workspace.clone(),
-            );
-            state.hook_service.clone().fire_after_hooks(ctx, current.tag_ids);
+            ) {
+                state.hook_service.clone().fire_after_hooks(ctx, current.tag_ids);
+            }
         }
     }
     let todo = state.require_todo(id).await?;

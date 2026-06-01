@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Table, Button, Space, Modal, Form, Input, Select, Switch, message,
   Popconfirm, Tabs, Tag, Card, Row, Col, InputNumber, Typography, Divider,
@@ -14,6 +14,8 @@ import type {
   HookLogEntry, HookFilter, HookAction,
 } from '../../utils/database/hooks';
 import { HOOK_TRIGGERS } from '../../utils/database/hooks';
+import { useApp } from '../../hooks/useApp';
+import { LinkOutlined } from '@ant-design/icons';
 
 const { Text } = Typography;
 
@@ -61,24 +63,59 @@ function HookFilterEditor({ value, onChange }: { value?: HookFilter; onChange?: 
 
 function HookActionEditor({ value, onChange }: { value?: HookAction; onChange?: (v: HookAction) => void }) {
   const [form] = Form.useForm();
+  const { state } = useApp();
+
   useEffect(() => {
-    form.setFieldsValue(value || { command: '', args: [''], env: {}, timeout_secs: 30 });
+    form.setFieldsValue(
+      value || { target_todo_id: undefined, prompt_template: '', skip_if_missing: false }
+    );
   }, [value, form]);
+
+  const todoOptions = useMemo(
+    () =>
+      state.todos
+        .slice()
+        .sort((a, b) => a.title.localeCompare(b.title))
+        .map((t) => ({
+          label: `${t.title} (#${t.id})`,
+          value: t.id,
+        })),
+    [state.todos]
+  );
 
   return (
     <Form form={form} layout="vertical" onValuesChange={(_, all) => onChange?.(all as HookAction)}>
-      <Form.Item name="command" label="命令" rules={[{ required: true }]}>
-        <Input placeholder="例如 /bin/echo" />
+      <Form.Item
+        name="target_todo_id"
+        label="目标 Todo"
+        tooltip="触发时要执行的 Todo 项（类似消息的默认响应）"
+        rules={[{ required: true, message: '请选择要触发的 Todo' }]}
+      >
+        <Select
+          showSearch
+          placeholder="选择一个 Todo，触发时会执行它"
+          optionFilterProp="label"
+          options={todoOptions}
+          notFoundContent={state.todos.length === 0 ? '暂无 Todo，请先创建' : '无匹配项'}
+        />
       </Form.Item>
-      <Form.Item name="args" label="参数">
-        <Select mode="tags" placeholder="参数（回车添加）">
-        </Select>
+      <Form.Item
+        name="prompt_template"
+        label="Prompt 模板（可选）"
+        tooltip="留空则使用目标 Todo 自身的 prompt。支持占位符：{{source_todo_id}} {{source_todo_title}} {{todo_id}} {{todo_title}} {{old_status}} {{new_status}} {{executor}} {{trigger}}"
+      >
+        <Input.TextArea
+          rows={3}
+          placeholder="例如：请基于 {{source_todo_title}} 给出分析"
+        />
       </Form.Item>
-      <Form.Item name="env" label="环境变量">
-        <Input.TextArea placeholder='{"KEY": "VALUE"} JSON 格式' rows={2} />
-      </Form.Item>
-      <Form.Item name="timeout_secs" label="超时秒数">
-        <InputNumber min={1} max={3600} defaultValue={30} />
+      <Form.Item
+        name="skip_if_missing"
+        label="目标不存在时跳过"
+        tooltip="开启后，若目标 Todo 已被删除，则仅记录警告而不让 hook 失败"
+        valuePropName="checked"
+      >
+        <Switch />
       </Form.Item>
     </Form>
   );
@@ -124,7 +161,7 @@ function HookModal({
           enabled: true,
           trigger: 'before_create',
           filter: { status: [], title_contains: '', tags: [], executor: '' },
-          action: { command: '', args: [], env: {}, timeout_secs: 30 },
+          action: { target_todo_id: undefined, prompt_template: '', skip_if_missing: false },
           is_async: true,
         });
       }
@@ -192,6 +229,7 @@ function HookModal({
 }
 
 function HookListTab() {
+  const { state } = useApp();
   const [hooks, setHooks] = useState<HookRule[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -245,6 +283,37 @@ function HookListTab() {
     }
   };
 
+  const renderTargetTodo = (action: HookAction) => {
+    const todoId = action?.target_todo_id;
+    if (todoId == null || Number.isNaN(todoId) || todoId < 0) {
+      return <Text type="secondary">未配置</Text>;
+    }
+    const todo = state.todos.find((t) => t.id === todoId);
+    if (!todo) {
+      return (
+        <Space size={4} direction="vertical" style={{ lineHeight: 1.2 }}>
+          <Text type="warning">#{todoId}（已删除）</Text>
+          {action.prompt_template && (
+            <Text type="secondary" style={{ fontSize: 11 }} ellipsis>
+              模板：{action.prompt_template}
+            </Text>
+          )}
+        </Space>
+      );
+    }
+    return (
+      <Space size={4} direction="vertical" style={{ lineHeight: 1.2 }}>
+        <Text>{todo.title}</Text>
+        <Text type="secondary" style={{ fontSize: 11 }}>#{todo.id}</Text>
+        {action.prompt_template && (
+          <Text type="secondary" style={{ fontSize: 11 }} ellipsis>
+            模板：{action.prompt_template}
+          </Text>
+        )}
+      </Space>
+    );
+  };
+
   const columns: ColumnsType<HookRule> = [
     { title: '名称', dataIndex: 'name', key: 'name' },
     {
@@ -260,8 +329,8 @@ function HookListTab() {
       render: (v: boolean) => v ? <Tag>异步</Tag> : <Tag color="orange">同步</Tag>,
     },
     {
-      title: '命令', dataIndex: ['action', 'command'], key: 'command',
-      ellipsis: true,
+      title: '目标 Todo', dataIndex: 'action', key: 'target_todo',
+      render: (_: unknown, record) => renderTargetTodo(record.action),
     },
     {
       title: '操作', key: 'action', width: 200,
@@ -364,7 +433,8 @@ function GlobalConfigTab() {
   );
 }
 
-function LogsTab() {
+function LogsTab({ onBack }: { onBack?: () => void }) {
+  const { state, dispatch } = useApp();
   const [logs, setLogs] = useState<HookLogEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -396,6 +466,46 @@ function LogsTab() {
     }
   };
 
+  const handleOpenTodo = (todoId: number) => {
+    if (!state.todos.some(t => t.id === todoId)) {
+      message.warning('该 Todo 已被删除或不可访问');
+      return;
+    }
+    dispatch({ type: 'SELECT_TODO', payload: todoId });
+    onBack?.();
+  };
+
+  const renderTodoCell = (todoId: number | null) => {
+    if (todoId == null) {
+      return <Text type="secondary" style={{ fontSize: 12 }}>（新建时触发）</Text>;
+    }
+    const todo = state.todos.find(t => t.id === todoId);
+    const title = todo?.title || `Todo #${todoId}`;
+    const exists = !!todo;
+    if (!exists) {
+      return (
+        <Space size={4}>
+          <Text type="secondary" style={{ fontSize: 12 }}>#{todoId}（已删除）</Text>
+        </Space>
+      );
+    }
+    return (
+      <Button
+        type="link"
+        size="small"
+        icon={<LinkOutlined />}
+        onClick={() => handleOpenTodo(todoId)}
+        style={{ padding: 0, height: 'auto', textAlign: 'left', whiteSpace: 'normal' }}
+        title={`跳转到 Todo #${todoId}`}
+      >
+        <Space direction="vertical" size={0} style={{ lineHeight: 1.3 }}>
+          <span>{title}</span>
+          <Text type="secondary" style={{ fontSize: 11 }}>#{todoId}</Text>
+        </Space>
+      </Button>
+    );
+  };
+
   const columns: ColumnsType<HookLogEntry> = [
     {
       title: '时间', dataIndex: 'created_at', key: 'created_at',
@@ -404,7 +514,11 @@ function LogsTab() {
     },
     { title: 'Hook 名称', dataIndex: 'hook_name', key: 'hook_name' },
     { title: '触发器', dataIndex: 'trigger', key: 'trigger' },
-    { title: 'Todo ID', dataIndex: 'todo_id', key: 'todo_id' },
+    {
+      title: '所属 Todo', dataIndex: 'todo_id', key: 'todo_id',
+      width: 220,
+      render: renderTodoCell,
+    },
     {
       title: '状态', dataIndex: 'success', key: 'success',
       render: (v: boolean | null) => v ? <Tag color="green">成功</Tag> : <Tag color="red">失败</Tag>,
@@ -440,11 +554,11 @@ function LogsTab() {
   );
 }
 
-export function HooksPanel() {
+export function HooksPanel({ onBack }: { onBack?: () => void }) {
   const tabItems = [
     { key: 'hooks', label: 'Hook 规则', children: <HookListTab /> },
     { key: 'config', label: '全局配置', children: <GlobalConfigTab /> },
-    { key: 'logs', label: '执行日志', children: <LogsTab /> },
+    { key: 'logs', label: '执行日志', children: <LogsTab onBack={onBack} /> },
   ];
 
   return <Tabs items={tabItems} />;
