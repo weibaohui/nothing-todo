@@ -115,6 +115,15 @@ pub async fn create_todo(
         tracing::warn!("Failed to update scheduler for todo {}: {}", id, e);
     }
 
+    // Persist inline hooks if the caller supplied them. Skipping the call when
+    // `None` means we keep the default empty list, which matches what was
+    // there before this field was added.
+    if let Some(ref hooks) = req.hooks {
+        if let Err(e) = state.db.update_todo_hooks(id, hooks).await {
+            tracing::warn!("Failed to set initial hooks for todo {}: {}", id, e);
+        }
+    }
+
     // Fire after_create hooks (asynchronously). The source todo id is the
     // newly-created row.
     let ctx = HookContext::for_create_after(
@@ -142,7 +151,7 @@ pub async fn create_todo(
         task_id: None,
         workspace: None,
         worktree_enabled: false,
-        hooks: Vec::new(),
+        hooks: req.hooks.clone().unwrap_or_default(),
     }))
 }
 

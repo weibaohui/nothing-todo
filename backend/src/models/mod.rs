@@ -291,6 +291,8 @@ pub struct CreateTodoRequest {
     pub scheduler_config: Option<String>,
     #[serde(default)]
     pub scheduler_timezone: Option<String>,
+    #[serde(default)]
+    pub hooks: Option<Vec<crate::hooks::TodoHookItem>>,
 }
 
 #[derive(Deserialize, Serialize)]

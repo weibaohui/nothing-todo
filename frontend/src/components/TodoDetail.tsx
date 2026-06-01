@@ -15,7 +15,6 @@ import { ChainGroupCard } from './todo-detail/ChainGroupCard';
 import { DetailHeader } from './todo-detail/DetailHeader';
 import { HistoryList } from './todo-detail/HistoryList';
 import { RecordDetailView } from './todo-detail/RecordDetailView';
-import { TodoHooksEditor } from './todo-detail/TodoHooksEditor';
 
 export function TodoDetail({ onBack }: { onBack?: () => void }) {
   const { state, dispatch } = useApp();
@@ -416,8 +415,6 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
         onExecute={handleExecute}
         onStatusChange={handleStatusChange}
       />
-
-      <TodoHooksEditor todo={selectedTodo} />
 
       {/* Execution History */}
       <div

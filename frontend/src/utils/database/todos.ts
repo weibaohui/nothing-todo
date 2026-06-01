@@ -8,8 +8,13 @@ export async function getAllTodos(): Promise<Todo[]> {
   return unwrap(await api.get('/xyz/todos'));
 }
 
-export async function createTodo(title: string, prompt: string = '', tagIds: number[] = []): Promise<Todo> {
-  return unwrap(await api.post('/xyz/todos', { title, prompt, tag_ids: tagIds }));
+export async function createTodo(
+  title: string,
+  prompt: string = '',
+  tagIds: number[] = [],
+  hooks: TodoHookItem[] = [],
+): Promise<Todo> {
+  return unwrap(await api.post('/xyz/todos', { title, prompt, tag_ids: tagIds, hooks }));
 }
 
 export async function updateTodo(
