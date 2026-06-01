@@ -1,10 +1,8 @@
 import { api, unwrap } from './client';
 
 export interface HookFilter {
-  status: string[];
   title_contains: string | null;
   tags: number[];
-  executor: string | null;
 }
 
 export interface HookAction {

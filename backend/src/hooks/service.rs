@@ -200,12 +200,7 @@ impl HookService {
     }
 
     fn matches_filter(&self, filter: &HookFilter, ctx: &HookContext, tag_ids: &[i64]) -> bool {
-        filter.matches(
-            &ctx.todo_title,
-            ctx.new_status.as_deref().unwrap_or(""),
-            tag_ids,
-            ctx.executor.as_deref(),
-        )
+        filter.matches(&ctx.todo_title, tag_ids)
     }
 
     async fn acquire_permit(&self) -> OwnedSemaphorePermit {

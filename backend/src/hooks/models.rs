@@ -74,47 +74,35 @@ impl std::fmt::Display for HookTrigger {
     }
 }
 
-/// Filter conditions for a hook rule
+/// Match rules for a hook rule. All rules are inclusive (whitelist) — when
+/// more than one rule is set, the hook fires only if every set rule matches.
+/// An empty/None field means "no constraint" and matches everything.
+///
+/// Note: the trigger itself already encodes the target state for state-change
+/// triggers, so we don't expose a status field here. A `state_changed_to_completed`
+/// hook can't be narrowed further by status.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HookFilter {
-    /// Match if todo status is in this list (empty = match all)
-    #[serde(default)]
-    pub status: Vec<String>,
     /// Match if todo title contains this string (case-insensitive, empty = match all)
     #[serde(default)]
     pub title_contains: Option<String>,
     /// Match if todo has any of these tag IDs
     #[serde(default)]
     pub tags: Vec<i64>,
-    /// Match if todo executor equals this value
-    #[serde(default)]
-    pub executor: Option<String>,
 }
 
 impl HookFilter {
-    pub fn matches(&self, title: &str, status: &str, tag_ids: &[i64], executor: Option<&str>) -> bool {
-        // Check status filter
-        if !self.status.is_empty() && !self.status.contains(&status.to_string()) {
-            return false;
-        }
-
-        // Check title filter (treat None and empty string as "no filter")
+    pub fn matches(&self, title: &str, tag_ids: &[i64]) -> bool {
+        // Check title rule (treat None and empty string as "no rule")
         if let Some(ref title_filter) = self.title_contains {
             if !title_filter.is_empty() && !title.to_lowercase().contains(&title_filter.to_lowercase()) {
                 return false;
             }
         }
 
-        // Check tags filter
+        // Check tags rule
         if !self.tags.is_empty() {
             if !self.tags.iter().any(|t| tag_ids.contains(t)) {
-                return false;
-            }
-        }
-
-        // Check executor filter (treat None and empty string as "no filter")
-        if let Some(ref executor_filter) = self.executor {
-            if !executor_filter.is_empty() && executor != Some(executor_filter.as_str()) {
                 return false;
             }
         }

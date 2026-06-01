@@ -22,41 +22,18 @@ const { Text } = Typography;
 function HookFilterEditor({ value, onChange }: { value?: HookFilter; onChange?: (v: HookFilter) => void }) {
   const [form] = Form.useForm();
   useEffect(() => {
-    form.setFieldsValue(value || { status: [], title_contains: undefined, tags: [], executor: undefined });
+    form.setFieldsValue(value || { title_contains: undefined, tags: [] });
   }, [value, form]);
 
   return (
     <Form form={form} layout="vertical" onValuesChange={(_, all) => onChange?.(all as HookFilter)}>
-      <Row gutter={16}>
-        <Col span={12}>
-          <Form.Item name="status" label="状态过滤">
-            <Select mode="multiple" placeholder="任意状态" allowClear>
-              <Select.Option value="pending">待处理</Select.Option>
-              <Select.Option value="in_progress">进行中</Select.Option>
-              <Select.Option value="completed">已完成</Select.Option>
-              <Select.Option value="failed">失败</Select.Option>
-            </Select>
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="title_contains" label="标题包含">
-            <Input placeholder="不区分大小写" />
-          </Form.Item>
-        </Col>
-      </Row>
-      <Row gutter={16}>
-        <Col span={12}>
-          <Form.Item name="executor" label="执行人">
-            <Input placeholder="例如 claude" />
-          </Form.Item>
-        </Col>
-        <Col span={12}>
-          <Form.Item name="tags" label="标签 ID">
-            <Select mode="tags" placeholder="标签 ID" allowClear>
-            </Select>
-          </Form.Item>
-        </Col>
-      </Row>
+      <Form.Item name="title_contains" label="标题包含" tooltip="不区分大小写，留空表示任意标题">
+        <Input placeholder="例如 测试" />
+      </Form.Item>
+      <Form.Item name="tags" label="标签匹配" tooltip="命中任一标签即匹配，留空表示无标签限制">
+        <Select mode="tags" placeholder="选择或输入标签 ID" allowClear>
+        </Select>
+      </Form.Item>
     </Form>
   );
 }
@@ -160,7 +137,7 @@ function HookModal({
           description: '',
           enabled: true,
           trigger: 'before_create',
-          filter: { status: [], title_contains: '', tags: [], executor: '' },
+          filter: { title_contains: '', tags: [] },
           action: { target_todo_id: undefined, prompt_template: '', skip_if_missing: false },
           is_async: true,
         });
@@ -219,7 +196,7 @@ function HookModal({
             ))}
           </Select>
         </Form.Item>
-        <Divider>过滤条件</Divider>
+        <Divider>匹配规则</Divider>
         <HookFilterEditor />
         <Divider>执行动作</Divider>
         <HookActionEditor />

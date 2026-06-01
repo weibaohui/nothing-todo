@@ -63,36 +63,16 @@ mod hook_filter_tests {
 
     fn empty_filter() -> HookFilter {
         HookFilter {
-            status: vec![],
             title_contains: None,
             tags: vec![],
-            executor: None,
         }
     }
 
     #[test]
     fn test_filter_empty_matches_everything() {
         let filter = empty_filter();
-        assert!(filter.matches("Test Todo", "pending", &[], None));
-        assert!(filter.matches("Any Title", "completed", &[1, 2, 3], Some("alice")));
-    }
-
-    #[test]
-    fn test_filter_status_match() {
-        let mut filter = empty_filter();
-        filter.status = vec!["pending".to_string(), "in_progress".to_string()];
-
-        assert!(filter.matches("Todo", "pending", &[], None));
-        assert!(filter.matches("Todo", "in_progress", &[], None));
-        assert!(!filter.matches("Todo", "completed", &[], None));
-    }
-
-    #[test]
-    fn test_filter_status_empty_matches_all() {
-        let mut filter = empty_filter();
-        filter.status = vec![];
-
-        assert!(filter.matches("Todo", "any_status", &[], None));
+        assert!(filter.matches("Test Todo", &[]));
+        assert!(filter.matches("Any Title", &[1, 2, 3]));
     }
 
     #[test]
@@ -100,9 +80,9 @@ mod hook_filter_tests {
         let mut filter = empty_filter();
         filter.title_contains = Some("important".to_string());
 
-        assert!(filter.matches("This is IMPORTANT task", "pending", &[], None));
-        assert!(filter.matches("Important meeting", "pending", &[], None));
-        assert!(!filter.matches("This is a task", "pending", &[], None));
+        assert!(filter.matches("This is IMPORTANT task", &[]));
+        assert!(filter.matches("Important meeting", &[]));
+        assert!(!filter.matches("This is a task", &[]));
     }
 
     #[test]
@@ -110,7 +90,7 @@ mod hook_filter_tests {
         let mut filter = empty_filter();
         filter.title_contains = None;
 
-        assert!(filter.matches("Any Title", "pending", &[], None));
+        assert!(filter.matches("Any Title", &[]));
     }
 
     #[test]
@@ -119,11 +99,11 @@ mod hook_filter_tests {
         filter.tags = vec![1, 2, 3];
 
         // Match when todo has any of the filter tags
-        assert!(filter.matches("Todo", "pending", &[1], None));
-        assert!(filter.matches("Todo", "pending", &[2], None));
-        assert!(filter.matches("Todo", "pending", &[1, 4], None));
-        assert!(!filter.matches("Todo", "pending", &[4, 5], None));
-        assert!(!filter.matches("Todo", "pending", &[], None));
+        assert!(filter.matches("Todo", &[1]));
+        assert!(filter.matches("Todo", &[2]));
+        assert!(filter.matches("Todo", &[1, 4]));
+        assert!(!filter.matches("Todo", &[4, 5]));
+        assert!(!filter.matches("Todo", &[]));
     }
 
     #[test]
@@ -131,44 +111,22 @@ mod hook_filter_tests {
         let mut filter = empty_filter();
         filter.tags = vec![];
 
-        assert!(filter.matches("Todo", "pending", &[1, 2, 3], None));
-        assert!(filter.matches("Todo", "pending", &[], None));
-    }
-
-    #[test]
-    fn test_filter_executor_match() {
-        let mut filter = empty_filter();
-        filter.executor = Some("claude".to_string());
-
-        assert!(filter.matches("Todo", "pending", &[], Some("claude")));
-        assert!(!filter.matches("Todo", "pending", &[], Some("kimi")));
-        assert!(!filter.matches("Todo", "pending", &[], None));
-    }
-
-    #[test]
-    fn test_filter_executor_empty_matches_all() {
-        let mut filter = empty_filter();
-        filter.executor = None;
-
-        assert!(filter.matches("Todo", "pending", &[], Some("any")));
-        assert!(filter.matches("Todo", "pending", &[], None));
+        assert!(filter.matches("Todo", &[1, 2, 3]));
+        assert!(filter.matches("Todo", &[]));
     }
 
     #[test]
     fn test_filter_combined_conditions() {
         let mut filter = empty_filter();
-        filter.status = vec!["pending".to_string()];
+        filter.title_contains = Some("todo".to_string());
         filter.tags = vec![1];
-        filter.executor = Some("claude".to_string());
 
         // All conditions must match
-        assert!(filter.matches("Todo", "pending", &[1], Some("claude")));
-        // Status mismatch
-        assert!(!filter.matches("Todo", "completed", &[1], Some("claude")));
+        assert!(filter.matches("My todo", &[1]));
+        // Title mismatch
+        assert!(!filter.matches("My task", &[1]));
         // Tag mismatch
-        assert!(!filter.matches("Todo", "pending", &[2], Some("claude")));
-        // Executor mismatch
-        assert!(!filter.matches("Todo", "pending", &[1], Some("kimi")));
+        assert!(!filter.matches("My todo", &[2]));
     }
 }
 
@@ -427,7 +385,7 @@ mod hook_rule_tests {
         let rule = sample_rule();
         let json = serde_json::to_string(&rule).unwrap();
         assert!(json.contains("\"name\":\"Test Hook\""));
-        assert!(json.contains("\"trigger\":\"before_status_change\""));
+        assert!(json.contains("\"trigger\":\"state_changed_to_completed\""));
         assert!(json.contains("\"enabled\":true"));
         assert!(json.contains("\"target_todo_id\":99"));
     }
