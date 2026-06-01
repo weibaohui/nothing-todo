@@ -1,11 +1,15 @@
-//! Tests for the hook system models and logic
+//! Tests for the inline-hook model: `HookTrigger`, `HookContext`, `TodoHooks`,
+//! `TodoHookItem`. Hooks now live as a JSON array on each todo's `hooks`
+//! column — there are no rules, no filters, no global defaults, no override
+//! modes. Cycle protection is asserted via the `chain` field on `HookContext`.
 
 #[cfg(test)]
 mod hook_trigger_tests {
     use ntd::hooks::HookTrigger;
+    use ntd::models::TodoStatus;
 
     #[test]
-    fn test_trigger_as_str() {
+    fn as_str_covers_all_variants() {
         assert_eq!(HookTrigger::BeforeCreate.as_str(), "before_create");
         assert_eq!(HookTrigger::AfterCreate.as_str(), "after_create");
         assert_eq!(HookTrigger::StateChangedToPending.as_str(), "state_changed_to_pending");
@@ -17,116 +21,193 @@ mod hook_trigger_tests {
     }
 
     #[test]
-    fn test_trigger_from_str() {
-        assert_eq!(HookTrigger::from_str("before_create"), Some(HookTrigger::BeforeCreate));
-        assert_eq!(HookTrigger::from_str("after_create"), Some(HookTrigger::AfterCreate));
-        assert_eq!(HookTrigger::from_str("state_changed_to_pending"), Some(HookTrigger::StateChangedToPending));
-        assert_eq!(HookTrigger::from_str("state_changed_to_in_progress"), Some(HookTrigger::StateChangedToInProgress));
-        assert_eq!(HookTrigger::from_str("state_changed_to_completed"), Some(HookTrigger::StateChangedToCompleted));
-        assert_eq!(HookTrigger::from_str("state_changed_to_failed"), Some(HookTrigger::StateChangedToFailed));
-        assert_eq!(HookTrigger::from_str("before_delete"), Some(HookTrigger::BeforeDelete));
-        assert_eq!(HookTrigger::from_str("after_delete"), Some(HookTrigger::AfterDelete));
-    }
-
-    #[test]
-    fn test_trigger_from_str_invalid() {
+    fn from_str_round_trips_and_is_case_sensitive() {
+        for t in [
+            HookTrigger::BeforeCreate,
+            HookTrigger::AfterCreate,
+            HookTrigger::StateChangedToPending,
+            HookTrigger::StateChangedToInProgress,
+            HookTrigger::StateChangedToCompleted,
+            HookTrigger::StateChangedToFailed,
+            HookTrigger::BeforeDelete,
+            HookTrigger::AfterDelete,
+        ] {
+            assert_eq!(HookTrigger::from_str(t.as_str()), Some(t));
+        }
         assert_eq!(HookTrigger::from_str("invalid"), None);
         assert_eq!(HookTrigger::from_str(""), None);
-        assert_eq!(HookTrigger::from_str("BEFORE_CREATE"), None); // case sensitive
+        assert_eq!(HookTrigger::from_str("BEFORE_CREATE"), None);
     }
 
     #[test]
-    fn test_trigger_is_sync() {
-        // Sync triggers (before_*)
+    fn is_sync_only_for_before_lifecycle() {
         assert!(HookTrigger::BeforeCreate.is_sync());
         assert!(HookTrigger::BeforeDelete.is_sync());
 
-        // Async triggers (state change + after_*)
         assert!(!HookTrigger::AfterCreate.is_sync());
+        assert!(!HookTrigger::AfterDelete.is_sync());
         assert!(!HookTrigger::StateChangedToPending.is_sync());
         assert!(!HookTrigger::StateChangedToInProgress.is_sync());
         assert!(!HookTrigger::StateChangedToCompleted.is_sync());
         assert!(!HookTrigger::StateChangedToFailed.is_sync());
-        assert!(!HookTrigger::AfterDelete.is_sync());
     }
 
     #[test]
-    fn test_trigger_display() {
-        let trigger = HookTrigger::BeforeCreate;
-        assert_eq!(format!("{}", trigger), "before_create");
+    fn for_target_status_maps_each_observable_state() {
+        assert_eq!(
+            HookTrigger::for_target_status(TodoStatus::Pending),
+            Some(HookTrigger::StateChangedToPending),
+        );
+        assert_eq!(
+            HookTrigger::for_target_status(TodoStatus::InProgress),
+            Some(HookTrigger::StateChangedToInProgress),
+        );
+        assert_eq!(
+            HookTrigger::for_target_status(TodoStatus::Running),
+            Some(HookTrigger::StateChangedToInProgress),
+        );
+        assert_eq!(
+            HookTrigger::for_target_status(TodoStatus::Completed),
+            Some(HookTrigger::StateChangedToCompleted),
+        );
+        assert_eq!(
+            HookTrigger::for_target_status(TodoStatus::Failed),
+            Some(HookTrigger::StateChangedToFailed),
+        );
+        // Cancelled is intentionally not observable — UI cancels are noise.
+        assert_eq!(HookTrigger::for_target_status(TodoStatus::Cancelled), None);
+    }
+
+    #[test]
+    fn display_matches_as_str() {
+        assert_eq!(format!("{}", HookTrigger::AfterCreate), "after_create");
     }
 }
 
 #[cfg(test)]
-mod hook_filter_tests {
-    use ntd::hooks::HookFilter;
+mod todo_hook_item_tests {
+    use ntd::hooks::{HookTrigger, TodoHookItem};
 
-    fn empty_filter() -> HookFilter {
-        HookFilter {
-            title_contains: None,
-            tags: vec![],
+    #[test]
+    fn deserialize_minimal_defaults_enabled_true() {
+        let json = r#"{
+            "id": 1,
+            "trigger": "after_create",
+            "target_todo_id": 42
+        }"#;
+        let item: TodoHookItem = serde_json::from_str(json).unwrap();
+        assert_eq!(item.id, 1);
+        assert_eq!(item.trigger, HookTrigger::AfterCreate);
+        assert_eq!(item.target_todo_id, 42);
+        assert!(!item.skip_if_missing);
+        assert!(item.enabled); // serde default
+    }
+
+    #[test]
+    fn deserialize_full_round_trip() {
+        let item = TodoHookItem {
+            id: 7,
+            trigger: HookTrigger::StateChangedToCompleted,
+            target_todo_id: 99,
+            skip_if_missing: true,
+            enabled: false,
+        };
+        let json = serde_json::to_string(&item).unwrap();
+        let decoded: TodoHookItem = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.id, item.id);
+        assert_eq!(decoded.trigger, item.trigger);
+        assert_eq!(decoded.target_todo_id, item.target_todo_id);
+        assert_eq!(decoded.skip_if_missing, item.skip_if_missing);
+        assert_eq!(decoded.enabled, item.enabled);
+    }
+
+    #[test]
+    fn deserialize_drops_legacy_prompt_template_field() {
+        // Old hook rows in the DB (from before this change) may still carry
+        // a `prompt_template` key. The deserializer should ignore it instead
+        // of failing — the field was removed.
+        let json = r#"{
+            "id": 1,
+            "trigger": "after_create",
+            "target_todo_id": 42,
+            "prompt_template": "legacy value to be ignored"
+        }"#;
+        let item: TodoHookItem = serde_json::from_str(json).unwrap();
+        assert_eq!(item.id, 1);
+        assert_eq!(item.target_todo_id, 42);
+    }
+}
+
+#[cfg(test)]
+mod todo_hooks_tests {
+    use ntd::hooks::{HookTrigger, TodoHookItem, TodoHooks};
+
+    fn item(id: i64, trigger: HookTrigger, target: i64, enabled: bool) -> TodoHookItem {
+        TodoHookItem {
+            id,
+            trigger,
+            target_todo_id: target,
+            skip_if_missing: false,
+            enabled,
         }
     }
 
     #[test]
-    fn test_filter_empty_matches_everything() {
-        let filter = empty_filter();
-        assert!(filter.matches("Test Todo", &[]));
-        assert!(filter.matches("Any Title", &[1, 2, 3]));
+    fn parse_none_returns_default() {
+        let parsed = TodoHooks::parse(None);
+        assert!(parsed.items.is_empty());
     }
 
     #[test]
-    fn test_filter_title_contains_case_insensitive() {
-        let mut filter = empty_filter();
-        filter.title_contains = Some("important".to_string());
-
-        assert!(filter.matches("This is IMPORTANT task", &[]));
-        assert!(filter.matches("Important meeting", &[]));
-        assert!(!filter.matches("This is a task", &[]));
+    fn parse_empty_string_returns_default() {
+        let parsed = TodoHooks::parse(Some(""));
+        assert!(parsed.items.is_empty());
     }
 
     #[test]
-    fn test_filter_title_contains_empty_matches_all() {
-        let mut filter = empty_filter();
-        filter.title_contains = None;
-
-        assert!(filter.matches("Any Title", &[]));
+    fn parse_malformed_json_returns_default_without_panicking() {
+        let parsed = TodoHooks::parse(Some("not json"));
+        assert!(parsed.items.is_empty());
     }
 
     #[test]
-    fn test_filter_tags() {
-        let mut filter = empty_filter();
-        filter.tags = vec![1, 2, 3];
-
-        // Match when todo has any of the filter tags
-        assert!(filter.matches("Todo", &[1]));
-        assert!(filter.matches("Todo", &[2]));
-        assert!(filter.matches("Todo", &[1, 4]));
-        assert!(!filter.matches("Todo", &[4, 5]));
-        assert!(!filter.matches("Todo", &[]));
+    fn parse_valid_json_round_trips() {
+        let source = TodoHooks {
+            items: vec![item(1, HookTrigger::AfterCreate, 5, true)],
+        };
+        let json = serde_json::to_string(&source).unwrap();
+        let parsed = TodoHooks::parse(Some(&json));
+        assert_eq!(parsed.items.len(), 1);
+        assert_eq!(parsed.items[0].id, 1);
+        assert_eq!(parsed.items[0].target_todo_id, 5);
     }
 
     #[test]
-    fn test_filter_tags_empty_matches_all() {
-        let mut filter = empty_filter();
-        filter.tags = vec![];
-
-        assert!(filter.matches("Todo", &[1, 2, 3]));
-        assert!(filter.matches("Todo", &[]));
+    fn matching_filters_by_trigger_and_enabled() {
+        let hooks = TodoHooks {
+            items: vec![
+                item(1, HookTrigger::AfterCreate, 5, true),
+                item(2, HookTrigger::AfterCreate, 6, false), // disabled
+                item(3, HookTrigger::StateChangedToCompleted, 7, true), // wrong trigger
+                item(4, HookTrigger::AfterCreate, 8, true),
+            ],
+        };
+        let matched: Vec<i64> = hooks
+            .matching(HookTrigger::AfterCreate)
+            .map(|i| i.id)
+            .collect();
+        assert_eq!(matched, vec![1, 4]);
     }
 
     #[test]
-    fn test_filter_combined_conditions() {
-        let mut filter = empty_filter();
-        filter.title_contains = Some("todo".to_string());
-        filter.tags = vec![1];
-
-        // All conditions must match
-        assert!(filter.matches("My todo", &[1]));
-        // Title mismatch
-        assert!(!filter.matches("My task", &[1]));
-        // Tag mismatch
-        assert!(!filter.matches("My todo", &[2]));
+    fn matching_empty_when_no_trigger_match() {
+        let hooks = TodoHooks {
+            items: vec![item(1, HookTrigger::AfterCreate, 5, true)],
+        };
+        assert_eq!(
+            hooks.matching(HookTrigger::StateChangedToFailed).count(),
+            0
+        );
     }
 }
 
@@ -136,61 +217,65 @@ mod hook_context_tests {
     use ntd::models::TodoStatus;
 
     #[test]
-    fn test_context_for_create() {
+    fn for_create_carries_chain_and_default_trigger() {
         let ctx = HookContext::for_create(
             "New Todo".to_string(),
             Some("claude".to_string()),
             Some("/workspace".to_string()),
+            vec![10, 11],
         );
-
         assert_eq!(ctx.todo_id, None);
         assert_eq!(ctx.todo_title, "New Todo");
         assert_eq!(ctx.old_status, None);
-        assert_eq!(ctx.new_status, Some("pending".to_string()));
-        assert_eq!(ctx.executor, Some("claude".to_string()));
-        assert_eq!(ctx.workspace, Some("/workspace".to_string()));
-        assert_eq!(ctx.task_id, None);
+        assert_eq!(ctx.new_status.as_deref(), Some("pending"));
+        assert_eq!(ctx.executor.as_deref(), Some("claude"));
+        assert_eq!(ctx.workspace.as_deref(), Some("/workspace"));
         assert_eq!(ctx.trigger, HookTrigger::BeforeCreate);
+        assert_eq!(ctx.chain, vec![10, 11]);
         assert!(!ctx.trigger_time.is_empty());
     }
 
     #[test]
-    fn test_context_for_state_change() {
-        let ctx = HookContext::for_state_change(
-            42,
-            "Test Todo".to_string(),
-            TodoStatus::Pending,
-            TodoStatus::Completed,
-            Some("kimi".to_string()),
-            Some("/project".to_string()),
-        )
-        .expect("completed should map to a trigger");
-
-        assert_eq!(ctx.todo_id, Some(42));
-        assert_eq!(ctx.todo_title, "Test Todo");
-        assert_eq!(ctx.old_status, Some("pending".to_string()));
-        assert_eq!(ctx.new_status, Some("completed".to_string()));
-        assert_eq!(ctx.executor, Some("kimi".to_string()));
-        assert_eq!(ctx.workspace, Some("/project".to_string()));
-        assert_eq!(ctx.trigger, HookTrigger::StateChangedToCompleted);
+    fn for_create_after_attaches_todo_id_and_trigger() {
+        let ctx = HookContext::for_create_after(
+            55,
+            "Title".to_string(),
+            None,
+            None,
+            vec![55],
+        );
+        assert_eq!(ctx.todo_id, Some(55));
+        assert_eq!(ctx.trigger, HookTrigger::AfterCreate);
+        assert_eq!(ctx.chain, vec![55]);
     }
 
     #[test]
-    fn test_context_for_state_change_running() {
-        let ctx = HookContext::for_state_change(
-            1,
-            "x".to_string(),
-            TodoStatus::Pending,
-            TodoStatus::Running,
-            None,
-            None,
-        )
-        .expect("running should map to in_progress");
-        assert_eq!(ctx.trigger, HookTrigger::StateChangedToInProgress);
+    fn for_state_change_maps_each_observable_status() {
+        let cases = [
+            (TodoStatus::Pending, HookTrigger::StateChangedToPending),
+            (TodoStatus::InProgress, HookTrigger::StateChangedToInProgress),
+            (TodoStatus::Running, HookTrigger::StateChangedToInProgress),
+            (TodoStatus::Completed, HookTrigger::StateChangedToCompleted),
+            (TodoStatus::Failed, HookTrigger::StateChangedToFailed),
+        ];
+        for (status, expected) in cases {
+            let ctx = HookContext::for_state_change(
+                1,
+                "x".to_string(),
+                TodoStatus::Pending,
+                status,
+                None,
+                None,
+                vec![],
+            )
+            .unwrap_or_else(|| panic!("status {:?} should map to a trigger", status));
+            assert_eq!(ctx.trigger, expected);
+            assert_eq!(ctx.new_status.as_deref(), Some(status.to_string().as_str()));
+        }
     }
 
     #[test]
-    fn test_context_for_state_change_cancelled_is_none() {
+    fn for_state_change_returns_none_for_cancelled() {
         let ctx = HookContext::for_state_change(
             1,
             "x".to_string(),
@@ -198,409 +283,159 @@ mod hook_context_tests {
             TodoStatus::Cancelled,
             None,
             None,
+            vec![],
         );
         assert!(ctx.is_none());
     }
 
     #[test]
-    fn test_context_for_delete() {
+    fn for_delete_carries_old_status_and_trigger() {
         let ctx = HookContext::for_delete(
             99,
-            "Deleted Todo".to_string(),
+            "Deleted".to_string(),
             TodoStatus::Running,
             Some("claude".to_string()),
-            Some("/tmp".to_string()),
+            None,
+            vec![99],
         );
-
         assert_eq!(ctx.todo_id, Some(99));
-        assert_eq!(ctx.todo_title, "Deleted Todo");
-        assert_eq!(ctx.old_status, Some("running".to_string()));
+        assert_eq!(ctx.old_status.as_deref(), Some("running"));
         assert_eq!(ctx.new_status, None);
         assert_eq!(ctx.trigger, HookTrigger::BeforeDelete);
+        assert_eq!(ctx.chain, vec![99]);
+    }
+
+    #[test]
+    fn for_delete_after_has_after_delete_trigger() {
+        let ctx = HookContext::for_delete_after(
+            100,
+            "Gone".to_string(),
+            TodoStatus::Completed,
+            None,
+            None,
+            vec![100],
+        );
+        assert_eq!(ctx.trigger, HookTrigger::AfterDelete);
+    }
+
+    #[test]
+    fn to_params_includes_chain_as_comma_string() {
+        let ctx = HookContext::for_create_after(
+            10,
+            "Title".to_string(),
+            None,
+            None,
+            vec![1, 2, 3],
+        );
+        let params = ctx.to_params();
+        assert_eq!(params.get("chain").map(|s| s.as_str()), Some("1,2,3"));
+        assert_eq!(params.get("todo_id").map(|s| s.as_str()), Some("10"));
+        assert_eq!(params.get("todo_title").map(|s| s.as_str()), Some("Title"));
+        assert_eq!(
+            params.get("trigger").map(|s| s.as_str()),
+            Some("after_create")
+        );
+    }
+
+    #[test]
+    fn to_params_chain_empty_when_no_visits() {
+        let ctx = HookContext::for_create(
+            "T".to_string(),
+            None,
+            None,
+            vec![],
+        );
+        let params = ctx.to_params();
+        assert_eq!(params.get("chain").map(|s| s.as_str()), Some(""));
     }
 }
 
 #[cfg(test)]
-mod hook_result_tests {
-    use ntd::hooks::HookResult;
+mod hook_dispatch_tests {
+    use ntd::hooks::{TodoHookItem, HookTrigger};
+    use ntd::models::{Todo, TodoStatus};
 
-    #[test]
-    fn test_hook_result_success_with_zero_exit_code() {
-        let result = HookResult::success(0, "output".to_string(), "".to_string(), 100);
-        assert!(result.success);
-        assert_eq!(result.exit_code, Some(0));
-        assert_eq!(result.stdout, "output");
-        assert_eq!(result.stderr, "");
-        assert_eq!(result.duration_ms, 100);
-        assert_eq!(result.error_msg, None);
-    }
-
-    #[test]
-    fn test_hook_result_success_with_non_zero_exit_code() {
-        let result = HookResult::success(1, "".to_string(), "error".to_string(), 50);
-        assert!(!result.success); // success is false when exit_code != 0
-        assert_eq!(result.exit_code, Some(1));
-        assert_eq!(result.stderr, "error");
-    }
-
-    #[test]
-    fn test_hook_result_error() {
-        let result = HookResult::error("command not found".to_string(), 10);
-        assert!(!result.success);
-        assert_eq!(result.exit_code, None);
-        assert_eq!(result.stdout, "");
-        assert_eq!(result.stderr, "");
-        assert_eq!(result.duration_ms, 10);
-        assert_eq!(result.error_msg, Some("command not found".to_string()));
-    }
-}
-
-#[cfg(test)]
-mod hook_mode_tests {
-    use ntd::hooks::HookMode;
-
-    #[test]
-    fn test_hook_mode_as_str() {
-        assert_eq!(HookMode::Inherit.as_str(), "inherit");
-        assert_eq!(HookMode::Custom.as_str(), "custom");
-        assert_eq!(HookMode::Disabled.as_str(), "disabled");
-    }
-
-    #[test]
-    fn test_hook_mode_from_str() {
-        assert_eq!(HookMode::from_str("inherit"), Some(HookMode::Inherit));
-        assert_eq!(HookMode::from_str("custom"), Some(HookMode::Custom));
-        assert_eq!(HookMode::from_str("disabled"), Some(HookMode::Disabled));
-    }
-
-    #[test]
-    fn test_hook_mode_from_str_invalid() {
-        assert_eq!(HookMode::from_str("invalid"), None);
-        assert_eq!(HookMode::from_str(""), None);
-        assert_eq!(HookMode::from_str("INHERIT"), None); // case sensitive
-    }
-
-    #[test]
-    fn test_hook_mode_default() {
-        let mode = HookMode::default();
-        assert_eq!(mode, HookMode::Inherit);
-    }
-}
-
-#[cfg(test)]
-mod global_hook_config_tests {
-    use ntd::hooks::GlobalHookConfig;
-
-    #[test]
-    fn test_global_hook_config_default() {
-        let config = GlobalHookConfig::default();
-        assert!(config.enabled);
-        assert_eq!(config.default_timeout_secs, 30);
-        assert_eq!(config.max_concurrency, 5);
-    }
-
-    #[test]
-    fn test_global_hook_config_serialization() {
-        let config = GlobalHookConfig {
-            enabled: true,
-            default_timeout_secs: 60,
-            max_concurrency: 10,
-        };
-        let json = serde_json::to_string(&config).unwrap();
-        assert!(json.contains("\"enabled\":true"));
-        assert!(json.contains("\"default_timeout_secs\":60"));
-        assert!(json.contains("\"max_concurrency\":10"));
-    }
-
-    #[test]
-    fn test_global_hook_config_deserialization() {
-        let json = r#"{"enabled":false,"default_timeout_secs":120,"max_concurrency":20}"#;
-        let config: GlobalHookConfig = serde_json::from_str(json).unwrap();
-        assert!(!config.enabled);
-        assert_eq!(config.default_timeout_secs, 120);
-        assert_eq!(config.max_concurrency, 20);
-    }
-}
-
-#[cfg(test)]
-mod hook_action_tests {
-    use ntd::hooks::HookAction;
-    #[test]
-    fn test_hook_action_minimal() {
-        let action: HookAction = serde_json::from_str(r#"{
-            "target_todo_id": 42
-        }"#).unwrap();
-        assert_eq!(action.target_todo_id, 42);
-        assert!(action.prompt_template.is_none());
-        assert!(!action.skip_if_missing);
-    }
-
-    #[test]
-    fn test_hook_action_with_prompt_template() {
-        let action: HookAction = serde_json::from_str(r#"{
-            "target_todo_id": 7,
-            "prompt_template": "Analyze {{source_todo_title}}"
-        }"#).unwrap();
-        assert_eq!(action.target_todo_id, 7);
-        assert_eq!(action.prompt_template.as_deref(), Some("Analyze {{source_todo_title}}"));
-    }
-
-    #[test]
-    fn test_hook_action_full() {
-        let action = HookAction {
-            target_todo_id: 12,
-            prompt_template: Some("Process {{source_todo_title}}".to_string()),
-            skip_if_missing: true,
-        };
-
-        assert_eq!(action.target_todo_id, 12);
-        assert_eq!(action.prompt_template.as_deref(), Some("Process {{source_todo_title}}"));
-        assert!(action.skip_if_missing);
-    }
-}
-
-#[cfg(test)]
-mod hook_rule_tests {
-    use ntd::hooks::{HookAction, HookFilter, HookRule, HookTrigger};
-
-    fn sample_rule() -> HookRule {
-        HookRule {
-            id: Some(1),
-            name: "Test Hook".to_string(),
-            description: Some("A test hook".to_string()),
-            enabled: true,
-            trigger: HookTrigger::StateChangedToCompleted,
-            filter: HookFilter::default(),
-            action: HookAction {
-                target_todo_id: 99,
-                prompt_template: Some("Process {{source_todo_title}}".to_string()),
-                skip_if_missing: false,
-            },
-            is_async: false,
+    fn todo(id: i64, title: &str, prompt: &str, status: TodoStatus) -> Todo {
+        Todo {
+            id,
+            title: title.to_string(),
+            prompt: prompt.to_string(),
+            status,
+            created_at: "2026-06-01T00:00:00Z".to_string(),
+            updated_at: "2026-06-01T00:00:00Z".to_string(),
+            tag_ids: vec![],
+            executor: Some("claudecode".to_string()),
+            scheduler_enabled: false,
+            scheduler_config: None,
+            scheduler_timezone: None,
+            scheduler_next_run_at: None,
+            task_id: None,
+            workspace: Some("/tmp/work".to_string()),
+            worktree_enabled: false,
+            hooks: vec![],
         }
     }
 
     #[test]
-    fn test_hook_rule_serialization() {
-        let rule = sample_rule();
-        let json = serde_json::to_string(&rule).unwrap();
-        assert!(json.contains("\"name\":\"Test Hook\""));
-        assert!(json.contains("\"trigger\":\"state_changed_to_completed\""));
-        assert!(json.contains("\"enabled\":true"));
-        assert!(json.contains("\"target_todo_id\":99"));
+    fn build_hook_message_uses_result_when_provided() {
+        // When the source's executor has produced output, that result is
+        // what flows into the target's `{{message}}` placeholder — not the
+        // source's own prompt. The result IS the answer; the prompt is just
+        // the question.
+        let source = todo(42, "笑话", "讲个程序员笑话", TodoStatus::Completed);
+        let target = todo(
+            7,
+            "评论生成器",
+            "请基于以下内容写评论：\n{{message}}",
+            TodoStatus::Pending,
+        );
+
+        let result = "一个关于goto的程序员笑话...";
+        let message = ntd::hooks::build_hook_message(&source, Some(result));
+        let params = std::collections::HashMap::from([("message".to_string(), message)]);
+        let rendered = ntd::models::replace_placeholders(&target.prompt, &params);
+        assert_eq!(
+            rendered,
+            "请基于以下内容写评论：\n一个关于goto的程序员笑话..."
+        );
     }
 
     #[test]
-    fn test_hook_rule_deserialization() {
-        let json = r#"{
-            "id": 5,
-            "name": "My Hook",
-            "description": null,
-            "enabled": true,
-            "trigger": "after_create",
-            "filter": {},
-            "action": {
-                "target_todo_id": 17,
-                "prompt_template": "Run analysis on {{source_todo_title}}"
-            },
-            "is_async": true
-        }"#;
-        let rule: HookRule = serde_json::from_str(json).unwrap();
-        assert_eq!(rule.id, Some(5));
-        assert_eq!(rule.name, "My Hook");
-        assert_eq!(rule.trigger, HookTrigger::AfterCreate);
-        assert!(rule.is_async);
-        assert_eq!(rule.action.target_todo_id, 17);
-        assert_eq!(rule.action.prompt_template.as_deref(), Some("Run analysis on {{source_todo_title}}"));
+    fn build_hook_message_falls_back_to_source_prompt_without_result() {
+        // No execution result yet (e.g., for `after_create` where the source
+        // just came into being, or a manual status change with no prior
+        // run). Fall back to the source's prompt so the target still gets
+        // useful context.
+        let source = todo(42, "笑话", "讲个程序员笑话", TodoStatus::Completed);
+        let target = todo(
+            7,
+            "评论生成器",
+            "请基于以下内容写评论：\n{{message}}",
+            TodoStatus::Pending,
+        );
+
+        let message = ntd::hooks::build_hook_message(&source, None);
+        assert_eq!(message, "讲个程序员笑话");
+        let params = std::collections::HashMap::from([("message".to_string(), message)]);
+        let rendered = ntd::models::replace_placeholders(&target.prompt, &params);
+        assert_eq!(
+            rendered,
+            "请基于以下内容写评论：\n讲个程序员笑话"
+        );
     }
 
     #[test]
-    fn test_hook_rule_without_id() {
-        let json = r#"{
-            "id": null,
-            "name": "No ID Hook",
-            "enabled": true,
-            "trigger": "before_delete",
-            "action": {
-                "target_todo_id": 4
-            },
-            "is_async": false
-        }"#;
-        let rule: HookRule = serde_json::from_str(json).unwrap();
-        assert_eq!(rule.id, None);
-        assert_eq!(rule.name, "No ID Hook");
-        assert_eq!(rule.action.target_todo_id, 4);
-    }
-}
-
-#[cfg(test)]
-mod api_request_tests {
-    use ntd::hooks::{
-        CreateHookRequest, UpdateGlobalHookConfigRequest,
-        UpdateHookRequest, UpdateTodoHookRequest, HookLogQuery,
-    };
-
-    #[test]
-    fn test_create_hook_request_deserialization() {
-        let json = r#"{
-            "name": "Create Hook",
-            "description": "Runs on todo creation",
-            "enabled": true,
-            "trigger": "after_create",
-            "filter": {
-                "status": ["pending"]
-            },
-            "action": {
-                "target_todo_id": 17,
-                "prompt_template": "Notify about {{source_todo_title}}"
-            },
-            "is_async": true
-        }"#;
-        let req: CreateHookRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.name, "Create Hook");
-        assert_eq!(req.trigger, "after_create");
-        assert!(req.enabled);
-        assert!(req.is_async);
-        assert!(req.filter.is_some());
-        assert_eq!(req.action.target_todo_id, 17);
-    }
-
-    #[test]
-    fn test_create_hook_request_minimal() {
-        let json = r#"{
-            "name": "Minimal Hook",
-            "trigger": "before_execute",
-            "action": {
-                "target_todo_id": 5
-            }
-        }"#;
-        let req: CreateHookRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.name, "Minimal Hook");
-        assert!(req.description.is_none());
-        assert!(req.filter.is_none());
-        assert!(req.is_async); // default is true based on default_async
-        assert_eq!(req.action.target_todo_id, 5);
-    }
-
-    #[test]
-    fn test_update_hook_request_partial() {
-        let json = r#"{
-            "enabled": false,
-            "name": "Updated Name"
-        }"#;
-        let req: UpdateHookRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.name, Some("Updated Name".to_string()));
-        assert_eq!(req.enabled, Some(false));
-        assert!(req.trigger.is_none());
-        assert!(req.filter.is_none());
-    }
-
-    #[test]
-    fn test_update_global_config_request() {
-        let json = r#"{
-            "enabled": false,
-            "default_timeout_secs": 60,
-            "max_concurrency": 20
-        }"#;
-        let req: UpdateGlobalHookConfigRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.enabled, Some(false));
-        assert_eq!(req.default_timeout_secs, Some(60));
-        assert_eq!(req.max_concurrency, Some(20));
-    }
-
-    #[test]
-    fn test_update_todo_hook_request() {
-        let json = r#"{
-            "hook_mode": "custom",
-            "override_enabled": true,
-            "rule_ids": [1, 2, 3]
-        }"#;
-        let req: UpdateTodoHookRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.hook_mode, Some("custom".to_string()));
-        assert_eq!(req.override_enabled, Some(true));
-        assert_eq!(req.rule_ids, Some(vec![1, 2, 3]));
-    }
-
-    #[test]
-    fn test_hook_log_query_defaults() {
-        let query = HookLogQuery {
-            hook_id: None,
-            todo_id: None,
-            status: None,
-            page: 0,
-            limit: 50,
-        };
-        assert!(query.hook_id.is_none());
-        assert_eq!(query.limit, 50);
-    }
-
-    #[test]
-    fn test_hook_log_query_with_filters() {
-        let json = r#"{
-            "hook_id": 5,
-            "todo_id": 10,
-            "status": "success",
-            "page": 2,
-            "limit": 20
-        }"#;
-        let query: HookLogQuery = serde_json::from_str(json).unwrap();
-        assert_eq!(query.hook_id, Some(5));
-        assert_eq!(query.todo_id, Some(10));
-        assert_eq!(query.status, Some("success".to_string()));
-        assert_eq!(query.page, 2);
-        assert_eq!(query.limit, 20);
-    }
-}
-
-#[cfg(test)]
-mod hook_log_entry_tests {
-    use ntd::hooks::HookLogEntry;
-
-    #[test]
-    fn test_hook_log_entry_serialization() {
-        let entry = HookLogEntry {
+    fn todo_hook_item_no_prompt_template_field() {
+        // The hook item carries only: id, trigger, target_todo_id, skip_if_missing, enabled.
+        // The "what to send" is configured entirely on the target todo's own prompt.
+        let item = TodoHookItem {
             id: 1,
-            hook_id: Some(5),
-            hook_name: Some("Test Hook".to_string()),
-            trigger: "before_create".to_string(),
-            todo_id: Some(42),
-            args_sent: Some("arg1 arg2".to_string()),
-            env_sent: Some("KEY=value".to_string()),
-            exit_code: Some(0),
-            stdout: Some("output".to_string()),
-            stderr: None,
-            duration_ms: Some(150),
-            success: Some(true),
-            error_msg: None,
-            created_at: "2026-05-31T10:00:00.000Z".to_string(),
+            trigger: HookTrigger::StateChangedToCompleted,
+            target_todo_id: 7,
+            skip_if_missing: true,
+            enabled: true,
         };
-        let json = serde_json::to_string(&entry).unwrap();
-        assert!(json.contains("\"id\":1"));
-        assert!(json.contains("\"hook_name\":\"Test Hook\""));
-        assert!(json.contains("\"success\":true"));
-    }
-
-    #[test]
-    fn test_hook_log_entry_deserialization() {
-        let json = r#"{
-            "id": 99,
-            "hook_id": null,
-            "hook_name": null,
-            "trigger": "after_delete",
-            "todo_id": 7,
-            "args_sent": null,
-            "env_sent": null,
-            "exit_code": null,
-            "stdout": null,
-            "stderr": null,
-            "duration_ms": null,
-            "success": null,
-            "error_msg": "command failed",
-            "created_at": "2026-05-31T12:00:00.000Z"
-        }"#;
-        let entry: HookLogEntry = serde_json::from_str(json).unwrap();
-        assert_eq!(entry.id, 99);
-        assert!(entry.hook_id.is_none());
-        assert_eq!(entry.error_msg, Some("command failed".to_string()));
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(!json.contains("prompt_template"), "prompt_template must not be in the wire format: {}", json);
     }
 }

@@ -8,7 +8,6 @@ use command_group::AsyncCommandGroup;
 use crate::adapters::{parse_executor_type, ExecutorRegistry};
 use crate::db::{Database, NewExecutionRecord};
 use crate::handlers::ExecEvent;
-use crate::hooks::HookService;
 use crate::models::{ExecutorType, ParsedLogEntry};
 use crate::task_manager::TaskManager;
 
@@ -36,7 +35,6 @@ pub struct RunTodoExecutionRequest {
     pub tx: broadcast::Sender<ExecEvent>,
     pub task_manager: Arc<TaskManager>,
     pub config: Arc<tokio::sync::RwLock<crate::config::Config>>,
-    pub hook_service: Option<Arc<HookService>>,
     pub todo_id: i64,
     pub message: String,
     pub req_executor: Option<String>,
@@ -44,6 +42,9 @@ pub struct RunTodoExecutionRequest {
     pub params: Option<std::collections::HashMap<String, String>>,
     pub resume_session_id: Option<String>,
     pub resume_message: Option<String>,
+    /// Todo ids already visited on the dispatch path, used to break cycles
+    /// when a hook triggers a todo that would re-fire the source.
+    pub chain: Vec<i64>,
 }
 
 /// Run a todo execution. Priority: explicit executor > todo stored executor > default.
@@ -54,7 +55,6 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         tx,
         task_manager,
         config,
-        hook_service,
         todo_id,
         message,
         req_executor,
@@ -62,6 +62,7 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         params,
         resume_session_id,
         resume_message,
+        chain,
     } = request;
     let message = params
         .as_ref()
@@ -301,7 +302,8 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
     let tx_clone = tx.clone();
     let executor_spawn = executor.clone();
     let task_manager_spawn = task_manager.clone();
-    let hook_service_spawn = hook_service.clone();
+    let executor_registry_spawn = executor_registry.clone();
+    let config_spawn = config.clone();
 
     let todo_title = todo.as_ref().map(|t| t.title.clone()).unwrap_or_default();
     let execution_timeout_secs = timeout_secs;
@@ -918,24 +920,30 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         // Fire the state-change hook for "进入已完成/失败". The executor
         // bypasses the update_todo handler, so this is the only place the
         // transition to a terminal state is observed.
-        if let Some(svc) = hook_service_spawn.as_ref() {
+        if let Some(t) = todo.as_ref() {
             let new_status = if success {
                 crate::models::TodoStatus::Completed
             } else {
                 crate::models::TodoStatus::Failed
             };
-            if let Some(t) = todo.as_ref() {
-                if let Some(ctx) = crate::hooks::models::HookContext::for_state_change(
-                    todo_id,
-                    t.title.clone(),
-                    crate::models::TodoStatus::Running,
-                    new_status,
-                    t.executor.clone(),
-                    t.workspace.clone(),
-                ) {
-                    let tag_ids = t.tag_ids.clone();
-                    svc.clone().fire_after_hooks(ctx, tag_ids);
-                }
+            if let Some(ctx) = crate::hooks::models::HookContext::for_state_change(
+                todo_id,
+                t.title.clone(),
+                crate::models::TodoStatus::Running,
+                new_status,
+                t.executor.clone(),
+                t.workspace.clone(),
+                chain.clone(),
+            ) {
+                let svc_ctx = crate::service_context::ServiceContext {
+                    db: db_clone.clone(),
+                    executor_registry: executor_registry_spawn.clone(),
+                    tx: tx_clone.clone(),
+                    task_manager: task_manager_spawn.clone(),
+                    config: config_spawn.clone(),
+                };
+                let svc = std::sync::Arc::new(crate::hooks::HookService::new(svc_ctx));
+                svc.fire_for_todo(todo_id, ctx);
             }
         }
 

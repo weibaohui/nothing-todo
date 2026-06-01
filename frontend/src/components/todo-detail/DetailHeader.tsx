@@ -1,5 +1,5 @@
 import { Button, Tag, Badge, Popconfirm } from 'antd';
-import { PlayCircleOutlined, ThunderboltOutlined, EditOutlined, DeleteOutlined, ArrowLeftOutlined, HolderOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, ThunderboltOutlined, EditOutlined, DeleteOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { StatusPicker } from '../StatusPicker';
 import { ExecutorBadge } from '../ExecutorBadge';
 import { PromptDisplay } from './PromptDisplay';
@@ -12,7 +12,6 @@ import type { Todo } from '../../types';
 export function DetailHeader({
   selectedTodo, executor, isExecuting, isMobile, summary, currentTodoProgress,
   records, onMobileBack, onDelete, onTodoDrawerOpen, onOpenExecuteWithArgs, onExecute, onStatusChange,
-  onOpenHooks,
 }: {
   selectedTodo: Todo;
   executor: string;
@@ -27,7 +26,6 @@ export function DetailHeader({
   onOpenExecuteWithArgs: () => void;
   onExecute: () => Promise<void>;
   onStatusChange: (status: string) => Promise<void>;
-  onOpenHooks?: () => void;
 }) {
   return (
     <>
@@ -50,9 +48,6 @@ export function DetailHeader({
             <Popconfirm title="删除任务" description="确定要删除吗？" onConfirm={onDelete}>
               <Button type="text" danger icon={<DeleteOutlined />} className="icon-btn" aria-label="删除任务" />
             </Popconfirm>
-            {onOpenHooks && (
-              <Button type="text" icon={<HolderOutlined />} onClick={onOpenHooks} className="icon-btn" aria-label="Hook 配置" />
-            )}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>

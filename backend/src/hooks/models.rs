@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use crate::models::TodoStatus;
 
-/// Hook trigger types
+/// Hook trigger types.
 ///
 /// Triggers are tied to todo lifecycle events. State-change triggers are
 /// per-target-state: each fires when a todo transitions INTO that status.
@@ -55,8 +55,8 @@ impl HookTrigger {
     }
 
     /// Map a target `TodoStatus` to its corresponding state-change trigger.
-    /// Returns `None` for statuses without a dedicated trigger (e.g. `running`,
-    /// `cancelled`) so callers can decide whether to fire any hook at all.
+    /// Returns `None` for statuses without a dedicated trigger (e.g. `cancelled`)
+    /// so callers can decide whether to fire any hook at all.
     pub fn for_target_status(status: TodoStatus) -> Option<Self> {
         match status {
             TodoStatus::Pending => Some(Self::StateChangedToPending),
@@ -74,144 +74,96 @@ impl std::fmt::Display for HookTrigger {
     }
 }
 
-/// Match rules for a hook rule. All rules are inclusive (whitelist) — when
-/// more than one rule is set, the hook fires only if every set rule matches.
-/// An empty/None field means "no constraint" and matches everything.
+/// A single hook attached to a todo. When the parent todo emits a matching
+/// `trigger`, the service starts the `target_todo` with the source todo's
+/// `prompt` injected as the `{{message}}` placeholder inside the target's
+/// own prompt — same mental model as the manual "execute with args" flow.
 ///
-/// Note: the trigger itself already encodes the target state for state-change
-/// triggers, so we don't expose a status field here. A `state_changed_to_completed`
-/// hook can't be narrowed further by status.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct HookFilter {
-    /// Match if todo title contains this string (case-insensitive, empty = match all)
-    #[serde(default)]
-    pub title_contains: Option<String>,
-    /// Match if todo has any of these tag IDs
-    #[serde(default)]
-    pub tags: Vec<i64>,
-}
-
-impl HookFilter {
-    pub fn matches(&self, title: &str, tag_ids: &[i64]) -> bool {
-        // Check title rule (treat None and empty string as "no rule")
-        if let Some(ref title_filter) = self.title_contains {
-            if !title_filter.is_empty() && !title.to_lowercase().contains(&title_filter.to_lowercase()) {
-                return false;
-            }
-        }
-
-        // Check tags rule
-        if !self.tags.is_empty() {
-            if !self.tags.iter().any(|t| tag_ids.contains(t)) {
-                return false;
-            }
-        }
-
-        true
-    }
-}
-
-/// Hook action: trigger a specific todo item, similar to the message default response.
-///
-/// When a hook fires, the service will:
-/// 1. Look up the target todo by `target_todo_id`
-/// 2. Use the target todo's stored prompt as the message (rendered with hook context params)
-/// 3. If `prompt_template` is provided, use it instead of the target todo's prompt
-/// 4. Call `start_todo_execution` to trigger the target todo
+/// Hooks are stored inline on the todo row (one JSON column) — there is no
+/// global hook rule library, no per-todo override mode, and no global default
+/// list. Each todo owns its own hooks and is the only place that can fire them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HookAction {
-    /// The id of the todo to trigger when this hook fires.
+pub struct TodoHookItem {
+    /// Client-generated stable id, used to identify the item in edit/delete UI
+    /// before the row has been persisted.
+    pub id: i64,
+    pub trigger: HookTrigger,
     pub target_todo_id: i64,
-    /// Optional prompt override. If set, replaces the target todo's stored prompt.
-    /// Supports `{{todo_id}}`, `{{todo_title}}`, `{{old_status}}`, `{{new_status}}`,
-    /// `{{executor}}`, `{{workspace}}`, `{{task_id}}`, `{{trigger_time}}`, `{{trigger}}`.
-    #[serde(default)]
-    pub prompt_template: Option<String>,
-    /// If true, missing target todo is logged as warning and the hook succeeds silently.
-    /// If false (default), missing target todo causes the hook to fail.
     #[serde(default)]
     pub skip_if_missing: bool,
-}
-
-/// Complete hook rule definition
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HookRule {
-    pub id: Option<i64>,
-    pub name: String,
-    pub description: Option<String>,
+    #[serde(default = "default_enabled")]
     pub enabled: bool,
-    pub trigger: HookTrigger,
-    #[serde(default)]
-    pub filter: HookFilter,
-    pub action: HookAction,
-    #[serde(default = "default_async")]
-    pub is_async: bool,
 }
 
-fn default_async() -> bool {
+fn default_enabled() -> bool {
     true
 }
 
-/// Global hook configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GlobalHookConfig {
-    pub enabled: bool,
-    pub default_timeout_secs: u64,
-    pub max_concurrency: u64,
+/// Wrapper for the `todos.hooks` JSON column.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TodoHooks {
+    #[serde(default)]
+    pub items: Vec<TodoHookItem>,
 }
 
-impl Default for GlobalHookConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            default_timeout_secs: 30,
-            max_concurrency: 5,
+impl TodoHooks {
+    /// Parse the JSON string stored in the `todos.hooks` column.
+    /// Returns `TodoHooks::default()` when the column is `None` or empty or
+    /// contains malformed JSON — we never want a bad value to break todo
+    /// loading.
+    pub fn parse(raw: Option<&str>) -> Self {
+        let Some(s) = raw else { return Self::default() };
+        if s.is_empty() {
+            return Self::default();
         }
+        serde_json::from_str(s).unwrap_or_default()
+    }
+
+    /// Filter to enabled items whose trigger matches.
+    pub fn matching(&self, trigger: HookTrigger) -> impl Iterator<Item = &TodoHookItem> {
+        self.items
+            .iter()
+            .filter(move |item| item.enabled && item.trigger == trigger)
     }
 }
 
-/// Per-Todo hook mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum HookMode {
-    Inherit,
-    Custom,
-    Disabled,
+/// Build the `message` payload that a hook delivers to the target todo's
+/// executor. The target todo's own `prompt` is the template (it may contain
+/// a `{{message}}` placeholder where this value lands), so by the time the
+/// executor sees the final message it looks like:
+///
+/// ```text
+/// <target todo's prompt, with {{message}} replaced>
+/// ```
+///
+/// The `{{message}}` value is:
+/// - The source todo's latest successful execution `result` when one exists
+///   — i.e., what the previous executor actually produced. This is the
+///   primary use case: "A ran, take A's output and feed it to B."
+/// - Otherwise the source's `prompt` — what the user originally asked the
+///   source todo. Used when the hook fires before the source has run (e.g.,
+///   `after_create`) or when the source has never been executed.
+///
+/// This mirrors the manual "execute with args" flow: the user edits the
+/// target todo's prompt with `{{message}}` where the source context should
+/// land, hooks automatically supply the value. No new template syntax to
+/// learn.
+pub fn build_hook_message(
+    source: &crate::models::Todo,
+    result: Option<&str>,
+) -> String {
+    result
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| source.prompt.clone())
 }
 
-impl Default for HookMode {
-    fn default() -> Self {
-        Self::Inherit
-    }
-}
-
-impl HookMode {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Inherit => "inherit",
-            Self::Custom => "custom",
-            Self::Disabled => "disabled",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "inherit" => Some(Self::Inherit),
-            "custom" => Some(Self::Custom),
-            "disabled" => Some(Self::Disabled),
-            _ => None,
-        }
-    }
-}
-
-/// Per-Todo hook configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TodoHookConfig {
-    pub hook_mode: HookMode,
-    pub override_enabled: bool,
-}
-
-/// Hook execution context (data passed to hook scripts)
+/// Hook execution context (data passed through the chain).
+///
+/// `chain` records every todo id already visited on the current dispatch path
+/// (including the source todo at position 0). A hook that would re-visit any
+/// id in `chain` is rejected, which breaks the only cycle the system can
+/// produce: A → B → A.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HookContext {
     pub todo_id: Option<i64>,
@@ -223,6 +175,8 @@ pub struct HookContext {
     pub task_id: Option<String>,
     pub trigger_time: String,
     pub trigger: HookTrigger,
+    #[serde(default)]
+    pub chain: Vec<i64>,
 }
 
 impl HookContext {
@@ -242,10 +196,19 @@ impl HookContext {
         params.insert("task_id".to_string(), self.task_id.clone().unwrap_or_default());
         params.insert("trigger_time".to_string(), self.trigger_time.clone());
         params.insert("trigger".to_string(), self.trigger.to_string());
+        params.insert("chain".to_string(), {
+            let parts: Vec<String> = self.chain.iter().map(|id| id.to_string()).collect();
+            parts.join(",")
+        });
         params
     }
 
-    pub fn for_create(todo_title: String, executor: Option<String>, workspace: Option<String>) -> Self {
+    pub fn for_create(
+        todo_title: String,
+        executor: Option<String>,
+        workspace: Option<String>,
+        chain: Vec<i64>,
+    ) -> Self {
         Self {
             todo_id: None,
             todo_title,
@@ -256,10 +219,17 @@ impl HookContext {
             task_id: None,
             trigger_time: crate::models::utc_timestamp(),
             trigger: HookTrigger::BeforeCreate,
+            chain,
         }
     }
 
-    pub fn for_create_after(todo_id: i64, todo_title: String, executor: Option<String>, workspace: Option<String>) -> Self {
+    pub fn for_create_after(
+        todo_id: i64,
+        todo_title: String,
+        executor: Option<String>,
+        workspace: Option<String>,
+        chain: Vec<i64>,
+    ) -> Self {
         Self {
             todo_id: Some(todo_id),
             todo_title,
@@ -270,6 +240,7 @@ impl HookContext {
             task_id: None,
             trigger_time: crate::models::utc_timestamp(),
             trigger: HookTrigger::AfterCreate,
+            chain,
         }
     }
 
@@ -284,6 +255,7 @@ impl HookContext {
         new_status: TodoStatus,
         executor: Option<String>,
         workspace: Option<String>,
+        chain: Vec<i64>,
     ) -> Option<Self> {
         let trigger = HookTrigger::for_target_status(new_status)?;
         Some(Self {
@@ -296,6 +268,7 @@ impl HookContext {
             task_id: None,
             trigger_time: crate::models::utc_timestamp(),
             trigger,
+            chain,
         })
     }
 
@@ -305,6 +278,7 @@ impl HookContext {
         status: TodoStatus,
         executor: Option<String>,
         workspace: Option<String>,
+        chain: Vec<i64>,
     ) -> Self {
         Self {
             todo_id: Some(todo_id),
@@ -316,6 +290,7 @@ impl HookContext {
             task_id: None,
             trigger_time: crate::models::utc_timestamp(),
             trigger: HookTrigger::BeforeDelete,
+            chain,
         }
     }
 
@@ -325,6 +300,7 @@ impl HookContext {
         status: TodoStatus,
         executor: Option<String>,
         workspace: Option<String>,
+        chain: Vec<i64>,
     ) -> Self {
         Self {
             todo_id: Some(todo_id),
@@ -336,176 +312,7 @@ impl HookContext {
             task_id: None,
             trigger_time: crate::models::utc_timestamp(),
             trigger: HookTrigger::AfterDelete,
+            chain,
         }
     }
-}
-
-/// Result of hook execution
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HookResult {
-    pub success: bool,
-    pub exit_code: Option<i32>,
-    pub stdout: String,
-    pub stderr: String,
-    pub duration_ms: i64,
-    pub error_msg: Option<String>,
-}
-
-impl HookResult {
-    pub fn success(exit_code: i32, stdout: String, stderr: String, duration_ms: i64) -> Self {
-        Self {
-            success: exit_code == 0,
-            exit_code: Some(exit_code),
-            stdout,
-            stderr,
-            duration_ms,
-            error_msg: None,
-        }
-    }
-
-    pub fn error(msg: String, duration_ms: i64) -> Self {
-        Self {
-            success: false,
-            exit_code: None,
-            stdout: String::new(),
-            stderr: String::new(),
-            duration_ms,
-            error_msg: Some(msg),
-        }
-    }
-}
-
-/// Hook execution log entry
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HookLogEntry {
-    pub id: i64,
-    pub hook_id: Option<i64>,
-    pub hook_name: Option<String>,
-    pub trigger: String,
-    pub todo_id: Option<i64>,
-    pub args_sent: Option<String>,
-    pub env_sent: Option<String>,
-    pub exit_code: Option<i32>,
-    pub stdout: Option<String>,
-    pub stderr: Option<String>,
-    pub duration_ms: Option<i64>,
-    pub success: Option<bool>,
-    pub error_msg: Option<String>,
-    pub created_at: String,
-}
-
-// API types for CRUD operations
-
-#[derive(Debug, Deserialize)]
-pub struct CreateHookRequest {
-    pub name: String,
-    pub description: Option<String>,
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    pub trigger: String,
-    pub filter: Option<HookFilter>,
-    pub action: HookAction,
-    #[serde(default = "default_async")]
-    pub is_async: bool,
-}
-
-fn default_true() -> bool {
-    true
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UpdateHookRequest {
-    pub name: Option<String>,
-    pub description: Option<String>,
-    pub enabled: Option<bool>,
-    pub trigger: Option<String>,
-    pub filter: Option<HookFilter>,
-    pub action: Option<HookAction>,
-    pub is_async: Option<bool>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct HookResponse {
-    pub id: i64,
-    pub name: String,
-    pub description: Option<String>,
-    pub enabled: bool,
-    pub trigger: String,
-    pub filter: Option<HookFilter>,
-    pub action: HookAction,
-    pub is_async: bool,
-    pub created_at: Option<String>,
-    pub updated_at: Option<String>,
-}
-
-impl From<HookRule> for HookResponse {
-    fn from(rule: HookRule) -> Self {
-        Self {
-            id: rule.id.unwrap_or(0),
-            name: rule.name,
-            description: rule.description,
-            enabled: rule.enabled,
-            trigger: rule.trigger.as_str().to_string(),
-            filter: Some(rule.filter),
-            action: rule.action,
-            is_async: rule.is_async,
-            created_at: None,
-            updated_at: None,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UpdateGlobalHookConfigRequest {
-    pub enabled: Option<bool>,
-    pub default_timeout_secs: Option<u64>,
-    pub max_concurrency: Option<u64>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct GlobalHookConfigResponse {
-    pub enabled: bool,
-    pub default_timeout_secs: u64,
-    pub max_concurrency: u64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UpdateTodoHookRequest {
-    pub hook_mode: Option<String>,
-    pub override_enabled: Option<bool>,
-    pub rule_ids: Option<Vec<i64>>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct TodoHookConfigResponse {
-    pub todo_id: i64,
-    pub hook_mode: String,
-    pub override_enabled: bool,
-    pub rule_ids: Vec<i64>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct HookLogQuery {
-    #[serde(default)]
-    pub hook_id: Option<i64>,
-    #[serde(default)]
-    pub todo_id: Option<i64>,
-    #[serde(default)]
-    pub status: Option<String>,
-    #[serde(default)]
-    pub page: i64,
-    #[serde(default = "default_limit")]
-    pub limit: i64,
-}
-
-fn default_limit() -> i64 {
-    50
-}
-
-#[derive(Debug, Serialize)]
-pub struct HookLogPage {
-    pub logs: Vec<HookLogEntry>,
-    pub total: i64,
-    pub page: i64,
-    pub limit: i64,
 }

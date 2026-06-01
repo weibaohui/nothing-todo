@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { FaSquare } from 'react-icons/fa';
+import type { TodoHookItem } from '../utils/database/hooks';
 
 export interface Todo {
   id: number;
@@ -18,6 +19,7 @@ export interface Todo {
   task_id?: string | null;
   workspace?: string | null;
   worktree_enabled?: boolean;
+  hooks?: TodoHookItem[];
 }
 
 export interface Tag {

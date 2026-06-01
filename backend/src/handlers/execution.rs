@@ -165,7 +165,6 @@ pub async fn execute_handler(
         tx: state.tx.clone(),
         task_manager: state.task_manager.clone(),
         config: state.config.clone(),
-        hook_service: Some(state.hook_service.clone()),
         todo_id: req.todo_id,
         message,
         req_executor: req.executor,
@@ -173,6 +172,7 @@ pub async fn execute_handler(
         params: req.params,
         resume_session_id: None,
         resume_message: None,
+        chain: vec![],
     })
     .await;
     let result = result?;
@@ -394,7 +394,6 @@ pub async fn resume_execution_handler(
         tx: state.tx.clone(),
         task_manager: state.task_manager.clone(),
         config: state.config.clone(),
-        hook_service: Some(state.hook_service.clone()),
         todo_id,
         message,
         req_executor: record.executor.clone(),
@@ -402,6 +401,7 @@ pub async fn resume_execution_handler(
         params: None,
         resume_session_id: Some(resume_session_id),
         resume_message,
+        chain: vec![],
     })
     .await?;
     let record_id = result.record_id
@@ -546,7 +546,6 @@ pub async fn smart_create_handler(
         tx: state.tx.clone(),
         task_manager: state.task_manager.clone(),
         config: state.config.clone(),
-        hook_service: Some(state.hook_service.clone()),
         todo_id,
         message,
         req_executor: None,
@@ -554,6 +553,7 @@ pub async fn smart_create_handler(
         params: Some(params),
         resume_session_id: None,
         resume_message: None,
+        chain: vec![],
     })
     .await?;
 

@@ -1,347 +1,307 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
-use tokio::sync::{Semaphore, OwnedSemaphorePermit};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
-use crate::db::Database;
 use crate::executor_service::RunTodoExecutionRequest;
 use crate::handlers::execution::start_todo_execution;
-use crate::hooks::db::HookDb;
 use crate::hooks::models::*;
+use crate::models::Todo;
 use crate::service_context::ServiceContext;
 
+/// Hook dispatch engine.
+///
+/// Hooks live on the parent todo (a JSON array stored in `todos.hooks`). When
+/// the parent emits a `trigger`, the service reads its own hook list, filters
+/// to matches, and starts the target todos one by one.
+///
+/// Cycle protection: every `HookContext` carries a `chain` of todo ids already
+/// visited on the current dispatch path. A hook whose target appears in the
+/// chain is rejected, which blocks A → B → A and any longer cycle.
 pub struct HookService {
     ctx: ServiceContext,
-    semaphore: Arc<Semaphore>,
 }
 
 impl HookService {
-    pub fn new(ctx: ServiceContext, max_concurrency: u64, _default_timeout_secs: u64) -> Self {
-        Self {
-            ctx,
-            semaphore: Arc::new(Semaphore::new(max_concurrency as usize)),
-        }
+    pub fn new(ctx: ServiceContext) -> Self {
+        Self { ctx }
     }
 
-    /// Fire before_* hooks synchronously - returns error if any hook fails
-    pub async fn fire_before_hooks(
-        &self,
-        ctx: &HookContext,
-        tag_ids: &[i64],
-    ) -> Result<(), String> {
-        let rules = self.get_matching_rules(ctx.trigger, ctx, tag_ids).await?;
-
-        // Only execute sync (before_*) hooks
-        let sync_hooks: Vec<_> = rules.into_iter().filter(|r| r.trigger.is_sync()).collect();
-
-        for rule in sync_hooks {
-            if !self.matches_filter(&rule.filter, ctx, tag_ids) {
-                continue;
-            }
-
-            let permit = self.acquire_permit().await;
-
-            let result = self
-                .execute_hook(&rule, ctx)
-                .await;
-
-            drop(permit);
-
-            if result.success {
-                info!(
-                    hook_id = rule.id,
-                    hook_name = %rule.name,
-                    todo_id = ctx.todo_id,
-                    "before hook executed successfully"
-                );
-            } else {
-                let msg = format!(
-                    "Hook '{}' failed: {}",
-                    rule.name,
-                    result.error_msg.unwrap_or_else(|| "unknown error".to_string())
-                );
-                error!(hook_id = rule.id, "{}", msg);
-                return Err(msg);
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Fire after_* hooks asynchronously - does not block
-    pub fn fire_after_hooks(self: Arc<Self>, ctx: HookContext, tag_ids: Vec<i64>) {
+    /// Fire the hooks attached to `todo_id` whose trigger matches `ctx.trigger`.
+    ///
+    /// Used for `after_create` / `after_delete` / state-change triggers —
+    /// fire-and-forget. Failures are logged but never bubble up to the caller,
+    /// because the lifecycle event has already happened by the time we run.
+    pub fn fire_for_todo(self: Arc<Self>, todo_id: i64, ctx: HookContext) {
         let this = self.clone();
 
         tokio::spawn(async move {
-            let trigger = ctx.trigger;
-            if !trigger.is_sync() {
-                // Use get_matching_rules to respect per-todo hook config (inherit/custom/disabled)
-                let rules = match this.get_matching_rules(trigger, &ctx, &tag_ids).await {
-                    Ok(r) => r.into_iter().filter(|r| !r.trigger.is_sync()).collect::<Vec<_>>(),
-                    Err(_) => return,
-                };
-
-                for rule in rules {
-                    if !this.matches_filter(&rule.filter, &ctx, &tag_ids) {
-                        continue;
-                    }
-
-                    let permit = this.acquire_permit().await;
-                    let ctx_clone = ctx.clone();
-                    let db_clone = this.ctx.db.clone();
-                    let executor_registry = this.ctx.executor_registry.clone();
-                    let tx = this.ctx.tx.clone();
-                    let task_manager = this.ctx.task_manager.clone();
-                    let config = this.ctx.config.clone();
-
-                    tokio::spawn(async move {
-                        let start = Instant::now();
-                        let result = execute_target_todo(
-                            &db_clone,
-                            &executor_registry,
-                            tx,
-                            &task_manager,
-                            &config,
-                            &rule,
-                            &ctx_clone,
-                        )
-                        .await;
-                        let duration_ms = start.elapsed().as_millis() as i64;
-
-                        let args_json = serde_json::to_string(&ctx_clone).ok();
-                        let _ = HookDb::insert_hook_log(
-                            &db_clone.conn,
-                            rule.id,
-                            Some(rule.name.clone()),
-                            ctx_clone.trigger.as_str(),
-                            ctx_clone.todo_id,
-                            args_json.as_deref(),
-                            None,
-                            result.exit_code,
-                            Some(&result.stdout),
-                            Some(&result.stderr),
-                            duration_ms,
-                            result.success,
-                            result.error_msg.as_deref(),
-                        )
-                        .await;
-
-                        drop(permit);
-                    });
+            let todo = match this.ctx.db.get_todo(todo_id).await {
+                Ok(Some(t)) => t,
+                Ok(None) => {
+                    warn!("hook fire skipped: todo #{} not found", todo_id);
+                    return;
                 }
+                Err(e) => {
+                    warn!(
+                        "hook fire skipped: failed to load todo #{}: {}",
+                        todo_id, e
+                    );
+                    return;
+                }
+            };
+
+            let hooks = matching_items(&todo, ctx.trigger);
+            for item in hooks {
+                let next_chain = append_to_chain(&ctx.chain, todo_id);
+                if next_chain.contains(&item.target_todo_id) {
+                    warn!(
+                        "hook #{} skipped: target todo #{} already in chain {:?}",
+                        item.id, item.target_todo_id, next_chain
+                    );
+                    continue;
+                }
+
+                let _ = execute_target_todo(
+                    &this.ctx,
+                    item,
+                    &todo,
+                    next_chain,
+                )
+                .await;
             }
         });
     }
 
-    async fn get_matching_rules(
-        &self,
-        trigger: HookTrigger,
-        ctx: &HookContext,
-        _tag_ids: &[i64],
-    ) -> Result<Vec<HookRule>, String> {
-        // Get global config
-        let global_config = HookDb::get_global_config(&self.ctx.db.conn)
-            .await
-            .map_err(|e| e.to_string())?;
+    /// Fire a single source todo's hooks with the given context. The chain is
+    /// taken from `ctx.chain` and extended with `source_todo_id`.
+    pub async fn fire_for_source(
+        self: Arc<Self>,
+        source_todo_id: i64,
+        ctx: HookContext,
+    ) {
+        let this = self.clone();
 
-        if !global_config.enabled {
-            return Ok(vec![]);
+        let todo = match this.ctx.db.get_todo(source_todo_id).await {
+            Ok(Some(t)) => t,
+            Ok(None) => {
+                warn!("hook fire skipped: source todo #{} not found", source_todo_id);
+                return;
+            }
+            Err(e) => {
+                warn!(
+                    "hook fire skipped: failed to load source todo #{}: {}",
+                    source_todo_id, e
+                );
+                return;
+            }
+        };
+
+        let hooks = matching_items(&todo, ctx.trigger);
+        for item in hooks {
+            let next_chain = append_to_chain(&ctx.chain, source_todo_id);
+            if next_chain.contains(&item.target_todo_id) {
+                warn!(
+                    "hook #{} skipped: target todo #{} already in chain {:?}",
+                    item.id, item.target_todo_id, next_chain
+                );
+                continue;
+            }
+
+            let _ = execute_target_todo(
+                &this.ctx,
+                item,
+                &todo,
+                next_chain,
+            )
+            .await;
         }
+    }
 
-        // Get hooks by trigger
-        let mut rules = HookDb::get_hooks_by_trigger(&self.ctx.db.conn, trigger)
+    /// Synchronous variant used by `before_create` / `before_delete` so the
+    /// caller can fail the lifecycle event on a hook error. Walks the source
+    /// todo's hooks and awaits each target execution; the chain prevents
+    /// recursion.
+    pub async fn fire_before(
+        self: Arc<Self>,
+        source_todo_id: i64,
+        ctx: &HookContext,
+    ) -> Result<(), String> {
+        let todo = self
+            .ctx
+            .db
+            .get_todo(source_todo_id)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("failed to load todo #{}: {}", source_todo_id, e))?
+            .ok_or_else(|| format!("todo #{} not found", source_todo_id))?;
 
-        // If this todo has custom hooks, use those instead
-        if let Some(todo_id) = ctx.todo_id {
-            let todo_config = HookDb::get_todo_hook_config(&self.ctx.db.conn, todo_id)
-                .await
-                .map_err(|e| e.to_string())?;
+        let hooks = matching_items(&todo, ctx.trigger);
+        let start = Instant::now();
+        for item in hooks {
+            let next_chain = append_to_chain(&ctx.chain, source_todo_id);
+            if next_chain.contains(&item.target_todo_id) {
+                warn!(
+                    "before-hook #{} skipped: target todo #{} already in chain {:?}",
+                    item.id, item.target_todo_id, next_chain
+                );
+                continue;
+            }
 
-            if let Some(config) = todo_config {
-                match config.hook_mode {
-                    HookMode::Disabled => return Ok(vec![]),
-                    HookMode::Custom => {
-                        // Get custom rule IDs for this todo
-                        let custom_rule_ids = HookDb::get_todo_hook_rule_ids(&self.ctx.db.conn, todo_id)
-                            .await
-                            .map_err(|e| e.to_string())?;
-
-                        if !custom_rule_ids.is_empty() {
-                            // Filter rules to only those in custom_rule_ids
-                            rules.retain(|r| r.id.map(|id| custom_rule_ids.contains(&id)).unwrap_or(false));
-                        }
-                    }
-                    HookMode::Inherit => {
-                        // Use global defaults + trigger-specific hooks
-                        let default_ids = HookDb::get_global_default_hook_ids(&self.ctx.db.conn)
-                            .await
-                            .map_err(|e| e.to_string())?;
-
-                        if !default_ids.is_empty() {
-                            rules.retain(|r| r.id.map(|id| default_ids.contains(&id)).unwrap_or(false));
-                        }
-                    }
+            match execute_target_todo(&self.ctx, item, &todo, next_chain).await {
+                Ok(()) => {}
+                Err(e) => {
+                    return Err(format!("before-hook #{} failed: {}", item.id, e));
                 }
             }
-        } else {
-            // For new todos (no todo_id), use global defaults
-            let default_ids = HookDb::get_global_default_hook_ids(&self.ctx.db.conn)
-                .await
-                .map_err(|e| e.to_string())?;
-
-            if !default_ids.is_empty() {
-                rules.retain(|r| r.id.map(|id| default_ids.contains(&id)).unwrap_or(false));
-            }
         }
-
-        Ok(rules)
-    }
-
-    fn matches_filter(&self, filter: &HookFilter, ctx: &HookContext, tag_ids: &[i64]) -> bool {
-        filter.matches(&ctx.todo_title, tag_ids)
-    }
-
-    async fn acquire_permit(&self) -> OwnedSemaphorePermit {
-        self.semaphore.clone().acquire_owned().await.expect("semaphore closed")
-    }
-
-    async fn execute_hook(&self, rule: &HookRule, ctx: &HookContext) -> HookResult {
-        execute_target_todo(
-            &self.ctx.db,
-            &self.ctx.executor_registry,
-            self.ctx.tx.clone(),
-            &self.ctx.task_manager,
-            &self.ctx.config,
-            rule,
-            ctx,
-        )
-        .await
+        info!(
+            "before-hook pass for todo #{} took {:?}",
+            source_todo_id,
+            start.elapsed()
+        );
+        Ok(())
     }
 }
 
-/// Trigger the target todo associated with this hook rule.
+fn append_to_chain(chain: &[i64], source: i64) -> Vec<i64> {
+    let mut next = chain.to_vec();
+    if !next.contains(&source) {
+        next.push(source);
+    }
+    next
+}
+
+/// Long-lived, multi-threaded tokio runtime used to dispatch hook-triggered
+/// executions. See `execute_target_todo` for why a shared runtime is required.
+fn hook_runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .worker_threads(2)
+            .thread_name("hook-runtime")
+            .build()
+            .expect("failed to build hook runtime")
+    })
+}
+
+/// Iterate a todo's enabled hooks that match the given trigger.
+fn matching_items(todo: &Todo, trigger: HookTrigger) -> Vec<&TodoHookItem> {
+    todo.hooks
+        .iter()
+        .filter(|item| item.enabled && item.trigger == trigger)
+        .collect()
+}
+
+/// Look up the most recent successful execution record for `source_id` and
+/// return its `result` string. Returns `None` if the source has never run,
+/// has no successful runs, or its most recent run produced an empty result.
 ///
-/// Returns a `HookResult` whose `stdout` field carries a JSON summary on success
-/// and whose `error_msg` carries the reason on failure.
-async fn execute_target_todo(
-    db: &Arc<Database>,
-    executor_registry: &Arc<crate::adapters::ExecutorRegistry>,
-    tx: tokio::sync::broadcast::Sender<crate::handlers::ExecEvent>,
-    task_manager: &Arc<crate::task_manager::TaskManager>,
-    config: &Arc<tokio::sync::RwLock<crate::config::Config>>,
-    rule: &HookRule,
-    ctx: &HookContext,
-) -> HookResult {
-    // 1. Look up the target todo
-    let target_todo = match db.get_todo(rule.action.target_todo_id).await {
-        Ok(Some(t)) => t,
-        Ok(None) => {
-            let msg = format!(
-                "Hook '{}' target todo #{} not found",
-                rule.name, rule.action.target_todo_id
-            );
-            if rule.action.skip_if_missing {
-                warn!("{}", msg);
-                return HookResult::success(
-                    0,
-                    format!("{{\"skipped\": true, \"reason\": \"target todo not found\"}}"),
-                    String::new(),
-                    0,
-                );
-            }
-            return HookResult::error(msg, 0);
-        }
+/// This is the data that lands in the target todo's `{{message}}` placeholder
+/// when a hook fires — the "what did the previous executor actually produce"
+/// half of the chain. A single `LIMIT 1 WHERE status = success` query is
+/// enough; we don't need the full history.
+async fn lookup_source_result(ctx: &ServiceContext, source_id: i64) -> Option<String> {
+    let query = crate::db::execution::ExecutionRecordQuery {
+        todo_id: source_id,
+        limit: 1,
+        offset: 0,
+        status: Some("success"),
+    };
+    match ctx.db.get_execution_records(query).await {
+        Ok((records, _)) => records.into_iter().find_map(|r| r.result),
         Err(e) => {
-            return HookResult::error(
-                format!("Failed to look up target todo: {}", e),
-                0,
+            warn!(
+                "hook: failed to load source todo #{} latest result: {}",
+                source_id, e
             );
+            None
+        }
+    }
+}
+
+async fn execute_target_todo(
+    ctx: &ServiceContext,
+    item: &TodoHookItem,
+    source: &Todo,
+    chain: Vec<i64>,
+) -> Result<(), String> {
+    let target = ctx
+        .db
+        .get_todo(item.target_todo_id)
+        .await
+        .map_err(|e| format!("lookup target todo #{}: {}", item.target_todo_id, e))?
+        .ok_or_else(|| format!("target todo #{} not found", item.target_todo_id));
+
+    let target = match target {
+        Ok(t) => t,
+        Err(msg) => {
+            if item.skip_if_missing {
+                warn!("{}", msg);
+                return Ok(());
+            }
+            return Err(msg);
         }
     };
 
-    // 2. Determine the message to send to the target todo
-    let raw_message = rule
-        .action
-        .prompt_template
-        .clone()
-        .unwrap_or_else(|| target_todo.prompt.clone());
-
-    // 3. Build params from hook context
-    let mut params = ctx.to_params();
-    // Also include the source todo's full context for easy templating
-    params.insert("source_todo_id".to_string(), ctx.todo_id.map(|id| id.to_string()).unwrap_or_default());
-    params.insert("source_todo_title".to_string(), ctx.todo_title.clone());
-
-    // 4. Trigger the target todo
+    // The target todo's own `prompt` is the template (it may contain a
+    // `{{message}}` placeholder). We pass two things in `params`:
+    // - `{{message}}` ← the source todo's most recent successful execution
+    //   `result` (what its executor actually produced). Falls back to the
+    //   source's `prompt` when the source has no execution record yet (e.g.,
+    //   `after_create` fires before anything has run).
     //
-    // NOTE: We dispatch the call to `start_todo_execution` on a dedicated
-    // thread with its own runtime to break an async type-cycle. The path is:
-    // run_todo_execution -> fire_before_hooks -> ... -> start_todo_execution
-    // -> run_todo_execution. Without runtime-level indirection, Rust
-    // computes an infinitely-sized future. Running the call in a fresh
-    // runtime preserves the "block the hook caller until the record is
-    // created" semantic — we still `await` the oneshot reply, so a sync hook
-    // caller still gets the result before returning.
-    let trigger_type = format!("hook:{}", ctx.trigger.as_str());
+    // `run_todo_execution_with_params` does the substitution and the
+    // executor sees the final composed message.
+    let source_result = lookup_source_result(ctx, source.id).await;
+    let message_payload = build_hook_message(source, source_result.as_deref());
+    let message = target.prompt.clone();
+    let mut params = std::collections::HashMap::new();
+    params.insert("message".to_string(), message_payload);
+
+    let trigger_type = format!("hook:{}", item.trigger.as_str());
     let request = RunTodoExecutionRequest {
-        db: db.clone(),
-        executor_registry: executor_registry.clone(),
-        tx: tx.clone(),
-        task_manager: task_manager.clone(),
-        config: config.clone(),
-        hook_service: None,
-        todo_id: target_todo.id,
-        message: raw_message,
-        req_executor: target_todo.executor.clone().or(ctx.executor.clone()),
+        db: ctx.db.clone(),
+        executor_registry: ctx.executor_registry.clone(),
+        tx: ctx.tx.clone(),
+        task_manager: ctx.task_manager.clone(),
+        config: ctx.config.clone(),
+        todo_id: target.id,
+        message,
+        req_executor: target.executor.clone(),
         trigger_type,
         params: Some(params),
         resume_session_id: None,
         resume_message: None,
+        chain,
     };
 
+    // Dispatch on a dedicated hook runtime. A `std::thread::spawn` is needed
+    // to break the async type-cycle:
+    //   run_todo_execution → (terminal-state hook in spawned task) → fire_for_todo
+    //   → execute_target_todo → start_todo_execution → run_todo_execution.
+    // `block_on` returns a concrete output type (not a future), so the type
+    // cycle is severed at the thread boundary.
+    //
+    // The runtime itself must outlive the helper thread: `run_todo_execution`
+    // creates the execution record synchronously, then `tokio::spawn`s the
+    // long-running task that drives the child process and writes the final
+    // status. That spawned task is what actually waits for the executor to
+    // finish — if the runtime is dropped when the helper thread exits, the
+    // spawned task is aborted and the record stays stuck in "running"
+    // forever. A shared, multi-threaded runtime kept alive via `OnceLock`
+    // lets the spawned task continue after the helper thread is gone.
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    let runtime = hook_runtime();
     std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("failed to build runtime for hook trigger");
-        let result = rt.block_on(start_todo_execution(request));
+        let result = runtime.block_on(start_todo_execution(request));
         let _ = reply_tx.send(result);
     });
 
-    let result = match reply_rx.await {
-        Ok(r) => r,
-        Err(_) => {
-            return HookResult::error(
-                format!("Hook trigger thread for todo #{} dropped reply channel", target_todo.id),
-                0,
-            );
-        }
-    };
-
-    match result {
-        Ok(exec_result) => {
-            let summary = serde_json::json!({
-                "target_todo_id": target_todo.id,
-                "target_todo_title": target_todo.title,
-                "task_id": exec_result.task_id,
-                "record_id": exec_result.record_id,
-            });
-            HookResult::success(
-                0,
-                summary.to_string(),
-                String::new(),
-                0,
-            )
-        }
-        Err(e) => HookResult::error(
-            format!(
-                "Failed to trigger target todo #{} '{}': {:?}",
-                target_todo.id, target_todo.title, e
-            ),
-            0,
-        ),
+    match reply_rx.await {
+        Ok(_) => Ok(()),
+        Err(_) => Err(format!(
+            "hook trigger thread for todo #{} dropped reply channel",
+            target.id
+        )),
     }
 }

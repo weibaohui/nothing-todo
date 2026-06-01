@@ -107,6 +107,9 @@ pub struct Todo {
     pub workspace: Option<String>,
     #[serde(default)]
     pub worktree_enabled: bool,
+    /// Inline hooks owned by this todo. Parsed from the `todos.hooks` column.
+    #[serde(default)]
+    pub hooks: Vec<crate::hooks::TodoHookItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -310,6 +313,9 @@ pub struct UpdateTodoRequest {
     pub workspace: Option<String>,
     #[serde(default)]
     pub worktree_enabled: Option<bool>,
+    /// Replace the todo's inline hooks. `None` keeps the existing list.
+    #[serde(default)]
+    pub hooks: Option<Vec<crate::hooks::TodoHookItem>>,
 }
 
 #[derive(Deserialize, Serialize)]

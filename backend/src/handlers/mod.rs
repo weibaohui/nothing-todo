@@ -159,7 +159,6 @@ pub mod project_directory;
 pub(crate) mod todo_template;
 pub mod custom_template;
 pub mod webhook;
-pub mod hook;
 
 // WebSocket handler
 pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> Response {
@@ -377,11 +376,7 @@ pub fn create_app(
         task_manager: task_manager.clone(),
         config: config.clone(),
     };
-    let hook_service = Arc::new(HookService::new(
-        hook_ctx,
-        5,  // max_concurrency
-        30, // default_timeout_secs
-    ));
+    let hook_service = Arc::new(HookService::new(hook_ctx));
 
     let state = AppState {
         db,
@@ -491,14 +486,6 @@ pub fn create_app(
         .route("/xyz/custom-templates/unsubscribe", post(custom_template::unsubscribe_custom_template))
         .route("/xyz/custom-templates/sync", post(custom_template::sync_custom_template))
         .route("/xyz/custom-templates/auto-sync", put(custom_template::update_auto_sync_config))
-        // Hook management APIs
-        .route("/xyz/hooks", get(hook::list_hooks).post(hook::create_hook))
-        .route("/xyz/hooks/{id}", get(hook::get_hook).put(hook::update_hook).delete(hook::delete_hook))
-        .route("/xyz/hooks/{id}/test", post(hook::test_hook))
-        .route("/xyz/hooks/config", get(hook::get_global_config).put(hook::update_global_config))
-        .route("/xyz/hooks/defaults", put(hook::set_global_default_hooks))
-        .route("/xyz/todos/{id}/hooks", get(hook::get_todo_hooks).put(hook::update_todo_hooks))
-        .route("/xyz/hooks/logs", get(hook::get_hook_logs).delete(hook::clear_hook_logs))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
         .layer(CompressionLayer::new())
         .layer(

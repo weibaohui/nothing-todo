@@ -104,7 +104,6 @@ impl MessageDebounce {
                         tx,
                         task_manager,
                         config,
-                        hook_service: None,
                         todo_id: last.todo_id,
                         message: last.todo_prompt.clone(),
                         req_executor: last.executor.clone(),
@@ -112,6 +111,7 @@ impl MessageDebounce {
                         params: Some(merged_params),
                         resume_session_id: None,
                         resume_message: None,
+                        chain: vec![],
                     })
                     .await;
 

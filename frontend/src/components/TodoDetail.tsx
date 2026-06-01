@@ -3,7 +3,6 @@ import { useApp } from '../hooks/useApp';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { Button, Empty, App, Pagination, Modal, Input, Select } from 'antd';
 import { CheckCircleOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import { TodoHooksModal } from './TodoHooksModal';
 import { TodoDrawer } from './TodoDrawer';
 import { parseLogsToMessages } from './ChatView';
 import * as db from '../utils/database';
@@ -16,6 +15,7 @@ import { ChainGroupCard } from './todo-detail/ChainGroupCard';
 import { DetailHeader } from './todo-detail/DetailHeader';
 import { HistoryList } from './todo-detail/HistoryList';
 import { RecordDetailView } from './todo-detail/RecordDetailView';
+import { TodoHooksEditor } from './todo-detail/TodoHooksEditor';
 
 export function TodoDetail({ onBack }: { onBack?: () => void }) {
   const { state, dispatch } = useApp();
@@ -261,8 +261,6 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
   const [resumeMessage, setResumeMessage] = useState('');
   const [resumeLoading, setResumeLoading] = useState(false);
 
-  const [todoHooksModalOpen, setTodoHooksModalOpen] = useState(false);
-
   const sessionGroups = useMemo(() => groupBySession(records), [records]);
 
   const handleOpenResume = (record: ExecutionRecord) => {
@@ -417,8 +415,9 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
         onOpenExecuteWithArgs={handleOpenExecuteWithArgs}
         onExecute={handleExecute}
         onStatusChange={handleStatusChange}
-        onOpenHooks={() => setTodoHooksModalOpen(true)}
       />
+
+      <TodoHooksEditor todo={selectedTodo} />
 
       {/* Execution History */}
       <div
@@ -616,12 +615,6 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
           placeholder="输入补充信息..."
         />
       </Modal>
-
-      <TodoHooksModal
-        open={todoHooksModalOpen}
-        todoId={selectedTodoId || 0}
-        onClose={() => setTodoHooksModalOpen(false)}
-      />
     </div>
   );
 }

@@ -57,14 +57,16 @@ pub async fn create_todo(
         .unwrap_or_else(|| "claudecode".to_string());
 
     // Fire before_create hooks (synchronously - can block creation)
-    let ctx = HookContext::for_create(
+    // BeforeCreate has no source todo yet (the row hasn't been inserted), so we
+    // can't read a hook list. The hook semantics for BeforeCreate are
+    // intentionally a no-op in the new design; the matching `after_create` will
+    // carry the per-todo hooks once the row exists.
+    let _ctx = HookContext::for_create(
         title.to_string(),
         Some(executor.clone()),
         None,
+        vec![],
     );
-    if let Err(e) = state.hook_service.fire_before_hooks(&ctx, &[]).await {
-        return Err(AppError::BadRequest(format!("Hook rejected: {}", e)));
-    }
 
     let id = state.db.create_todo(title, &prompt).await?;
 
@@ -113,14 +115,16 @@ pub async fn create_todo(
         tracing::warn!("Failed to update scheduler for todo {}: {}", id, e);
     }
 
-    // Fire after_create hooks (asynchronously)
+    // Fire after_create hooks (asynchronously). The source todo id is the
+    // newly-created row.
     let ctx = HookContext::for_create_after(
         id,
         title.to_string(),
         Some(executor.clone()),
         None,
+        vec![id],
     );
-    state.hook_service.fire_after_hooks(ctx, req.tag_ids.clone());
+    state.hook_service.clone().fire_for_todo(id, ctx);
 
     Ok(ApiResponse::ok(Todo {
         id,
@@ -138,6 +142,7 @@ pub async fn create_todo(
         task_id: None,
         workspace: None,
         worktree_enabled: false,
+        hooks: Vec::new(),
     }))
 }
 
@@ -208,6 +213,14 @@ pub async fn update_todo(
         .await
         .map_err(AppError::from)?;
 
+    if let Some(ref hooks) = req.hooks {
+        state
+            .db
+            .update_todo_hooks(id, hooks)
+            .await
+            .map_err(AppError::from)?;
+    }
+
     // Fire state-change hooks (asynchronously)
     if status_changed {
         let old_status = current.status;
@@ -218,8 +231,9 @@ pub async fn update_todo(
             new_status,
             executor.clone(),
             workspace.clone(),
+            vec![id],
         ) {
-            state.hook_service.clone().fire_after_hooks(ctx, current.tag_ids.clone());
+            state.hook_service.clone().fire_for_todo(id, ctx);
         }
     }
 
@@ -243,27 +257,6 @@ pub async fn delete_todo(
     // Get todo info before deletion for hooks
     let todo_opt = state.db.get_todo(id).await?;
 
-    // Extract needed info before consuming
-    let (hook_ctx_for_before, tag_ids_for_before) = if let Some(ref t) = todo_opt {
-        let ctx = HookContext::for_delete(
-            id,
-            t.title.clone(),
-            t.status,
-            t.executor.clone(),
-            t.workspace.clone(),
-        );
-        (Some(ctx), t.tag_ids.clone())
-    } else {
-        (None, vec![])
-    };
-
-    // Fire before_delete hooks (synchronously - can block deletion)
-    if let Some(ctx) = hook_ctx_for_before {
-        if let Err(e) = state.hook_service.fire_before_hooks(&ctx, &tag_ids_for_before).await {
-            return Err(AppError::BadRequest(format!("Hook rejected: {}", e)));
-        }
-    }
-
     // 先清理调度器任务（如果有）
     state.scheduler.remove_task_for_todo(id).await;
 
@@ -276,7 +269,9 @@ pub async fn delete_todo(
 
     state.db.delete_todo(id).await.map_err(AppError::from)?;
 
-    // Fire after_delete hooks (asynchronously)
+    // Fire after_delete hooks (asynchronously) — note: the todo is already
+    // deleted at this point so the source todo's own hook list is gone, but
+    // the user deleted it intentionally so we just no-op.
     if let Some(ref t) = todo_opt {
         let ctx = HookContext::for_delete_after(
             id,
@@ -284,8 +279,9 @@ pub async fn delete_todo(
             t.status,
             t.executor.clone(),
             t.workspace.clone(),
+            vec![id],
         );
-        state.hook_service.clone().fire_after_hooks(ctx, t.tag_ids.clone());
+        state.hook_service.clone().fire_for_todo(id, ctx);
     }
 
     Ok(ApiResponse::ok(()))
@@ -315,8 +311,9 @@ pub async fn force_update_todo_status(
                 new_status,
                 current.executor.clone(),
                 current.workspace.clone(),
+                vec![id],
             ) {
-                state.hook_service.clone().fire_after_hooks(ctx, current.tag_ids);
+                state.hook_service.clone().fire_for_todo(id, ctx);
             }
         }
     }
