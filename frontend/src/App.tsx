@@ -280,7 +280,7 @@ function AppContent() {
               ) : activeView === 'memorial' ? (
                 <MemorialBoard onBack={isMobile ? handleBackToList : undefined} />
               ) : activeView === 'relation' ? (
-                <RelationMap />
+                <RelationMap onBack={isMobile ? handleBackToList : undefined} />
               ) : (
                 <Dashboard onBack={isMobile ? handleBackToList : undefined} />
               )}

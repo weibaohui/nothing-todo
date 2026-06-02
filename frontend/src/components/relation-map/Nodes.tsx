@@ -63,7 +63,7 @@ export function TodoNode({ data, selected }: NodeProps & { data: TodoNodeData })
 /** Webhook 节点 */
 export function WebhookNode({ data, selected }: NodeProps & { data: WebhookNodeData }) {
   return (
-    <div className={`relation-map-node webhook-node ${selected ? 'selected' : ''}`}>
+    <div className={`relation-map-node source-node webhook-node ${selected ? 'selected' : ''}`}>
       <Handle type="source" position={Position.Right} className="relation-map-handle" />
 
       <div className="source-node-icon" style={{ background: '#722ed1' }}>
