@@ -25,20 +25,23 @@ export function SkillsOverview() {
   const [exportMode, setExportMode] = useState<'import' | 'export'>('export');
   const [initialSelectedSkills, setInitialSelectedSkills] = useState<string[] | undefined>(undefined);
 
-  useEffect(() => {
+  const loadData = () => {
     setLoading(true);
     db.getSkillsList()
       .then(data => {
         setData(data);
-        const withSkills = data.find(e => e.skills.length > 0);
-        if (withSkills) {
-          setSelectedExecutor(withSkills.executor);
-        } else if (data.length > 0) {
-          setSelectedExecutor(data[0].executor);
-        }
+        setSelectedExecutor(prev => {
+          if (prev && data.some(e => e.executor === prev)) return prev;
+          const withSkills = data.find(e => e.skills.length > 0);
+          return withSkills?.executor ?? data[0]?.executor ?? '';
+        });
       })
       .catch(err => message.error('加载失败: ' + err.message))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadData();
   }, []);
 
   const handleSkillClick = (skill: SkillMeta, executor: string) => {
@@ -179,6 +182,8 @@ export function SkillsOverview() {
         executorLabel={EXECUTORS.find(e => e.value === selectedExecutor)?.label || selectedExecutor}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
+        onSyncSuccess={loadData}
+        onDeleteSuccess={loadData}
       />
 
       <ImportExportModal
