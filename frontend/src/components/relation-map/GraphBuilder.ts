@@ -123,6 +123,10 @@ function buildWebhookRelations(
 
   for (const wh of webhooks) {
     if (wh.default_todo_id == null) continue;
+    // 仅在目标 Todo 存在时，才创建 Webhook 节点及其边
+    // 避免出现没有连线的孤立 Webhook 节点
+    if (!existingTodoIds.has(wh.default_todo_id)) continue;
+
     nodes.push({
       id: `webhook-${wh.id}`,
       type: 'webhook',
@@ -136,20 +140,17 @@ function buildWebhookRelations(
     });
 
     const targetId = `todo-${wh.default_todo_id}`;
-    // 只关联已存在的 todo 节点
-    if (existingTodoIds.has(wh.default_todo_id)) {
-      edges.push({
-        id: `webhook-edge-${wh.id}`,
-        source: `webhook-${wh.id}`,
-        target: targetId,
-        type: 'webhook',
-        data: {
-          webhookId: wh.id,
-          webhookName: wh.name,
-        },
-        animated: false,
-      });
-    }
+    edges.push({
+      id: `webhook-edge-${wh.id}`,
+      source: `webhook-${wh.id}`,
+      target: targetId,
+      type: 'webhook',
+      data: {
+        webhookId: wh.id,
+        webhookName: wh.name,
+      },
+      animated: false,
+    });
   }
 
   return { nodes, edges };
@@ -291,11 +292,14 @@ function applyLayout(nodes: RelationMapNode[], edges: RelationMapEdge[]): Relati
 
   while (queue.length > 0) {
     const { id: srcId, layer } = queue.shift()!;
+    // 防御环路：层级超过节点数则视为出现环路，停止继续提升
+    if (layer > nodes.length) continue;
     const targets = edgeFrom.get(srcId) || [];
     for (const tId of targets) {
       const current = layers.get(tId) ?? -1;
       const newLayer = layer + 1;
-      if (newLayer > current) {
+      // 同样限制 newLayer 不得超过节点数，避免在有向环上无限自增
+      if (newLayer > current && newLayer <= nodes.length) {
         layers.set(tId, newLayer);
         queue.push({ id: tId, layer: newLayer });
       }
@@ -348,6 +352,77 @@ function applyLayout(nodes: RelationMapNode[], edges: RelationMapEdge[]): Relati
   return result;
 }
 
+/** 收集被任意关系引用到的 Todo 节点和 id 集合（与 showHooks 解耦） */
+function collectReferencedTodoIds(
+  todos: Todo[],
+  webhooks: Webhook[],
+  config: Config | null,
+): { referencedTodoIds: Set<number>; todoNodes: RelationMapNode[] } {
+  const todoMap = new Map<number, Todo>();
+  for (const t of todos) {
+    todoMap.set(t.id, t);
+  }
+
+  const referencedTodoIds = new Set<number>();
+
+  // 1. Hook 关系中涉及的 Todo
+  for (const t of todos) {
+    if (t.hooks && t.hooks.length > 0) {
+      referencedTodoIds.add(t.id);
+      for (const h of t.hooks) {
+        if (h.enabled) referencedTodoIds.add(h.target_todo_id);
+      }
+    }
+  }
+
+  // 2. Webhook 的默认目标 Todo
+  for (const wh of webhooks) {
+    if (wh.default_todo_id != null) {
+      referencedTodoIds.add(wh.default_todo_id);
+    }
+  }
+
+  // 3. 飞书斜杠命令的目标 Todo
+  for (const rule of config?.slash_command_rules || []) {
+    if (rule.enabled) referencedTodoIds.add(rule.todo_id);
+  }
+
+  // 4. 飞书默认响应 Todo
+  if (config?.default_response_todo_id) {
+    referencedTodoIds.add(config.default_response_todo_id);
+  }
+
+  // 5. 启用了调度的 Todo
+  for (const t of todos) {
+    if (t.scheduler_enabled && t.scheduler_config) {
+      referencedTodoIds.add(t.id);
+    }
+  }
+
+  // 为所有被引用的 Todo 创建基础节点（与 showHooks 解耦）
+  const todoNodes: RelationMapNode[] = [];
+  for (const id of referencedTodoIds) {
+    const t = todoMap.get(id);
+    if (!t) continue;
+    const executor = EXECUTORS.find(e => e.value === (t.executor || 'claudecode'));
+    todoNodes.push({
+      id: `todo-${id}`,
+      type: 'todo',
+      position: { x: 0, y: 0 },
+      data: {
+        title: t.title,
+        status: t.status,
+        executor: t.executor || 'claudecode',
+        executorName: executor?.label || t.executor || 'Claude',
+        hasHooks: !!(t.hooks && t.hooks.length > 0),
+        todoId: id,
+      },
+    });
+  }
+
+  return { referencedTodoIds, todoNodes };
+}
+
 /** 主构建函数 */
 export function buildRelationMap(
   todos: Todo[],
@@ -361,6 +436,11 @@ export function buildRelationMap(
   const allNodes: RelationMapNode[] = [];
   const allEdges: RelationMapEdge[] = [];
 
+  // 收集被任意关系引用到的 Todo 节点和 id 集合
+  // 这一步与 showHooks 解耦，确保关闭 Hook 开关后其它类型仍能正确指向 Todo 节点
+  const { referencedTodoIds, todoNodes } = collectReferencedTodoIds(todos, webhooks, config);
+  allNodes.push(...todoNodes);
+
   // Hook 关系
   if (showHooks) {
     const { nodes, edges } = buildHookRelations(todos);
@@ -368,18 +448,16 @@ export function buildRelationMap(
     allEdges.push(...edges);
   }
 
-  const existingTodoIds = new Set(allNodes.map(n => n.data.todoId as number).filter(Boolean));
-
-  // Webhook 关系
+  // Webhook 关系（基于被引用的 Todo id 集合，不再受 showHooks 影响）
   if (showWebhooks) {
-    const { nodes, edges } = buildWebhookRelations(webhooks, existingTodoIds);
+    const { nodes, edges } = buildWebhookRelations(webhooks, referencedTodoIds);
     allNodes.push(...nodes);
     allEdges.push(...edges);
   }
 
   // 飞书和调度器关系
   if (showFeishu || showScheduler) {
-    const { nodes, edges } = buildTriggerSourceRelations(todos, config, existingTodoIds);
+    const { nodes, edges } = buildTriggerSourceRelations(todos, config, referencedTodoIds);
     for (const n of nodes) {
       const isFeishu = n.type === 'feishu';
       const isScheduler = n.type === 'scheduler';

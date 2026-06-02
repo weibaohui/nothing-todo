@@ -10,12 +10,13 @@ import {
   Panel,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Switch, Empty, Spin } from 'antd';
+import { Switch, Empty, Spin, Button } from 'antd';
 import {
   ApiOutlined,
   MessageOutlined,
   ScheduleOutlined,
   LinkOutlined,
+  LeftOutlined,
 } from '@ant-design/icons';
 import { useApp } from '../../hooks/useApp';
 import { useTheme } from '../../hooks/useTheme';
@@ -41,7 +42,11 @@ const edgeTypes: EdgeTypes = {
   scheduler: SchedulerEdge,
 };
 
-export function RelationMap() {
+interface RelationMapProps {
+  onBack?: () => void;
+}
+
+export function RelationMap({ onBack }: RelationMapProps) {
   const { state } = useApp();
   const { themeMode } = useTheme();
   const [webhooks, setWebhooks] = useState<Webhook[]>([]);
@@ -114,6 +119,16 @@ export function RelationMap() {
 
   return (
     <div className={`relation-map-container ${isDark ? 'dark' : 'light'}`}>
+      {onBack && (
+        <Button
+          type="text"
+          size="small"
+          icon={<LeftOutlined />}
+          onClick={onBack}
+          className="relation-map-back-btn"
+          aria-label="返回"
+        />
+      )}
       <ReactFlow
         nodes={nodes}
         edges={edges}

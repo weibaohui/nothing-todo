@@ -8,6 +8,16 @@
   position: relative;
 }
 
+.relation-map-back-btn {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  background: var(--color-bg-container, #ffffff) !important;
+  border: 1px solid var(--color-border-secondary, #334155) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08) !important;
+}
+
 .relation-map-container.dark {
   background: #0f172a;
 }
@@ -339,8 +349,8 @@
 .legend-line.dashed {
   background: repeating-linear-gradient(
     90deg,
-    currentColor 0,
-    currentColor 4px,
+    currentcolor 0,
+    currentcolor 4px,
     transparent 4px,
     transparent 7px
   ) !important;
@@ -349,8 +359,8 @@
 .legend-line.dotted {
   background: repeating-linear-gradient(
     90deg,
-    currentColor 0,
-    currentColor 2px,
+    currentcolor 0,
+    currentcolor 2px,
     transparent 2px,
     transparent 5px
   ) !important;
@@ -359,8 +369,8 @@
 .legend-line.dashed-long {
   background: repeating-linear-gradient(
     90deg,
-    currentColor 0,
-    currentColor 6px,
+    currentcolor 0,
+    currentcolor 6px,
     transparent 6px,
     transparent 10px
   ) !important;
