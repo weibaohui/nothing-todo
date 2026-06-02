@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Spin, Drawer, Descriptions, Tag, Alert, Button, Space, message } from 'antd';
+import { Spin, Drawer, Descriptions, Tag, Alert, Button, Space, message, Modal, Checkbox, Row, Col, Popconfirm } from 'antd';
 import Typography from 'antd/es/typography';
-import { FileTextOutlined, DownloadOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { FileTextOutlined, DownloadOutlined, InfoCircleOutlined, SwapOutlined, DeleteOutlined } from '@ant-design/icons';
 import XMarkdown from '@ant-design/x-markdown';
 import * as db from '../../utils/database';
 import { formatSize, formatTime, EXECUTOR_COLORS } from './helpers';
+import { EXECUTORS, type ExecutorSkills } from '../../types';
 import type { SkillMeta } from '../../types';
 
 const { Text } = Typography;
@@ -15,11 +16,17 @@ interface SkillDetailDrawerProps {
   executorLabel: string;
   open: boolean;
   onClose: () => void;
+  onSyncSuccess?: () => void;
+  onDeleteSuccess?: () => void;
 }
 
-export function SkillDetailDrawer({ skill, executor, executorLabel, open, onClose }: SkillDetailDrawerProps) {
+export function SkillDetailDrawer({ skill, executor, executorLabel, open, onClose, onSyncSuccess, onDeleteSuccess }: SkillDetailDrawerProps) {
   const [content, setContent] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [targetExecutors, setTargetExecutors] = useState<string[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  const [executorsData, setExecutorsData] = useState<ExecutorSkills[]>([]);
 
   useEffect(() => {
     if (open && skill) {
@@ -36,6 +43,30 @@ export function SkillDetailDrawer({ skill, executor, executorLabel, open, onClos
     }
   }, [open, skill, executor]);
 
+  const handleOpenSyncModal = () => {
+    setTargetExecutors([]);
+    db.getSkillsList()
+      .then(data => setExecutorsData(data.filter(e => e.skills_dir_exists)))
+      .catch(() => setExecutorsData([]))
+      .finally(() => setSyncModalOpen(true));
+  };
+
+  const handleSync = async () => {
+    if (!skill || targetExecutors.length === 0) return;
+    setSyncing(true);
+    try {
+      const result = await db.syncSkill(executor, skill.name, targetExecutors);
+      message.success(result || '同步完成');
+      setSyncModalOpen(false);
+      setTargetExecutors([]);
+      onSyncSuccess?.();
+    } catch (err: any) {
+      message.error('同步失败: ' + (err?.message || String(err)));
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleExport = async () => {
     if (!skill) return;
     try {
@@ -49,6 +80,18 @@ export function SkillDetailDrawer({ skill, executor, executorLabel, open, onClos
       message.success(`导出 ${skill.name} 成功`);
     } catch {
       message.error(`导出 ${skill.name} 失败`);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!skill) return;
+    try {
+      await db.deleteSkill(executor, skill.name);
+      message.success(`已删除 ${skill.name}`);
+      onClose();
+      onDeleteSuccess?.();
+    } catch (err: any) {
+      message.error('删除失败: ' + (err?.message || String(err)));
     }
   };
 
@@ -67,9 +110,24 @@ export function SkillDetailDrawer({ skill, executor, executorLabel, open, onClos
       open={open}
       extra={
         <Space>
+          <Button icon={<SwapOutlined />} onClick={handleOpenSyncModal}>
+            同步
+          </Button>
           <Button icon={<DownloadOutlined />} onClick={handleExport}>
             导出
           </Button>
+          <Popconfirm
+            title="删除 Skill"
+            description={`确定要删除 ${executorLabel} 下的「${skill?.name}」吗？此操作不可恢复。`}
+            onConfirm={handleDelete}
+            okText="删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+          >
+            <Button icon={<DeleteOutlined />} danger>
+              删除
+            </Button>
+          </Popconfirm>
         </Space>
       }
     >
@@ -132,6 +190,53 @@ export function SkillDetailDrawer({ skill, executor, executorLabel, open, onClos
           />
         </div>
       )}
+      <Modal
+        title={
+          <Space>
+            <SwapOutlined style={{ color: '#7C3AED' }} />
+            <span>同步 Skill 到其他执行器</span>
+          </Space>
+        }
+        open={syncModalOpen}
+        onCancel={() => setSyncModalOpen(false)}
+        onOk={handleSync}
+        okText={`同步到 ${targetExecutors.length} 个执行器`}
+        okButtonProps={{ disabled: targetExecutors.length === 0 }}
+        confirmLoading={syncing}
+        width={480}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Text type="secondary">
+            将 <Text strong>{skill?.name}</Text> 从 <Tag color={EXECUTOR_COLORS[executor]}>{executorLabel}</Tag> 复制到以下执行器：
+          </Text>
+        </div>
+        <Checkbox.Group
+          value={targetExecutors}
+          onChange={v => setTargetExecutors(v as string[])}
+          style={{ width: '100%' }}
+        >
+          <Row gutter={[8, 8]}>
+            {EXECUTORS.filter(e => e.value !== executor).map(exec => {
+              const exists = executorsData.find(ex => ex.executor === exec.value);
+              const alreadyHas = exists?.skills.find(s => s.name === skill?.name);
+              return (
+                <Col span={12} key={exec.value}>
+                  <Checkbox value={exec.value}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{
+                        width: 6, height: 6, borderRadius: '50%',
+                        backgroundColor: exec.color,
+                      }} />
+                      {exec.label}
+                      {alreadyHas && <Tag color="orange" style={{ fontSize: 10 }}>已存在</Tag>}
+                    </span>
+                  </Checkbox>
+                </Col>
+              );
+            })}
+          </Row>
+        </Checkbox.Group>
+      </Modal>
     </Drawer>
   );
 }

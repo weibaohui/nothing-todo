@@ -443,7 +443,7 @@ pub fn create_app(
         .route("/xyz/executors/{name}/detect", post(executor_config::detect_executor))
         .route("/xyz/executors/{name}/test", post(executor_config::test_executor))
         .route("/xyz/executors/detect-all", post(executor_config::detect_all_executors))
-        .route("/xyz/skills", get(skills::list_skills))
+        .route("/xyz/skills", get(skills::list_skills).delete(skills::delete_skill))
         .route("/xyz/skills/compare", get(skills::compare_skills))
         .route("/xyz/skills/sync", post(skills::sync_skill))
         .route("/xyz/skills/invocations", get(skills::list_invocations).post(skills::record_invocation))

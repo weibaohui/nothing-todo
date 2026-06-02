@@ -143,6 +143,12 @@ pub struct RecordInvocationRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct DeleteSkillQuery {
+    pub executor: String,
+    pub skill_name: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct SkillContentQuery {
     pub executor: String,
     pub skill_name: String,
@@ -422,6 +428,41 @@ pub async fn get_skill_content(
     .map_err(|e| AppError::Internal(format!("spawn_blocking join error: {}", e)))?;
 
     Ok(ApiResponse::ok(result))
+}
+
+/// DELETE /xyz/skills - Delete a skill from an executor
+pub async fn delete_skill(
+    Query(query): Query<DeleteSkillQuery>,
+) -> Result<ApiResponse<String>, AppError> {
+    let et = crate::adapters::parse_executor_type(&query.executor)
+        .ok_or_else(|| AppError::BadRequest(format!("Unknown executor: {}", query.executor)))?;
+
+    let skills_dir = executor_skills_dir(et)
+        .ok_or_else(|| AppError::BadRequest("No skills directory for this executor".to_string()))?;
+
+    let skill_dir = skills_dir.join(&query.skill_name);
+    if !skill_dir.exists() {
+        return Err(AppError::NotFound);
+    }
+
+    // Verify the path is under the skills directory
+    let skill_dir_canonical = skill_dir.canonicalize()
+        .map_err(|e| AppError::Internal(format!("Failed to resolve skill dir: {}", e)))?;
+    let skills_dir_canonical = skills_dir.canonicalize()
+        .map_err(|e| AppError::Internal(format!("Failed to resolve skills dir: {}", e)))?;
+    if !skill_dir_canonical.starts_with(&skills_dir_canonical) {
+        return Err(AppError::BadRequest("Invalid skill name: path escapes skills directory".to_string()));
+    }
+
+    let skill_name = query.skill_name.clone();
+    tokio::task::spawn_blocking(move || {
+        std::fs::remove_dir_all(&skill_dir)
+            .map_err(|e| AppError::Internal(format!("Failed to delete skill: {}", e)))
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("spawn_blocking join error: {}", e)))??;
+
+    Ok(ApiResponse::ok(format!("Skill '{}' deleted", skill_name)))
 }
 
 /// GET /xyz/skills/export - Export skill as .zip

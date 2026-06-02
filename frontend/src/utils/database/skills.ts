@@ -17,6 +17,12 @@ export async function syncSkill(sourceExecutor: string, skillName: string, targe
   }));
 }
 
+export async function deleteSkill(executor: string, skillName: string): Promise<string> {
+  return unwrap(await api.delete('/xyz/skills', {
+    params: { executor, skill_name: skillName },
+  }));
+}
+
 export async function getSkillInvocations(params?: { page?: number; limit?: number; skill_name?: string; executor?: string }): Promise<PaginatedInvocations> {
   return unwrap(await api.get('/xyz/skills/invocations', { params }));
 }
