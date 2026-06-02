@@ -60,9 +60,17 @@ function CopyableUrl({ url, compact }: { url: string; compact: boolean }) {
         type="text"
         size="small"
         icon={<LinkOutlined />}
-        onClick={() => {
-          navigator.clipboard?.writeText(url);
-          message.success('已复制 URL');
+        onClick={async () => {
+          if (!navigator.clipboard?.writeText) {
+            message.error('当前环境不支持复制');
+            return;
+          }
+          try {
+            await navigator.clipboard.writeText(url);
+            message.success('已复制 URL');
+          } catch {
+            message.error('复制失败，请手动复制');
+          }
         }}
         style={{
           padding: compact ? '0 6px' : '0 8px',
