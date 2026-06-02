@@ -440,18 +440,29 @@ pub async fn delete_skill(
     let skills_dir = executor_skills_dir(et)
         .ok_or_else(|| AppError::BadRequest("No skills directory for this executor".to_string()))?;
 
+    // Reject skill names with path separators or parent traversal
+    if query.skill_name.contains('/') || query.skill_name.contains('\\') || query.skill_name.contains("..") {
+        return Err(AppError::BadRequest("Invalid skill name: path separators and '..' are not allowed".to_string()));
+    }
+
     let skill_dir = skills_dir.join(&query.skill_name);
-    if !skill_dir.exists() {
+    if !skill_dir.exists() || !skill_dir.is_dir() {
         return Err(AppError::NotFound);
     }
 
-    // Verify the path is under the skills directory
+    // Verify the path is under the skills directory and is a direct child
     let skill_dir_canonical = skill_dir.canonicalize()
         .map_err(|e| AppError::Internal(format!("Failed to resolve skill dir: {}", e)))?;
     let skills_dir_canonical = skills_dir.canonicalize()
         .map_err(|e| AppError::Internal(format!("Failed to resolve skills dir: {}", e)))?;
+    if skill_dir_canonical == skills_dir_canonical {
+        return Err(AppError::BadRequest("Cannot delete the skills root directory".to_string()));
+    }
     if !skill_dir_canonical.starts_with(&skills_dir_canonical) {
         return Err(AppError::BadRequest("Invalid skill name: path escapes skills directory".to_string()));
+    }
+    if skill_dir_canonical.parent() != Some(skills_dir_canonical.as_path()) {
+        return Err(AppError::BadRequest("Invalid skill name: must be a direct child of skills directory".to_string()));
     }
 
     let skill_name = query.skill_name.clone();

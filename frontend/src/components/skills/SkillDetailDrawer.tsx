@@ -218,7 +218,8 @@ export function SkillDetailDrawer({ skill, executor, executorLabel, open, onClos
           <Row gutter={[8, 8]}>
             {EXECUTORS.filter(e => e.value !== executor).map(exec => {
               const exists = executorsData.find(ex => ex.executor === exec.value);
-              const alreadyHas = exists?.skills.find(s => s.name === skill?.name);
+              const targetName = skill?.name?.split('/').pop() || skill?.name;
+              const alreadyHas = exists?.skills.find(s => s.name === targetName);
               return (
                 <Col span={12} key={exec.value}>
                   <Checkbox value={exec.value}>
