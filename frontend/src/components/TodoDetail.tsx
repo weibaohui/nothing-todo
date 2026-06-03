@@ -58,7 +58,14 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
       loadExecutionRecords(historyPage, historyLimit);
       // 如果有选中的记录，刷新单条记录详情（包含 result）和日志
       if (selectedHistoryRecordId) {
-        refreshSingleRecord(selectedHistoryRecordId);
+        // 直接更新 selectedHistoryRecordDetail 和 dispatch 更新 store
+        db.getExecutionRecord(selectedHistoryRecordId).then(detail => {
+          setSelectedHistoryRecordDetail(detail);
+          dispatch({
+            type: 'UPDATE_EXECUTION_RECORD',
+            payload: { todoId: selectedTodoId, record: detail }
+          });
+        });
         loadLogs(selectedHistoryRecordId, 1);
       }
     }
