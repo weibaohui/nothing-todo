@@ -48,6 +48,30 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
     return () => clearInterval(interval);
   }, [isExecuting]);
 
+  // 当执行结束时，刷新执行记录和日志
+  const prevIsExecutingRef = useRef(isExecuting);
+  useEffect(() => {
+    const prev = prevIsExecutingRef.current;
+    // 当 isExecuting 从 true 变为 false 时，表示执行刚结束
+    if (prev && !isExecuting && selectedTodoId) {
+      // 刷新执行记录列表（包含结论）
+      loadExecutionRecords(historyPage, historyLimit);
+      // 如果有选中的记录，刷新单条记录详情（包含 result）和日志
+      if (selectedHistoryRecordId) {
+        // 直接更新 selectedHistoryRecordDetail 和 dispatch 更新 store
+        db.getExecutionRecord(selectedHistoryRecordId).then(detail => {
+          setSelectedHistoryRecordDetail(detail);
+          dispatch({
+            type: 'UPDATE_EXECUTION_RECORD',
+            payload: { todoId: selectedTodoId, record: detail }
+          });
+        });
+        loadLogs(selectedHistoryRecordId, 1);
+      }
+    }
+    prevIsExecutingRef.current = isExecuting;
+  }, [isExecuting, selectedTodoId, selectedHistoryRecordId, historyPage, historyLimit]);
+
   const records = selectedTodoId ? executionRecords[selectedTodoId] || [] : [];
 
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'running' | 'success' | 'failed'>('all');
@@ -205,14 +229,25 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
   const handleExecute = async () => {
     if (!selectedTodo) return;
     try {
-      await db.executeTodo(
+      const result = await db.executeTodo(
         selectedTodo.id,
         selectedTodo.executor || undefined,
         undefined
       );
       message.success('任务已开始执行');
-      // 立即刷新执行记录列表，确保新建的记录立刻显示；回到第 1 页让用户看到新记录
-      await loadExecutionRecords(1, historyLimit);
+      // 获取新创建的执行记录并立即添加到状态中
+      try {
+        const newRecord = await db.getExecutionRecord(result.record_id);
+        dispatch({
+          type: 'ADD_EXECUTION_RECORD',
+          payload: { todoId: selectedTodo.id, record: newRecord }
+        });
+        // 选中新记录
+        setSelectedHistoryRecordId(result.record_id);
+      } catch {
+        // 获取新记录失败时回退到刷新列表
+        await loadExecutionRecords(1, historyLimit);
+      }
     } catch (error) {
       message.error('执行失败: ' + (error instanceof Error ? error.message : String(error)));
     }
@@ -232,7 +267,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
     setExecuteWithArgsLoading(true);
     try {
       const params = executeArgs.trim() ? { message: executeArgs.trim() } : undefined;
-      await db.executeTodo(
+      const result = await db.executeTodo(
         selectedTodo.id,
         selectedTodo.executor || undefined,
         params
@@ -240,8 +275,19 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
       message.success('任务已开始执行');
       setExecuteWithArgsModalOpen(false);
       setExecuteArgs('');
-      // 立即刷新执行记录列表，确保新建的记录立刻显示；回到第 1 页让用户看到新记录
-      await loadExecutionRecords(1, historyLimit);
+      // 获取新创建的执行记录并立即添加到状态中
+      try {
+        const newRecord = await db.getExecutionRecord(result.record_id);
+        dispatch({
+          type: 'ADD_EXECUTION_RECORD',
+          payload: { todoId: selectedTodo.id, record: newRecord }
+        });
+        // 选中新记录
+        setSelectedHistoryRecordId(result.record_id);
+      } catch {
+        // 获取新记录失败时回退到刷新列表
+        await loadExecutionRecords(1, historyLimit);
+      }
     } catch (error) {
       message.error('执行失败: ' + (error instanceof Error ? error.message : String(error)));
     } finally {
