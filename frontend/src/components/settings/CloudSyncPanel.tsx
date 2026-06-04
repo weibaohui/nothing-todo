@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Card, Form, Input, Button, Select, Space, Table, Tag, message, Divider, Alert, Typography, Modal } from 'antd';
+import { Card, Form, Input, Button, Select, Space, Table, Tag, message, Divider, Alert, Typography, Modal, Checkbox } from 'antd';
 import { CloudOutlined, SyncOutlined, SaveOutlined, CheckCircleFilled, ExclamationCircleFilled } from '@ant-design/icons';
 import * as syncApi from '../../utils/database/sync';
 import './CloudSyncPanel.css';
@@ -99,11 +99,11 @@ export function CloudSyncPanel() {
             <Select.Option value="skip">跳过（保留本地数据）</Select.Option>
             <Select.Option value="rename">重命名（避免冲突）</Select.Option>
           </Select>
-          <p>
-            <Button size="small" onClick={() => { dryRun = true; }}>
-              预览 (Dry Run)
-            </Button>
-          </p>
+          <Checkbox
+            onChange={(e) => { dryRun = e.target.checked; }}
+          >
+            预览模式 (Dry Run)
+          </Checkbox>
         </div>
       ),
       okText: '执行同步',
