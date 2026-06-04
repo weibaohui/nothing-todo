@@ -131,3 +131,18 @@ export interface VersionInfo {
 export async function getVersion(): Promise<VersionInfo> {
   return unwrap(await api.get('/api/version'));
 }
+
+/** 从 npm 获取 @weibaohui/nothing-todo 的最新版本号 */
+export async function getLatestVersion(): Promise<{ latest: string | null; error?: string }> {
+  return unwrap(await api.get('/api/version/latest'));
+}
+
+/** 执行 npm 升级并重启服务 */
+export async function upgradeVersion(): Promise<{
+  upgraded: boolean;
+  restarted: boolean;
+  npmOutput?: string;
+  restartMessage?: string;
+}> {
+  return unwrap(await api.post('/api/version/upgrade'));
+}

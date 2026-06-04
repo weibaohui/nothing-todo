@@ -298,6 +298,103 @@ async fn version_handler() -> impl IntoResponse {
     ApiResponse::ok(response)
 }
 
+/// 查询 npm 最新版本号，用于前端版本检查提示。
+/// 调用 `npm view @weibaohui/nothing-todo version` 获取远程最新版本。
+async fn version_latest_handler() -> impl IntoResponse {
+    let output = std::process::Command::new("npm")
+        .args(["view", "@weibaohui/nothing-todo", "version"])
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            // npm view 输出格式为 "x.y.z\n"，需要 trim 掉换行符
+            let latest = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            ApiResponse::ok(serde_json::json!({ "latest": latest }))
+        }
+        Ok(out) => {
+            let err_msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            tracing::warn!("npm view failed: {}", err_msg);
+            ApiResponse::ok(serde_json::json!({ "latest": null, "error": err_msg }))
+        }
+        Err(e) => {
+            tracing::warn!("Failed to run npm view: {}", e);
+            ApiResponse::ok(serde_json::json!({ "latest": null, "error": e.to_string() }))
+        }
+    }
+}
+
+/// 执行 npm 升级并重启服务。
+/// 1. 调用 `npm install -g @weibaohui/nothing-todo@latest` 升级
+/// 2. 调用 `ntd daemon restart` 重启服务
+async fn version_upgrade_handler() -> impl IntoResponse {
+    // 先执行 npm 升级，捕获输出以便返回给前端展示
+    let npm_output = std::process::Command::new("npm")
+        .args(["install", "-g", "@weibaohui/nothing-todo@latest"])
+        .output();
+
+    let npm_stdout;
+    let npm_stderr;
+    let npm_success;
+
+    match &npm_output {
+        Ok(out) => {
+            npm_stdout = String::from_utf8_lossy(&out.stdout).to_string();
+            npm_stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            npm_success = out.status.success();
+            tracing::info!("npm upgrade stdout: {}, stderr: {}", npm_stdout, npm_stderr);
+        }
+        Err(e) => {
+            npm_stdout = String::new();
+            npm_stderr = e.to_string();
+            npm_success = false;
+            tracing::error!("Failed to run npm: {}", e);
+        }
+    }
+
+    if !npm_success {
+        let err_msg = if npm_stderr.is_empty() {
+            "npm upgrade failed".to_string()
+        } else {
+            format!("npm upgrade failed: {}", npm_stderr)
+        };
+        return ApiResponse::err(1, &err_msg);
+    }
+
+    // npm 升级成功后执行 daemon restart
+    // 注意：restart 成功后当前进程会被终止，所以这行代码之后不会有任何输出
+    let restart_status = std::process::Command::new("ntd")
+        .args(["daemon", "restart"])
+        .status();
+
+    let restarted;
+    let restart_message;
+
+    match restart_status {
+        Ok(status) if status.success() => {
+            restarted = true;
+            restart_message = String::new();
+            tracing::info!("Daemon restart triggered");
+        }
+        Ok(status) => {
+            restarted = false;
+            restart_message = format!("Daemon restart failed with exit code: {}. Please run 'ntd daemon restart' manually.", status);
+            tracing::error!("{}", restart_message);
+        }
+        Err(e) => {
+            restarted = false;
+            restart_message = format!("Failed to run ntd daemon restart: {}. Please run 'ntd daemon restart' manually.", e);
+            tracing::error!("{}", restart_message);
+        }
+    }
+
+    ApiResponse::ok(serde_json::json!({
+        "upgraded": true,
+        "restarted": restarted,
+        "npmOutput": npm_stdout,
+        "restartMessage": restart_message
+    }))
+}
+
 // Build router
 pub fn create_app(
     ctx: ServiceContext,
@@ -475,6 +572,8 @@ pub fn create_app(
         .route("/api/webhook-records/{id}", get(webhook::get_webhook_record))
         .route("/assets/{*path}", get(static_handler))
         .route("/api/version", get(version_handler))
+        .route("/api/version/latest", get(version_latest_handler))
+        .route("/api/version/upgrade", post(version_upgrade_handler))
         .route("/api/sessions", get(session::list_sessions))
         .route("/api/sessions/stats", get(session::get_session_stats))
         .route("/api/sessions/{id}", get(session::get_session_detail).delete(session::delete_session))
