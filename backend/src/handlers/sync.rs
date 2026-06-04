@@ -1,13 +1,10 @@
 //! 云端同步 handlers
 use axum::{
     extract::{Query, State},
-    response::IntoResponse,
     Json,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
-use crate::db::Database;
 use crate::handlers::{ApiResponse, AppError, AppState};
 
 // ============ Types ============
@@ -15,9 +12,11 @@ use crate::handlers::{ApiResponse, AppError, AppState};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloudConfig {
     pub server_url: String,
-    pub token: Option<String>,
-    pub device_id: Option<i64>,
+    /// 同步 Token (ntd_xxx 格式)
+    pub sync_token: Option<String>,
+    /// 最后同步时间
     pub last_sync_at: Option<String>,
+    /// 默认冲突解决模式
     pub default_conflict_mode: String,
 }
 
@@ -25,67 +24,11 @@ impl Default for CloudConfig {
     fn default() -> Self {
         Self {
             server_url: String::new(),
-            token: None,
-            device_id: None,
+            sync_token: None,
             last_sync_at: None,
             default_conflict_mode: "overwrite".to_string(),
         }
     }
-}
-
-// ============ Device Handlers ============
-
-#[derive(Deserialize)]
-pub struct DeviceRequest {
-    pub device_name: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct DeviceResponse {
-    pub id: i64,
-    pub device_name: String,
-    pub last_seen_at: Option<String>,
-    pub created_at: Option<String>,
-}
-
-/// POST /api/cloud/devices - 创建设备
-pub async fn cloud_create_device(
-    State(state): State<AppState>,
-    Json(req): Json<DeviceRequest>,
-) -> Result<ApiResponse<DeviceResponse>, AppError> {
-    let (token, server_url) = {
-        let cfg = state.config.read().await;
-        (cfg.cloud_sync.token.clone(), cfg.cloud_sync.server_url.clone())
-    };
-
-    let token = token.ok_or_else(|| AppError::BadRequest("请先配置 Token".to_string()))?;
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(format!("{}/api/devices", server_url))
-        .header("Authorization", format!("Bearer {}", token))
-        .json(&serde_json::json!({ "device_name": req.device_name }))
-        .send()
-        .await
-        .map_err(|e| AppError::Internal(format!("网络错误: {}", e)))?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        return Err(AppError::BadRequest(format!("设备注册失败 ({}): {}", status, text)));
-    }
-
-    let device_resp: DeviceResponse = resp.json().await
-        .map_err(|e| AppError::Internal(format!("响应解析失败: {}", e)))?;
-
-    // 保存 device_id 到配置
-    {
-        let mut cfg = state.config.write().await;
-        cfg.cloud_sync.device_id = Some(device_resp.id);
-        cfg.save().map_err(|e| AppError::Internal(e.to_string()))?;
-    }
-
-    Ok(ApiResponse::ok(device_resp))
 }
 
 // ============ Sync Status Handlers ============
@@ -94,9 +37,13 @@ pub async fn cloud_create_device(
 pub struct SyncStatusResponse {
     pub connected: bool,
     pub authenticated: bool,
-    pub device_id: Option<i64>,
     pub last_sync_at: Option<String>,
     pub server_url: String,
+}
+
+#[derive(Deserialize)]
+struct CloudSyncStatusResponse {
+    last_sync_at: Option<String>,
 }
 
 /// GET /api/cloud/sync/status - 获取同步状态
@@ -106,15 +53,37 @@ pub async fn cloud_sync_status(
     let cfg = state.config.read().await;
 
     let connected = !cfg.cloud_sync.server_url.is_empty();
-    let authenticated = cfg.cloud_sync.token.is_some();
-    let device_id = cfg.cloud_sync.device_id;
-    let last_sync_at = cfg.cloud_sync.last_sync_at.clone();
+    let authenticated = cfg.cloud_sync.sync_token.is_some();
     let server_url = cfg.cloud_sync.server_url.clone();
+
+    // 如果已配置 token，尝试从云端获取真实同步状态
+    let last_sync_at = if let Some(token) = &cfg.cloud_sync.sync_token {
+        if !cfg.cloud_sync.server_url.is_empty() {
+            match reqwest::Client::new()
+                .get(format!("{}/api/v1/sync/status?data_type=todos", cfg.cloud_sync.server_url))
+                .header("Authorization", format!("Bearer {}", token))
+                .send()
+                .await
+            {
+                Ok(resp) if resp.status().is_success() => {
+                    match resp.json::<CloudSyncStatusResponse>().await {
+                        Ok(data) => data.last_sync_at,
+                        Err(_) => cfg.cloud_sync.last_sync_at.clone(),
+                    }
+                }
+                Ok(_) => cfg.cloud_sync.last_sync_at.clone(),
+                Err(_) => cfg.cloud_sync.last_sync_at.clone(),
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     Ok(ApiResponse::ok(SyncStatusResponse {
         connected,
         authenticated,
-        device_id,
         last_sync_at,
         server_url,
     }))
@@ -125,17 +94,23 @@ pub async fn cloud_sync_status(
 #[derive(Deserialize)]
 pub struct CloudConfigRequest {
     pub server_url: Option<String>,
-    pub token: Option<String>,
+    /// 同步 Token (ntd_xxx 格式)
+    pub sync_token: Option<String>,
     pub default_conflict_mode: Option<String>,
 }
 
 #[derive(Serialize)]
 pub struct CloudConfigResponse {
     pub server_url: String,
-    pub token: Option<String>,
-    pub device_id: Option<i64>,
+    /// 是否已配置 Token (不返回实际 token)
+    pub has_token: bool,
     pub last_sync_at: Option<String>,
     pub default_conflict_mode: String,
+}
+
+#[derive(Serialize)]
+pub struct SaveResponse {
+    pub saved: bool,
 }
 
 /// GET /api/cloud/config - 获取云端配置
@@ -146,31 +121,30 @@ pub async fn cloud_get_config(
 
     Ok(ApiResponse::ok(CloudConfigResponse {
         server_url: cfg.cloud_sync.server_url.clone(),
-        token: cfg.cloud_sync.token.clone(),
-        device_id: cfg.cloud_sync.device_id,
+        has_token: cfg.cloud_sync.sync_token.is_some(),
         last_sync_at: cfg.cloud_sync.last_sync_at.clone(),
         default_conflict_mode: cfg.cloud_sync.default_conflict_mode.clone(),
     }))
 }
 
-/// POST /api/cloud/config - 保存云端配置（包含 token）
+/// POST /api/cloud/config - 保存云端配置
 pub async fn cloud_save_config(
     State(state): State<AppState>,
     Json(req): Json<CloudConfigRequest>,
-) -> Result<ApiResponse<()>, AppError> {
+) -> Result<ApiResponse<SaveResponse>, AppError> {
     let mut cfg = state.config.write().await;
     if let Some(url) = req.server_url {
         cfg.cloud_sync.server_url = url.trim_end_matches('/').to_string();
     }
-    if let Some(token) = req.token {
-        cfg.cloud_sync.token = Some(token);
+    if let Some(token) = req.sync_token {
+        cfg.cloud_sync.sync_token = Some(token);
     }
     if let Some(mode) = req.default_conflict_mode {
         cfg.cloud_sync.default_conflict_mode = mode;
     }
     cfg.save().map_err(|e| AppError::Internal(e.to_string()))?;
 
-    Ok(ApiResponse::ok(()))
+    Ok(ApiResponse::ok(SaveResponse { saved: true }))
 }
 
 // ============ Sync Records Handlers ============
@@ -216,19 +190,4 @@ pub async fn cloud_sync_records(
     }).collect();
 
     Ok(ApiResponse::ok(response))
-}
-
-// ============ Logout Handler ============
-
-/// POST /api/cloud/auth/logout - 清除 Token
-pub async fn cloud_logout(
-    State(state): State<AppState>,
-) -> Result<ApiResponse<()>, AppError> {
-    let mut cfg = state.config.write().await;
-    cfg.cloud_sync.token = None;
-    cfg.cloud_sync.device_id = None;
-    cfg.cloud_sync.last_sync_at = None;
-    cfg.save().map_err(|e| AppError::Internal(e.to_string()))?;
-
-    Ok(ApiResponse::ok(()))
 }

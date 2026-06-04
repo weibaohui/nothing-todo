@@ -4,23 +4,15 @@ import { api, unwrap } from './client';
 
 export interface CloudConfig {
   server_url: string;
-  token?: string;
-  device_id?: number;
+  sync_token?: string;
+  has_token?: boolean;
   last_sync_at?: string;
   default_conflict_mode: 'overwrite' | 'skip' | 'rename';
-}
-
-export interface DeviceResponse {
-  id: number;
-  device_name: string;
-  last_seen_at?: string;
-  created_at?: string;
 }
 
 export interface SyncStatusResponse {
   connected: boolean;
   authenticated: boolean;
-  device_id?: number;
   last_sync_at?: string;
   server_url: string;
 }
@@ -34,12 +26,6 @@ export interface SyncRecord {
   details?: string;
   error_message?: string;
   created_at?: string;
-}
-
-// ============ Device APIs ============
-
-export async function cloudCreateDevice(deviceName: string): Promise<DeviceResponse> {
-  return unwrap(await api.post('/api/cloud/devices', { device_name: deviceName }));
 }
 
 // ============ Sync Status APIs ============

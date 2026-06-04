@@ -594,8 +594,6 @@ pub fn create_app(
         .route("/api/cloud/config", get(sync::cloud_get_config).post(sync::cloud_save_config))
         .route("/api/cloud/sync/status", get(sync::cloud_sync_status))
         .route("/api/cloud/sync/records", get(sync::cloud_sync_records))
-        .route("/api/cloud/auth/logout", post(sync::cloud_logout))
-        .route("/api/cloud/devices", post(sync::cloud_create_device))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
         .layer(CompressionLayer::new())
         .layer(
