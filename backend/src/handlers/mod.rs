@@ -593,9 +593,9 @@ pub fn create_app(
         // 云端同步路由
         .route("/api/cloud/config", get(sync::cloud_get_config).post(sync::cloud_save_config))
         .route("/api/cloud/sync/status", get(sync::cloud_sync_status))
-        .route("/api/cloud/sync/records", get(sync::cloud_sync_records))
-        .route("/api/cloud/sync/push", get(sync::cloud_sync_push))
-        .route("/api/cloud/sync/pull", get(sync::cloud_sync_pull))
+        .route("/api/cloud/sync/records", get(sync::cloud_sync_records).delete(sync::cloud_clear_sync_records))
+        .route("/api/cloud/sync/push", post(sync::cloud_sync_push))
+        .route("/api/cloud/sync/pull", post(sync::cloud_sync_pull))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
         .layer(CompressionLayer::new())
         .layer(

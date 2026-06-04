@@ -224,14 +224,14 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       children: <WebhooksPanel todos={state.todos} />,
     },
     {
-      key: 'about',
-      label: <span><InfoCircleOutlined style={{ marginRight: 6 }} />关于</span>,
-      children: <AboutPanel />,
-    },
-    {
       key: 'cloudSync',
       label: <span><CloudOutlined style={{ marginRight: 6 }} />云端同步</span>,
       children: <CloudSyncPanel />,
+    },
+    {
+      key: 'about',
+      label: <span><InfoCircleOutlined style={{ marginRight: 6 }} />关于</span>,
+      children: <AboutPanel />,
     },
   ];
 

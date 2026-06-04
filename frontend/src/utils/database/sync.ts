@@ -46,8 +46,19 @@ export async function saveCloudConfig(config: Partial<CloudConfig>): Promise<voi
 
 // ============ Sync Records APIs ============
 
-export async function getSyncRecords(params?: { limit?: number; offset?: number }): Promise<SyncRecord[]> {
+export interface SyncRecordsResponse {
+  records: SyncRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export async function getSyncRecords(params?: { limit?: number; offset?: number }): Promise<SyncRecordsResponse> {
   return unwrap(await api.get('/api/cloud/sync/records', { params }));
+}
+
+export async function clearSyncRecords(): Promise<{ deleted: number }> {
+  return unwrap(await api.delete('/api/cloud/sync/records'));
 }
 
 // ============ Sync APIs ============
@@ -63,10 +74,15 @@ export interface SyncResult {
   errors: string[];
 }
 
+// 同步接口可能耗时较长（上传/下载本地全部 todos + 远端往返），
+// 不应被 client.ts 的 15s 全局 axios 超时截断。这里显式传 timeout: 0，
+// 由后端 reqwest 自行把控；后端返回后立即结束。
+const SYNC_TIMEOUT_MS = 0;
+
 export async function syncPush(params?: { conflict_mode?: string; dry_run?: boolean }): Promise<SyncResult> {
-  return unwrap(await api.get('/api/cloud/sync/push', { params }));
+  return unwrap(await api.post('/api/cloud/sync/push', null, { params, timeout: SYNC_TIMEOUT_MS }));
 }
 
 export async function syncPull(params?: { conflict_mode?: string; dry_run?: boolean }): Promise<SyncResult> {
-  return unwrap(await api.get('/api/cloud/sync/pull', { params }));
+  return unwrap(await api.post('/api/cloud/sync/pull', null, { params, timeout: SYNC_TIMEOUT_MS }));
 }
