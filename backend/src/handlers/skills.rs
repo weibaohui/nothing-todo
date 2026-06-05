@@ -918,14 +918,6 @@ pub struct SkillFileInfo {
     pub modified_at: String,
 }
 
-/// 参与 skill 扫描/对比的所有来源：8 个执行器 + 只读来源 `agents`。
-/// 用字符串数组而非 `ExecutorType` 数组，方便容纳非 ExecutorType 来源。
-const ALL_SKILL_SOURCES: &[&str] = &[
-    "claudecode", "codebuddy", "opencode", "atomcode",
-    "hermes", "kimi", "joinai", "codex",
-    "agents",
-];
-
 /// GET /api/skills/compare - Cross-executor skill comparison matrix
 ///
 /// 比 8 个 ExecutorType 多扫了 `agents`（`~/.agents/skills`），让用户
@@ -977,35 +969,35 @@ pub async fn compare_skills(
                     executors_map.insert(key, SkillPresence {
                         present: true,
                         version: skill.version.clone(),
-                    modified_at: skill.modified_at.clone(),
-                });
-            } else {
-                // 未命中：填 present=false，前端用灰色格子展示
-                executors_map.insert(key, SkillPresence {
-                    present: false,
-                    version: None,
-                    modified_at: None,
-                });
+                        modified_at: skill.modified_at.clone(),
+                    });
+                } else {
+                    // 未命中：填 present=false，前端用灰色格子展示
+                    executors_map.insert(key, SkillPresence {
+                        present: false,
+                        version: None,
+                        modified_at: None,
+                    });
+                }
             }
-        }
 
-        // description 按 ALL_SKILL_SOURCES 固定顺序查，第一个非空的胜出
-        // （用 HashMap 迭代顺序不确定，跨调用 description 可能漂移）
-        let description = ALL_SKILL_SOURCES
-            .iter()
-            .filter_map(|src| all_skills.get(*src).and_then(|m| m.get(&name)))
-            .find_map(|s| {
-                // 跳过空 description：可能某个来源的 SKILL.md 没写 description
-                if s.description.is_empty() { None } else { Some(s.description.clone()) }
-            })
-            .unwrap_or_default();
+            // description 按 ALL_SKILL_SOURCES 固定顺序查，第一个非空的胜出
+            // （用 HashMap 迭代顺序不确定，跨调用 description 可能漂移）
+            let description = ALL_SKILL_SOURCES
+                .iter()
+                .filter_map(|src| all_skills.get(*src).and_then(|m| m.get(&name)))
+                .find_map(|s| {
+                    // 跳过空 description：可能某个来源的 SKILL.md 没写 description
+                    if s.description.is_empty() { None } else { Some(s.description.clone()) }
+                })
+                .unwrap_or_default();
 
-        SkillComparison {
-            skill_name: name,
-            description,
-            executors: executors_map,
-        }
-    }).collect();
+            SkillComparison {
+                skill_name: name,
+                description,
+                executors: executors_map,
+            }
+        }).collect();
 
         comparisons
     })
@@ -1013,22 +1005,6 @@ pub async fn compare_skills(
     .map_err(|e| AppError::Internal(format!("spawn_blocking join error: {}", e)))?;
 
     Ok(ApiResponse::ok(comparisons))
-}
-
-/// 把 source 名字转成 UI 显示名。ExecutorType 来源复用 `executor_label`，
-/// agents 这种非枚举来源单独处理。
-fn executor_label_for_source(name: &str) -> &'static str {
-    match name {
-        "agents" => "Agents",
-        other => {
-            // 尝试按 ExecutorType 找 label
-            if let Some(et) = crate::adapters::parse_executor_type(other) {
-                executor_label(et)
-            } else {
-                ""
-            }
-        }
-    }
 }
 
 /// POST /api/skills/sync - Sync skill from one executor to others
