@@ -670,94 +670,147 @@ pub async fn import_skill(
 
     let target_dir = skills_dir.join(&skill_name);
 
-    std::fs::create_dir_all(&target_dir)
-        .map_err(|e| AppError::Internal(format!("Failed to create target dir: {}", e)))?;
+    // 安全设计：先解到 **临时目录**，全部 entry 校验通过后再原子替换 target_dir。
+    //
+    // 必要性：直接解到 target_dir 时，如果第 5 个 entry 才触发大小限制或
+    // 路径校验，前面 4 个文件已经写盘但 API 返回 400，**用户看到的现象是
+    // 旧 skill 被部分覆盖 + 导入失败**。用临时目录 + 原子 rename 能保证：
+    // 1) 校验全过才动原 skill
+    // 2) 任何中途失败都只留下临时垃圾，target_dir 完整无缺
+    //
+    // 临时目录名加 PID 避免并发导入同名 skill 时冲突
+    let staging_dir = skills_dir.join(format!(".{}.import.tmp.{}", skill_name, std::process::id()));
+    // 清理可能的残留临时目录（上次失败留下的）
+    if staging_dir.exists() {
+        let _ = std::fs::remove_dir_all(&staging_dir);
+    }
+    std::fs::create_dir_all(&staging_dir)
+        .map_err(|e| AppError::Internal(format!("Failed to create staging dir: {}", e)))?;
 
-    // Canonicalize target_dir to verify it's under skills_dir
-    let target_dir = target_dir.canonicalize()
-        .map_err(|e| AppError::Internal(format!("Failed to resolve target dir: {}", e)))?;
+    // 提取作用域：staging_dir 是唯一允许写入的地方
+    let extract_result: Result<i32, AppError> = (|| {
+        // 校验 staging_dir 解析后仍在 skills_dir 之下（防御符号链接绕过）
+        let staging_canonical = staging_dir.canonicalize()
+            .map_err(|e| AppError::Internal(format!("Failed to resolve staging dir: {}", e)))?;
+        let skills_dir_canonical = skills_dir.canonicalize()
+            .map_err(|e| AppError::Internal(format!("Failed to resolve skills dir: {}", e)))?;
+        if !staging_canonical.starts_with(&skills_dir_canonical) {
+            return Err(AppError::BadRequest("Invalid staging path: escapes skills directory".to_string()));
+        }
 
-    // Verify target_dir is still under skills_dir
-    let skills_dir_canonical = skills_dir.canonicalize()
-        .map_err(|e| AppError::Internal(format!("Failed to resolve skills dir: {}", e)))?;
-    if !target_dir.starts_with(&skills_dir_canonical) {
-        return Err(AppError::BadRequest("Invalid skill name: would escape skills directory".to_string()));
+        // Zip bomb protection: limits for extracted files
+        const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;    // 50 MB per file
+        const MAX_TOTAL_SIZE: u64 = 200 * 1024 * 1024;   // 200 MB total
+        let mut total_extracted: u64 = 0;
+        let mut imported_files = 0i32;
+
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i)
+                .map_err(|e| AppError::Internal(format!("Failed to read zip entry: {}", e)))?;
+
+            let path = file.mangled_name();
+            let outpath = path.clone();
+
+            // Reject absolute paths and paths with parent directory traversal
+            if outpath.is_absolute() || outpath.components().any(|c| c.as_os_str() == "..") {
+                return Err(AppError::BadRequest(format!("Invalid path in archive: {}", outpath.display())));
+            }
+
+            let file_name = outpath.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            // Skip directories and hidden files
+            if file_name.starts_with('.') || file_name.is_empty() {
+                continue;
+            }
+
+            // Check declared size early to reject obviously large files
+            let declared_size = file.size();
+            if declared_size > MAX_FILE_SIZE {
+                return Err(AppError::BadRequest(format!(
+                    "File too large in archive: {} ({} bytes)", file_name, declared_size
+                )));
+            }
+
+            // 注意：所有 dest_path 都在 staging_dir 下，不再是 target_dir
+            let dest_path = if flatten {
+                staging_dir.join(&file_name)
+            } else {
+                staging_dir.join(&outpath)
+            };
+
+            // Verify dest_path is still under staging_dir（防御性检查）
+            if let Ok(dest_path_canonical) = dest_path.canonicalize() {
+                if !dest_path_canonical.starts_with(&staging_canonical) {
+                    return Err(AppError::BadRequest(format!("Path escapes staging directory: {}", outpath.display())));
+                }
+            }
+
+            if let Some(parent) = dest_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| AppError::Internal(format!("Failed to create dir: {}", e)))?;
+            }
+
+            let mut outfile = std::fs::File::create(&dest_path)
+                .map_err(|e| AppError::Internal(format!("Failed to create file: {}", e)))?;
+
+            // Use take() to enforce per-file size limit, protecting against zip bombs
+            let mut reader = file.by_ref().take(MAX_FILE_SIZE + 1);
+            let written = std::io::copy(&mut reader, &mut outfile)?;
+            if written > MAX_FILE_SIZE {
+                std::fs::remove_file(&dest_path).ok();
+                return Err(AppError::BadRequest(format!(
+                    "File exceeds size limit during extraction: {} ({} bytes)", file_name, written
+                )));
+            }
+            total_extracted += written;
+            if total_extracted > MAX_TOTAL_SIZE {
+                return Err(AppError::BadRequest(format!(
+                    "Total extracted size exceeds limit ({} bytes)", MAX_TOTAL_SIZE
+                )));
+            }
+            imported_files += 1;
+        }
+        Ok(imported_files)
+    })();
+
+    // 提取失败：清理临时目录，target_dir 保持原样不动
+    let imported_files = match extract_result {
+        Ok(n) => n,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&staging_dir);
+            return Err(e);
+        }
+    };
+
+    // 提取成功：原子替换 target_dir
+    // 1. 如果 target_dir 已存在（更新场景），先备份到 .old 暂存，原子替换后删 .old
+    // 2. 失败时用 .old 恢复
+    let backup_dir = skills_dir.join(format!(".{}.old.tmp.{}", skill_name, std::process::id()));
+    let _ = std::fs::remove_dir_all(&backup_dir); // 清残留
+    let had_existing = target_dir.exists();
+
+    if had_existing {
+        // rename 在某些 fs 上不能覆盖已存在目录；用 .old 暂存中转
+        std::fs::rename(&target_dir, &backup_dir)
+            .map_err(|e| AppError::Internal(format!("Failed to backup existing skill: {}", e)))?;
     }
 
-    // Zip bomb protection: limits for extracted files
-    const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;    // 50 MB per file
-    const MAX_TOTAL_SIZE: u64 = 200 * 1024 * 1024;   // 200 MB total
-    let mut total_extracted: u64 = 0;
-    let mut imported_files = 0i32;
+    let swap_result = std::fs::rename(&staging_dir, &target_dir);
 
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i)
-            .map_err(|e| AppError::Internal(format!("Failed to read zip entry: {}", e)))?;
-
-        let path = file.mangled_name();
-        let outpath = path.clone();
-
-        // Reject absolute paths and paths with parent directory traversal
-        if outpath.is_absolute() || outpath.components().any(|c| c.as_os_str() == "..") {
-            return Err(AppError::BadRequest(format!("Invalid path in archive: {}", outpath.display())));
+    if let Err(e) = swap_result {
+        // 替换失败：恢复 backup 到 target_dir，保留旧数据
+        if had_existing {
+            let _ = std::fs::rename(&backup_dir, &target_dir);
         }
+        let _ = std::fs::remove_dir_all(&staging_dir);
+        return Err(AppError::Internal(format!("Failed to commit import: {}", e)));
+    }
 
-        let file_name = outpath.file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-
-        // Skip directories and hidden files
-        if file_name.starts_with('.') || file_name.is_empty() {
-            continue;
-        }
-
-        // Check declared size early to reject obviously large files
-        let declared_size = file.size();
-        if declared_size > MAX_FILE_SIZE {
-            return Err(AppError::BadRequest(format!(
-                "File too large in archive: {} ({} bytes)", file_name, declared_size
-            )));
-        }
-
-        let dest_path = if flatten {
-            // Flatten: extract directly to target dir, ignoring subdirectories
-            target_dir.join(&file_name)
-        } else {
-            // Preserve structure
-            target_dir.join(&outpath)
-        };
-
-        // Verify dest_path is still under target_dir
-        if let Ok(dest_path_canonical) = dest_path.canonicalize() {
-            if !dest_path_canonical.starts_with(&target_dir) {
-                return Err(AppError::BadRequest(format!("Path escapes target directory: {}", outpath.display())));
-            }
-        }
-
-        if let Some(parent) = dest_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| AppError::Internal(format!("Failed to create dir: {}", e)))?;
-        }
-
-        let mut outfile = std::fs::File::create(&dest_path)
-            .map_err(|e| AppError::Internal(format!("Failed to create file: {}", e)))?;
-
-        // Use take() to enforce per-file size limit, protecting against zip bombs
-        let mut reader = file.by_ref().take(MAX_FILE_SIZE + 1);
-        let written = std::io::copy(&mut reader, &mut outfile)?;
-        if written > MAX_FILE_SIZE {
-            std::fs::remove_file(&dest_path).ok();
-            return Err(AppError::BadRequest(format!(
-                "File exceeds size limit during extraction: {} ({} bytes)", file_name, written
-            )));
-        }
-        total_extracted += written;
-        if total_extracted > MAX_TOTAL_SIZE {
-            return Err(AppError::BadRequest(format!(
-                "Total extracted size exceeds limit ({} bytes)", MAX_TOTAL_SIZE
-            )));
-        }
-        imported_files += 1;
+    // 替换成功：清理 backup
+    if had_existing {
+        let _ = std::fs::remove_dir_all(&backup_dir);
     }
 
     Ok(ApiResponse::ok(ImportResult {
