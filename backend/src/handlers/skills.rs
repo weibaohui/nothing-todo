@@ -7,7 +7,8 @@ use axum::extract::{Query, State};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use zip::write::FileOptions;
 use zip::ZipArchive;
 
@@ -40,15 +41,73 @@ pub fn executor_skills_dir_str(et: &str) -> Option<PathBuf> {
 }
 
 /// Executor type → skills directory mapping
+///
+/// 只是 ExecutorType 版本的薄包装；新代码应直接用 `executor_skills_dir_str`
+/// 接收字符串参数（这样非 ExecutorType 来源如 `agents` 也能复用）。
 fn executor_skills_dir(et: ExecutorType) -> Option<PathBuf> {
+    // ExecutorType 必然有映射；这里直接 unwrap_or_default 也行，但
+    // 保留 Option 让调用方决定空值时的行为
     executor_skills_dir_str(et.as_str())
 }
 
-/// 只读 skill 来源：当前只有 `agents`（扫描 `~/.agents/skills`，无 CLI）。
+/// 只读 skill 来源守卫：当前只有 `agents`（扫描 `~/.agents/skills`，无 CLI）。
+///
 /// 这些来源的 skill 可以看、可以导出、可以**作为同步源**复制到其他执行器，
-/// 但**不能直接被删除或被导入覆盖**（避免误删用户本机目录）。
+/// 但**不能直接被删除或被导入覆盖**（避免误删外部工具维护的内容）。
+///
+/// 用 `matches!` 而不是等值比较：编译期保证名字写错时编译器提醒
+/// （如果以后加新只读来源，往这里加一个 arm 即可）。
 fn is_readonly_skill_source(name: &str) -> bool {
     matches!(name, "agents")
+}
+
+/// 进程内单调递增的临时目录 id 源：用于 import 临时目录等需要唯一名的场景。
+///
+/// 单靠 PID 不够（同一进程的并发请求 PID 相同），加 counter 才能保证并发不撞。
+/// 64 位足够撑到天荒地老（每秒 1 亿次调用要 58 年才溢出）。
+static NEXT_STAGING_ID: AtomicU64 = AtomicU64::new(0);
+
+/// 取出下一个唯一的 staging 目录后缀
+fn next_staging_id() -> u64 {
+    NEXT_STAGING_ID.fetch_add(1, Ordering::Relaxed)
+}
+
+/// 把外部 `skill_name` 解析为「确实在 `base` 之下」的目录路径。
+///
+/// 防御：
+/// - 绝对路径（如 `/etc`）直接拒
+/// - 含 `..` 父级引用直接拒
+/// - 含前缀（Windows `C:\\`）直接拒
+/// - 解析后路径必须以 `base.canonicalize()` 为前缀
+///
+/// 与「直接 join + exists」的旧写法相比，这层校验避免：
+/// - `/etc/passwd` 这种 escape 读取
+/// - 符号链接绕过（canonicalize 后再 starts_with）
+/// - 末尾 `/` 让 `split('/').next_back()` 得空串导致误删 skills 根
+fn resolve_skill_path_under(base: &Path, skill_name: &str) -> Result<PathBuf, AppError> {
+    // 第一道：纯字符串级校验，挡住最常见的恶意输入（不必走 IO 就能拒）
+    let rel = Path::new(skill_name);
+    if rel.as_os_str().is_empty() {
+        return Err(AppError::BadRequest("Invalid skill name: empty".to_string()));
+    }
+    if rel.is_absolute() {
+        return Err(AppError::BadRequest("Invalid skill name: absolute paths are not allowed".to_string()));
+    }
+    if rel.components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::Prefix(_))) {
+        return Err(AppError::BadRequest("Invalid skill name: parent directory traversal is not allowed".to_string()));
+    }
+
+    // 第二道：IO 后兜底校验，挡住符号链接绕过等花招
+    let base_canonical = base.canonicalize()
+        .map_err(|e| AppError::Internal(format!("Failed to resolve base dir: {}", e)))?;
+    let candidate = base.join(rel);
+    let candidate_canonical = candidate.canonicalize()
+        .map_err(|_| AppError::NotFound)?;  // 不存在就当 404
+
+    if !candidate_canonical.starts_with(&base_canonical) {
+        return Err(AppError::BadRequest("Invalid skill name: path escapes base directory".to_string()));
+    }
+    Ok(candidate_canonical)
 }
 
 fn executor_label(et: ExecutorType) -> &'static str {
@@ -353,18 +412,24 @@ fn collect_skills_recursive(base_dir: &std::path::Path, current_dir: &std::path:
     }
 }
 
-#[allow(dead_code)]
-fn discover_skills_for_executor(et: ExecutorType) -> ExecutorSkills {
-    discover_skills_for(et.as_str(), executor_label(et))
-}
-
 /// 通用扫描：接受任意 executor 名字字符串（含 `agents` 这种只读来源）。
+///
 /// 把核心路径/扫描逻辑抽出来，原 `discover_skills_for_executor` 变为薄包装，
 /// 这样只读 skill 来源（如 `agents`）也能复用同一份发现逻辑。
+///
+/// 行为：
+/// - 输入：executor 名字（如 `"claudecode"` / `"agents"`）+ UI 显示标签
+/// - 输出：该来源的 ExecutorSkills（路径、是否存在、扫描到的 skills）
+///
+/// 边界：name 不在 `executor_skills_dir_str` 映射里时，返回「目录不存在」占位
+/// （不报错，因为前端可能传入未安装的执行器名）。
 fn discover_skills_for(name: &str, label: &str) -> ExecutorSkills {
+    // 拿 skills 目录；映射不到就当成「这个来源没配置」返回空结果
     let skills_dir = match executor_skills_dir_str(name) {
         Some(p) => p,
         None => {
+            // 边界：未知的 executor 名字在生产里可能是脏数据，
+            // 这里降级返回而不是 5xx，让前端 UI 友好展示
             return ExecutorSkills {
                 executor: name.to_string(),
                 executor_label: label.to_string(),
@@ -375,15 +440,20 @@ fn discover_skills_for(name: &str, label: &str) -> ExecutorSkills {
         }
     };
 
+    // 提前 to_string 一次避免后续多次系统调用
     let dir_str = skills_dir.to_string_lossy().to_string();
+    // exists 检查是必要的：collect_skills_recursive 不会自己返回 0，
+    // 它对不存在的目录静默返回空 vec，前端就看不出"目录被删了" vs "目录没 skill"
     let exists = skills_dir.exists();
 
+    // 只在目录存在时才递归扫描，避免对不存在的目录做无意义的 read_dir
     let mut skills = Vec::new();
     if exists {
         collect_skills_recursive(&skills_dir, &skills_dir, &mut skills);
     }
 
-    // Sort skills by name
+    // 大小写不敏感排序：UI Tab 内显示顺序稳定，
+    // 否则 "Foo" 和 "bar" 会按 ASCII 顺序穿插，跨执行器对比时不一致
     skills.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     ExecutorSkills {
@@ -395,16 +465,64 @@ fn discover_skills_for(name: &str, label: &str) -> ExecutorSkills {
     }
 }
 
+/// 旧 API 的薄包装：保留供可能的内部调用，新代码请用 `discover_skills_for`
+#[allow(dead_code)]
+fn discover_skills_for_executor(et: ExecutorType) -> ExecutorSkills {
+    // 直接走通用版本，ExecutorType 必然有 label
+    discover_skills_for(et.as_str(), executor_label(et))
+}
+
 // ── API handlers ────────────────────────────────────────────────────────
 
+/// 参与 skill 扫描/对比的所有来源：8 个执行器 + 只读来源 `agents`。
+///
+/// 用字符串数组而非 `ExecutorType` 数组，方便容纳非 ExecutorType 来源。
+/// **新增来源时**：
+/// 1. 在 `executor_skills_dir_str` 加分支
+/// 2. 在本数组加字符串
+/// 3. 如果不是 ExecutorType，在 `executor_label_for_source` 加显示名
+const ALL_SKILL_SOURCES: &[&str] = &[
+    "claudecode", "codebuddy", "opencode", "atomcode",
+    "hermes", "kimi", "joinai", "codex",
+    "agents",
+];
+
+/// 把 source 名字转成 UI 显示名。
+///
+/// 设计选择：先 `match` agents 这种特殊来源（避免 parse_executor_type 的成本），
+/// 剩下的 fallthrough 到 `parse_executor_type` 走 ExecutorType 路径，
+/// 找不到时返回空串（让 UI 退化显示原始 name）。
+fn executor_label_for_source(name: &str) -> &'static str {
+    match name {
+        // 特殊来源走专门分支，避开 parse_executor_type 的解析开销
+        "agents" => "Agents",
+        other => {
+            // 解析失败的回退：返回空串，调用方会兜底用 name 当 label
+            if let Some(et) = crate::adapters::parse_executor_type(other) {
+                executor_label(et)
+            } else {
+                ""
+            }
+        }
+    }
+}
+
+/// GET /api/skills - List skills grouped by executor
+///
 /// GET /api/skills - List skills grouped by executor
 ///
 /// 扫描 8 个 ExecutorType 之外，还扫 `~/.agents/skills`（只读 skill 来源）。
 /// agents 不参与 Todo 执行，但能在 Skills 总览/对比/同步里看到并使用。
+///
+/// 实现选择：每个来源的目录 IO 放在 `spawn_blocking` 里跑，
+/// 因为 read_dir 在大目录（hermes 146 个 skill）下可能阻塞 tokio worker。
 pub async fn list_skills(
     State(_state): State<AppState>,
 ) -> Result<ApiResponse<Vec<ExecutorSkills>>, AppError> {
+    // spawn_blocking：磁盘 IO 不能跑在 tokio reactor 上，否则会卡住其他请求
     let result = tokio::task::spawn_blocking(move || {
+        // 顺序遍历 9 个来源：单次调用只 IO 一次，顺序 vs 并行收益不大，
+        // 而且顺序能保证响应里 source 顺序稳定，方便前端按位置渲染 Tab
         ALL_SKILL_SOURCES
             .iter()
             .map(|name| discover_skills_for(name, executor_label_for_source(name)))
@@ -423,10 +541,9 @@ pub async fn get_skill_content(
     let skills_dir = executor_skills_dir_str(&query.executor)
         .ok_or_else(|| AppError::BadRequest(format!("Unknown executor: {}", query.executor)))?;
 
-    let skill_dir = skills_dir.join(&query.skill_name);
-    if !skill_dir.exists() {
-        return Err(AppError::NotFound);
-    }
+    // 用统一 helper 校验 skill_name 并解析出实际路径
+    // 比直接 join 多一层 canonicalize + starts_with 防御（防 ../ 逃逸和符号链接绕过）
+    let skill_dir = resolve_skill_path_under(&skills_dir, &query.skill_name)?;
 
     let skill_name = query.skill_name.clone();
     let executor = query.executor.clone();
@@ -515,10 +632,8 @@ pub async fn export_skill(
     let skills_dir = executor_skills_dir_str(&query.executor)
         .ok_or_else(|| AppError::BadRequest(format!("Unknown executor: {}", query.executor)))?;
 
-    let skill_dir = skills_dir.join(&query.skill_name);
-    if !skill_dir.exists() {
-        return Err(AppError::NotFound);
-    }
+    // 统一 containment 校验
+    let skill_dir = resolve_skill_path_under(&skills_dir, &query.skill_name)?;
 
     // Create zip in memory
     let mut zip_data = Vec::new();
@@ -602,94 +717,149 @@ pub async fn import_skill(
 
     let target_dir = skills_dir.join(&skill_name);
 
-    std::fs::create_dir_all(&target_dir)
-        .map_err(|e| AppError::Internal(format!("Failed to create target dir: {}", e)))?;
+    // 安全设计：先解到 **临时目录**，全部 entry 校验通过后再原子替换 target_dir。
+    //
+    // 必要性：直接解到 target_dir 时，如果第 5 个 entry 才触发大小限制或
+    // 路径校验，前面 4 个文件已经写盘但 API 返回 400，**用户看到的现象是
+    // 旧 skill 被部分覆盖 + 导入失败**。用临时目录 + 原子 rename 能保证：
+    // 1) 校验全过才动原 skill
+    // 2) 任何中途失败都只留下临时垃圾，target_dir 完整无缺
+    //
+    // 临时目录名加 PID + 单调计数器：单 PID 区分**进程**级并发，
+    // counter 区分**同进程内**并发（不同 async handler 并行 import 同一 skill 时）
+    let staging_id = next_staging_id();
+    let staging_dir = skills_dir.join(format!(".{}.import.tmp.{}.{}", skill_name, std::process::id(), staging_id));
+    // 清理可能的残留临时目录（上次失败留下的）
+    if staging_dir.exists() {
+        let _ = std::fs::remove_dir_all(&staging_dir);
+    }
+    std::fs::create_dir_all(&staging_dir)
+        .map_err(|e| AppError::Internal(format!("Failed to create staging dir: {}", e)))?;
 
-    // Canonicalize target_dir to verify it's under skills_dir
-    let target_dir = target_dir.canonicalize()
-        .map_err(|e| AppError::Internal(format!("Failed to resolve target dir: {}", e)))?;
+    // 提取作用域：staging_dir 是唯一允许写入的地方
+    let extract_result: Result<i32, AppError> = (|| {
+        // 校验 staging_dir 解析后仍在 skills_dir 之下（防御符号链接绕过）
+        let staging_canonical = staging_dir.canonicalize()
+            .map_err(|e| AppError::Internal(format!("Failed to resolve staging dir: {}", e)))?;
+        let skills_dir_canonical = skills_dir.canonicalize()
+            .map_err(|e| AppError::Internal(format!("Failed to resolve skills dir: {}", e)))?;
+        if !staging_canonical.starts_with(&skills_dir_canonical) {
+            return Err(AppError::BadRequest("Invalid staging path: escapes skills directory".to_string()));
+        }
 
-    // Verify target_dir is still under skills_dir
-    let skills_dir_canonical = skills_dir.canonicalize()
-        .map_err(|e| AppError::Internal(format!("Failed to resolve skills dir: {}", e)))?;
-    if !target_dir.starts_with(&skills_dir_canonical) {
-        return Err(AppError::BadRequest("Invalid skill name: would escape skills directory".to_string()));
+        // Zip bomb protection: limits for extracted files
+        const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;    // 50 MB per file
+        const MAX_TOTAL_SIZE: u64 = 200 * 1024 * 1024;   // 200 MB total
+        let mut total_extracted: u64 = 0;
+        let mut imported_files = 0i32;
+
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i)
+                .map_err(|e| AppError::Internal(format!("Failed to read zip entry: {}", e)))?;
+
+            let path = file.mangled_name();
+            let outpath = path.clone();
+
+            // Reject absolute paths and paths with parent directory traversal
+            if outpath.is_absolute() || outpath.components().any(|c| c.as_os_str() == "..") {
+                return Err(AppError::BadRequest(format!("Invalid path in archive: {}", outpath.display())));
+            }
+
+            let file_name = outpath.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            // Skip directories and hidden files
+            if file_name.starts_with('.') || file_name.is_empty() {
+                continue;
+            }
+
+            // Check declared size early to reject obviously large files
+            let declared_size = file.size();
+            if declared_size > MAX_FILE_SIZE {
+                return Err(AppError::BadRequest(format!(
+                    "File too large in archive: {} ({} bytes)", file_name, declared_size
+                )));
+            }
+
+            // 注意：所有 dest_path 都在 staging_dir 下，不再是 target_dir
+            let dest_path = if flatten {
+                staging_dir.join(&file_name)
+            } else {
+                staging_dir.join(&outpath)
+            };
+
+            // Verify dest_path is still under staging_dir（防御性检查）
+            if let Ok(dest_path_canonical) = dest_path.canonicalize() {
+                if !dest_path_canonical.starts_with(&staging_canonical) {
+                    return Err(AppError::BadRequest(format!("Path escapes staging directory: {}", outpath.display())));
+                }
+            }
+
+            if let Some(parent) = dest_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| AppError::Internal(format!("Failed to create dir: {}", e)))?;
+            }
+
+            let mut outfile = std::fs::File::create(&dest_path)
+                .map_err(|e| AppError::Internal(format!("Failed to create file: {}", e)))?;
+
+            // Use take() to enforce per-file size limit, protecting against zip bombs
+            let mut reader = file.by_ref().take(MAX_FILE_SIZE + 1);
+            let written = std::io::copy(&mut reader, &mut outfile)?;
+            if written > MAX_FILE_SIZE {
+                std::fs::remove_file(&dest_path).ok();
+                return Err(AppError::BadRequest(format!(
+                    "File exceeds size limit during extraction: {} ({} bytes)", file_name, written
+                )));
+            }
+            total_extracted += written;
+            if total_extracted > MAX_TOTAL_SIZE {
+                return Err(AppError::BadRequest(format!(
+                    "Total extracted size exceeds limit ({} bytes)", MAX_TOTAL_SIZE
+                )));
+            }
+            imported_files += 1;
+        }
+        Ok(imported_files)
+    })();
+
+    // 提取失败：清理临时目录，target_dir 保持原样不动
+    let imported_files = match extract_result {
+        Ok(n) => n,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&staging_dir);
+            return Err(e);
+        }
+    };
+
+    // 提取成功：原子替换 target_dir
+    // 1. 如果 target_dir 已存在（更新场景），先备份到 .old 暂存，原子替换后删 .old
+    // 2. 失败时用 .old 恢复
+    let backup_dir = skills_dir.join(format!(".{}.old.tmp.{}", skill_name, std::process::id()));
+    let _ = std::fs::remove_dir_all(&backup_dir); // 清残留
+    let had_existing = target_dir.exists();
+
+    if had_existing {
+        // rename 在某些 fs 上不能覆盖已存在目录；用 .old 暂存中转
+        std::fs::rename(&target_dir, &backup_dir)
+            .map_err(|e| AppError::Internal(format!("Failed to backup existing skill: {}", e)))?;
     }
 
-    // Zip bomb protection: limits for extracted files
-    const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;    // 50 MB per file
-    const MAX_TOTAL_SIZE: u64 = 200 * 1024 * 1024;   // 200 MB total
-    let mut total_extracted: u64 = 0;
-    let mut imported_files = 0i32;
+    let swap_result = std::fs::rename(&staging_dir, &target_dir);
 
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i)
-            .map_err(|e| AppError::Internal(format!("Failed to read zip entry: {}", e)))?;
-
-        let path = file.mangled_name();
-        let outpath = path.clone();
-
-        // Reject absolute paths and paths with parent directory traversal
-        if outpath.is_absolute() || outpath.components().any(|c| c.as_os_str() == "..") {
-            return Err(AppError::BadRequest(format!("Invalid path in archive: {}", outpath.display())));
+    if let Err(e) = swap_result {
+        // 替换失败：恢复 backup 到 target_dir，保留旧数据
+        if had_existing {
+            let _ = std::fs::rename(&backup_dir, &target_dir);
         }
+        let _ = std::fs::remove_dir_all(&staging_dir);
+        return Err(AppError::Internal(format!("Failed to commit import: {}", e)));
+    }
 
-        let file_name = outpath.file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-
-        // Skip directories and hidden files
-        if file_name.starts_with('.') || file_name.is_empty() {
-            continue;
-        }
-
-        // Check declared size early to reject obviously large files
-        let declared_size = file.size();
-        if declared_size > MAX_FILE_SIZE {
-            return Err(AppError::BadRequest(format!(
-                "File too large in archive: {} ({} bytes)", file_name, declared_size
-            )));
-        }
-
-        let dest_path = if flatten {
-            // Flatten: extract directly to target dir, ignoring subdirectories
-            target_dir.join(&file_name)
-        } else {
-            // Preserve structure
-            target_dir.join(&outpath)
-        };
-
-        // Verify dest_path is still under target_dir
-        if let Ok(dest_path_canonical) = dest_path.canonicalize() {
-            if !dest_path_canonical.starts_with(&target_dir) {
-                return Err(AppError::BadRequest(format!("Path escapes target directory: {}", outpath.display())));
-            }
-        }
-
-        if let Some(parent) = dest_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| AppError::Internal(format!("Failed to create dir: {}", e)))?;
-        }
-
-        let mut outfile = std::fs::File::create(&dest_path)
-            .map_err(|e| AppError::Internal(format!("Failed to create file: {}", e)))?;
-
-        // Use take() to enforce per-file size limit, protecting against zip bombs
-        let mut reader = file.by_ref().take(MAX_FILE_SIZE + 1);
-        let written = std::io::copy(&mut reader, &mut outfile)?;
-        if written > MAX_FILE_SIZE {
-            std::fs::remove_file(&dest_path).ok();
-            return Err(AppError::BadRequest(format!(
-                "File exceeds size limit during extraction: {} ({} bytes)", file_name, written
-            )));
-        }
-        total_extracted += written;
-        if total_extracted > MAX_TOTAL_SIZE {
-            return Err(AppError::BadRequest(format!(
-                "Total extracted size exceeds limit ({} bytes)", MAX_TOTAL_SIZE
-            )));
-        }
-        imported_files += 1;
+    // 替换成功：清理 backup
+    if had_existing {
+        let _ = std::fs::remove_dir_all(&backup_dir);
     }
 
     Ok(ApiResponse::ok(ImportResult {
@@ -748,92 +918,93 @@ pub struct SkillFileInfo {
     pub modified_at: String,
 }
 
-/// 参与 skill 扫描/对比的所有来源：8 个执行器 + 只读来源 `agents`。
-/// 用字符串数组而非 `ExecutorType` 数组，方便容纳非 ExecutorType 来源。
-const ALL_SKILL_SOURCES: &[&str] = &[
-    "claudecode", "codebuddy", "opencode", "atomcode",
-    "hermes", "kimi", "joinai", "codex",
-    "agents",
-];
-
 /// GET /api/skills/compare - Cross-executor skill comparison matrix
 ///
 /// 比 8 个 ExecutorType 多扫了 `agents`（`~/.agents/skills`），让用户
 /// 能看到 "lark-doc" 这类 skill 在哪些来源里有、版本是不是落后。
+///
+/// 输出结构：每个 skill 一行，每个来源一列，单元格标记 present/version。
+/// 这样前端可以画 N 行的对比表格，**任意两个来源**之间都能对比。
+///
+/// 实现选择：所有磁盘 IO（`discover_skills_for` 内部的 read_dir 递归）
+/// 放到 `spawn_blocking` 里跑，避免大目录（如 hermes 146 个 skill）
+/// 阻塞 tokio reactor worker。
 pub async fn compare_skills(
     State(_state): State<AppState>,
 ) -> Result<ApiResponse<Vec<SkillComparison>>, AppError> {
-    // Collect all skills per source
-    let mut all_skills: HashMap<String, HashMap<String, SkillMeta>> = HashMap::new();
-    for name in ALL_SKILL_SOURCES {
-        let es = discover_skills_for(name, executor_label_for_source(name));
-        let mut map = HashMap::new();
-        for skill in es.skills {
-            map.insert(skill.name.clone(), skill);
-        }
-        all_skills.insert((*name).to_string(), map);
-    }
-
-    // Build union of all skill names
-    let mut skill_names: Vec<String> = all_skills.values()
-        .flat_map(|m| m.keys().cloned())
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .collect();
-    skill_names.sort();
-
-    // Build comparison
-    let comparisons: Vec<SkillComparison> = skill_names.into_iter().map(|name| {
-        let mut executors_map = HashMap::new();
-        for src in ALL_SKILL_SOURCES {
-            let key = (*src).to_string();
-            if let Some(skill) = all_skills.get(&key).and_then(|m| m.get(&name)) {
-                executors_map.insert(key, SkillPresence {
-                    present: true,
-                    version: skill.version.clone(),
-                    modified_at: skill.modified_at.clone(),
-                });
-            } else {
-                executors_map.insert(key, SkillPresence {
-                    present: false,
-                    version: None,
-                    modified_at: None,
-                });
+    // spawn_blocking：read_dir 不能跑在 tokio worker 上
+    let comparisons = tokio::task::spawn_blocking(move || {
+        // 第一遍：把所有来源的 skills 扫成双层 map（source → name → meta）
+        // 嵌套 map 让后面 lookup 是 O(1)，避免对每个 skill 名都做线性扫描
+        let mut all_skills: HashMap<String, HashMap<String, SkillMeta>> = HashMap::new();
+        for name in ALL_SKILL_SOURCES {
+            let es = discover_skills_for(name, executor_label_for_source(name));
+            // 单独内层 map：覆盖同源同名 skill（实际不会发生，但防御性编码）
+            let mut map = HashMap::new();
+            for skill in es.skills {
+                map.insert(skill.name.clone(), skill);
             }
+            all_skills.insert((*name).to_string(), map);
         }
 
-        // Get description from any source that has it
-        let description = all_skills.values()
-            .filter_map(|m| m.get(&name))
-            .find_map(|s| {
-                if s.description.is_empty() { None } else { Some(s.description.clone()) }
-            })
-            .unwrap_or_default();
+        // 取所有来源的 skill 名字的并集，作为对比的"行"集合
+        // 走 HashSet 是为了去重（同名 skill 在多个来源里只算一行）
+        let mut skill_names: Vec<String> = all_skills.values()
+            .flat_map(|m| m.keys().cloned())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        // 排序让响应顺序稳定，前端表格渲染不会因调用时机不同而抖动
+        skill_names.sort();
 
-        SkillComparison {
-            skill_name: name,
-            description,
-            executors: executors_map,
-        }
-    }).collect();
+        // 第二遍：每个 skill 名生成一行对比，标记每个来源有没有
+        let comparisons: Vec<SkillComparison> = skill_names.into_iter().map(|name| {
+            // 内层循环：每个来源都查一遍这个 skill 在不在
+            // 用 if-let-some 而不是 .map().unwrap_or() 写更直白
+            let mut executors_map = HashMap::new();
+            for src in ALL_SKILL_SOURCES {
+                let key = (*src).to_string();
+                if let Some(skill) = all_skills.get(&key).and_then(|m| m.get(&name)) {
+                    // 命中：填 present + 版本信息
+                    executors_map.insert(key, SkillPresence {
+                        present: true,
+                        version: skill.version.clone(),
+                        modified_at: skill.modified_at.clone(),
+                    });
+                } else {
+                    // 未命中：填 present=false，前端用灰色格子展示
+                    executors_map.insert(key, SkillPresence {
+                        present: false,
+                        version: None,
+                        modified_at: None,
+                    });
+                }
+            }
+
+            // description 按 ALL_SKILL_SOURCES 固定顺序查，第一个非空的胜出
+            // （用 HashMap 迭代顺序不确定，跨调用 description 可能漂移）
+            let description = ALL_SKILL_SOURCES
+                .iter()
+                .filter_map(|src| all_skills.get(*src).and_then(|m| m.get(&name)))
+                .find_map(|s| {
+                    // 跳过空 description：可能某个来源的 SKILL.md 没写 description
+                    if s.description.is_empty() { None } else { Some(s.description.clone()) }
+                })
+                .unwrap_or_default();
+
+            SkillComparison {
+                skill_name: name,
+                description,
+                executors: executors_map,
+            }
+        }).collect();
+
+        comparisons
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("spawn_blocking join error: {}", e)))?;
 
     Ok(ApiResponse::ok(comparisons))
-}
-
-/// 把 source 名字转成 UI 显示名。ExecutorType 来源复用 `executor_label`，
-/// agents 这种非枚举来源单独处理。
-fn executor_label_for_source(name: &str) -> &'static str {
-    match name {
-        "agents" => "Agents",
-        other => {
-            // 尝试按 ExecutorType 找 label
-            if let Some(et) = crate::adapters::parse_executor_type(other) {
-                executor_label(et)
-            } else {
-                ""
-            }
-        }
-    }
 }
 
 /// POST /api/skills/sync - Sync skill from one executor to others
@@ -848,10 +1019,8 @@ pub async fn sync_skill(
     let source_dir = executor_skills_dir_str(&req.source_executor)
         .ok_or_else(|| AppError::BadRequest(format!("Unknown source executor: {}", req.source_executor)))?;
 
-    let skill_dir = source_dir.join(&req.skill_name);
-    if !skill_dir.exists() {
-        return Err(AppError::NotFound);
-    }
+    // 统一 containment 校验
+    let skill_dir = resolve_skill_path_under(&source_dir, &req.skill_name)?;
 
     let mut synced = Vec::new();
     let mut errors = Vec::new();
@@ -887,7 +1056,14 @@ pub async fn sync_skill(
 
         // Flatten directory: take only the last part of the skill name
         // e.g., "creative/joke-teller" -> "joke-teller"
-        let target_skill_name = req.skill_name.split('/').next_back().unwrap_or(&req.skill_name);
+        // 防御：先 trim 末尾 '/'，再 fallback 整体，保证 target_skill_name 永不为空
+        // （否则 dest = target_dir.join("") 会指向 skills 根目录，触发误删）
+        let trimmed = req.skill_name.trim_end_matches('/');
+        let target_skill_name = trimmed.rsplit('/').next().unwrap_or(trimmed);
+        if target_skill_name.is_empty() || target_skill_name.contains('/') {
+            errors.push(format!("Invalid skill name '{}' for sync target", req.skill_name));
+            continue;
+        }
         let dest = target_dir.join(target_skill_name);
 
         // Use temporary directory for atomic replace

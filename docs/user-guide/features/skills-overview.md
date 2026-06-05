@@ -58,24 +58,26 @@ description: 审查 PR 代码，提供建议
 
 ### 2.1 总览（Overview）
 
-- 8 个执行器 tab 切换
-- 每个执行器下列出它的所有 skills
+- 9 个来源 tab 切换（8 个执行器 + agents）
+- 每个来源下列出它的所有 skills
 - 单个 skill 详情（点开看 SKILL.md 全文）
-- 「**导入**」按钮：上传 .zip 包
-- 「**导出**」按钮：把当前执行器的所有 skills 打成 zip
+- 「**导入**」按钮：上传 .zip 包（agents 不可导入）
+- 「**导出**」按钮：把当前来源的所有 skills 打成 zip
 
 ### 2.2 对比（Comparison）
 
-- 横向看 8 个执行器**同名** skill 的差异
-- 「共享」（多个执行器都有）/ 「独占」（仅一个执行器有）
+- 横向看 9 个来源**同名** skill 的差异
+- 「共享」（多个来源都有）/ 「独占」（仅一个来源有）
 - 适合发现「哪个执行器落后了」
 
 ### 2.3 同步（Sync）
 
-- 选一个**源执行器** + 多个**目标执行器**
-- 把源执行器的所有 skills 复制到目标
+- 选一个**源来源** + 多个**目标来源**
+- 把源来源的所有 skills 复制到目标
 - 覆盖目标已有的同名 skill
-- 用于：把 Claude Code 的 skill 同步给 Codex
+- 用于：把 `agents`（cc-connect）的 skill 同步到 Claude Code
+
+agents 只能作为 source，不能作为 target（界面 disabled）。
 
 ### 2.4 追踪（Tracking）
 
@@ -121,6 +123,17 @@ description: 审查 PR 代码，提供建议
 - 同步时 ntd 只做文件复制，**不做格式转换**
 - 看各执行器的 skill 文档
 
+### 5.4 agents 看不到
+
+- `~/.agents/skills` 目录不存在
+- 创建空目录 `mkdir -p ~/.agents/skills` 即可
+
+### 5.5 agents 删除按钮是灰的
+
+- 这是设计：agents 是只读来源，不允许本地修改
+- 误删风险：可能破坏 cc-connect 等工具的数据
+- 解决：用「Skills 同步」把 agents 的内容复制到其他执行器
+
 ## 6. 备份
 
-Skills 备份是 ntd 三大备份之一，详见 [backup-and-restore.md](../settings/backup-and-restore.md#3-skill-备份)。
+Skills 备份是 ntd 三大备份之一，详见 [backup-and-restore.md](../settings/backup-and-restore.md#3-skill-备份)。**注意**：agents 不会被备份工具自动管理，因为它不在 ntd 的控制范围内。
