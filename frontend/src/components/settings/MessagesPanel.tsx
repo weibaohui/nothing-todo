@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Tabs, Form, message } from 'antd';
 import QRCode from 'qrcode';
 import { useApp } from '../../hooks/useApp';
@@ -30,6 +30,10 @@ export function MessagesPanel({ configForm, configSaving, handleSaveConfig, onBa
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [pollError, setPollError] = useState('');
   const [bindSuccess, setBindSuccess] = useState(false);
+  // 保存 SSE 连接，组件卸载时关闭
+  const [feishuEventSource, setFeishuEventSource] = useState<EventSource | null>(null);
+  // 保存成功提示 timer，用于取消重复绑定时的旧 timer
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // History state
   const [historyMessages, setHistoryMessages] = useState<FeishuHistoryMessage[]>([]);
@@ -158,7 +162,35 @@ export function MessagesPanel({ configForm, configSaving, handleSaveConfig, onBa
     loadFeishuPush();
   }, []);
 
+  // 组件卸载时关闭 SSE 连接
+  useEffect(() => {
+    return () => {
+      feishuEventSource?.close();
+    };
+  }, [feishuEventSource]);
+
+  // 关闭绑定弹窗时清理 SSE 连接和 timer
+  useEffect(() => {
+    if (!bindModalOpen) {
+      feishuEventSource?.close();
+      setFeishuEventSource(null);
+      if (successTimerRef.current) {
+        clearTimeout(successTimerRef.current);
+        successTimerRef.current = null;
+      }
+    }
+  }, [bindModalOpen, feishuEventSource]);
+
   const handleStartFeishuBind = async () => {
+    // 清理旧的 SSE 连接和 timer，防止重复绑定泄漏
+    if (successTimerRef.current) {
+      clearTimeout(successTimerRef.current);
+      successTimerRef.current = null;
+    }
+    if (feishuEventSource) {
+      feishuEventSource.close();
+    }
+
     setBinding(true);
     setBindSuccess(false);
     setPollError('');
@@ -181,26 +213,38 @@ export function MessagesPanel({ configForm, configSaving, handleSaveConfig, onBa
       });
       setQrCodeUrl(qrDataUrl);
 
-      const pollRes = await db.feishuPoll(beginRes.device_code, beginRes.interval, beginRes.expire_in);
-
-      if (pollRes.success) {
-        setBindSuccess(true);
-        message.success(`绑定成功！Bot: ${pollRes.bot_name || 'Feishu Bot'}`);
-        loadAgentBots();
-        loadFeishuPush();
-        setTimeout(() => {
-          setBindModalOpen(false);
-          setQrCodeUrl('');
-        }, 2000);
-      } else {
-        const errMsg = pollRes.error === 'access_denied' ? '用户拒绝了绑定请求'
-          : pollRes.error === 'expired_token' ? '二维码已过期，请重新绑定'
-          : '绑定超时，请重试';
-        setPollError(errMsg);
-      }
+      // 使用 SSE 方式轮询，支持页面关闭后继续执行
+      const eventSource = db.feishuPollSSE(
+        beginRes.device_code,
+        beginRes.interval,
+        beginRes.expire_in,
+        (pollRes) => {
+          if (pollRes.success) {
+            setBindSuccess(true);
+            message.success(`绑定成功！Bot: ${pollRes.bot_name || 'Feishu Bot'}`);
+            loadAgentBots();
+            loadFeishuPush();
+            // 保存 timer id，关闭模态框
+            successTimerRef.current = setTimeout(() => {
+              setBindModalOpen(false);
+              setQrCodeUrl('');
+            }, 2000);
+          } else {
+            const errMsg = pollRes.error === 'access_denied' ? '用户拒绝了绑定请求'
+              : pollRes.error === 'expired_token' ? '二维码已过期，请重新绑定'
+              : '绑定超时，请重试';
+            setPollError(errMsg);
+          }
+          setBinding(false);
+        },
+        (error) => {
+          setPollError(error || 'SSE 连接失败');
+          setBinding(false);
+        }
+      );
+      setFeishuEventSource(eventSource);
     } catch (err: any) {
       setPollError(err?.message || '启动绑定失败');
-    } finally {
       setBinding(false);
     }
   };

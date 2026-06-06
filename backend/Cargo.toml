@@ -33,6 +33,7 @@ prost = "0.13"
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 quick_cache = "0.6"
 futures-util = "0.3"
+tokio-stream = "0.1"
 url = "2"
 thiserror = "2"
 log = "0.4"

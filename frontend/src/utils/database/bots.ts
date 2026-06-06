@@ -105,12 +105,53 @@ export async function feishuBegin(): Promise<FeishuBeginResponse> {
   return unwrap(await api.post('/api/agent-bots/feishu/begin'));
 }
 
-export async function feishuPoll(device_code: string, interval?: number, expire_in?: number): Promise<FeishuPollResponse> {
-  return unwrap(await api.post('/api/agent-bots/feishu/poll', {
-    device_code,
-    interval,
-    expire_in,
-  }));
+/**
+ * 通过 SSE 方式轮询飞书设备授权，支持页面关闭后继续执行
+ * @param device_code 飞书设备码，从 feishuBegin 获取
+ * @param interval 轮询间隔（秒），默认 5
+ * @param expire_in 过期时间（秒），默认 1800
+ * @param onMessage 授权结果回调，接收 FeishuPollResponse
+ * @param onError 错误回调，接收错误信息字符串
+ * @returns EventSource 实例，调用方负责管理其生命周期（关闭连接）
+ */
+export function feishuPollSSE(
+  device_code: string,
+  interval: number = 5,
+  expire_in: number = 1800,
+  onMessage: (data: FeishuPollResponse) => void,
+  onError?: (error: string) => void,
+): EventSource {
+  const url = `/api/agent-bots/feishu/poll-stream?device_code=${encodeURIComponent(device_code)}&interval=${interval}&expire_in=${expire_in}`;
+  const eventSource = new EventSource(url);
+
+  eventSource.addEventListener('result', (event) => {
+    try {
+      const data = JSON.parse(event.data) as FeishuPollResponse;
+      onMessage(data);
+    } catch (e) {
+      onError?.('Failed to parse response');
+    } finally {
+      eventSource.close();
+    }
+  });
+
+  // 处理服务端业务错误（fail 事件，避免与 EventSource transport error 混淆）
+  eventSource.addEventListener('fail', (e: MessageEvent) => {
+    onError?.(e.data as string || 'Unknown error');
+    eventSource.close();
+  });
+
+  eventSource.addEventListener('ping', () => {
+    // 心跳，保持连接
+  });
+
+  // EventSource transport error（网络断开等）
+  eventSource.addEventListener('error', () => {
+    // EventSource 的 error 事件不携带自定义 data，直接关闭连接
+    eventSource.close();
+  });
+
+  return eventSource;
 }
 
 export async function getFeishuPush(): Promise<FeishuPushStatus[]> {
