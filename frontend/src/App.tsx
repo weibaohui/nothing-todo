@@ -62,7 +62,10 @@ function AppContent() {
   }, [state.loading, state.todos, dispatch, setSelectedPanel]);
 
   const handleSelectTodo = (todoId: string | number | null) => {
-    if (todoId != null) selectTodo(Number(todoId));
+    if (todoId != null) {
+      dispatch({ type: 'SELECT_TODO', payload: Number(todoId) });
+      selectTodo(Number(todoId));
+    }
   };
 
   const handleSmartCreateSubmitted = () => {
