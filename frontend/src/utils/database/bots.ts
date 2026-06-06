@@ -105,14 +105,6 @@ export async function feishuBegin(): Promise<FeishuBeginResponse> {
   return unwrap(await api.post('/api/agent-bots/feishu/begin'));
 }
 
-export async function feishuPoll(device_code: string, interval?: number, expire_in?: number): Promise<FeishuPollResponse> {
-  return unwrap(await api.post('/api/agent-bots/feishu/poll', {
-    device_code,
-    interval,
-    expire_in,
-  }));
-}
-
 /**
  * 通过 SSE 方式轮询飞书设备授权，支持页面关闭后继续执行
  * @param device_code 飞书设备码，从 feishuBegin 获取

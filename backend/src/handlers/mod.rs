@@ -551,7 +551,6 @@ pub fn create_app(
         .route("/api/agent-bots", get(agent_bot::list_agent_bots))
         .route("/api/agent-bots/feishu/init", post(agent_bot::feishu_init))
         .route("/api/agent-bots/feishu/begin", post(agent_bot::feishu_begin))
-        .route("/api/agent-bots/feishu/poll", post(agent_bot::feishu_poll))
         .route("/api/agent-bots/feishu/poll-stream", get(agent_bot::feishu_poll_sse))
         .route("/api/agent-bots/feishu/push", get(agent_bot::get_feishu_push).put(agent_bot::update_feishu_push))
         .route("/api/agent-bots/feishu/group-whitelist", get(agent_bot::get_group_whitelist).post(agent_bot::add_group_whitelist))
