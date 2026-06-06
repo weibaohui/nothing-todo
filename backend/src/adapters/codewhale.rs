@@ -153,7 +153,8 @@ impl CodeExecutor for CodewhaleExecutor {
             }
             "content" => {
                 // {"type":"content","content":"Hello"}
-                let content = json.get("content").and_then(Value::as_str).unwrap_or_default();
+                // Trim trailing whitespace/newlines to prevent extra line breaks in final result
+                let content = json.get("content").and_then(Value::as_str).unwrap_or_default().trim_end();
                 if content.is_empty() {
                     return None;
                 }
@@ -236,7 +237,9 @@ impl CodeExecutor for CodewhaleExecutor {
     }
 
     fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
-        // Collect all text entries, stripping think tags if present
+        // Collect all text entries, stripping think tags if present.
+        // CodeWhale streams text as small chunks (individual characters or words),
+        // so we join with empty string to preserve natural flow without extra newlines.
         let texts: Vec<String> = logs
             .iter()
             .filter(|l| l.log_type == "text")
@@ -245,7 +248,16 @@ impl CodeExecutor for CodewhaleExecutor {
             .collect();
 
         if !texts.is_empty() {
-            Some(texts.join("\n\n"))
+            // Join with empty string since chunks are already trimmed
+            let joined = texts.join("");
+            // Normalize multiple newlines to single newline for readability
+            let normalized = joined
+                .split('\n')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n");
+            Some(normalized)
         } else {
             // Fallback: last stderr entry
             logs.iter()

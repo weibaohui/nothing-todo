@@ -359,6 +359,10 @@ async fn run_server(cli_port: Option<u16>) {
     if let Err(e) = db.seed_default_executors().await {
         tracing::warn!("Failed to seed default executors: {}", e);
     }
+    // Sync any new executors added since last version
+    if let Err(e) = db.sync_new_executors().await {
+        tracing::warn!("Failed to sync new executors: {}", e);
+    }
     if let Err(e) = db.backfill_session_dir().await {
         tracing::warn!("Failed to backfill session_dir: {}", e);
     }
