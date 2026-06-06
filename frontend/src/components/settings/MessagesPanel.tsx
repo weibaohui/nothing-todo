@@ -30,6 +30,8 @@ export function MessagesPanel({ configForm, configSaving, handleSaveConfig, onBa
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [pollError, setPollError] = useState('');
   const [bindSuccess, setBindSuccess] = useState(false);
+  // 保存 SSE 连接，组件卸载时关闭
+  const [feishuEventSource, setFeishuEventSource] = useState<EventSource | null>(null);
 
   // History state
   const [historyMessages, setHistoryMessages] = useState<FeishuHistoryMessage[]>([]);
@@ -158,6 +160,21 @@ export function MessagesPanel({ configForm, configSaving, handleSaveConfig, onBa
     loadFeishuPush();
   }, []);
 
+  // 组件卸载时关闭 SSE 连接
+  useEffect(() => {
+    return () => {
+      feishuEventSource?.close();
+    };
+  }, [feishuEventSource]);
+
+  // 关闭绑定弹窗时关闭 SSE 连接
+  useEffect(() => {
+    if (!bindModalOpen) {
+      feishuEventSource?.close();
+      setFeishuEventSource(null);
+    }
+  }, [bindModalOpen, feishuEventSource]);
+
   const handleStartFeishuBind = async () => {
     setBinding(true);
     setBindSuccess(false);
@@ -182,7 +199,7 @@ export function MessagesPanel({ configForm, configSaving, handleSaveConfig, onBa
       setQrCodeUrl(qrDataUrl);
 
       // 使用 SSE 方式轮询，支持页面关闭后继续执行
-      db.feishuPollSSE(
+      const eventSource = db.feishuPollSSE(
         beginRes.device_code,
         beginRes.interval,
         beginRes.expire_in,
@@ -209,6 +226,7 @@ export function MessagesPanel({ configForm, configSaving, handleSaveConfig, onBa
           setBinding(false);
         }
       );
+      setFeishuEventSource(eventSource);
     } catch (err: any) {
       setPollError(err?.message || '启动绑定失败');
       setBinding(false);

@@ -348,15 +348,17 @@ pub async fn feishu_poll_sse(
                     }
                 };
 
-                // 启动新创建的 bot listener
-                if let Ok(Some(bot)) = db.get_agent_bot(bot_id.unwrap_or(0)).await {
-                    if bot.enabled {
-                        let listener_clone = listener.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = listener_clone.start_bot(&bot).await {
-                                tracing::error!("failed to start feishu bot {}: {e}", bot.id);
-                            }
-                        });
+                // 启动新创建的 bot listener（仅当 bot 创建成功时）
+                if let Some(id) = bot_id {
+                    if let Ok(Some(bot)) = db.get_agent_bot(id).await {
+                        if bot.enabled {
+                            let listener_clone = listener.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = listener_clone.start_bot(&bot).await {
+                                    tracing::error!("failed to start feishu bot {}: {e}", bot.id);
+                                }
+                            });
+                        }
                     }
                 }
 

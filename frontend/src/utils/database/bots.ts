@@ -128,9 +128,10 @@ export function feishuPollSSE(
     try {
       const data = JSON.parse(event.data) as FeishuPollResponse;
       onMessage(data);
-      eventSource.close();
     } catch (e) {
       onError?.('Failed to parse response');
+    } finally {
+      eventSource.close();
     }
   });
 
