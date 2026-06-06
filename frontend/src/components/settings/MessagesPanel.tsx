@@ -181,26 +181,36 @@ export function MessagesPanel({ configForm, configSaving, handleSaveConfig, onBa
       });
       setQrCodeUrl(qrDataUrl);
 
-      const pollRes = await db.feishuPoll(beginRes.device_code, beginRes.interval, beginRes.expire_in);
-
-      if (pollRes.success) {
-        setBindSuccess(true);
-        message.success(`绑定成功！Bot: ${pollRes.bot_name || 'Feishu Bot'}`);
-        loadAgentBots();
-        loadFeishuPush();
-        setTimeout(() => {
-          setBindModalOpen(false);
-          setQrCodeUrl('');
-        }, 2000);
-      } else {
-        const errMsg = pollRes.error === 'access_denied' ? '用户拒绝了绑定请求'
-          : pollRes.error === 'expired_token' ? '二维码已过期，请重新绑定'
-          : '绑定超时，请重试';
-        setPollError(errMsg);
-      }
+      // 使用 SSE 方式轮询，支持页面关闭后继续执行
+      db.feishuPollSSE(
+        beginRes.device_code,
+        beginRes.interval,
+        beginRes.expire_in,
+        (pollRes) => {
+          if (pollRes.success) {
+            setBindSuccess(true);
+            message.success(`绑定成功！Bot: ${pollRes.bot_name || 'Feishu Bot'}`);
+            loadAgentBots();
+            loadFeishuPush();
+            setTimeout(() => {
+              setBindModalOpen(false);
+              setQrCodeUrl('');
+            }, 2000);
+          } else {
+            const errMsg = pollRes.error === 'access_denied' ? '用户拒绝了绑定请求'
+              : pollRes.error === 'expired_token' ? '二维码已过期，请重新绑定'
+              : '绑定超时，请重试';
+            setPollError(errMsg);
+          }
+          setBinding(false);
+        },
+        (error) => {
+          setPollError(error || 'SSE 连接失败');
+          setBinding(false);
+        }
+      );
     } catch (err: any) {
       setPollError(err?.message || '启动绑定失败');
-    } finally {
       setBinding(false);
     }
   };

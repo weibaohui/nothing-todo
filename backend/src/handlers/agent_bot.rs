@@ -1,8 +1,9 @@
 use axum::{
-    extract::{Path, State},
-    response::IntoResponse,
+    extract::{Path, Query, State},
+    response::{sse::{Event, Sse}, IntoResponse},
     Json,
 };
+use futures_util::stream::Stream;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -243,6 +244,171 @@ pub async fn feishu_poll(
         // authorization_pending，等待后重试
         sleep(interval).await;
     }
+}
+
+// SSE 轮询飞书授权结果，支持页面关闭后继续执行
+pub async fn feishu_poll_sse(
+    State(state): State<AppState>,
+    Query(params): Query<FeishuPollRequest>,
+) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>> {
+    let expire_in = params.expire_in.unwrap_or(600).clamp(60, 1800);
+    let interval = Duration::from_secs(params.interval.unwrap_or(5).clamp(1, 30));
+    let deadline = std::time::Instant::now() + Duration::from_secs(expire_in);
+    let device_code = params.device_code.clone();
+
+    // 使用 channel 在后台轮询任务和 SSE 流之间传递结果
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, std::convert::Infallible>>(1);
+
+    // 将需要 clone 的值提取到闭包外部
+    let db = state.db.clone();
+    let listener = state.feishu_listener.clone();
+
+    // 启动后台轮询任务
+    tokio::spawn(async move {
+        let client = Client::new();
+
+        loop {
+            // 检查是否超时
+            if std::time::Instant::now() > deadline {
+                let response = FeishuPollResponse {
+                    success: false,
+                    error: Some("timeout".to_string()),
+                    ..Default::default()
+                };
+                let event = Event::default()
+                    .event("result")
+                    .data(serde_json::to_string(&response).unwrap_or_default());
+                let _ = tx.send(Ok(event)).await;
+                break;
+            }
+
+            // 轮询飞书 API
+            let res = match client
+                .post("https://accounts.feishu.cn/oauth/v1/app/registration")
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .form(&[
+                    ("action", "poll"),
+                    ("device_code", &device_code),
+                ])
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    let event = Event::default()
+                        .event("error")
+                        .data(e.to_string());
+                    let _ = tx.send(Ok(event)).await;
+                    break;
+                }
+            };
+
+            let body: serde_json::Value = match res.json().await {
+                Ok(b) => b,
+                Err(e) => {
+                    let event = Event::default()
+                        .event("error")
+                        .data(e.to_string());
+                    let _ = tx.send(Ok(event)).await;
+                    break;
+                }
+            };
+
+            // 授权成功
+            if let (Some(app_id), Some(app_secret)) = (
+                body.get("client_id").and_then(|v| v.as_str()),
+                body.get("client_secret").and_then(|v| v.as_str()),
+            ) {
+                let user_info = body.get("user_info");
+                let tenant_brand = user_info.and_then(|v| v.get("tenant_brand")).and_then(|v| v.as_str());
+                let open_id = user_info.and_then(|v| v.get("open_id")).and_then(|v| v.as_str());
+
+                let domain = if tenant_brand == Some("lark") {
+                    Some("lark".to_string())
+                } else {
+                    Some("feishu".to_string())
+                };
+
+                let bot_name = match probe_bot(app_id, app_secret).await {
+                    Ok(name) => Some(name),
+                    Err(e) => {
+                        tracing::warn!("probe_bot failed for app_id {}: {}", app_id, e);
+                        None
+                    }
+                };
+
+                let bot_id = match db
+                    .create_agent_bot("feishu", bot_name.as_deref().unwrap_or("Feishu Bot"), app_id, app_secret, open_id.map(String::from), domain.clone())
+                    .await
+                {
+                    Ok(id) => Some(id),
+                    Err(e) => {
+                        tracing::error!("failed to create feishu bot: {}", e);
+                        None
+                    }
+                };
+
+                // 启动新创建的 bot listener
+                if let Ok(Some(bot)) = db.get_agent_bot(bot_id.unwrap_or(0)).await {
+                    if bot.enabled {
+                        let listener_clone = listener.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = listener_clone.start_bot(&bot).await {
+                                tracing::error!("failed to start feishu bot {}: {e}", bot.id);
+                            }
+                        });
+                    }
+                }
+
+                let response = FeishuPollResponse {
+                    success: true,
+                    app_id: Some(app_id.to_string()),
+                    app_secret: None,
+                    domain,
+                    open_id: open_id.map(String::from),
+                    bot_name,
+                    bot_id,
+                    error: None,
+                };
+                let event = Event::default()
+                    .event("result")
+                    .data(serde_json::to_string(&response).unwrap_or_default());
+                let _ = tx.send(Ok(event)).await;
+                break;
+            }
+
+            // 终端错误
+            if let Some(err) = body.get("error").and_then(|v| v.as_str()) {
+                if err == "access_denied" || err == "expired_token" {
+                    let response = FeishuPollResponse {
+                        success: false,
+                        error: Some(err.to_string()),
+                        ..Default::default()
+                    };
+                    let event = Event::default()
+                        .event("result")
+                        .data(serde_json::to_string(&response).unwrap_or_default());
+                    let _ = tx.send(Ok(event)).await;
+                    break;
+                }
+                if err == "slow_down" {
+                    sleep(interval + Duration::from_secs(5)).await;
+                }
+            }
+
+            // authorization_pending，发送心跳并等待
+            let event = Event::default()
+                .event("ping")
+                .data(r#"{"status":"waiting"}"#);
+            let _ = tx.send(Ok(event)).await;
+            sleep(interval).await;
+        }
+    });
+
+    // 将 channel 转转为 Stream
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+
+    Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::new())
 }
 
 

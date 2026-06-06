@@ -113,6 +113,39 @@ export async function feishuPoll(device_code: string, interval?: number, expire_
   }));
 }
 
+// SSE 方式轮询飞书授权，支持页面关闭后继续执行
+export function feishuPollSSE(
+  device_code: string,
+  interval: number = 5,
+  expire_in: number = 1800,
+  onMessage: (data: FeishuPollResponse) => void,
+  onError?: (error: string) => void,
+): EventSource {
+  const url = `/api/agent-bots/feishu/poll-stream?device_code=${encodeURIComponent(device_code)}&interval=${interval}&expire_in=${expire_in}`;
+  const eventSource = new EventSource(url);
+
+  eventSource.addEventListener('result', (event) => {
+    try {
+      const data = JSON.parse(event.data) as FeishuPollResponse;
+      onMessage(data);
+      eventSource.close();
+    } catch (e) {
+      onError?.('Failed to parse response');
+    }
+  });
+
+  eventSource.addEventListener('ping', () => {
+    // 心跳，保持连接
+  });
+
+  eventSource.addEventListener('error', () => {
+    onError?.('SSE connection error');
+    eventSource.close();
+  });
+
+  return eventSource;
+}
+
 export async function getFeishuPush(): Promise<FeishuPushStatus[]> {
   return unwrap(await api.get('/api/agent-bots/feishu/push'));
 }
