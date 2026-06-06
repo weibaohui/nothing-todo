@@ -273,7 +273,38 @@ pub async fn feishu_poll_sse(
             .build()
             .unwrap_or_else(|_| Client::new());
 
+        // 辅助函数：发送 SSE 事件，成功返回 true，channel 关闭时返回 false
+        async fn send_sse_event(
+            tx: &tokio::sync::mpsc::Sender<Result<Event, std::convert::Infallible>>,
+            response: &FeishuPollResponse,
+            event_name: &str,
+        ) -> bool {
+            let payload = serde_json::to_string(response);
+            let event = match payload {
+                Ok(data) => Event::default().event(event_name).data(data),
+                Err(e) => {
+                    tracing::error!("failed to serialize SSE event: {}", e);
+                    return true; // 序列化失败也继续，不中断流程
+                }
+            };
+            // #8: 使用 tokio::select! 检测 channel 关闭并退出
+            tokio::select! {
+                _ = tx.closed() => return false,
+                result = tx.send(Ok(event)) => {
+                    if result.is_err() {
+                        return false;
+                    }
+                }
+            };
+            true
+        }
+
         loop {
+            // #8: 检查 channel 是否已关闭（客户端断开）
+            if tx.is_closed() {
+                break;
+            }
+
             // 每次循环检查是否超过总期限(expire_in)，超过则返回 timeout
             if std::time::Instant::now() > deadline {
                 let response = FeishuPollResponse {
@@ -281,10 +312,7 @@ pub async fn feishu_poll_sse(
                     error: Some("timeout".to_string()),
                     ..Default::default()
                 };
-                let event = Event::default()
-                    .event("result")
-                    .data(serde_json::to_string(&response).unwrap_or_default());
-                let _ = tx.send(Ok(event)).await;
+                let _ = send_sse_event(&tx, &response, "result").await;
                 break;
             }
 
@@ -301,11 +329,13 @@ pub async fn feishu_poll_sse(
             {
                 Ok(r) => r,
                 Err(e) => {
-                    // HTTP 请求失败，发送 fail 事件并退出（改名为 fail 避免与 EventSource transport error 冲突）
-                    let event = Event::default()
-                        .event("fail")
-                        .data(e.to_string());
-                    let _ = tx.send(Ok(event)).await;
+                    // HTTP 请求失败，发送 fail 事件并退出
+                    let response = FeishuPollResponse {
+                        success: false,
+                        error: Some(e.to_string()),
+                        ..Default::default()
+                    };
+                    let _ = send_sse_event(&tx, &response, "fail").await;
                     break;
                 }
             };
@@ -313,11 +343,13 @@ pub async fn feishu_poll_sse(
             let body: serde_json::Value = match res.json().await {
                 Ok(b) => b,
                 Err(e) => {
-                    // 响应解析失败，发送 error 事件并退出
-                    let event = Event::default()
-                        .event("error")
-                        .data(e.to_string());
-                    let _ = tx.send(Ok(event)).await;
+                    // 响应解析失败，发送 fail 事件并退出
+                    let response = FeishuPollResponse {
+                        success: false,
+                        error: Some(format!("failed to parse response: {}", e)),
+                        ..Default::default()
+                    };
+                    let _ = send_sse_event(&tx, &response, "fail").await;
                     break;
                 }
             };
@@ -360,37 +392,30 @@ pub async fn feishu_poll_sse(
                 };
 
                 // bot 创建失败时发送错误事件
-                let bot_id = match bot_id {
-                    Some(id) => {
-                        // 仅当 bot 创建成功时启动 listener（监听飞书消息）
-                        if let Ok(Some(bot)) = db.get_agent_bot(id).await {
-                            if bot.enabled {
-                                let listener_clone = listener.clone();
-                                tokio::spawn(async move {
-                                    if let Err(e) = listener_clone.start_bot(&bot).await {
-                                        tracing::error!("failed to start feishu bot {}: {e}", bot.id);
-                                    }
-                                });
-                            }
-                        }
-                        Some(id)
-                    }
-                    None => {
-                        // bot 创建失败，发送错误事件
-                        let response = FeishuPollResponse {
-                            success: false,
-                            error: Some("failed to create bot in database".to_string()),
-                            ..Default::default()
-                        };
-                        let event = Event::default()
-                            .event("fail")
-                            .data(serde_json::to_string(&response).unwrap_or_default());
-                        let _ = tx.send(Ok(event)).await;
-                        break;
-                    }
-                };
+                if bot_id.is_none() {
+                    let response = FeishuPollResponse {
+                        success: false,
+                        error: Some("failed to create bot in database".to_string()),
+                        ..Default::default()
+                    };
+                    let _ = send_sse_event(&tx, &response, "fail").await;
+                    break;
+                }
 
-                // 发送成功结果事件（仅当 bot 创建成功时）
+                // 仅当 bot 创建成功时启动 listener（监听飞书消息）
+                let bot_id = bot_id.unwrap();
+                if let Ok(Some(bot)) = db.get_agent_bot(bot_id).await {
+                    if bot.enabled {
+                        let listener_clone = listener.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = listener_clone.start_bot(&bot).await {
+                                tracing::error!("failed to start feishu bot {}: {e}", bot.id);
+                            }
+                        });
+                    }
+                }
+
+                // 发送成功结果事件
                 let response = FeishuPollResponse {
                     success: true,
                     app_id: Some(app_id.to_string()),
@@ -398,13 +423,10 @@ pub async fn feishu_poll_sse(
                     domain,
                     open_id: open_id.map(String::from),
                     bot_name,
-                    bot_id,
+                    bot_id: Some(bot_id),
                     error: None,
                 };
-                let event = Event::default()
-                    .event("result")
-                    .data(serde_json::to_string(&response).unwrap_or_default());
-                let _ = tx.send(Ok(event)).await;
+                let _ = send_sse_event(&tx, &response, "result").await;
                 break;
             }
 
@@ -416,23 +438,27 @@ pub async fn feishu_poll_sse(
                         error: Some(err.to_string()),
                         ..Default::default()
                     };
-                    let event = Event::default()
-                        .event("result")
-                        .data(serde_json::to_string(&response).unwrap_or_default());
-                    let _ = tx.send(Ok(event)).await;
+                    let _ = send_sse_event(&tx, &response, "result").await;
                     break;
                 }
-                // slow_down：服务端要求降低请求频率，等待额外 5 秒后重试
+                // #9: slow_down：服务端要求降低请求频率，等待额外 5 秒后直接 continue
                 if err == "slow_down" {
                     sleep(interval + Duration::from_secs(5)).await;
+                    continue;
                 }
             }
 
             // authorization_pending：用户还未扫码，发送 ping 心跳并等待 interval 后重试
-            let event = Event::default()
-                .event("ping")
-                .data(r#"{"status":"waiting"}"#);
-            let _ = tx.send(Ok(event)).await;
+            let ping_data = r#"{"status":"waiting"}"#;
+            let ping_event = Event::default().event("ping").data(ping_data);
+            tokio::select! {
+                _ = tx.closed() => break,
+                result = tx.send(Ok(ping_event)) => {
+                    if result.is_err() {
+                        break;
+                    }
+                }
+            };
             sleep(interval).await;
         }
     });
