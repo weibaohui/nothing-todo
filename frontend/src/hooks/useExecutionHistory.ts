@@ -206,7 +206,7 @@ export function useExecutionHistory({
 
   // ─── Derived values ────────────────────────────────────────
 
-  const records = selectedTodoId ? storeRecords : [];
+  const records = selectedTodoId ? (storeRecords ?? []) : [];
   const selectedHistoryRecord = selectedHistoryRecordDetail
     || (selectedHistoryRecordId ? records.find(r => r.id === selectedHistoryRecordId) || null : null);
 
