@@ -42,6 +42,7 @@ impl CodeExecutor for AtomcodeExecutor {
     fn command_args(&self, message: &str) -> Vec<String> {
         vec![
             "-v".to_string(),
+            "--dangerously-skip-permissions".to_string(),
             "-p".to_string(),
             message.to_string(),
         ]
@@ -347,7 +348,7 @@ mod tests {
     fn test_command_args() {
         let executor = AtomcodeExecutor::new("atomcode".to_string());
         let args = executor.command_args("do something");
-        assert_eq!(args, vec!["-v", "-p", "do something"]);
+        assert_eq!(args, vec!["-v", "--dangerously-skip-permissions", "-p", "do something"]);
     }
 
     #[test]
