@@ -143,12 +143,19 @@ export function feishuPollSSE(
     }
   });
 
+  // 处理服务端业务错误（fail 事件，避免与 EventSource transport error 混淆）
+  eventSource.addEventListener('fail', (e: MessageEvent) => {
+    onError?.(e.data as string || 'Unknown error');
+    eventSource.close();
+  });
+
   eventSource.addEventListener('ping', () => {
     // 心跳，保持连接
   });
 
+  // EventSource transport error（网络断开等）
   eventSource.addEventListener('error', () => {
-    onError?.('SSE connection error');
+    // EventSource 的 error 事件不携带自定义 data，直接关闭连接
     eventSource.close();
   });
 

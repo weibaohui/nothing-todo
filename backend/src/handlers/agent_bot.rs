@@ -301,9 +301,9 @@ pub async fn feishu_poll_sse(
             {
                 Ok(r) => r,
                 Err(e) => {
-                    // HTTP 请求失败，发送 error 事件并退出
+                    // HTTP 请求失败，发送 fail 事件并退出（改名为 fail 避免与 EventSource transport error 冲突）
                     let event = Event::default()
-                        .event("error")
+                        .event("fail")
                         .data(e.to_string());
                     let _ = tx.send(Ok(event)).await;
                     break;
@@ -359,21 +359,38 @@ pub async fn feishu_poll_sse(
                     }
                 };
 
-                // 仅当 bot 创建成功时启动 listener（监听飞书消息）
-                if let Some(id) = bot_id {
-                    if let Ok(Some(bot)) = db.get_agent_bot(id).await {
-                        if bot.enabled {
-                            let listener_clone = listener.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = listener_clone.start_bot(&bot).await {
-                                    tracing::error!("failed to start feishu bot {}: {e}", bot.id);
-                                }
-                            });
+                // bot 创建失败时发送错误事件
+                let bot_id = match bot_id {
+                    Some(id) => {
+                        // 仅当 bot 创建成功时启动 listener（监听飞书消息）
+                        if let Ok(Some(bot)) = db.get_agent_bot(id).await {
+                            if bot.enabled {
+                                let listener_clone = listener.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = listener_clone.start_bot(&bot).await {
+                                        tracing::error!("failed to start feishu bot {}: {e}", bot.id);
+                                    }
+                                });
+                            }
                         }
+                        Some(id)
                     }
-                }
+                    None => {
+                        // bot 创建失败，发送错误事件
+                        let response = FeishuPollResponse {
+                            success: false,
+                            error: Some("failed to create bot in database".to_string()),
+                            ..Default::default()
+                        };
+                        let event = Event::default()
+                            .event("fail")
+                            .data(serde_json::to_string(&response).unwrap_or_default());
+                        let _ = tx.send(Ok(event)).await;
+                        break;
+                    }
+                };
 
-                // 发送成功结果事件
+                // 发送成功结果事件（仅当 bot 创建成功时）
                 let response = FeishuPollResponse {
                     success: true,
                     app_id: Some(app_id.to_string()),

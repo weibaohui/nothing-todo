@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Tabs, Form, message } from 'antd';
 import QRCode from 'qrcode';
 import { useApp } from '../../hooks/useApp';
@@ -32,6 +32,8 @@ export function MessagesPanel({ configForm, configSaving, handleSaveConfig, onBa
   const [bindSuccess, setBindSuccess] = useState(false);
   // 保存 SSE 连接，组件卸载时关闭
   const [feishuEventSource, setFeishuEventSource] = useState<EventSource | null>(null);
+  // 保存成功提示 timer，用于取消重复绑定时的旧 timer
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // History state
   const [historyMessages, setHistoryMessages] = useState<FeishuHistoryMessage[]>([]);
@@ -167,15 +169,28 @@ export function MessagesPanel({ configForm, configSaving, handleSaveConfig, onBa
     };
   }, [feishuEventSource]);
 
-  // 关闭绑定弹窗时关闭 SSE 连接
+  // 关闭绑定弹窗时清理 SSE 连接和 timer
   useEffect(() => {
     if (!bindModalOpen) {
       feishuEventSource?.close();
       setFeishuEventSource(null);
+      if (successTimerRef.current) {
+        clearTimeout(successTimerRef.current);
+        successTimerRef.current = null;
+      }
     }
   }, [bindModalOpen, feishuEventSource]);
 
   const handleStartFeishuBind = async () => {
+    // 清理旧的 SSE 连接和 timer，防止重复绑定泄漏
+    if (successTimerRef.current) {
+      clearTimeout(successTimerRef.current);
+      successTimerRef.current = null;
+    }
+    if (feishuEventSource) {
+      feishuEventSource.close();
+    }
+
     setBinding(true);
     setBindSuccess(false);
     setPollError('');
@@ -209,7 +224,8 @@ export function MessagesPanel({ configForm, configSaving, handleSaveConfig, onBa
             message.success(`绑定成功！Bot: ${pollRes.bot_name || 'Feishu Bot'}`);
             loadAgentBots();
             loadFeishuPush();
-            setTimeout(() => {
+            // 保存 timer id，关闭模态框
+            successTimerRef.current = setTimeout(() => {
               setBindModalOpen(false);
               setQrCodeUrl('');
             }, 2000);
