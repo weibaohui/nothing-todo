@@ -92,7 +92,7 @@ export function useApp() {
       t === 'SET_EXECUTION_RECORDS' || t === 'ADD_EXECUTION_RECORD' ||
       t === 'UPDATE_EXECUTION_RECORD' || t === 'ADD_RUNNING_TASK' ||
       t === 'APPEND_TASK_LOG' || t === 'FINISH_TASK' ||
-      t === 'REMOVE_RUNNING_TASKS' || t === 'CLEAR_RUNNING_TASKS' ||
+      t === 'REMOVE_RUNNING_TASK' || t === 'CLEAR_RUNNING_TASKS' ||
       t === 'SET_ACTIVE_TASK' || t === 'UPDATE_TASK_TODO_PROGRESS' ||
       t === 'UPDATE_TASK_EXECUTION_STATS'
     ) {

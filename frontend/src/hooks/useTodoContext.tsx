@@ -44,7 +44,7 @@ type TodoAction =
   | { type: 'SELECT_TAG'; payload: number | null }   // filter by tag / clear filter
   | { type: 'ADD_TAG'; payload: Tag }               // create tag
   | { type: 'DELETE_TAG'; payload: number }         // remove tag by id
-  | { type: 'UPDATE_TODO_STATUS'; payload: { id: number; status: string } }; // quick status toggle
+  | { type: 'UPDATE_TODO_STATUS'; payload: { id: number; status: Todo['status'] } }; // quick status toggle
 
 const initialState: TodoState = {
   todos: [],
