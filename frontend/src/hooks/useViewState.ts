@@ -72,7 +72,9 @@ export function useViewState() {
   // Navigate to a different view (clears todo selection)
   const showView = useCallback((view: View) => {
     setActiveView(view);
-    setSelectedPanel(viewToPanel(view));
+    // On mobile, dashboard renders in the detail panel, so always show it
+    const panel: Panel = view === 'dashboard' ? 'detail' : viewToPanel(view);
+    setSelectedPanel(panel);
     pushUrl(view);
   }, [pushUrl]);
 
