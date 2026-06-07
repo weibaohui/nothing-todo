@@ -1,12 +1,7 @@
-use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait, QueryOrder, QueryFilter, ColumnTrait};
+use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait, QueryOrder};
 use crate::db::Database;
 use crate::db::entity::agent_bots;
 use crate::db::entity::feishu_response_config;
-use crate::db::entity::feishu_homes;
-use crate::db::entity::feishu_messages;
-use crate::db::entity::feishu_history_chats;
-use crate::db::entity::feishu_push_targets;
-use crate::db::entity::feishu_group_whitelist;
 use crate::models::AgentBot;
 
 fn map_bot(m: agent_bots::Model) -> AgentBot {
@@ -77,34 +72,7 @@ impl Database {
     }
 
     pub async fn delete_agent_bot(&self, id: i64) -> Result<(), sea_orm::DbErr> {
-        // Cascade delete all related feishu child tables before deleting the bot
-        // Tables with FOREIGN KEY constraint on bot_id (must be deleted first):
-        feishu_homes::Entity::delete_many()
-            .filter(feishu_homes::Column::BotId.eq(id))
-            .exec(&self.conn)
-            .await?;
-        feishu_messages::Entity::delete_many()
-            .filter(feishu_messages::Column::BotId.eq(id))
-            .exec(&self.conn)
-            .await?;
-        feishu_history_chats::Entity::delete_many()
-            .filter(feishu_history_chats::Column::BotId.eq(id))
-            .exec(&self.conn)
-            .await?;
-        feishu_push_targets::Entity::delete_many()
-            .filter(feishu_push_targets::Column::BotId.eq(id))
-            .exec(&self.conn)
-            .await?;
-        // Tables without FK constraint but also reference bot_id:
-        feishu_response_config::Entity::delete_many()
-            .filter(feishu_response_config::Column::BotId.eq(id))
-            .exec(&self.conn)
-            .await?;
-        feishu_group_whitelist::Entity::delete_many()
-            .filter(feishu_group_whitelist::Column::BotId.eq(id))
-            .exec(&self.conn)
-            .await?;
-
+        // Child rows in feishu_* tables are cleaned up by ON DELETE CASCADE.
         agent_bots::Entity::delete_by_id(id).exec(&self.conn).await?;
         Ok(())
     }
