@@ -226,7 +226,9 @@ export function BindTab({
                                 size="small" placeholder="搜索或粘贴 Open ID"
                                 value={whitelistBotId === botPushStatus.bot_id ? whitelistOpenId : undefined}
                                 onChange={(v) => { setWhitelistBotId(botPushStatus.bot_id); setWhitelistOpenId(v); }}
-                                onFocus={() => { if (whitelistBotId !== botPushStatus.bot_id) { onLoadGroupWhitelist(botPushStatus.bot_id); onLoadHistorySenders(); } }}
+                                // 每次聚焦都加载最新数据：historySenders 追加模式可安全重复调用，
+                                // groupWhitelist 按 bot 加载确保切回该 bot 时数据已刷新。
+                                onFocus={() => { onLoadGroupWhitelist(botPushStatus.bot_id); onLoadHistorySenders(); }}
                                 filterOption={(input, option) => {
                                   if (!option?.value) return false;
                                   const val = (option.value as string).toLowerCase();

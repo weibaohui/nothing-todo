@@ -133,10 +133,32 @@ export function MessagesPanel({ configForm, configSaving, handleSaveConfig, onBa
     }
   };
 
+  // 组件卸载时关闭 SSE 连接
+  useEffect(() => {
+    return () => {
+      feishuEventSource?.close();
+    };
+  }, [feishuEventSource]);
+
+  // hasPushTarget 为 true 时（feishuPushStatus 非空），预加载群聊响应白名单。
+  // 这样进入绑定 Tab 时，白名单区域无需等用户聚焦输入框就已有数据。
+  useEffect(() => {
+    if (feishuPushStatus.length > 0 && agentBots.length > 0) {
+      // 找到第一个有推送目标的 bot，加载其白名单
+      const firstPushTarget = feishuPushStatus.find(ps => agentBots.some(b => b.id === ps.bot_id));
+      if (firstPushTarget) {
+        loadGroupWhitelist(firstPushTarget.bot_id);
+      }
+    }
+  }, [feishuPushStatus, agentBots]);
+
+  // 加载历史发送者列表，供白名单 AutoComplete 使用。
   useEffect(() => {
     loadHistoryChats();
     loadHistorySenders();
   }, []);
+
+  // 加载历史发送者列表，供白名单 AutoComplete 使用。
 
   useEffect(() => {
     loadHistoryMessages();
