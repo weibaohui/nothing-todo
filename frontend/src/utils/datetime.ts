@@ -1,18 +1,17 @@
 /**
  * 解析后端返回的时间字符串为 Date 对象。
- * 后端存储的是本地时间（已按当前时区格式化），不加 Z 直接解析为本地时间。
- * 如果后端返回的是 UTC 时间（带 Z），则按 UTC 解析。
+ * 数据库存的是本地时间（Asia/Shanghai），格式为 "YYYY-MM-DDTHH:MM:SSZ"（Z 是格式的一部分，非时区标识）。
+ * 解析时需去掉末尾的 Z 当作本地时间字符串处理，避免 JS 将其误认为 UTC 时间。
  */
 export function parseUtcDate(timeStr: string | null | undefined): Date | null {
   if (!timeStr) return null;
-  // 有 Z 后缀说明后端认为这是 UTC 时间，按 UTC 解析
-  if (timeStr.endsWith('Z')) return new Date(timeStr);
-  // 没有 Z 后缀说明后端存的是本地时间，直接解析
-  return new Date(timeStr);
+  // 去掉末尾的 Z，当作普通本地时间字符串解析
+  const localStr = timeStr.endsWith('Z') ? timeStr.slice(0, -1) : timeStr;
+  return new Date(localStr);
 }
 
 /**
- * 将 UTC 时间字符串格式化为本地时区的可读字符串
+ * 将时间格式化为本地可读字符串
  */
 export function formatLocalDateTime(timeStr: string | null | undefined): string {
   const date = parseUtcDate(timeStr);
@@ -21,8 +20,7 @@ export function formatLocalDateTime(timeStr: string | null | undefined): string 
 }
 
 /**
- * 将时间格式化为相对时间（多久之前）。
- * 使用 UTC 计算经过的时分秒，避免本地时区偏移导致显示错误（如"3小时前"变成"11小时前"）。
+ * 将时间格式化为相对时间（多久之前）
  */
 export function formatRelativeTime(timeStr: string | null | undefined): string {
   const date = parseUtcDate(timeStr);
@@ -44,9 +42,7 @@ export function formatRelativeTime(timeStr: string | null | undefined): string {
   if (diffDay === 1) return '昨天';
   if (diffDay < 7) return `${diffDay} 天前`;
 
-  // 超过7天显示月日，用 UTC 避免本地时区偏移
   return date.toLocaleDateString('zh-CN', {
-    timeZone: 'UTC',
     month: 'numeric',
     day: 'numeric',
   });
