@@ -80,7 +80,8 @@ impl MessageDebounce {
                 tokio::time::sleep(std::time::Duration::from_secs(secs as u64)).await;
 
                 // Timer fired: drain all pending messages for this key
-                let pending = entries.remove(&(bot_id, chat_id));
+                let key = (bot_id, chat_id.clone());
+                let pending = entries.remove(&key);
                 if let Some((_, entry)) = pending {
                     if entry.messages.is_empty() {
                         return;
@@ -118,6 +119,7 @@ impl MessageDebounce {
                     })
                     .await;
 
+                    tracing::info!("[debounce] timer fired for bot_id={}, chat_id={}, msg_count={}, result={:?}", bot_id, key.1, entry.messages.len(), result);
                     match result {
                         Ok(exec_result) => {
                             // Update all pending messages with todo_id and execution_record_id
@@ -143,14 +145,14 @@ impl MessageDebounce {
                                 last.todo_id,
                                 e
                             );
-                            // Still mark messages as processed with todo_id but no record_id
+                            // Mark messages as failed (processed=false) so they can be retried
                             for msg in &entry.messages {
                                 if let Some(ref msg_id) = msg.message_id {
                                     if let Err(mark_err) = db
-                                        .mark_feishu_message_processed(msg_id, msg.todo_id, None)
+                                        .mark_feishu_message_failed(msg_id, msg.todo_id)
                                         .await
                                     {
-                                        tracing::warn!("[debounce] failed to mark message {} after execution failure: {:?}", msg_id, mark_err);
+                                        tracing::warn!("[debounce] failed to mark message {} as failed: {:?}", msg_id, mark_err);
                                     }
                                 }
                             }

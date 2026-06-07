@@ -15,8 +15,8 @@ impl Database {
             .all(&self.conn)
             .await?;
 
-        // Empty whitelist means no restriction
-        if list.is_empty() {
+        // Empty whitelist or empty sender_open_id in any entry means no restriction (allow all)
+        if list.is_empty() || list.iter().any(|w| w.sender_open_id.is_empty()) {
             return Ok(true);
         }
 
@@ -35,12 +35,18 @@ impl Database {
     }
 
     /// Add a sender to the whitelist. Returns existing entry if duplicate.
+    /// Returns error if sender_open_id is empty (empty entries would bypass whitelist).
     pub async fn add_group_whitelist(
         &self,
         bot_id: i64,
         sender_open_id: &str,
         sender_name: Option<&str>,
     ) -> Result<feishu_group_whitelist::Model, sea_orm::DbErr> {
+        // Validate sender_open_id is non-empty to prevent accidental whitelist bypass
+        if sender_open_id.is_empty() {
+            return Err(sea_orm::DbErr::Custom("sender_open_id cannot be empty".to_string()));
+        }
+
         // Check if already exists
         if let Some(existing) = feishu_group_whitelist::Entity::find()
             .filter(feishu_group_whitelist::Column::BotId.eq(bot_id))
