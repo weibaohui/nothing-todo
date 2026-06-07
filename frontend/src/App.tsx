@@ -172,7 +172,6 @@ function AppContent() {
             {state.selectedTodoId ? (
               <TodoDetail
                 onBack={isMobile ? () => showView('dashboard') : undefined}
-                onShowDashboard={isMobile ? () => showView('dashboard') : undefined}
               />
             ) : activeView === 'settings' ? (
               <SettingsPage onBack={isMobile ? backToList : undefined} />
