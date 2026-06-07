@@ -61,3 +61,11 @@ export interface CustomTemplateStatus {
   auto_sync_cron: string;
   templates: TodoTemplate[];
 }
+
+export interface ProjectDirectory {
+  id: number;
+  path: string;
+  name: string | null;
+  created_at: string;
+  updated_at: string;
+}
