@@ -206,18 +206,13 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
       const trimmedWorkspace = workspace.trim() || null;
 
       if (isEditMode && todo) {
-        if (trimmedWorkspace) {
-          const exists = projectDirectories.some(d => d.path === trimmedWorkspace);
-          if (!exists) {
-            // 容错：用户选了 AutoComplete 模糊匹配之外的路径，依然按"项目名称 = 路径同名"思路兜底创建
-            try { await db.upsertProjectDirectoryIfNotExists(trimmedWorkspace); } catch { }
-          }
-        }
+        // 如果用户输入了路径但不在下拉列表中，不自动创建（name 必填约束），让用户使用快速新增功能
+        const workspaceToSave = trimmedWorkspace && projectDirectories.some(d => d.path === trimmedWorkspace) ? trimmedWorkspace : null;
 
         await db.updateTodo(
           todo.id, title.trim(), prompt.trim(), todo.status,
           executor, schedulerEnabled, schedulerConfig || null,
-          trimmedWorkspace, worktreeEnabled,
+          workspaceToSave, worktreeEnabled,
           hooks,
         );
         await db.updateScheduler(todo.id, schedulerEnabled, schedulerConfig || null);
@@ -226,17 +221,14 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
       } else {
         const newTodo = await db.createTodo(title.trim(), prompt.trim(), selectedTags, hooks);
 
-        if (trimmedWorkspace || schedulerEnabled || executor !== 'claudecode' || worktreeEnabled) {
-          if (trimmedWorkspace) {
-            const exists = projectDirectories.some(d => d.path === trimmedWorkspace);
-            if (!exists) {
-              try { await db.upsertProjectDirectoryIfNotExists(trimmedWorkspace); } catch { }
-            }
-          }
+        // workspaceToSave 只在路径存在于下拉列表时设置，否则为 null（避免创建无名项目）
+        const workspaceToSave = trimmedWorkspace && projectDirectories.some(d => d.path === trimmedWorkspace) ? trimmedWorkspace : null;
+
+        if (workspaceToSave || schedulerEnabled || executor !== 'claudecode' || worktreeEnabled) {
           await db.updateTodo(
             newTodo.id, newTodo.title, newTodo.prompt, newTodo.status,
             executor, schedulerEnabled, schedulerConfig || null,
-            trimmedWorkspace, worktreeEnabled,
+            workspaceToSave, worktreeEnabled,
             hooks,
           );
           await db.updateScheduler(newTodo.id, schedulerEnabled, schedulerConfig || null);
