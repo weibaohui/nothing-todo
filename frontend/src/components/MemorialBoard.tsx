@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Card, Segmented, Skeleton, Empty, Button, Input } from 'antd';
+import { Card, Segmented, Skeleton, Empty, Button, Input, Select } from 'antd';
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
@@ -7,13 +7,14 @@ import {
   AppstoreOutlined,
   ProfileOutlined,
   SearchOutlined,
+  FolderOutlined,
 } from '@ant-design/icons';
 import { useApp } from '../hooks/useApp';
 import { KanbanBoard } from './KanbanBoard';
 import { TodoCard } from './TodoCard';
 import * as db from '../utils/database';
 import { formatRelativeTime } from '../utils/datetime';
-import type { RecentCompletedTodo, Tag, ExecutionRecord } from '../types';
+import type { RecentCompletedTodo, Tag, ExecutionRecord, ProjectDirectory } from '../types';
 
 const TIME_OPTIONS: { label: string; value: number }[] = [
   { label: '6h', value: 6 },
@@ -38,6 +39,8 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
   const [searchText, setSearchText] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [promptExpandedIds, setPromptExpandedIds] = useState<Set<number>>(new Set());
+  const [projectDirectories, setProjectDirectories] = useState<ProjectDirectory[]>([]);
+  const [selectedProject, setSelectedProject] = useState<string | null>(null);
 
   /* ─── Run history switching ─── */
   const [selectedRunIndex, setSelectedRunIndex] = useState<Record<number, number>>({});
@@ -73,6 +76,20 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
       });
     return () => { cancelled = true; };
   }, [hours, boardMode]);
+
+  // 加载项目目录列表，供项目维度过滤使用。
+  // 与 KanbanBoard 逻辑一致：首次加载 + 监听 TodoDrawer 快速新增事件刷新。
+  // 失败时回退为空数组，不影响纪念板主体展示。
+  useEffect(() => {
+    const reload = () => {
+      db.getProjectDirectories() // 从后端拉全量目录
+        .then(setProjectDirectories) // 更新下拉数据源
+        .catch(() => setProjectDirectories([])); // 静默失败：项目过滤退化，不阻塞主流程
+    };
+    reload(); // 首次挂载加载
+    window.addEventListener('projectDirectoryAdded', reload); // 跨组件刷新
+    return () => window.removeEventListener('projectDirectoryAdded', reload); // 清理监听
+  }, []);
 
   const toggleExpand = (todoId: number) => {
     setExpandedIds(prev => {
@@ -162,13 +179,25 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
   };
 
   const filteredItems = useMemo(() => {
-    if (!searchText.trim()) return items;
-    const q = searchText.toLowerCase();
-    return items.filter(i =>
-      i.title.toLowerCase().includes(q) ||
-      (i.prompt && i.prompt.toLowerCase().includes(q))
-    );
-  }, [items, searchText]);
+    let result = items;
+    // 按项目目录过滤：选中某项目后，只展示 workspace 匹配该目录的已完成 todo；
+    // 因为 items 是轻量快照（不含 workspace 字段），需要回查 state.todos 取 workspace
+    if (selectedProject) {
+      result = result.filter(i => {
+        const todo = state.todos.find(t => t.id === i.todo_id); // 回查全量 todo 取 workspace
+        return todo?.workspace === selectedProject; // 匹配选中项目的路径
+      });
+    }
+    // 按搜索文本过滤：匹配标题或 prompt
+    if (searchText.trim()) {
+      const q = searchText.toLowerCase();
+      result = result.filter(i =>
+        i.title.toLowerCase().includes(q) ||
+        (i.prompt && i.prompt.toLowerCase().includes(q))
+      );
+    }
+    return result;
+  }, [items, searchText, selectedProject, state.todos]);
 
   /* ─── Responsive column count ─── */
   const [columnCount, setColumnCount] = useState(() => {
@@ -233,6 +262,10 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
     const isSuccess = item.execution_status === 'success';
     const expanded = expandedIds.has(item.todo_id);
     const resolvedTags = item.tag_ids.map(tid => state.tags.find(t => t.id === tid)).filter(Boolean) as Tag[];
+    // 获取项目名称
+    const todo = state.todos.find(t => t.id === item.todo_id);
+    const projectDir = projectDirectories.find(d => d.path === todo?.workspace);
+    const projectName = projectDir?.name || null;
 
     // Run history: determine which run to display
     const runIdx = selectedRunIndex[item.todo_id] ?? 0;
@@ -282,6 +315,7 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
           executor={item.executor}
           time={formatRelativeTime(item.completed_at)}
           model={displayModel}
+          projectName={projectName}
           tags={resolvedTags}
           usage={displayUsage}
           triggerType={displayTriggerType}
@@ -342,6 +376,20 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
               const opt = TIME_OPTIONS.find(o => o.label === label);
               if (opt) setHours(opt.value);
             }}
+          />
+          {/* 项目过滤下拉：value 为目录路径（与 workspace 字段匹配），label 优先显示项目名 */}
+          <Select
+            size="small"
+            placeholder="项目过滤"
+            allowClear
+            value={selectedProject}
+            onChange={setSelectedProject}
+            style={{ width: 150 }}
+            suffixIcon={<FolderOutlined />}
+            options={projectDirectories.map(d => ({
+              value: d.path, // value 存路径，与 todo.workspace 对比
+              label: d.name || d.path, // 优先展示项目名，无名则回退显示路径
+            }))}
           />
           {boardMode === 'memorial' ? (
             <div className="memorial-summary">

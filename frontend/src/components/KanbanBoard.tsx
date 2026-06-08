@@ -1,13 +1,13 @@
-import { useState, useMemo, useCallback, useRef } from 'react';
-import { Input, Segmented, App, Tabs } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { Input, Segmented, App, Tabs, Select } from 'antd';
+import { SearchOutlined, FolderOutlined } from '@ant-design/icons';
 import { useApp } from '../hooks/useApp';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useKanbanExecutionCache } from '../hooks/useKanbanExecutionCache';
 import { TodoCard } from './TodoCard';
 import * as db from '../utils/database';
 import { formatRelativeTime } from '../utils/datetime';
-import type { Todo, ExecutionRecord } from '../types';
+import type { Todo, ExecutionRecord, ProjectDirectory } from '../types';
 import { TIME_OPTIONS, COLUMNS } from './kanban/constants';
 import { getColumnForStatus } from './kanban/helpers';
 import type { ColumnDef } from './kanban/constants';
@@ -18,6 +18,8 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
   const { state, dispatch } = useApp();
   const { message } = App.useApp();
   const { todos, tags, selectedTodoId } = state;
+  const [projectDirectories, setProjectDirectories] = useState<ProjectDirectory[]>([]);
+  const [selectedProject, setSelectedProject] = useState<string | null>(null);
 
   const [internalSearch, setInternalSearch] = useState('');
   const [internalHours, setInternalHours] = useState(24);
@@ -35,10 +37,31 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
   /* ─── Execution record cache (delegated to hook) ─── */
   const cache = useKanbanExecutionCache({ todos, storeRecords: state.executionRecords });
 
-  /* ─── Filter by search + time ─── */
+  // 加载项目目录列表，供项目维度过滤使用。
+  // 监听 'projectDirectoryAdded' 事件：当 TodoDrawer 中快速新增目录后，
+  // 此处会重拉列表，保证下拉选项和过滤条件与最新数据同步。
+  // 失败时静默回退为空数组，不阻塞看板主流程。
+  useEffect(() => {
+    const reload = () => {
+      db.getProjectDirectories() // 从后端拉取全量目录，数据量小无需分页
+        .then(setProjectDirectories) // 更新下拉数据源
+        .catch(() => setProjectDirectories([])); // 静默失败：过滤条件缺失时视为"无过滤"
+    };
+    reload(); // 首次挂载时立即加载
+    window.addEventListener('projectDirectoryAdded', reload); // 跨组件刷新：TodoDrawer 新增后通知
+    return () => window.removeEventListener('projectDirectoryAdded', reload); // 清理：避免泄漏
+  }, []);
+
+  /* ─── Filter by search + time + project ─── */
   const filteredTodos = useMemo(() => {
+    let result = todos;
+    // 按项目目录过滤：用户选中某个项目后，只展示 workspace 匹配该目录路径的 todo；
+    // selectedProject 为 null 时表示"全部"，不做过滤
+    if (selectedProject) {
+      result = result.filter(t => t.workspace === selectedProject);
+    }
     const cutoff = hours ? Date.now() - hours * 3600 * 1000 : 0;
-    return todos.filter(t => {
+    return result.filter(t => {
       // Time filter: only for completed/failed todos
       if ((t.status === 'completed' || t.status === 'failed') && cutoff > 0) {
         const tUpdated = new Date(t.updated_at).getTime();
@@ -161,6 +184,8 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
   const renderCard = (todo: Todo) => {
     const column = getColumnForStatus(todo.status);
     const todoTags = tags.filter(t => todo.tag_ids?.includes(t.id));
+    const projectDir = projectDirectories.find(d => d.path === todo.workspace);
+    const projectName = projectDir?.name || null;
     const isDragging = draggingId === todo.id;
     const isSuccess = todo.status === 'completed';
     const isFinished = todo.status === 'completed' || todo.status === 'failed';
@@ -216,6 +241,7 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
           executor={todo.executor}
           time={formatRelativeTime(todo.updated_at)}
           model={displayModel}
+          projectName={projectName}
           tags={todoTags}
           usage={displayUsage}
           triggerType={displayTriggerType}
@@ -353,6 +379,19 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
                 if (opt) handleHoursChange(opt.value);
               }}
               style={{ marginLeft: 8 }}
+            />
+            <Select
+              size="small"
+              placeholder="项目过滤"
+              allowClear
+              value={selectedProject}
+              onChange={setSelectedProject}
+              style={{ width: 150, marginLeft: 8 }}
+              suffixIcon={<FolderOutlined />}
+              options={projectDirectories.map(d => ({
+                value: d.path,
+                label: d.name || d.path,
+              }))}
             />
           </div>
           <div className="kanban-topbar-right">
