@@ -96,7 +96,7 @@ impl Database {
             content: ActiveValue::Set(message.content.map(String::from)),
             msg_type: ActiveValue::Set(message.msg_type.to_string()),
             is_mention: ActiveValue::Set(Some(false)),
-            processed: ActiveValue::Set(Some(true)),
+            processed: ActiveValue::Set(Some(false)),
             is_history: ActiveValue::Set(Some(true)),
             fetch_time: ActiveValue::Set(Some(now)),
             created_at: ActiveValue::Set(Some(message.created_at.to_string())),
@@ -277,6 +277,26 @@ impl Database {
             am.processed = ActiveValue::Set(Some(true));
             am.processed_todo_id = ActiveValue::Set(Some(todo_id));
             am.execution_record_id = ActiveValue::Set(execution_record_id);
+            am.update(&self.conn).await?;
+        }
+        Ok(())
+    }
+
+    /// Mark a message as failed (processed=false) when execution fails.
+    /// The message stays in "unprocessed" state so it can be retried or investigated.
+    pub async fn mark_feishu_message_failed(
+        &self,
+        message_id: &str,
+    ) -> Result<(), sea_orm::DbErr> {
+        let result = feishu_messages::Entity::find()
+            .filter(feishu_messages::Column::MessageId.eq(message_id))
+            .one(&self.conn)
+            .await?;
+
+        if let Some(model) = result {
+            let mut am: feishu_messages::ActiveModel = model.into();
+            am.processed = ActiveValue::Set(Some(false));
+            am.processed_todo_id = ActiveValue::Set(None);
             am.update(&self.conn).await?;
         }
         Ok(())
