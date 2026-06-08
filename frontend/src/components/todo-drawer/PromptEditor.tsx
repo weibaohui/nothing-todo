@@ -1,7 +1,7 @@
 import { Button, Tooltip } from 'antd';
 import { FileTextOutlined } from '@ant-design/icons';
 import { PROMPT_PARAMS } from './constants';
-import { MdEditor } from '../MdEditor';
+import { MdEditor } from '@/components/MdEditor';
 
 export function PromptEditor({ value, onChange, editorRef, onOpenTemplate, onInsertText }: {
   value: string;

@@ -2,8 +2,8 @@ import { Card, Button, Switch, InputNumber, List, Popconfirm, Space, Typography 
 import { DownloadOutlined, DatabaseOutlined, SettingOutlined, ClockCircleOutlined, DeleteOutlined } from '@ant-design/icons';
 import { Cron } from 'react-js-cron';
 import 'react-js-cron/dist/styles.css';
-import { CronPresetSelect } from '../../CronPresetSelect';
-import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../../../utils/cron';
+import { CronPresetSelect } from '@/components/CronPresetSelect';
+import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '@/utils/cron';
 
 interface BackupFilesInfo {
   auto_backup_enabled: boolean;

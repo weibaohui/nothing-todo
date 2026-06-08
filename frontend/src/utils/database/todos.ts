@@ -1,5 +1,5 @@
 import { api, unwrap } from './client';
-import type { Todo, Tag, TodoTemplate, CustomTemplateStatus } from '../../types';
+import type { Todo, Tag, TodoTemplate, CustomTemplateStatus } from '@/types';
 import type { TodoHookItem } from './hooks';
 
 // Todo APIs

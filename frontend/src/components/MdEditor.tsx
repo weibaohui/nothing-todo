@@ -1,4 +1,4 @@
-import { useTheme } from '../hooks/useTheme';
+import { useTheme } from '@/hooks/useTheme';
 import MDEditor from '@uiw/react-md-editor';
 
 interface MdEditorProps {

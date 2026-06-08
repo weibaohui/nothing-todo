@@ -1,6 +1,6 @@
 import { Card, Row, Col, Statistic, Tag, Typography } from 'antd';
 import { TeamOutlined, ClockCircleOutlined, ThunderboltOutlined, ApiOutlined, FilterOutlined } from '@ant-design/icons';
-import type { SessionStats } from '../../utils/database';
+import type { SessionStats } from '@/utils/database';
 import { formatTokens, sourceConfig } from './helpers';
 
 const { Text } = Typography;

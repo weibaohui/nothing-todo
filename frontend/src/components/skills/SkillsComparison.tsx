@@ -2,9 +2,9 @@ import { useState, useEffect, useMemo } from 'react';
 import { Table, Tag, Select, Input, Empty, Spin, Space, Tooltip, message } from 'antd';
 import Typography from 'antd/es/typography';
 import { CheckCircleOutlined, SearchOutlined } from '@ant-design/icons';
-import { EXECUTORS } from '../../types';
-import type { SkillComparison } from '../../types';
-import * as db from '../../utils/database';
+import { EXECUTORS } from '@/types';
+import type { SkillComparison } from '@/types';
+import * as db from '@/utils/database';
 
 const { Text } = Typography;
 

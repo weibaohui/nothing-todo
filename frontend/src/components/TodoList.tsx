@@ -1,15 +1,15 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useApp } from '../hooks/useApp';
-import { useIsMobile } from '../hooks/useIsMobile';
+import { useApp } from '@/hooks/useApp';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { Button, Dropdown, Empty, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
 import { PlusOutlined, ThunderboltOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, ReadOutlined, SettingOutlined, SunOutlined, MoonOutlined, ApartmentOutlined, UnorderedListOutlined, FolderOpenOutlined, RightOutlined, MoreOutlined } from '@ant-design/icons';
-import { useTheme } from '../hooks/useTheme';
+import { useTheme } from '@/hooks/useTheme';
 import { StatusPicker } from './StatusPicker';
-import * as db from '../utils/database';
-import type { ProjectDirectory, Todo } from '../types';
+import * as db from '@/utils/database';
+import type { ProjectDirectory, Todo } from '@/types';
 import { ExecutorBadge } from './ExecutorBadge';
-import { formatRelativeTime } from '../utils/datetime';
+import { formatRelativeTime } from '@/utils/datetime';
 
 interface TodoListProps {
   onOpenCreateModal: () => void;

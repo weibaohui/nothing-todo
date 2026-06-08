@@ -18,11 +18,11 @@ import {
   LinkOutlined,
   LeftOutlined,
 } from '@ant-design/icons';
-import { useApp } from '../../hooks/useApp';
-import { useTheme } from '../../hooks/useTheme';
-import * as db from '../../utils/database';
-import type { Webhook } from '../../utils/database/webhooks';
-import type { Config } from '../../types';
+import { useApp } from '@/hooks/useApp';
+import { useTheme } from '@/hooks/useTheme';
+import * as db from '@/utils/database';
+import type { Webhook } from '@/utils/database/webhooks';
+import type { Config } from '@/types';
 import { TodoNode, WebhookNode, FeishuNode, SchedulerNode } from './Nodes';
 import { HookEdge, WebhookEdge, FeishuEdge, SchedulerEdge } from './Edges';
 import { buildRelationMap } from './GraphBuilder';

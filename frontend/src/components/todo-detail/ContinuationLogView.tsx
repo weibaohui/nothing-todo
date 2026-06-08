@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { ChatView } from '../ChatView';
+import { ChatView } from '@/components/ChatView';
 import { LogViewHeader } from './LogViewHeader';
 import { formatLogTime, logTypeColors, logTypeLabels } from './helpers';
-import type { LogEntry } from '../../types';
+import type { LogEntry } from '@/types';
 
 /** 内联日志视图组件 (用于 ChainGroupCard 内部) */
 export function ContinuationLogView({ logs, isRunning, viewMode, onRefresh, onViewModeChange }: {

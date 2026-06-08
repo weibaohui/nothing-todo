@@ -1,4 +1,4 @@
-import { getExecutorOption } from '../types';
+import { getExecutorOption } from '@/types';
 
 interface ExecutorBadgeProps {
   executor: string;

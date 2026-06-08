@@ -5,7 +5,7 @@
  */
 
 import React, { useMemo, useCallback, useEffect } from 'react';
-import * as db from '../utils/database';
+import * as db from '@/utils/database';
 
 // Re-export domain hooks and providers (they are defined in separate files)
 export { useTodos, TodoProvider } from './useTodoContext';

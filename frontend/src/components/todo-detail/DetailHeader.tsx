@@ -1,13 +1,13 @@
 import { Button, Tag, Badge, Popconfirm } from 'antd';
 import { PlayCircleOutlined, ThunderboltOutlined, EditOutlined, DeleteOutlined, ArrowLeftOutlined } from '@ant-design/icons';
-import { StatusPicker } from '../StatusPicker';
-import { ExecutorBadge } from '../ExecutorBadge';
+import { StatusPicker } from '@/components/StatusPicker';
+import { ExecutorBadge } from '@/components/ExecutorBadge';
 import { PromptDisplay } from './PromptDisplay';
 import { InlineTokenStats } from './InlineTokenStats';
 import { ProgressWidget } from './ProgressWidget';
-import { formatLocalDateTime } from '../../utils/datetime';
-import type { ExecutionSummary, ExecutionRecord } from '../../types';
-import type { Todo } from '../../types';
+import { formatLocalDateTime } from '@/utils/datetime';
+import type { ExecutionSummary, ExecutionRecord } from '@/types';
+import type { Todo } from '@/types';
 
 export function DetailHeader({
   selectedTodo, executor, isExecuting, isMobile, summary, currentTodoProgress,

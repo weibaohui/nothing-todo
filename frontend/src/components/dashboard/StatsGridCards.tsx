@@ -7,8 +7,8 @@ import {
 } from '@ant-design/icons';
 import { MetricCard, HighlightStat } from './EnhancedCards';
 import { MiniStat } from './MiniStat';
-import { AnimatedNumber } from '../AnimatedNumber';
-import type { DashboardStats, FeishuMessageStats } from '../../types';
+import { AnimatedNumber } from '@/components/AnimatedNumber';
+import type { DashboardStats, FeishuMessageStats } from '@/types';
 
 interface KeyMetricsCardProps {
   stats: DashboardStats | null;

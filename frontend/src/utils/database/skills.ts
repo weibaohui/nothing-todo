@@ -1,5 +1,5 @@
 import { api, unwrap } from './client';
-import type { ExecutorSkills, SkillComparison, PaginatedInvocations } from '../../types';
+import type { ExecutorSkills, SkillComparison, PaginatedInvocations } from '@/types';
 
 export async function getSkillsList(): Promise<ExecutorSkills[]> {
   return unwrap(await api.get('/api/skills'));
@@ -79,21 +79,21 @@ export async function importSkill(executor: string, file: File, skillName?: stri
 
 // Config APIs
 
-export async function getConfig(): Promise<import('../../types').Config> {
+export async function getConfig(): Promise<import('@/types').Config> {
   return unwrap(await api.get('/api/config'));
 }
 
-export async function updateConfig(config: import('../../types').Config): Promise<import('../../types').Config> {
+export async function updateConfig(config: import('@/types').Config): Promise<import('@/types').Config> {
   return unwrap(await api.put('/api/config', config));
 }
 
 // Executor Config APIs
 
-export async function getExecutors(): Promise<import('../../types').ExecutorConfig[]> {
+export async function getExecutors(): Promise<import('@/types').ExecutorConfig[]> {
   return unwrap(await api.get('/api/executors'));
 }
 
-export async function updateExecutor(name: string, data: { path?: string; enabled?: boolean; display_name?: string; session_dir?: string }): Promise<import('../../types').ExecutorConfig> {
+export async function updateExecutor(name: string, data: { path?: string; enabled?: boolean; display_name?: string; session_dir?: string }): Promise<import('@/types').ExecutorConfig> {
   return unwrap(await api.put(`/api/executors/${encodeURIComponent(name)}`, data));
 }
 

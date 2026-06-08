@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
 import { Button, Popconfirm, Tag, Tooltip } from 'antd';
 import { MessageOutlined, FileTextOutlined, StopOutlined, CopyOutlined, LinkOutlined } from '@ant-design/icons';
-import { ExecutorBadge } from '../ExecutorBadge';
+import { ExecutorBadge } from '@/components/ExecutorBadge';
 import { XMarkdown } from '@ant-design/x-markdown';
-import { supportsResume } from '../../types';
-import { formatLocalDateTime, formatDuration } from '../../utils/datetime';
-import * as db from '../../utils/database';
+import { supportsResume } from '@/types';
+import { formatLocalDateTime, formatDuration } from '@/utils/datetime';
+import * as db from '@/utils/database';
 import { getElapsedSeconds, hasLogsStatic } from './helpers';
 import { NarrowLogView } from './NarrowLogView';
-import { getHookTriggerLabel } from '../../utils/database/hooks';
-import type { ExecutionRecord, ExecutionStats, LogEntry } from '../../types';
+import { getHookTriggerLabel } from '@/utils/database/hooks';
+import type { ExecutionRecord, ExecutionStats, LogEntry } from '@/types';
 
 /** Narrow mode: single history card */
 export function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, onRefresh, getRunningTask, resolveStats, parseLogs, messageApi, onViewModeChange }: {

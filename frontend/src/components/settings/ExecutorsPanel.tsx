@@ -3,10 +3,10 @@ import { Button, Card, Input, Switch, Spin, Tooltip, Modal, message, Typography 
 import { SearchOutlined, PlayCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { Cron } from 'react-js-cron';
 import 'react-js-cron/dist/styles.css';
-import { CronPresetSelect } from '../CronPresetSelect';
-import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../../utils/cron';
-import * as db from '../../utils/database';
-import type { ExecutorConfig } from '../../types';
+import { CronPresetSelect } from '@/components/CronPresetSelect';
+import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '@/utils/cron';
+import * as db from '@/utils/database';
+import type { ExecutorConfig } from '@/types';
 
 const { Paragraph } = Typography;
 

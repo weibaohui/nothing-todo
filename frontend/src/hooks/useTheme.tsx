@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useLayoutEffect, type ReactNode } from 'react';
 import type { ThemeConfig } from 'antd';
-import type { ThemeMode } from '../themes';
-import { themeMap } from '../themes';
+import type { ThemeMode } from '@/themes';
+import { themeMap } from '@/themes';
 
 interface ThemeContextValue {
   themeMode: ThemeMode;

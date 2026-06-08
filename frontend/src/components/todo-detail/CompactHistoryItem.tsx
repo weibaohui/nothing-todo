@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Tag } from 'antd';
 import { MessageOutlined, FileTextOutlined } from '@ant-design/icons';
-import { ExecutorBadge } from '../ExecutorBadge';
-import { supportsResume } from '../../types';
-import { formatLocalDateTime, formatDuration } from '../../utils/datetime';
+import { ExecutorBadge } from '@/components/ExecutorBadge';
+import { supportsResume } from '@/types';
+import { formatLocalDateTime, formatDuration } from '@/utils/datetime';
 import { getElapsedSeconds, hasLogsStatic } from './helpers';
-import type { ExecutionRecord } from '../../types';
+import type { ExecutionRecord } from '@/types';
 
 /** 紧凑历史列表项的内容（不含外层容器样式） */
 export function CompactHistoryItem({ record, onOpenResume, onExport }: {

@@ -16,9 +16,9 @@ import {
   ApiOutlined,
   CloudOutlined,
 } from '@ant-design/icons';
-import { useApp } from '../hooks/useApp';
-import * as db from '../utils/database';
-import type { Config, ExecutorConfig, SlashCommandRule } from '../types';
+import { useApp } from '@/hooks/useApp';
+import * as db from '@/utils/database';
+import type { Config, ExecutorConfig, SlashCommandRule } from '@/types';
 import { SkillsPanel } from './SkillsPanel';
 import { SessionManager } from './SessionManager';
 import { WebhooksPanel } from './WebhooksPanel';

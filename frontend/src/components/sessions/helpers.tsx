@@ -1,5 +1,5 @@
 import { Tag } from 'antd';
-import { parseUtcDate } from '../../utils/datetime';
+import { parseUtcDate } from '@/utils/datetime';
 
 export const sourceConfig: Record<string, { label: string; color: string }> = {
   'claudecode': { label: 'Claude Code', color: '#d97706' },

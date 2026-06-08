@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Drawer, Spin, Card, Row, Col, Tag, Typography, Space, Empty, Tooltip } from 'antd';
 import { RobotOutlined } from '@ant-design/icons';
-import * as db from '../../utils/database';
-import type { SessionDetail } from '../../utils/database';
+import * as db from '@/utils/database';
+import type { SessionDetail } from '@/utils/database';
 import { sourceTag, formatBytes, formatTokens, formatTime, shortId } from './helpers';
 
 const { Text, Paragraph } = Typography;

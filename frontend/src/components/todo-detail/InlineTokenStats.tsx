@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { PieChart } from '../PieChart';
-import { AnimatedNumber } from '../AnimatedNumber';
+import { PieChart } from '@/components/PieChart';
+import { AnimatedNumber } from '@/components/AnimatedNumber';
 import { DownOutlined, UpOutlined } from '@ant-design/icons';
-import type { ExecutionSummary } from '../../types';
+import type { ExecutionSummary } from '@/types';
 
 /** 内联 Token 统计摘要，支持展开查看详细分项 */
 export function InlineTokenStats({ input, output, cacheRead, cacheCreate, totalTokens, summary }: {

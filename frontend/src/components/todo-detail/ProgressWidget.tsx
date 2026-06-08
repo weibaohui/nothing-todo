@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { TodoItem } from '../../types';
+import type { TodoItem } from '@/types';
 
 /** 任务进度展示组件，显示子项完成情况 */
 export function ProgressWidget({ items }: { items: TodoItem[] }) {

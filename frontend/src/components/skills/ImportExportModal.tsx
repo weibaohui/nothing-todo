@@ -2,9 +2,9 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Modal, Button, Space, Checkbox, Row, Col, List, Tag, Alert, Upload, message } from 'antd';
 import Typography from 'antd/es/typography';
 import { ExportOutlined, ImportOutlined, DownloadOutlined, UploadOutlined, SaveOutlined } from '@ant-design/icons';
-import * as db from '../../utils/database';
+import * as db from '@/utils/database';
 import { normalizeExecutor, type ExportTask } from './helpers';
-import type { ExecutorSkills } from '../../types';
+import type { ExecutorSkills } from '@/types';
 
 const { Text } = Typography;
 

@@ -1,5 +1,5 @@
-import { EXECUTORS } from '../../types';
-import type { SkillMeta } from '../../types';
+import { EXECUTORS } from '@/types';
+import type { SkillMeta } from '@/types';
 
 export const EXECUTOR_COLORS: Record<string, string> = {};
 EXECUTORS.forEach(e => { EXECUTOR_COLORS[e.value] = e.color; });

@@ -1,7 +1,7 @@
 import { Button, Select, Table, Tag, Typography, Modal, Form, Input, Space, Tooltip, message } from 'antd';
 import { ReloadOutlined, PlusOutlined, HistoryOutlined, QuestionCircleOutlined, CopyOutlined } from '@ant-design/icons';
-import * as db from '../../../utils/database';
-import type { FeishuHistoryMessage, FeishuHistoryChat } from '../../../types';
+import * as db from '@/utils/database';
+import type { FeishuHistoryMessage, FeishuHistoryChat } from '@/types';
 
 const { Option } = Select;
 

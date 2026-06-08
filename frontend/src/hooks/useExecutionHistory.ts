@@ -12,8 +12,8 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { ExecutionRecord, LogEntry, ExecutionSummary } from '../types';
-import * as db from '../utils/database';
+import type { ExecutionRecord, LogEntry, ExecutionSummary } from '@/types';
+import * as db from '@/utils/database';
 
 interface UseExecutionHistoryOptions {
   selectedTodoId: number | null;

@@ -3,8 +3,8 @@ import { ClockCircleOutlined } from '@ant-design/icons';
 import { Cron } from 'react-js-cron';
 import 'react-js-cron/dist/styles.css';
 import { DEFAULT_CRON } from './constants';
-import { CronPresetSelect } from '../CronPresetSelect';
-import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../../utils/cron';
+import { CronPresetSelect } from '@/components/CronPresetSelect';
+import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '@/utils/cron';
 
 export function SchedulerSection({ enabled, config, onEnabledChange, onConfigChange, existingConfig }: {
   enabled: boolean;

@@ -1,11 +1,11 @@
 import { useRef, useEffect, useState } from 'react';
 import { ExpandOutlined, CompressOutlined, InfoCircleOutlined, StopOutlined } from '@ant-design/icons';
 import { Popconfirm, Popover, App } from 'antd';
-import { useApp } from '../hooks/useApp';
-import { useTheme } from '../hooks/useTheme';
-import { getExecutorOption } from '../types';
-import { stopExecution } from '../utils/database';
-import { formatLocalDateTime, formatDuration } from '../utils/datetime';
+import { useApp } from '@/hooks/useApp';
+import { useTheme } from '@/hooks/useTheme';
+import { getExecutorOption } from '@/types';
+import { stopExecution } from '@/utils/database';
+import { formatLocalDateTime, formatDuration } from '@/utils/datetime';
 
 // Light theme log colors
 const lightLogTypeColors: Record<string, string> = {

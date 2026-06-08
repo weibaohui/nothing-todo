@@ -9,12 +9,12 @@ import {
   SearchOutlined,
   FolderOutlined,
 } from '@ant-design/icons';
-import { useApp } from '../hooks/useApp';
+import { useApp } from '@/hooks/useApp';
 import { KanbanBoard } from './KanbanBoard';
 import { TodoCard } from './TodoCard';
-import * as db from '../utils/database';
-import { formatRelativeTime } from '../utils/datetime';
-import type { RecentCompletedTodo, Tag, ExecutionRecord, ProjectDirectory } from '../types';
+import * as db from '@/utils/database';
+import { formatRelativeTime } from '@/utils/datetime';
+import type { RecentCompletedTodo, Tag, ExecutionRecord, ProjectDirectory } from '@/types';
 
 const TIME_OPTIONS: { label: string; value: number }[] = [
   { label: '6h', value: 6 },

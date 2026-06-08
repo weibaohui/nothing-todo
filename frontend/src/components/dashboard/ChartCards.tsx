@@ -1,10 +1,10 @@
 import { Card, Empty } from 'antd';
 import { BarChartOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import { PieChart, PieChartLegend } from '../PieChart';
+import { PieChart, PieChartLegend } from '@/components/PieChart';
 import { TrendChart, ContributionHeatmap } from './DashboardCharts';
-import { AnimatedNumber } from '../AnimatedNumber';
+import { AnimatedNumber } from '@/components/AnimatedNumber';
 import { TRIGGER_LABELS, TRIGGER_COLORS, STATUS_COLORS, STATUS_LABELS } from './constants';
-import type { DashboardStats } from '../../types';
+import type { DashboardStats } from '@/types';
 
 interface ChartCardProps {
   stats: DashboardStats | null;

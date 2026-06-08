@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, Form, Input, Button, Space, Table, Tag, message, Divider, Alert, Modal, Checkbox, Radio } from 'antd';
 import { CloudOutlined, SyncOutlined, SaveOutlined, DeleteOutlined } from '@ant-design/icons';
-import * as syncApi from '../../utils/database/sync';
+import * as syncApi from '@/utils/database/sync';
 import './CloudSyncPanel.css';
 
 export function CloudSyncPanel() {

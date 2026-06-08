@@ -2,8 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import { Modal, Drawer, Input, Button, message } from 'antd';
 import type { InputRef } from 'antd';
 import { ThunderboltOutlined, BulbOutlined, SettingOutlined, WarningOutlined } from '@ant-design/icons';
-import { smartCreate } from '../utils/database';
-import type { Config } from '../types';
+import { smartCreate } from '@/utils/database';
+import type { Config } from '@/types';
 
 interface SmartCreateModalProps {
   open: boolean;

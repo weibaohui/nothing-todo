@@ -2,11 +2,11 @@ import { Card, Badge, Tag, Segmented, DatePicker } from 'antd';
 import { ThunderboltOutlined, TrophyOutlined } from '@ant-design/icons';
 import type { Dayjs } from 'dayjs';
 import { Leaderboard } from './EnhancedCards';
-import { ShareCard } from '../ShareCard';
+import { ShareCard } from '@/components/ShareCard';
 import { RANDOM_QUOTE, TIME_RANGE_OPTIONS } from './constants';
-import { getExecutorOption } from '../../types';
-import { formatRelativeTime } from '../../utils/datetime';
-import type { RunningTask } from '../../types';
+import { getExecutorOption } from '@/types';
+import { formatRelativeTime } from '@/utils/datetime';
+import type { RunningTask } from '@/types';
 
 interface ActiveTasksCardProps {
   runningTasks: RunningTask[];

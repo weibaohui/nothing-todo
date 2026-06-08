@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { ChatView } from '../ChatView';
+import { ChatView } from '@/components/ChatView';
 import { LogViewHeader } from './LogViewHeader';
 import { formatLogTime } from './helpers';
-import * as db from '../../utils/database';
-import type { LogEntry, ExecutionRecord } from '../../types';
+import * as db from '@/utils/database';
+import type { LogEntry, ExecutionRecord } from '@/types';
 
 /** Lazy-load logs for a continuation record in ChainGroupCard */
 export function ContinuationLogsLoader({ record, viewMode, onRefresh, onViewModeChange }: {

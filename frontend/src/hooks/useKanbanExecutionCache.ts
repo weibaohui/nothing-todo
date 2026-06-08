@@ -11,8 +11,8 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { Todo, ExecutionRecord } from '../types';
-import * as db from '../utils/database';
+import type { Todo, ExecutionRecord } from '@/types';
+import * as db from '@/utils/database';
 
 interface UseKanbanExecutionCacheOptions {
   todos: Todo[];

@@ -3,10 +3,10 @@ import { Spin, Drawer, Descriptions, Tag, Alert, Button, Space, message, Modal, 
 import Typography from 'antd/es/typography';
 import { FileTextOutlined, DownloadOutlined, InfoCircleOutlined, SwapOutlined, DeleteOutlined } from '@ant-design/icons';
 import XMarkdown from '@ant-design/x-markdown';
-import * as db from '../../utils/database';
+import * as db from '@/utils/database';
 import { formatSize, formatTime, EXECUTOR_COLORS } from './helpers';
-import { EXECUTORS, type ExecutorSkills } from '../../types';
-import type { SkillMeta } from '../../types';
+import { EXECUTORS, type ExecutorSkills } from '@/types';
+import type { SkillMeta } from '@/types';
 
 const { Text } = Typography;
 

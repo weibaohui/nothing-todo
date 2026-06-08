@@ -1,4 +1,4 @@
-import type { ExecutionRecord } from '../../types';
+import type { ExecutionRecord } from '@/types';
 
 /** 计算从 started_at 到现在的 elapsed time (秒) */
 export function getElapsedSeconds(startedAt: string): number {

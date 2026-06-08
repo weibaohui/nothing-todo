@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useMemo, ReactNode } from 'react';
-import type { Todo, Tag } from '../types';
+import type { Todo, Tag } from '@/types';
 
 // ─── Design Overview ──────────────────────────────────────────
 //
