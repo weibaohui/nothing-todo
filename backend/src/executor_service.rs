@@ -710,8 +710,10 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         // task starts will NOT affect it (running tasks hold their own snapshot).  Users must
         // cancel and re-trigger a todo execution to pick up a new timeout value.
         let timeout_enabled = execution_timeout_secs > 0;
-        // Duration is only used when timeout_enabled; max(1) prevents Duration::ZERO panics
-        // if the guard is ever removed or bypassed.
+        // Duration is only used when timeout_enabled; max(1) guards against constructing
+        // Duration::ZERO in case the guard is accidentally removed in future refactors.
+        // Note: Duration::from_secs(0) does NOT panic — it returns Duration::ZERO — but
+        // tokio::time::sleep(Duration::ZERO) is a no-op, so we enforce a 1s minimum instead.
         let timeout_duration = std::time::Duration::from_secs(execution_timeout_secs.max(1));
         // 精确格式化超时提示：整数分钟直接显示"X 分钟"，非整数显示"X 分 Y 秒"
         let timeout_str = {
@@ -813,7 +815,7 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
 
                 let entry = ParsedLogEntry::error("Execution timeout, process terminated by system");
                 send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
-                send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string(), success: false, result: Some(format!("执行超时，已超过 {}", timeout_str)) });
+                send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string(), success: false, result: Some(format!("Execution timeout, exceeded {}", timeout_str)) });
                 task_manager_spawn.remove(&task_id).await;
                 return;
             }

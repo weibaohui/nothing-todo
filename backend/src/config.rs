@@ -19,6 +19,8 @@ pub const DEFAULT_HOST: &str = "0.0.0.0";
 pub const DEFAULT_EXECUTOR_PATH: &str = ""; // use binary name directly
 /// 默认执行超时时间（秒）。
 pub const DEFAULT_EXECUTION_TIMEOUT_SECS: u64 = 3600;
+/// 执行超时上限（秒）：7 天。YAML 加载和 HTTP update 均受此约束。
+pub const MAX_EXECUTION_TIMEOUT_SECS: u64 = 604800;
 
 /// Top-level configuration, persisted to `~/.ntd/config.yaml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,7 +61,7 @@ pub struct Config {
     pub history_message_max_age_secs: u64,
     /// 最大并发执行数（默认 3）
     pub max_concurrent_todos: u32,
-    /// 执行超时时间（秒，默认 3600 = 60 分钟）；设置为 0 表示不限制执行时长
+    /// 执行超时时间（秒，默认 3600 = 60 分钟）；设置为 0 表示不限制执行时长；上限 604800（7 天）
     pub execution_timeout_secs: u64,
     /// 日志清理保留天数（None 表示不清理）
     pub auto_cleanup_logs_days: Option<usize>,
@@ -242,7 +244,9 @@ impl Config {
         }
     }
 
-    /// Normalize paths: convert ~ and relative paths to absolute paths.
+    /// Normalize paths and clamp execution_timeout_secs to valid range.
+    /// This is called both on fresh load (Config::load) and after HTTP updates (update_config).
+    /// YAML edits bypass HTTP validation, so we enforce here to prevent out-of-range values in config.yaml.
     pub fn normalize_paths(&mut self) {
         self.db_path = Self::normalize_single_path(&self.db_path);
         // Normalize executor paths
@@ -250,6 +254,10 @@ impl Config {
             .map(|(k, v)| (k.clone(), Self::normalize_single_path(v)))
             .collect();
         self.executors.paths = normalized;
+        // Clamp execution_timeout_secs: 0 (disabled) is always valid; positive values capped at MAX.
+        if self.execution_timeout_secs != 0 && self.execution_timeout_secs > MAX_EXECUTION_TIMEOUT_SECS {
+            self.execution_timeout_secs = MAX_EXECUTION_TIMEOUT_SECS;
+        }
     }
 
     fn normalize_single_path(path: &str) -> String {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Card, InputNumber, Tooltip, Button, Popconfirm, Table, Empty, Switch, message } from 'antd';
 import { InfoCircleOutlined, SaveOutlined, StopOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useApp } from '@/hooks/useApp';
@@ -30,7 +30,17 @@ export function RuntimePanel({ configForm, configSaving, handleSaveConfig, execu
     ? Math.max(1, Math.round(executionTimeoutSecs / 60))
     : undefined;
   // 关闭时记录当前值，重新开启时恢复；避免再次开启时跳回初始默认值 3600。
+  // 注意：仅在用户主动输入时更新，不在表单加载时覆盖（避免 0 值覆盖用户上次的非零设置）。
   const lastEnabledExecutionTimeoutSecsRef = useRef<number>(DEFAULT_EXECUTION_TIMEOUT_SECS);
+
+  // 初始化 ref：若表单已有非零值则以该值填充，确保开关恢复时用正确的用户设置而非 3600。
+  useLayoutEffect(() => {
+    const formValue = configForm.getFieldValue('execution_timeout_secs');
+    if (formValue !== undefined && formValue !== 0) {
+      lastEnabledExecutionTimeoutSecsRef.current = formValue;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // 仅首次渲染执行，不响应后续变更
 
   /** 加载当前运行中的执行记录。 */
   const loadRunningRecords = async () => {
@@ -48,15 +58,9 @@ export function RuntimePanel({ configForm, configSaving, handleSaveConfig, execu
     return () => clearInterval(timer);
   }, []);
 
-  // Track the last seen execution_timeout_secs so the toggle handler can restore it.
-  // We sync on every change (not just when enabled) so that loading the form with
-  // execution_timeout_secs = 0 correctly records 0 as the last value — preventing
-  // the stale 3600 fallback from being restored when the user re-enables the timeout.
-  useEffect(() => {
-    lastEnabledExecutionTimeoutSecsRef.current = executionTimeoutSecs;
-  }, [executionTimeoutSecs]);
-
   // 监听表单字段变化（外部加载配置重置表单时），同步本地状态。
+  // 注意：此处仅同步 display state，不更新 lastEnabledExecutionTimeoutSecsRef，
+  // 避免外部加载 0 时覆盖用户上次的非零设置。
   useEffect(() => {
     const formValue = configForm.getFieldValue('execution_timeout_secs');
     if (formValue !== undefined && formValue !== executionTimeoutSecs) {
@@ -84,6 +88,10 @@ export function RuntimePanel({ configForm, configSaving, handleSaveConfig, execu
 
   /** 切换是否启用执行超时控制。 */
   const handleExecutionTimeoutToggle = (checked: boolean) => {
+    if (!checked) {
+      // 关闭前先记录当前非零值，供后续重新开启时恢复
+      lastEnabledExecutionTimeoutSecsRef.current = executionTimeoutSecs;
+    }
     const nextExecutionTimeoutSecs = checked ? lastEnabledExecutionTimeoutSecsRef.current : 0;
     setExecutionTimeoutSecs(nextExecutionTimeoutSecs);
     configForm.setFieldsValue({
@@ -130,14 +138,17 @@ export function RuntimePanel({ configForm, configSaving, handleSaveConfig, execu
             <InputNumber
               size="small"
               min={1}
-              max={1440}
+              max={10080}
               style={{ width: 80 }}
               disabled={!executionTimeoutEnabled}
               value={executionTimeoutMinutes}
               onChange={(v) => {
                 if (v) {
-                  setExecutionTimeoutSecs(v * 60);
-                  configForm.setFieldsValue({ execution_timeout_secs: v * 60 });
+                  const secs = v * 60;
+                  setExecutionTimeoutSecs(secs);
+                  configForm.setFieldsValue({ execution_timeout_secs: secs });
+                  // 用户主动输入新值时同步更新 lastEnabledRef，供开关恢复
+                  lastEnabledExecutionTimeoutSecsRef.current = secs;
                 }
               }}
             />
