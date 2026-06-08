@@ -10,7 +10,7 @@ import {
   MessageOutlined,
   ScheduleOutlined,
 } from '@ant-design/icons';
-import { getExecutorColor } from '../../types';
+import { getExecutorColor } from '@/types';
 import type { TodoNodeData, WebhookNodeData, FeishuNodeData, SchedulerNodeData } from './types';
 
 const STATUS_CONFIG: Record<string, { color: string; icon: React.ReactNode; label: string }> = {

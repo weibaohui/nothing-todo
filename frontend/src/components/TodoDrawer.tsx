@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Drawer, Input, Button, App, AutoComplete, Divider, Switch, Modal, Form, Empty, Space } from 'antd';
 import { FolderOutlined, PlusOutlined } from '@ant-design/icons';
-import * as db from '../utils/database';
-import type { ProjectDirectory } from '../utils/database';
-import type { TodoHookItem } from '../utils/database/hooks';
-import type { Todo, ExecutorConfig, ExecutorOption, SkillMeta, ExecutorSkills, TodoTemplate } from '../types';
-import { EXECUTORS, executorConfigToOption, getExecutorColor } from '../types';
+import * as db from '@/utils/database';
+import type { ProjectDirectory } from '@/utils/database';
+import type { TodoHookItem } from '@/utils/database/hooks';
+import type { Todo, ExecutorConfig, ExecutorOption, SkillMeta, ExecutorSkills, TodoTemplate } from '@/types';
+import { EXECUTORS, executorConfigToOption, getExecutorColor } from '@/types';
 import { TagCheckCardGroup } from './TagCheckCard';
 import { ExecutorPicker } from './todo-drawer/ExecutorPicker';
 import { PromptEditor } from './todo-drawer/PromptEditor';
@@ -13,7 +13,7 @@ import { SkillSelector } from './todo-drawer/SkillSelector';
 import { SchedulerSection } from './todo-drawer/SchedulerSection';
 import { TemplateModal } from './todo-drawer/TemplateModal';
 import { TodoHooksEditor } from './todo-detail/TodoHooksEditor';
-import { useApp } from '../hooks/useApp';
+import { useApp } from '@/hooks/useApp';
 
 interface TodoDrawerProps {
   open: boolean;

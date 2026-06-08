@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Spin, Card, Empty, Space, Typography, Button, Alert, Modal, message } from 'antd';
 import { ExclamationCircleFilled, ReloadOutlined, CloudDownloadOutlined } from '@ant-design/icons';
-import * as db from '../../utils/database';
-import { ShareCard } from '../ShareCard';
+import * as db from '@/utils/database';
+import { ShareCard } from '@/components/ShareCard';
 
 const { Paragraph } = Typography;
 

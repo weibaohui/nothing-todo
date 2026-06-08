@@ -1,6 +1,6 @@
 import { Empty } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, CrownOutlined } from '@ant-design/icons';
-import { AnimatedNumber } from '../AnimatedNumber';
+import { AnimatedNumber } from '@/components/AnimatedNumber';
 
 interface MetricCardProps {
   title: string;

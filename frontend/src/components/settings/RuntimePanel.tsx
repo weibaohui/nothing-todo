@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Card, InputNumber, Tooltip, Button, Popconfirm, Table, Empty, message } from 'antd';
 import { InfoCircleOutlined, SaveOutlined, StopOutlined, ReloadOutlined } from '@ant-design/icons';
-import { useApp } from '../../hooks/useApp';
-import * as db from '../../utils/database';
-import type { ExecutionRecord } from '../../types';
+import { useApp } from '@/hooks/useApp';
+import * as db from '@/utils/database';
+import type { ExecutionRecord } from '@/types';
 
 export function RuntimePanel({ configForm, configSaving, handleSaveConfig, executorDisplayNames }: {
   configForm: any;

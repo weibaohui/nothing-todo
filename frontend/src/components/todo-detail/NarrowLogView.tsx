@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { ChatView } from '../ChatView';
+import { ChatView } from '@/components/ChatView';
 import { LogViewHeader } from './LogViewHeader';
 import { formatLogTime, logTypeColors, logTypeLabels } from './helpers';
-import type { LogEntry, ExecutionRecord } from '../../types';
+import type { LogEntry, ExecutionRecord } from '@/types';
 
 /** Shared log rendering for narrow mode cards - as a proper component */
 export function NarrowLogView({ record, isRunning, displayLogs, liveLogs, viewMode, onRefresh, onViewModeChange }: {

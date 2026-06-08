@@ -1,7 +1,7 @@
 import type { Node, Edge } from '@xyflow/react';
-import type { Todo, Config, SlashCommandRule } from '../../types';
-import type { Webhook } from '../../utils/database/webhooks';
-import { EXECUTORS } from '../../types';
+import type { Todo, Config, SlashCommandRule } from '@/types';
+import type { Webhook } from '@/utils/database/webhooks';
+import { EXECUTORS } from '@/types';
 
 export interface TodoNodeData extends Record<string, unknown> {
   title: string;

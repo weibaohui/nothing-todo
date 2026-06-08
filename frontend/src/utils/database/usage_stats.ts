@@ -1,5 +1,5 @@
 import { api, unwrap } from './client';
-import type { UsageStatsResponse } from '../../types';
+import type { UsageStatsResponse } from '@/types';
 
 export async function getUsageStats(since?: string, until?: string): Promise<UsageStatsResponse> {
   const params: Record<string, unknown> = {};

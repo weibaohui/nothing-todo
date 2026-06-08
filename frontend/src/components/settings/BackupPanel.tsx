@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Tabs, message } from 'antd';
-import { useApp } from '../../hooks/useApp';
-import * as db from '../../utils/database';
+import { useApp } from '@/hooks/useApp';
+import * as db from '@/utils/database';
 import yaml from 'js-yaml';
 import { TodoBackupTab } from './backup/TodoBackupTab';
 import { SkillBackupTab } from './backup/SkillBackupTab';

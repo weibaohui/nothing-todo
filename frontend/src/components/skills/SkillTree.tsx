@@ -7,8 +7,8 @@ import {
   CaretRightOutlined, CaretDownOutlined,
 } from '@ant-design/icons';
 import { EXECUTOR_COLORS, formatSize, type SkillTreeNode } from './helpers';
-import { EXECUTORS } from '../../types';
-import type { SkillMeta, ExecutorSkills } from '../../types';
+import { EXECUTORS } from '@/types';
+import type { SkillMeta, ExecutorSkills } from '@/types';
 
 const { Text } = Typography;
 

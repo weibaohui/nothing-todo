@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { Tabs, Form, message } from 'antd';
 import QRCode from 'qrcode';
-import { useApp } from '../../hooks/useApp';
-import * as db from '../../utils/database';
-import type { FeishuPushStatus, WhitelistEntry } from '../../utils/database';
-import type { FeishuHistoryMessage, FeishuHistoryChat, ExecutionRecord } from '../../types';
+import { useApp } from '@/hooks/useApp';
+import * as db from '@/utils/database';
+import type { FeishuPushStatus, WhitelistEntry } from '@/utils/database';
+import type { FeishuHistoryMessage, FeishuHistoryChat, ExecutionRecord } from '@/types';
 import { BindTab } from './messages/BindTab';
 import { RecordTab } from './messages/RecordTab';
 import { ExecutionDetailModal } from './messages/ExecutionDetailModal';

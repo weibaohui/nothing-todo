@@ -1,7 +1,7 @@
 import { Input, Tag, Spin, Empty } from 'antd';
 import { RightOutlined, ThunderboltOutlined, SearchOutlined } from '@ant-design/icons';
 import { useDeferredValue } from 'react';
-import type { SkillMeta } from '../../types';
+import type { SkillMeta } from '@/types';
 
 export function SkillSelector({ skills, loading, executorColor, searchText, onSearchChange, expanded, onToggle, onSkillClick }: {
   skills: SkillMeta[];

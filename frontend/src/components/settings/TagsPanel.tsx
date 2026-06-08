@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Button, Popconfirm, Input, ColorPicker, List, Empty, message } from 'antd';
 import { DeleteOutlined } from '@ant-design/icons';
-import * as db from '../../utils/database';
-import type { Tag } from '../../types';
+import * as db from '@/utils/database';
+import type { Tag } from '@/types';
 
 export function TagsPanel({ tags, dispatch }: { tags: Tag[]; dispatch: any }) {
   const [tagName, setTagName] = useState('');

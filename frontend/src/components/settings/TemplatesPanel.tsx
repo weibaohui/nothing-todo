@@ -3,10 +3,10 @@ import { Tabs, Spin, Button, Card, List, Empty, Modal, Input, AutoComplete, Spac
 import { PlusOutlined, EditOutlined, DeleteOutlined, CopyOutlined, ReloadOutlined, ClockCircleOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { Cron } from 'react-js-cron';
 import 'react-js-cron/dist/styles.css';
-import { CronPresetSelect } from '../CronPresetSelect';
-import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '../../utils/cron';
-import * as db from '../../utils/database';
-import type { TodoTemplate, CustomTemplateStatus } from '../../types';
+import { CronPresetSelect } from '@/components/CronPresetSelect';
+import { CRON_ZH_LOCALE, cronTo5, cronTo6 } from '@/utils/cron';
+import * as db from '@/utils/database';
+import type { TodoTemplate, CustomTemplateStatus } from '@/types';
 
 
 export function TemplatesPanel() {

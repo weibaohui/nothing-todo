@@ -180,11 +180,11 @@ export async function getFeishuHistoryMessages(params?: {
   is_history?: boolean;
   page?: number;
   page_size?: number;
-}): Promise<import('../../types').FeishuHistoryMessagesPage> {
+}): Promise<import('@/types').FeishuHistoryMessagesPage> {
   return unwrap(await api.get('/api/feishu/history-messages', { params }));
 }
 
-export async function getFeishuMessageStats(hours?: number): Promise<import('../../types').FeishuMessageStats> {
+export async function getFeishuMessageStats(hours?: number): Promise<import('@/types').FeishuMessageStats> {
   const params = hours !== undefined ? { hours } : undefined;
   return unwrap(await api.get('/api/feishu/message-stats', { params }));
 }
@@ -193,11 +193,11 @@ export async function getFeishuSenders(): Promise<FeishuSenderItem[]> {
   return unwrap(await api.get('/api/feishu/senders'));
 }
 
-export async function getFeishuHistoryChats(): Promise<import('../../types').FeishuHistoryChat[]> {
+export async function getFeishuHistoryChats(): Promise<import('@/types').FeishuHistoryChat[]> {
   return unwrap(await api.get('/api/feishu/history-chats'));
 }
 
-export async function createFeishuHistoryChat(params: CreateFeishuHistoryChatParams): Promise<import('../../types').FeishuHistoryChat> {
+export async function createFeishuHistoryChat(params: CreateFeishuHistoryChatParams): Promise<import('@/types').FeishuHistoryChat> {
   return unwrap(await api.post('/api/feishu/history-chats', params));
 }
 

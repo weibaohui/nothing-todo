@@ -3,8 +3,8 @@ import { BarChartOutlined, ThunderboltOutlined, TagOutlined, ClockCircleOutlined
 import { CompactRow } from './CompactRow';
 import { MetricCard } from './EnhancedCards';
 import { MODEL_COLORS } from './constants';
-import { getExecutorOption } from '../../types';
-import type { DashboardStats } from '../../types';
+import { getExecutorOption } from '@/types';
+import type { DashboardStats } from '@/types';
 
 interface BaseCardProps {
   stats: DashboardStats | null;

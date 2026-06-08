@@ -6,9 +6,9 @@ import {
   SearchOutlined, FolderOpenOutlined, FileOutlined,
   DownloadOutlined, ExportOutlined, ImportOutlined,
 } from '@ant-design/icons';
-import { EXECUTORS } from '../../types';
-import type { SkillMeta, ExecutorSkills } from '../../types';
-import * as db from '../../utils/database';
+import { EXECUTORS } from '@/types';
+import type { SkillMeta, ExecutorSkills } from '@/types';
+import * as db from '@/utils/database';
 import { SkillTree } from './SkillTree';
 import { SkillDetailDrawer } from './SkillDetailDrawer';
 import { ImportExportModal } from './ImportExportModal';

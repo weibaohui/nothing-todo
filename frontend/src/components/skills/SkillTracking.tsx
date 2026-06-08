@@ -2,11 +2,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { Table, Tag, Select, Input, Button, Card, Row, Col, Statistic, Empty, Space, Tooltip, message } from 'antd';
 import Typography from 'antd/es/typography';
 import { SearchOutlined, ReloadOutlined } from '@ant-design/icons';
-import { EXECUTORS } from '../../types';
+import { EXECUTORS } from '@/types';
 import { formatTime } from './helpers';
-import type { SkillInvocation } from '../../types';
-import * as db from '../../utils/database';
-import { useIsMobile } from '../../hooks/useIsMobile';
+import type { SkillInvocation } from '@/types';
+import * as db from '@/utils/database';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 const { Text } = Typography;
 

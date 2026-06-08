@@ -2,17 +2,17 @@ import { useState, useEffect } from 'react';
 import { Button, Popconfirm, Tag, Tooltip } from 'antd';
 import { MessageOutlined, FileTextOutlined, StopOutlined, CopyOutlined, LinkOutlined, UpOutlined, DownOutlined } from '@ant-design/icons';
 import { XMarkdown } from '@ant-design/x-markdown';
-import { ExecutorBadge } from '../ExecutorBadge';
-import { supportsResume } from '../../types';
-import { formatLocalDateTime, formatDuration } from '../../utils/datetime';
-import * as db from '../../utils/database';
+import { ExecutorBadge } from '@/components/ExecutorBadge';
+import { supportsResume } from '@/types';
+import { formatLocalDateTime, formatDuration } from '@/utils/datetime';
+import * as db from '@/utils/database';
 import { getElapsedSeconds, hasLogsStatic } from './helpers';
 import { NarrowLogView } from './NarrowLogView';
 import { ContinuationLogView } from './ContinuationLogView';
 import { ContinuationLogsLoader } from './ContinuationLogsLoader';
-import { getHookTriggerLabel } from '../../utils/database/hooks';
+import { getHookTriggerLabel } from '@/utils/database/hooks';
 import type { SessionGroup } from './helpers';
-import type { ExecutionRecord, ExecutionStats, LogEntry } from '../../types';
+import type { ExecutionRecord, ExecutionStats, LogEntry } from '@/types';
 
 function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, viewMode, parseLogs, onRefresh, resolveStats, onViewModeChange }: {
   group: SessionGroup;

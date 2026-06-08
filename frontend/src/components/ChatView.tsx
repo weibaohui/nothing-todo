@@ -11,7 +11,7 @@ import {
   MessageOutlined,
 } from '@ant-design/icons';
 import XMarkdown from '@ant-design/x-markdown';
-import type { LogEntry, ChatMessage } from '../types';
+import type { LogEntry, ChatMessage } from '@/types';
 
 export { type ChatMessage };
 

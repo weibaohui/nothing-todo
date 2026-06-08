@@ -1,15 +1,15 @@
 import { Button, Tag, Empty, Segmented, Popconfirm, Tooltip, Pagination, message } from 'antd';
 import { MessageOutlined, FileTextOutlined, StopOutlined, CopyOutlined, UnorderedListOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
 import XMarkdown from '@ant-design/x-markdown';
-import { ExecutorBadge } from '../ExecutorBadge';
-import { ChatView } from '../ChatView';
+import { ExecutorBadge } from '@/components/ExecutorBadge';
+import { ChatView } from '@/components/ChatView';
 import { RefreshBtn } from './LogViewHeader';
-import { formatLocalDateTime, formatDuration } from '../../utils/datetime';
+import { formatLocalDateTime, formatDuration } from '@/utils/datetime';
 import { getElapsedSeconds, formatLogTime, logTypeColors, logTypeLabels } from './helpers';
 import type { SessionGroup } from './helpers';
-import { supportsResume } from '../../types';
-import type { ExecutionRecord, LogEntry } from '../../types';
-import { getHookTriggerLabel } from '../../utils/database/hooks';
+import { supportsResume } from '@/types';
+import type { ExecutionRecord, LogEntry } from '@/types';
+import { getHookTriggerLabel } from '@/utils/database/hooks';
 
 export function RecordDetailView({
   isLoadingDetail, record, sessionGroups,

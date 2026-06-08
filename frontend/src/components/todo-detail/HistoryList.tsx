@@ -1,11 +1,11 @@
 import { Pagination } from 'antd';
 import { LinkOutlined, MessageOutlined } from '@ant-design/icons';
 import { CompactHistoryItem } from './CompactHistoryItem';
-import { formatLocalDateTime, formatDuration } from '../../utils/datetime';
+import { formatLocalDateTime, formatDuration } from '@/utils/datetime';
 import { getElapsedSeconds } from './helpers';
 import type { SessionGroup } from './helpers';
-import { supportsResume } from '../../types';
-import type { ExecutionRecord } from '../../types';
+import { supportsResume } from '@/types';
+import type { ExecutionRecord } from '@/types';
 
 export function HistoryList({
   sessionGroups, selectedHistoryRecordId, onSelectRecord,

@@ -1,5 +1,5 @@
 import { CheckOutlined } from '@ant-design/icons';
-import type { ExecutorOption } from '../../types';
+import type { ExecutorOption } from '@/types';
 
 export function ExecutorPicker({ executor, executorOptions, onChange }: {
   executor: string;

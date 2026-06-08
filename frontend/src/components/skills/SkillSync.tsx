@@ -2,9 +2,9 @@ import { useState, useEffect, useMemo } from 'react';
 import { Card, Select, Checkbox, Row, Col, Tag, Space, Alert, Button, Spin, message } from 'antd';
 import Typography from 'antd/es/typography';
 import { CopyOutlined } from '@ant-design/icons';
-import { EXECUTORS, type ExecutorSkills } from '../../types';
+import { EXECUTORS, type ExecutorSkills } from '@/types';
 import { EXECUTOR_COLORS, formatSize } from './helpers';
-import * as db from '../../utils/database';
+import * as db from '@/utils/database';
 
 const { Text, Paragraph } = Typography;
 

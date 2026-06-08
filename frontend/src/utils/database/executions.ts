@@ -1,5 +1,5 @@
 import { api, unwrap } from './client';
-import type { ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutionLogsPage } from '../../types';
+import type { ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutionLogsPage } from '@/types';
 
 export async function getExecutionRecords(todoId: number, page?: number, limit?: number, status?: string): Promise<ExecutionRecordsPage> {
   const params: Record<string, unknown> = { todo_id: todoId };
@@ -36,12 +36,12 @@ export async function getExecutionSummary(todoId: number): Promise<ExecutionSumm
   return unwrap(await api.get(`/api/todos/${todoId}/summary`));
 }
 
-export async function getRecentCompletedTodos(hours?: number): Promise<import('../../types').RecentCompletedTodo[]> {
+export async function getRecentCompletedTodos(hours?: number): Promise<import('@/types').RecentCompletedTodo[]> {
   const p = hours !== undefined ? { hours } : undefined;
   return unwrap(await api.get('/api/todos/recent-completed', { params: p }));
 }
 
-export async function getDashboardStats(hours?: number): Promise<import('../../types').DashboardStats> {
+export async function getDashboardStats(hours?: number): Promise<import('@/types').DashboardStats> {
   const p = hours !== undefined ? { hours } : undefined;
   return unwrap(await api.get('/api/dashboard-stats', { params: p }));
 }

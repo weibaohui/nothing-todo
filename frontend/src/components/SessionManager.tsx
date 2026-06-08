@@ -5,8 +5,8 @@ import {
 import {
   SearchOutlined, ReloadOutlined, EyeOutlined, DeleteOutlined,
 } from '@ant-design/icons';
-import * as db from '../utils/database';
-import type { SessionInfo, SessionStats } from '../utils/database';
+import * as db from '@/utils/database';
+import type { SessionInfo, SessionStats } from '@/utils/database';
 import { StatsCards } from './sessions/StatsCards';
 import { SessionDetailDrawer } from './sessions/SessionDetailDrawer';
 import { sourceTag, formatTokens, formatTime, shortId, sourceConfig } from './sessions/helpers';

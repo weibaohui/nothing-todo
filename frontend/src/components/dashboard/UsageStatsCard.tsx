@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Card, Table, Tag, Empty, Button, App, Segmented } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import * as db from '../../utils/database';
-import type { UsageStatsResponse } from '../../types';
+import * as db from '@/utils/database';
+import type { UsageStatsResponse } from '@/types';
 
 interface UsageStatsCardProps {
   since?: string;

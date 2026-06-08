@@ -1,4 +1,4 @@
-import { AnimatedNumber } from '../AnimatedNumber';
+import { AnimatedNumber } from '@/components/AnimatedNumber';
 
 interface MiniStatProps {
   title: string;

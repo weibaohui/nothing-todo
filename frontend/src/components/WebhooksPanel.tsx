@@ -26,10 +26,10 @@ import {
   LinkOutlined,
   CopyOutlined,
 } from '@ant-design/icons';
-import * as db from '../utils/database';
-import type { Webhook, WebhookRecord } from '../utils/database';
-import type { Todo } from '../types';
-import { useIsMobile } from '../hooks/useIsMobile';
+import * as db from '@/utils/database';
+import type { Webhook, WebhookRecord } from '@/utils/database';
+import type { Todo } from '@/types';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 interface WebhooksPanelProps {
   todos: Todo[];

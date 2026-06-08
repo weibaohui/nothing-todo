@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button, Empty, Form, Input, Modal, Popconfirm, Select, Switch } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, HolderOutlined } from '@ant-design/icons';
-import { HOOK_TRIGGERS, type TodoHookItem } from '../../utils/database/hooks';
-import type { Todo } from '../../types';
+import { HOOK_TRIGGERS, type TodoHookItem } from '@/utils/database/hooks';
+import type { Todo } from '@/types';
 
 function nextId(): number {
   return Date.now() + Math.floor(Math.random() * 1000);

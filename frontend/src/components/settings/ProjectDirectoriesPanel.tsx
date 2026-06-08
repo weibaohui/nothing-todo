@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Button, Popconfirm, Input, Space, List, Empty, Spin, message } from 'antd';
 import { PlusOutlined, FolderOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
-import * as db from '../../utils/database';
-import type { ProjectDirectory } from '../../utils/database';
+import * as db from '@/utils/database';
+import type { ProjectDirectory } from '@/utils/database';
 
 export function ProjectDirectoriesPanel() {
   // 项目目录列表；按 path 升序，保持稳定可读

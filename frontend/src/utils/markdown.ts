@@ -1,5 +1,5 @@
 import yaml from 'js-yaml';
-import type { ChatMessage } from '../types';
+import type { ChatMessage } from '@/types';
 
 const STATUS_MAP: Record<string, string> = {
   success: '成功',

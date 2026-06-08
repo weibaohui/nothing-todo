@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Modal, Input, Tag, Spin, Empty, Card } from 'antd';
 import { FileTextOutlined, SearchOutlined } from '@ant-design/icons';
-import type { TodoTemplate } from '../../types';
+import type { TodoTemplate } from '@/types';
 
 export function TemplateModal({ open, templates, loading, onClose, onSelect }: {
   open: boolean;

@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { Popover } from 'antd';
 import { CheckOutlined } from '@ant-design/icons';
-import { useTheme } from '../hooks/useTheme';
+import { useTheme } from '@/hooks/useTheme';
 
 // Light theme status config
 const lightStatusConfig: Record<string, { color: string; label: string }> = {

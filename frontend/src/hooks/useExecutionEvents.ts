@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useApp } from './useApp';
-import type { LogEntry, TodoItem, ExecutionStats } from '../types';
+import type { LogEntry, TodoItem, ExecutionStats } from '@/types';
 
 interface ExecEventStarted {
   type: 'Started';

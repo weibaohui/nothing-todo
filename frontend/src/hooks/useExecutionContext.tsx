@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useMemo, ReactNode } from 'react';
-import type { ExecutionRecord, RunningTask, LogEntry, TodoItem, ExecutionStats } from '../types';
+import type { ExecutionRecord, RunningTask, LogEntry, TodoItem, ExecutionStats } from '@/types';
 
 // ─── State & Reducer ─────────────────────────────────────────
 

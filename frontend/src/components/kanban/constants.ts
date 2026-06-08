@@ -1,4 +1,4 @@
-import type { Todo } from '../../types';
+import type { Todo } from '@/types';
 
 export const TIME_OPTIONS: { label: string; value: number }[] = [
   { label: '6h',  value: 6 },

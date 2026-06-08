@@ -5,11 +5,11 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { useApp } from '../hooks/useApp';
-import * as db from '../utils/database';
-import { getExecutorOption } from '../types';
-import type { DashboardStats, FeishuMessageStats } from '../types';
-import { formatRelativeTime } from '../utils/datetime';
+import { useApp } from '@/hooks/useApp';
+import * as db from '@/utils/database';
+import { getExecutorOption } from '@/types';
+import type { DashboardStats, FeishuMessageStats } from '@/types';
+import { formatRelativeTime } from '@/utils/datetime';
 import {
   KeyMetricsCard, HighlightStatsCard, TaskStatsCard, ExecStatsCard,
   InferenceStatsCard, OverviewCard, MessageStatsCard, BackupStatsCard,

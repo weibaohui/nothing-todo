@@ -1,5 +1,5 @@
 import { Modal } from 'antd';
-import type { ExecutionRecord } from '../../../types';
+import type { ExecutionRecord } from '@/types';
 
 export function ExecutionDetailModal({ record, onClose }: {
   record: ExecutionRecord | null;

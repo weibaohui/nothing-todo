@@ -1,8 +1,8 @@
 import { Card, Button, Spin, List, Empty, Select, AutoComplete, Input, InputNumber, Switch, Modal, Tag, Typography, Form, Tooltip, Space, Popconfirm, message } from 'antd';
 import { QrcodeOutlined, DeleteOutlined, CopyOutlined, PlusOutlined, MinusCircleOutlined, InfoCircleOutlined } from '@ant-design/icons';
-import * as db from '../../../utils/database';
-import type { FeishuPushStatus, WhitelistEntry, FeishuSenderItem } from '../../../utils/database';
-import type { Todo } from '../../../types';
+import * as db from '@/utils/database';
+import type { FeishuPushStatus, WhitelistEntry, FeishuSenderItem } from '@/utils/database';
+import type { Todo } from '@/types';
 
 const { Paragraph } = Typography;
 

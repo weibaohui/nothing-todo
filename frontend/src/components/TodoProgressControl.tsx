@@ -1,5 +1,5 @@
 import { Progress } from 'antd';
-import type { TodoItem } from '../types';
+import type { TodoItem } from '@/types';
 
 interface TodoProgressControlProps {
   todoProgress: TodoItem[];
