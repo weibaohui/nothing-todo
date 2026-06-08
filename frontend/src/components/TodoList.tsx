@@ -52,7 +52,7 @@ function buildDesktopNavActions(
       title: '仪表盘',
       icon: <DashboardOutlined />,
       onClick: onShowDashboard ? () => onShowDashboard() : undefined,
-      ariaLabel: '查看仪表盘',
+      ariaLabel: '仪表盘',
     },
     {
       key: 'memorial',
@@ -194,14 +194,14 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
         icon: displayMode === 'flat' ? <FolderOpenOutlined /> : <UnorderedListOutlined />,
         label: (
           <span aria-pressed={displayMode === 'grouped'}>
-            {displayMode === 'flat' ? '切换为按项目分组' : '切换为平铺列表'}
+            {displayMode === 'flat' ? '分组' : '平铺'}
           </span>
         ),
       },
       {
         key: 'theme',
         icon: themeMode === 'light' ? <MoonOutlined /> : <SunOutlined />,
-        label: themeMode === 'light' ? '切换暗色主题' : '切换亮色主题',
+        label: themeMode === 'light' ? '暗色' : '亮色',
       },
     ];
 
@@ -211,7 +211,7 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
         {
           key: 'settings',
           icon: <SettingOutlined />,
-          label: '配置管理',
+          label: '设置',
         },
       );
     }
@@ -340,7 +340,7 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
         <div className="ntd-logo" aria-label="NTD Logo">NTD</div>
         <div className="header-actions">
           <div className="header-toolbar">
-            {!isMobile && desktopNavActions.length > 0 && (
+            {desktopNavActions.length > 0 && (
               <div className="header-nav-cluster" aria-label="主导航">
                 {desktopNavActions.map(action => (
                   <Tooltip key={action.key} title={action.title}>
@@ -399,37 +399,39 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
           )}
 
           {isMobile && (
-            <>
-              <Tooltip title={displayMode === 'flat' ? '切换为按项目分组' : '切换为平铺列表'}>
+            <div className="header-nav-cluster" aria-label="移动端操作">
+              <Tooltip title={displayMode === 'flat' ? '分组' : '平铺'}>
                 <Button
                   type="text"
                   size="small"
-                  icon={displayMode === 'flat' ? <UnorderedListOutlined /> : <FolderOpenOutlined />}
+                  icon={displayMode === 'flat' ? <FolderOpenOutlined /> : <UnorderedListOutlined />}
                   onClick={() => setDisplayMode(prev => (prev === 'flat' ? 'grouped' : 'flat'))}
                   className="header-nav-btn"
-                  aria-label="切换列表显示模式"
+                  aria-label={displayMode === 'flat' ? '分组' : '平铺'}
                   aria-pressed={displayMode === 'grouped'}
                 />
               </Tooltip>
-              <Tooltip title={themeMode === 'light' ? '切换暗色主题' : '切换亮色主题'}>
+              <Tooltip title={themeMode === 'light' ? '暗色' : '亮色'}>
                 <Button
                   type="text"
                   size="small"
                   icon={themeMode === 'light' ? <MoonOutlined /> : <SunOutlined />}
                   onClick={toggleTheme}
                   className="header-nav-btn"
-                  aria-label="切换主题"
+                  aria-label={themeMode === 'light' ? '暗色' : '亮色'}
                 />
               </Tooltip>
-              <Button
-                type="text"
-                size="small"
-                icon={<SettingOutlined />}
-                onClick={() => onShowSettings?.()}
-                className="header-nav-btn"
-                aria-label="配置管理"
-              />
-            </>
+              <Tooltip title="设置">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<SettingOutlined />}
+                  onClick={() => onShowSettings?.()}
+                  className="header-nav-btn"
+                  aria-label="设置"
+                />
+              </Tooltip>
+            </div>
           )}
           </div>
         </div>
