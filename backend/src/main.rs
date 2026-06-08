@@ -101,8 +101,16 @@ async fn main() {
         }
         Some(Commands::Upgrade) => {
             println!("Upgrading ntd...");
+
+            let prefix = get_npm_global_prefix();
+
             let status = std::process::Command::new("npm")
-                .args(["install", "-g", "@weibaohui/nothing-todo@latest"])
+                .args([
+                    "install",
+                    "-g",
+                    &format!("--prefix={}", prefix),
+                    "@weibaohui/nothing-todo@latest",
+                ])
                 .status()
                 .expect("Failed to run npm. Is npm installed?");
             if status.success() {
@@ -173,6 +181,45 @@ async fn main() {
             println!("Starting ntd server...");
             run_server(None).await;
         }
+    }
+}
+
+/// 获取 npm 全局安装的 prefix。
+/// 如果当前 npm 全局目录不可写，使用 ~/.npm-global 作为 prefix。
+fn get_npm_global_prefix() -> String {
+    let default_prefix = std::process::Command::new("npm")
+        .args(["prefix", "-g"])
+        .output();
+
+    match default_prefix {
+        Ok(out) if out.status.success() => {
+            let prefix = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let path = std::path::Path::new(&prefix);
+            if path.exists() && is_writable_dir(path) {
+                return prefix;
+            }
+        }
+        _ => {}
+    }
+
+    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+    let user_prefix = home.join(".npm-global");
+    let _ = std::fs::create_dir_all(&user_prefix);
+    println!("npm global directory not writable, using {} as prefix", user_prefix.display());
+    user_prefix.to_string_lossy().to_string()
+}
+
+fn is_writable_dir(path: &std::path::Path) -> bool {
+    if !path.exists() {
+        return false;
+    }
+    let test_file = path.join(format!(".ntd_write_test_{}", std::process::id()));
+    match std::fs::File::create(&test_file) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&test_file);
+            true
+        }
+        Err(_) => false,
     }
 }
 

@@ -324,20 +324,75 @@ async fn version_latest_handler() -> impl IntoResponse {
     }
 }
 
+/// 获取 npm 全局安装的 --prefix 参数。
+/// 如果当前 npm 全局目录不可写，使用 ~/.npm-global 作为 prefix，
+/// 这样不需要 root 权限也能安装全局包。
+fn get_npm_global_prefix() -> String {
+    let default_prefix = std::process::Command::new("npm")
+        .args(["prefix", "-g"])
+        .output();
+
+    match default_prefix {
+        Ok(out) if out.status.success() => {
+            let prefix = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let path = std::path::Path::new(&prefix);
+            if path.exists() && is_writable_dir(path) {
+                // 默认全局目录可写，直接使用
+                return prefix;
+            }
+        }
+        _ => {}
+    }
+
+    // 默认全局目录不可写，使用 ~/.npm-global
+    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+    let user_prefix = home.join(".npm-global");
+    // 确保目录存在
+    let _ = std::fs::create_dir_all(&user_prefix);
+    tracing::info!(
+        "npm global directory not writable, using {} as prefix",
+        user_prefix.display()
+    );
+    user_prefix.to_string_lossy().to_string()
+}
+
+/// 检查目录是否可写（通过尝试创建临时文件来判断）
+fn is_writable_dir(path: &std::path::Path) -> bool {
+    if !path.exists() {
+        return false;
+    }
+    let test_file = path.join(format!(".ntd_write_test_{}", std::process::id()));
+    match std::fs::File::create(&test_file) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&test_file);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
 /// 执行 npm 升级并重启服务。
-/// 1. 调用 `npm install -g @weibaohui/nothing-todo@latest` 升级
-/// 2. 调用 `ntd daemon restart` 重启服务
+/// 1. 检测 npm 全局目录写权限，不可写时使用 ~/.npm-global 作为 prefix
+/// 2. 调用 `npm install -g @weibaohui/nothing-todo@latest` 升级
+/// 3. 调用 `ntd daemon restart` 重启服务
 async fn version_upgrade_handler() -> impl IntoResponse {
+    let prefix = get_npm_global_prefix();
+
     // 先执行 npm 升级，捕获输出以便返回给前端展示
-    let npm_output = std::process::Command::new("npm")
-        .args(["install", "-g", "@weibaohui/nothing-todo@latest"])
+    let npm_result = std::process::Command::new("npm")
+        .args([
+            "install",
+            "-g",
+            &format!("--prefix={}", prefix),
+            "@weibaohui/nothing-todo@latest",
+        ])
         .output();
 
     let npm_stdout;
     let npm_stderr;
     let npm_success;
 
-    match &npm_output {
+    match &npm_result {
         Ok(out) => {
             npm_stdout = String::from_utf8_lossy(&out.stdout).to_string();
             npm_stderr = String::from_utf8_lossy(&out.stderr).to_string();
@@ -361,29 +416,63 @@ async fn version_upgrade_handler() -> impl IntoResponse {
         return ApiResponse::err(1, &err_msg);
     }
 
-    // npm 升级成功后执行 daemon restart
-    // 注意：restart 成功后当前进程会被终止，所以这行代码之后不会有任何输出
-    let restart_status = std::process::Command::new("ntd")
-        .args(["daemon", "restart"])
+    // npm 升级成功后，使用新安装的 ntd 重新部署 daemon 服务
+    // 需要使用新安装的 ntd 来执行，以确保 plist/systemd 中写入的是新版本路径
+    let new_ntd_path = std::path::Path::new(&prefix)
+        .join("bin")
+        .join("ntd");
+
+    let ntd_cmd = if new_ntd_path.exists() {
+        tracing::info!("Using newly installed ntd at: {}", new_ntd_path.display());
+        new_ntd_path.to_string_lossy().to_string()
+    } else {
+        // fallback 到当前 ntd
+        tracing::warn!("Newly installed ntd not found at {}, falling back to current ntd", new_ntd_path.display());
+        "ntd".to_string()
+    };
+
+    // 按顺序执行：stop → uninstall → install → start
+    // 1. stop 停止当前运行的服务
+    let stop_status = std::process::Command::new(&ntd_cmd)
+        .args(["daemon", "stop"])
+        .status();
+    tracing::info!("Daemon stop result: {:?}", stop_status);
+
+    // 2. uninstall 卸载旧的服务配置（删除旧的 plist/systemd unit）
+    let uninstall_status = std::process::Command::new(&ntd_cmd)
+        .args(["daemon", "uninstall"])
+        .status();
+    tracing::info!("Daemon uninstall result: {:?}", uninstall_status);
+
+    // 3. install 重新安装服务配置（写入新的 plist/systemd unit，包含新的 binary 路径）
+    let install_status = std::process::Command::new(&ntd_cmd)
+        .args(["daemon", "install"])
+        .status();
+    tracing::info!("Daemon install result: {:?}", install_status);
+
+    // 4. start 启动新版本服务
+    // 注意：start 成功后当前进程会被终止，所以这行代码之后不会有任何输出
+    let start_status = std::process::Command::new(&ntd_cmd)
+        .args(["daemon", "start"])
         .status();
 
     let restarted;
     let restart_message;
 
-    match restart_status {
+    match start_status {
         Ok(status) if status.success() => {
             restarted = true;
             restart_message = String::new();
-            tracing::info!("Daemon restart triggered");
+            tracing::info!("Daemon start triggered with new version");
         }
         Ok(status) => {
             restarted = false;
-            restart_message = format!("Daemon restart failed with exit code: {}. Please run 'ntd daemon restart' manually.", status);
+            restart_message = format!("Daemon start failed with exit code: {}. Please run 'ntd daemon start' manually.", status);
             tracing::error!("{}", restart_message);
         }
         Err(e) => {
             restarted = false;
-            restart_message = format!("Failed to run ntd daemon restart: {}. Please run 'ntd daemon restart' manually.", e);
+            restart_message = format!("Failed to run ntd daemon start: {}. Please run 'ntd daemon start' manually.", e);
             tracing::error!("{}", restart_message);
         }
     }

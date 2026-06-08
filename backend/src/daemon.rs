@@ -146,6 +146,7 @@ fn generate_launchd_plist() -> String {
 
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
     let mut path_entries = vec![
+        format!("{}", home.join(".npm-global/bin").display()),
         format!("{}", home.join(".local/bin").display()),
         format!("{}", home.join(".cargo/bin").display()),
     ];

@@ -103,15 +103,27 @@ export function AboutPanel() {
       icon: <ExclamationCircleFilled style={{ color: '#faad14' }} />,
       content: (
         <div style={{ marginTop: 12 }}>
-          <Paragraph>即将执行以下命令完成更新：</Paragraph>
+          <Paragraph>即将执行以下操作完成更新：</Paragraph>
           <div style={{ background: '#f5f5f5', padding: 12, borderRadius: 4, fontFamily: 'monospace' }}>
             <div style={{ marginBottom: 8 }}>
               <strong>1. 升级 npm 包：</strong><br />
               <code style={{ color: '#d46b08' }}>npm install -g @weibaohui/nothing-todo@latest</code>
             </div>
+            <div style={{ marginBottom: 8 }}>
+              <strong>2. 停止服务：</strong><br />
+              <code style={{ color: '#d46b08' }}>ntd daemon stop</code>
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <strong>3. 卸载旧服务配置：</strong><br />
+              <code style={{ color: '#d46b08' }}>ntd daemon uninstall</code>
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <strong>4. 安装新服务配置：</strong><br />
+              <code style={{ color: '#d46b08' }}>ntd daemon install</code>
+            </div>
             <div>
-              <strong>2. 重启服务：</strong><br />
-              <code style={{ color: '#d46b08' }}>ntd daemon restart</code>
+              <strong>5. 启动新版本服务：</strong><br />
+              <code style={{ color: '#d46b08' }}>ntd daemon start</code>
             </div>
           </div>
           <Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
