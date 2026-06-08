@@ -400,6 +400,17 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
 
           {isMobile && (
             <div className="header-nav-cluster" aria-label="移动端操作">
+              <Tooltip title={displayMode === 'flat' ? '分组' : '平铺'}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={displayMode === 'flat' ? <FolderOpenOutlined /> : <UnorderedListOutlined />}
+                  onClick={() => setDisplayMode(prev => (prev === 'flat' ? 'grouped' : 'flat'))}
+                  className="header-nav-btn"
+                  aria-label={displayMode === 'flat' ? '分组' : '平铺'}
+                  aria-pressed={displayMode === 'grouped'}
+                />
+              </Tooltip>
               <Tooltip title={themeMode === 'light' ? '暗色' : '亮色'}>
                 <Button
                   type="text"
@@ -407,17 +418,19 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
                   icon={themeMode === 'light' ? <MoonOutlined /> : <SunOutlined />}
                   onClick={toggleTheme}
                   className="header-nav-btn"
-                  aria-label="切换主题"
+                  aria-label={themeMode === 'light' ? '暗色' : '亮色'}
                 />
               </Tooltip>
-              <Button
-                type="text"
-                size="small"
-                icon={<SettingOutlined />}
-                onClick={() => onShowSettings?.()}
-                className="header-nav-btn"
-                aria-label="配置管理"
-              />
+              <Tooltip title="设置">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<SettingOutlined />}
+                  onClick={() => onShowSettings?.()}
+                  className="header-nav-btn"
+                  aria-label="设置"
+                />
+              </Tooltip>
             </div>
           )}
           </div>

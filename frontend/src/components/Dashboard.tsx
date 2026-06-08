@@ -164,6 +164,7 @@ export function Dashboard({ onBack }: { onBack?: () => void }) {
     { key: 'key-metrics', render: () => <KeyMetricsCard stats={stats} loading={loading} successRate={successRate} /> },
     { key: 'active-tasks', render: () => <ActiveTasksCard runningTasks={Object.values(runningTasks)} /> },
     { key: 'task-stats', render: () => <TaskStatsCard stats={stats} loading={loading} totalTodos={totalTodos} /> },
+    { key: 'tag-chart', render: () => <TagChartCard stats={stats} /> },
     { key: 'overview-card', render: () => <OverviewCard stats={stats} successRate={successRate} /> },
     // 层2: 亮点与排行
     { key: 'highlight-stats', render: () => <HighlightStatsCard stats={stats} /> },
@@ -183,7 +184,6 @@ export function Dashboard({ onBack }: { onBack?: () => void }) {
     { key: 'model-task-chart', render: () => <ModelTaskChartCard stats={stats} /> },
     { key: 'model-token-chart', render: () => <ModelTokenChartCard stats={stats} /> },
     { key: 'model-cache', render: () => <ModelCacheCard stats={stats} /> },
-    { key: 'tag-chart', render: () => <TagChartCard stats={stats} /> },
     // 层5: 次要统计
     { key: 'message-stats', render: () => <MessageStatsCard msgStats={msgStats} msgStatsError={msgStatsError} processingRate={processingRate} /> },
     { key: 'skills-stats', render: () => <SkillsStatsCard stats={stats} loading={loading} /> },
