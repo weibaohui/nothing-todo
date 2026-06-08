@@ -5,7 +5,7 @@ import { useApp } from '@/hooks/useApp';
 import * as db from '@/utils/database';
 import type { ExecutionRecord } from '@/types';
 
-const DEFAULT_EXECUTION_TIMEOUT_SECS = 3600;
+import { DEFAULT_EXECUTION_TIMEOUT_SECS } from '@/constants';
 
 /** 运行管理面板，负责展示执行并发、超时配置以及运行中任务操作。 */
 export function RuntimePanel({ configForm, configSaving, handleSaveConfig, executorDisplayNames }: {
@@ -48,12 +48,13 @@ export function RuntimePanel({ configForm, configSaving, handleSaveConfig, execu
     return () => clearInterval(timer);
   }, []);
 
-  // 当用户手动输入时记录最新值；若关闭超时则不更新（保留重新开启时的恢复值）。
+  // Track the last seen execution_timeout_secs so the toggle handler can restore it.
+  // We sync on every change (not just when enabled) so that loading the form with
+  // execution_timeout_secs = 0 correctly records 0 as the last value — preventing
+  // the stale 3600 fallback from being restored when the user re-enables the timeout.
   useEffect(() => {
-    if (executionTimeoutEnabled) {
-      lastEnabledExecutionTimeoutSecsRef.current = executionTimeoutSecs;
-    }
-  }, [executionTimeoutEnabled, executionTimeoutSecs]);
+    lastEnabledExecutionTimeoutSecsRef.current = executionTimeoutSecs;
+  }, [executionTimeoutSecs]);
 
   // 监听表单字段变化（外部加载配置重置表单时），同步本地状态。
   useEffect(() => {

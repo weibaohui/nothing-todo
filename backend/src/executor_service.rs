@@ -19,7 +19,7 @@ fn send_event(tx: &broadcast::Sender<ExecEvent>, event: ExecEvent) {
 /// command-group 会自动创建进程组，kill() 时会杀死整个进程组
 async fn kill_process_tree(child: &mut command_group::AsyncGroupChild) {
     if let Err(e) = child.kill().await {
-        tracing::warn!("杀死进程组失败: {}", e);
+        tracing::warn!("Failed to kill process group: {}", e);
     }
 }
 
@@ -706,8 +706,13 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
             }
         });
 
-        let timeout_duration = std::time::Duration::from_secs(execution_timeout_secs.max(1));
+        // execution_timeout_secs is captured by value here — changes to the config after this
+        // task starts will NOT affect it (running tasks hold their own snapshot).  Users must
+        // cancel and re-trigger a todo execution to pick up a new timeout value.
         let timeout_enabled = execution_timeout_secs > 0;
+        // Duration is only used when timeout_enabled; max(1) prevents Duration::ZERO panics
+        // if the guard is ever removed or bypassed.
+        let timeout_duration = std::time::Duration::from_secs(execution_timeout_secs.max(1));
         // 精确格式化超时提示：整数分钟直接显示"X 分钟"，非整数显示"X 分 Y 秒"
         let timeout_str = {
             let mins = execution_timeout_secs / 60;
@@ -770,7 +775,7 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
             _ = &mut timeout_sleep, if timeout_enabled => {
                 // Timeout: 自动终止执行时间过长的进程，释放资源
                 tracing::warn!(
-                    "执行超时，开始终止进程：超时时间={}秒，todo_id={}，task_id={}",
+                    "Execution timeout, terminating process: timeout={}s, todo_id={}, task_id={}",
                     execution_timeout_secs, todo_id, task_id
                 );
                 kill_process_tree(&mut child).await;
@@ -801,12 +806,12 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
                     id: record_id,
                     status: crate::models::ExecutionStatus::Failed.as_str(),
                     remaining_logs: &logs_json,
-                    result: "执行超时",
+                    result: "Execution timeout",
                     usage: None,
                     model: None,
                 }).await;
 
-                let entry = ParsedLogEntry::error("执行超时，进程已被系统自动终止");
+                let entry = ParsedLogEntry::error("Execution timeout, process terminated by system");
                 send_event(&tx_clone, ExecEvent::Output { task_id: task_id.clone(), entry });
                 send_event(&tx_clone, ExecEvent::Finished { task_id: task_id.clone(), todo_id, todo_title: todo_title.clone(), executor: executor_spawn.executor_type().to_string(), success: false, result: Some(format!("执行超时，已超过 {}", timeout_str)) });
                 task_manager_spawn.remove(&task_id).await;
