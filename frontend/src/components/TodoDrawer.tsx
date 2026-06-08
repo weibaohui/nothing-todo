@@ -185,9 +185,11 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
       setProjectDirectories(prev =>
         [...prev.filter(d => d.id !== dir.id), dir].sort((a, b) => a.path.localeCompare(b.path)) // 去重+按路径排序
       );
+      // 保存后立即把新目录选中并写入工作目录，减少二次操作
       setWorkspace(dir.path); // 自动选中新目录，减少用户二次操作
       setQuickAddOpen(false); // 关闭弹窗
       message.success(`已添加项目"${dir.name}"`);
+      // 通知其他组件（如 TodoList 分组视图）项目目录已更新
       window.dispatchEvent(new CustomEvent('projectDirectoryAdded', { detail: dir })); // 通知 TodoList/KanbanBoard 等刷新
     } catch (err: any) {
       message.error('添加项目目录失败: ' + (err?.message || String(err)));
@@ -212,6 +214,7 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
         // 2. 输入了路径且在目录列表中命中 → 保存该路径
         // 3. 输入了路径但目录列表为空/未命中，且编辑模式下原值与当前一致 → 保留原值（避免目录加载失败时误清空）
         // 4. 其他情况（新建时输入了不存在的路径）→ 保存 null
+        // 如果用户输入了路径但不在下拉列表中，不自动创建（name 必填约束），让用户使用快速新增功能
         const originalWorkspace = (todo.workspace || '').trim();
         const isKnownWorkspace = !!trimmedWorkspace && projectDirectories.some(d => d.path === trimmedWorkspace);
         const workspaceToSave = !trimmedWorkspace
@@ -232,7 +235,7 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
       } else {
         const newTodo = await db.createTodo(title.trim(), prompt.trim(), selectedTags, hooks);
 
-        // 创建模式：只在路径存在于目录列表时才设置 workspace，否则为 null
+        // 创建模式：只在路径存在于目录列表时才设置 workspace，否则为 null（避免创建无名项目）
         const workspaceToSave = trimmedWorkspace && projectDirectories.some(d => d.path === trimmedWorkspace) ? trimmedWorkspace : null;
 
         if (workspaceToSave || schedulerEnabled || executor !== 'claudecode' || worktreeEnabled) {

@@ -41,7 +41,7 @@ pub async fn create_project_directory(
     }
     let directory = state
         .db
-        .get_or_create_project_directory(path, Some(name))
+        .get_or_create_project_directory(&path, Some(name))
         .await?;
     Ok(ApiResponse::ok(directory))
 }
