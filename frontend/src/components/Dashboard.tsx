@@ -160,26 +160,31 @@ export function Dashboard({ onBack }: { onBack?: () => void }) {
   ];
 
   const panels: { key: string; render: () => React.ReactNode }[] = [
-    { key: 'active-tasks', render: () => <ActiveTasksCard runningTasks={Object.values(runningTasks)} /> },
+    // 层1: 核心总览 — 第一眼看到的关键指标
     { key: 'key-metrics', render: () => <KeyMetricsCard stats={stats} loading={loading} successRate={successRate} /> },
+    { key: 'active-tasks', render: () => <ActiveTasksCard runningTasks={Object.values(runningTasks)} /> },
+    { key: 'task-stats', render: () => <TaskStatsCard stats={stats} loading={loading} totalTodos={totalTodos} /> },
+    { key: 'overview-card', render: () => <OverviewCard stats={stats} successRate={successRate} /> },
+    // 层2: 亮点与排行
     { key: 'highlight-stats', render: () => <HighlightStatsCard stats={stats} /> },
     { key: 'leaderboard', render: () => <LeaderboardCard leaderboard={stats?.leaderboard ?? []} /> },
-    { key: 'task-stats', render: () => <TaskStatsCard stats={stats} loading={loading} totalTodos={totalTodos} /> },
+    // 层3: 执行分析 — 趋势与分布
     { key: 'exec-stats', render: () => <ExecStatsCard stats={stats} loading={loading} tagsLength={tags.length} /> },
     { key: 'status-chart', render: () => <StatusChartCard stats={stats} totalTodos={totalTodos} /> },
-    { key: 'trigger-source', render: () => <TriggerSourceCard stats={stats} /> },
-    { key: 'executor-chart', render: () => <ExecutorChartCard stats={stats} /> },
-    { key: 'executor-duration', render: () => <ExecutorDurationCard stats={stats} /> },
-    { key: 'tag-chart', render: () => <TagChartCard stats={stats} /> },
-    { key: 'token-chart', render: () => <TokenChartCard stats={stats} /> },
     { key: 'trend-chart', render: () => <TrendChartCard stats={stats} /> },
     { key: 'contribution-heatmap', render: () => <ContributionHeatmapCard stats={stats} /> },
+    { key: 'trigger-source', render: () => <TriggerSourceCard stats={stats} /> },
+    // 层4: 模型与 Token 分析
+    { key: 'inference-stats', render: () => <InferenceStatsCard stats={stats} loading={loading} /> },
+    { key: 'executor-chart', render: () => <ExecutorChartCard stats={stats} /> },
+    { key: 'executor-duration', render: () => <ExecutorDurationCard stats={stats} /> },
+    { key: 'token-chart', render: () => <TokenChartCard stats={stats} /> },
+    { key: 'token-trend-chart', render: () => <TokenTrendChartCard stats={stats} /> },
     { key: 'model-task-chart', render: () => <ModelTaskChartCard stats={stats} /> },
     { key: 'model-token-chart', render: () => <ModelTokenChartCard stats={stats} /> },
     { key: 'model-cache', render: () => <ModelCacheCard stats={stats} /> },
-    { key: 'token-trend-chart', render: () => <TokenTrendChartCard stats={stats} /> },
-    { key: 'inference-stats', render: () => <InferenceStatsCard stats={stats} loading={loading} /> },
-    { key: 'overview-card', render: () => <OverviewCard stats={stats} successRate={successRate} /> },
+    { key: 'tag-chart', render: () => <TagChartCard stats={stats} /> },
+    // 层5: 次要统计
     { key: 'message-stats', render: () => <MessageStatsCard msgStats={msgStats} msgStatsError={msgStatsError} processingRate={processingRate} /> },
     { key: 'skills-stats', render: () => <SkillsStatsCard stats={stats} loading={loading} /> },
     { key: 'backup-stats', render: () => <BackupStatsCard stats={stats} loading={loading} /> },
