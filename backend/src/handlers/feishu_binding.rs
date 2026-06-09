@@ -100,6 +100,7 @@ pub async fn create_binding(
         "你是飞书Bot的AI助手，正在项目「{name}」({path})中工作。\n\
          用户通过飞书与你交流，请根据用户的需求在项目目录中完成开发任务。\n\
          你可以读取、修改项目文件，运行命令等。\n\n\
+         用户诉求：{{message}}
          项目目录：{path}",
         name = dir.name.as_deref().unwrap_or("unknown"),
         path = dir.path,
