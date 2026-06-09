@@ -1073,14 +1073,12 @@ impl FeishuListener {
 
         match db.get_feishu_project_binding(bot_id, channel).await {
             Ok(Some(binding)) => {
-                // If a task is running, warn user before deleting
+                // If a task is running, warn user before unbinding
                 if binding.status == "running" {
                     Self::send_text(credentials, token_manager, bot_id, &receive_id, receive_id_type,
                         "⚠️ 当前有任务正在执行，解绑后任务仍会在后台运行。\n如需强制终止，请使用 Web 界面「运行管理」停止。")
                         .await;
                 }
-                // 软删除关联的 Todo（标记 deleted_at，保留执行历史可追溯）
-                let _ = db.delete_todo(binding.todo_id).await;
 
                 if let Err(e) = db.delete_feishu_project_binding(binding.id).await {
                     tracing::error!("[feishu:{}] /unbind failed: {e}", bot_id);
