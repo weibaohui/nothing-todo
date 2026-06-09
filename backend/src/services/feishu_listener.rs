@@ -455,6 +455,10 @@ impl FeishuListener {
                         resume_message,
                         binding_id: Some(binding.id),
                     });
+                    // 清理 reaction 后返回，避免 THUMBSUP 一直残留在消息上
+                    if let Some(rid) = &reaction_id {
+                        Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
+                    }
                     return;
                 } else {
                     tracing::warn!(
