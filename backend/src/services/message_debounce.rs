@@ -209,7 +209,7 @@ impl MessageDebounce {
                                                 binding_id,
                                                 real_sid.as_deref(),
                                                 rid,
-                                                crate::models::binding_status::IDLE,
+                                                crate::models::binding_status::RUNNING,
                                             )
                                             .await
                                         {

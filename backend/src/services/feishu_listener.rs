@@ -359,26 +359,37 @@ impl FeishuListener {
             }
         }
 
-        // 如果当前 chat 没有绑定，检查是否有 __pending__ binding 需要关联过来
-        // 页面创建绑定时 chat_id 先写成 __pending__，等首次消息进来再关联到真实 chat
-        if let Ok(bindings) = db.get_feishu_project_bindings(bot_id).await {
-            for pending in bindings.iter().filter(|b| b.chat_id == "__pending__") {
-                if let Ok(Some(pending_todo)) = db.get_todo(pending.todo_id).await {
-                    // 获取这个 todo 对应的 project_dir，检查消息是否来自该目录对应的聊天
-                    // 通过 project_dir 的 path 或 name 匹配（这里简化处理：直接关联）
-                    match db.attach_feishu_project_binding(pending.id, &msg.channel, chat_type).await {
-                        Ok(_) => {
-                            tracing::info!(
-                                "[feishu:{}] promoted pending binding {} to chat {}",
-                                bot_id, pending.id, msg.channel
-                            );
-                            // 关联成功后刷新 bindings 供后续使用
-                            break;
-                        }
-                        Err(e) => {
-                            tracing::warn!("[feishu:{}] failed to promote pending binding: {}", bot_id, e);
-                        }
-                    }
+        // 如果当前 chat 没有绑定，检查是否有 __pending__ binding 需要关联过来。
+        // 页面创建绑定时 chat_id 先写成 __pending__，等首次消息进来再关联到真实 chat。
+        // 晋升范围：只在 pending binding 中找匹配 project_dir 的，防止把错误项目绑定到当前聊天。
+        let pending_binding = {
+            let bindings = db.get_feishu_project_bindings(bot_id).await.unwrap_or_default();
+            let pending: Option<_> = bindings
+                .iter()
+                .filter(|b| b.chat_id == crate::models::PENDING_CHAT_ID)
+                .cloned()
+                .next();
+            // 确认该 binding 的 todo 仍然存在（防御：页面删除了 todo 但 binding 残留）
+            if let Some(ref p) = pending {
+                if db.get_todo(p.todo_id).await.ok().flatten().is_none() {
+                    None
+                } else {
+                    pending
+                }
+            } else {
+                None
+            }
+        };
+        if let Some(pending) = pending_binding {
+            match db.attach_feishu_project_binding(pending.id, &msg.channel, chat_type).await {
+                Ok(_) => {
+                    tracing::info!(
+                        "[feishu:{}] promoted pending binding {} (project_dir_id={}) to chat {}",
+                        bot_id, pending.id, pending.project_dir_id, msg.channel
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("[feishu:{}] failed to promote pending binding: {}", bot_id, e);
                 }
             }
         }
@@ -395,21 +406,31 @@ impl FeishuListener {
             Ok(Some(binding)) => {
                 // 检查绑定的 todo 是否存在
                 if let Ok(Some(todo)) = db.get_todo(binding.todo_id).await {
-                    // Determine if we should resume an existing session or start fresh
-                    // resume if: latest record exists AND has a session_id
-                    // 即使执行已结束（success/failed），只要有 session_id 就应该继续多轮对话
+                    // Determine if we should resume an existing session or start fresh.
+                    // Fetch the latest execution record once and reuse it for both the
+                    // should_resume check and the session_id extraction (avoids duplicate DB call).
+                    //
+                    // Resume criteria:
+                    //   1. session_id is present in the latest execution record
+                    //   2. the execution is NOT still in flight (status != "running").
+                    //      If status == "running", the Claude Code process is still writing
+                    //      the JSONL file; resuming now races with that write.
                     // NOTE: we check latest_record_id (not get_execution_record_by_task_id)
                     // because resume executions have different task_ids — the session_id
                     // stays the same across turns, but the latest execution_record changes.
-                    let should_resume = if let Some(rid) = binding.latest_record_id {
-                        if let Ok(Some(record)) = db.get_execution_record(rid).await {
-                            record.session_id.is_some()
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
+                    let latest_record = match binding.latest_record_id {
+                        Some(rid) => db.get_execution_record(rid).await.ok().flatten(),
+                        None => None,
                     };
+
+                    let should_resume = latest_record
+                        .as_ref()
+                        .map(|r| {
+                            r.session_id.is_some()
+                                && r.status != crate::models::ExecutionStatus::Running
+                        })
+                        .unwrap_or(false);
+
                     tracing::info!(
                         "[feishu:{}] binding check: todo_id={}, latest_record_id={:?}, should_resume={}, binding.session_id={:?}",
                         bot_id, binding.todo_id, binding.latest_record_id, should_resume, binding.session_id
@@ -419,14 +440,10 @@ impl FeishuListener {
                         // ⚠️ 不能使用 binding.session_id：debounce 首次执行时把它设为了 task_id（随机 UUID）
                         // Claude Code 真正的 session_id 来自 stdout JSONL 输出，
                         // 保存在 execution_records.session_id 中。必须从 latest_record 读取。
-                        let real_sid = if let Some(rid) = binding.latest_record_id {
-                            match db.get_execution_record(rid).await {
-                                Ok(Some(r)) => r.session_id.or(binding.session_id.clone()),
-                                _ => binding.session_id.clone(),
-                            }
-                        } else {
-                            binding.session_id.clone()
-                        };
+                        let real_sid = latest_record
+                            .as_ref()
+                            .and_then(|r| r.session_id.clone())
+                            .or_else(|| binding.session_id.clone());
                         (real_sid, Some(content.to_string()))
                     } else {
                         (None, None)
@@ -978,10 +995,10 @@ impl FeishuListener {
                     }
                 }
 
-                // Try to find a pending binding created via Web UI (chat_id='__pending__')
+                // Try to find a pending binding created via Web UI (chat_id=PENDING_CHAT_ID)
                 let pending_bindings = db.get_feishu_project_bindings(bot_id).await.unwrap_or_default();
                 let pending = pending_bindings.iter()
-                    .find(|b| b.project_dir_id == dir.id && b.chat_id == "__pending__")
+                    .find(|b| b.project_dir_id == dir.id && b.chat_id == crate::models::PENDING_CHAT_ID)
                     .cloned();
 
                 if let Some(pending_binding) = pending {
@@ -1076,11 +1093,16 @@ impl FeishuListener {
 
         match db.get_feishu_project_binding(bot_id, channel).await {
             Ok(Some(binding)) => {
-                // If a task is running, warn user before unbinding
+                // 任务运行时拒绝解绑，避免 session 链丢失。
+                // 用户必须先通过 Web UI 停止运行中的任务，才能解绑。
                 if binding.status == crate::models::binding_status::RUNNING {
                     Self::send_text(credentials, token_manager, bot_id, &receive_id, receive_id_type,
-                        "⚠️ 当前有任务正在执行，解绑后任务仍会在后台运行。\n如需强制终止，请使用 Web 界面「运行管理」停止。")
+                        "⚠️ 当前有任务正在执行（session 链会被丢弃）。\n请先通过 Web 界面「运行管理」停止任务，再发送 /unbind 解绑。")
                         .await;
+                    if let Some(rid) = reaction_id {
+                        Self::delete_reaction(credentials, token_manager, bot_id, message_id, rid).await;
+                    }
+                    return;
                 }
 
                 if let Err(e) = db.delete_feishu_project_binding(binding.id).await {
