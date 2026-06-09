@@ -359,10 +359,6 @@ impl FeishuListener {
             }
         }
 
-        // 在路由绑定前先内联清理过期 binding（结合后台 30s 定时任务双重保障）
-        // 确保 should_resume 决策基于最新的 execution_record 状态
-        let _ = db.cleanup_stale_running_bindings().await;
-
         // 如果当前 chat 没有绑定，检查是否有 __pending__ binding 需要关联过来
         // 页面创建绑定时 chat_id 先写成 __pending__，等首次消息进来再关联到真实 chat
         if let Ok(bindings) = db.get_feishu_project_bindings(bot_id).await {
