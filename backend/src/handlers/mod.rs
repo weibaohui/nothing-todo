@@ -487,6 +487,24 @@ pub fn create_app(
         }
     });
 
+    // Background periodic cleanup: reset stale running bindings every 30 seconds
+    // This handles edge cases where the executor crashes or daemon restarts,
+    // leaving binding.status permanently stuck at "running".
+    {
+        let db = db.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            // Skip the first tick immediately (give startup time to settle)
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                if let Err(e) = db.cleanup_stale_running_bindings().await {
+                    tracing::warn!("background cleanup_stale_running_bindings failed: {e}");
+                }
+            }
+        });
+    }
+
     // Create and start Feishu push service before AppState
     use crate::services::feishu_push::FeishuPushService;
     let (push_service, push_mutator) = FeishuPushService::new(db.clone(), feishu_listener.clone());
