@@ -196,10 +196,17 @@ impl Database {
     /// Call from a periodic task or inline when routing.
     pub async fn cleanup_stale_running_bindings(&self) -> Result<u64, sea_orm::DbErr> {
         let backend = self.conn.get_database_backend();
-        let sql = "UPDATE feishu_project_bindings \
-            SET status = 'idle', updated_at = ? \
-            WHERE status = 'running' \
-            AND latest_record_id IN (SELECT id FROM execution_records WHERE status != 'running')";
+        let idle = crate::models::binding_status::IDLE;
+        let running = crate::models::binding_status::RUNNING;
+        let success = crate::models::ExecutionStatus::Success.as_str();
+        let failed = crate::models::ExecutionStatus::Failed.as_str();
+        let sql = format!(
+            "UPDATE feishu_project_bindings \
+            SET status = '{}', updated_at = ? \
+            WHERE status = '{}' \
+            AND latest_record_id IN (SELECT id FROM execution_records WHERE status IN ('{}', '{}'))",
+            idle, running, success, failed
+        );
         let now = crate::models::utc_timestamp();
         let res = self
             .conn
