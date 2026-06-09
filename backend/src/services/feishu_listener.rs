@@ -359,6 +359,10 @@ impl FeishuListener {
             }
         }
 
+        // 在路由绑定前先内联清理过期 binding（结合后台 30s 定时任务双重保障）
+        // 确保 should_resume 决策基于最新的 execution_record 状态
+        let _ = db.cleanup_stale_running_bindings().await;
+
         // 检查当前聊天是否有项目目录绑定 → 走项目执行路径
         // 绑定路径优先级高于斜杠命令和默认回复：
         //   有绑定 → 最近一条 execution 还在运行 → resume 同一 session
@@ -413,7 +417,7 @@ impl FeishuListener {
                         sender: msg.sender.clone(),
                         content: content.to_string(),
                         todo_id: binding.todo_id,
-                        todo_prompt: content.to_string(),
+                        todo_prompt: todo.prompt.clone(),
                         executor: Some(executor.to_string()),
                         trigger_type: "feishu_project_bind".to_string(),
                         params: None,

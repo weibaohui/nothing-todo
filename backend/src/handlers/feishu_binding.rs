@@ -42,14 +42,20 @@ pub async fn list_bindings(
         state.db.get_all_feishu_project_bindings().await?
     };
 
+    // 批量加载所有项目目录到 HashMap，避免 N+1 查询
+    let dirs: std::collections::HashMap<i64, (Option<String>, Option<String>)> = state.db
+        .get_project_directories()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|d| (d.id, (d.name, Some(d.path))))
+        .collect();
+
     let mut results = Vec::new();
     for b in bindings {
-        let (project_name, project_path) = state.db
-            .get_project_directory_by_id(b.project_dir_id)
-            .await
-            .ok()
-            .flatten()
-            .map(|d| (d.name, Some(d.path)))
+        let (project_name, project_path) = dirs
+            .get(&b.project_dir_id)
+            .cloned()
             .unwrap_or((None, None));
 
         results.push(BindingResponse {
