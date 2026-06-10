@@ -242,6 +242,7 @@ export interface FeishuProjectBindingItem {
   session_id: string | null;
   latest_record_id: number | null;
   status: string;
+  enabled: boolean;
   created_at: string;
   updated_at: string;
   project_name: string | null;
@@ -267,4 +268,8 @@ export async function createFeishuBinding(params: {
 
 export async function deleteFeishuBinding(id: number): Promise<void> {
   await api.delete(`/api/feishu/bindings/${id}`);
+}
+
+export async function updateFeishuBindingEnabled(id: number, enabled: boolean): Promise<FeishuProjectBindingItem> {
+  return unwrap(await api.patch(`/api/feishu/bindings/${id}/enabled`, { enabled }));
 }

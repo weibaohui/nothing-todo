@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Select, Button, List, Empty, Spin, Tag, Popconfirm, message, Modal, Switch } from 'antd';
+import { Select, Button, List, Empty, Spin, Tag, Popconfirm, message, Modal, Switch, Radio } from 'antd';
 import { LinkOutlined, DisconnectOutlined, FolderOutlined, RobotOutlined } from '@ant-design/icons';
 import * as db from '@/utils/database';
 import { PENDING_CHAT_ID } from '@/utils/database/bots';
@@ -25,6 +25,7 @@ export function ProjectBindsTab() {
   const [selectedTodoId, setSelectedTodoId] = useState<number | undefined>(undefined);
   const [bindModalOpen, setBindModalOpen] = useState(false);
   const [binding, setBinding] = useState(false);
+  const [selectedBindingId, setSelectedBindingId] = useState<number | undefined>(undefined);
 
   const loadAll = async () => {
     setLoading(true);
@@ -38,10 +39,15 @@ export function ProjectBindsTab() {
       setDirectories(d);
       setTodos(t);
 
-      if (selectedBotId !== undefined) {
-        setBindings(await db.getFeishuBindings(selectedBotId));
-      } else {
-        setBindings(await db.getFeishuBindings());
+      const bindings = selectedBotId !== undefined
+        ? await db.getFeishuBindings(selectedBotId)
+        : await db.getFeishuBindings();
+      setBindings(bindings);
+
+      // Initialize radio selection to the currently-enabled binding
+      const activeBinding = bindings.find(binding => binding.enabled);
+      if (activeBinding) {
+        setSelectedBindingId(activeBinding.id);
       }
     } catch (err: any) {
       message.error('加载数据失败: ' + (err?.message || String(err)));
@@ -117,6 +123,33 @@ export function ProjectBindsTab() {
     }
   };
 
+  const handleToggleEnabled = async (id: number, enabled: boolean) => {
+    try {
+      await db.updateFeishuBindingEnabled(id, enabled);
+      message.success(enabled ? '已启用' : '已禁用');
+      handleBotChange(selectedBotId);
+    } catch (err: any) {
+      message.error((enabled ? '启用' : '禁用') + '失败: ' + (err?.message || String(err)));
+    }
+  };
+
+  // Radio 选择：启用对应绑定（单选，同一时间只有一个活跃）
+  // 选新绑定前先禁用旧绑定，避免数据库 unique 约束冲突
+  const handleSelectBinding = async (id: number) => {
+    if (selectedBindingId === id) return; // 已是选中状态
+    try {
+      if (selectedBindingId !== undefined) {
+        await db.updateFeishuBindingEnabled(selectedBindingId, false);
+      }
+      await db.updateFeishuBindingEnabled(id, true);
+      setSelectedBindingId(id);
+      message.success('已设为活跃绑定');
+      handleBotChange(selectedBotId);
+    } catch (err: any) {
+      message.error('切换绑定失败: ' + (err?.message || String(err)));
+    }
+  };
+
   const chatTypeLabel = (t: string) => t === 'p2p' ? '私聊' : '群聊';
   const isPending = (item: FeishuProjectBindingItem) => item.chat_id === PENDING_CHAT_ID;
   const statusTag = (s: string, pending: boolean) => {
@@ -166,13 +199,21 @@ export function ProjectBindsTab() {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
-                <RobotOutlined style={{ fontSize: 18, color: '#52c41a' }} />
+                {/* Radio 单选：表示该绑定是否被选为活跃绑定 */}
+                <Radio
+                  checked={selectedBindingId === item.id}
+                  onChange={() => handleSelectBinding(item.id)}
+                  disabled={isPending(item)}
+                  style={{ flexShrink: 0 }}
+                />
+                <RobotOutlined style={{ fontSize: 18, color: item.enabled ? '#52c41a' : '#999' }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontWeight: 500 }}>
                       {item.project_name || item.project_path || '(未知项目)'}
                     </span>
                     {statusTag(item.status, isPending(item))}
+                    {!item.enabled && !isPending(item) && <Tag color="red">已禁用</Tag>}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 2 }}>
                     <FolderOutlined style={{ marginRight: 4 }} />
@@ -188,6 +229,15 @@ export function ProjectBindsTab() {
                     {item.session_id && <span> · Session: {item.session_id.slice(0, 8)}…</span>}
                   </div>
                 </div>
+                {/* 启用/禁用开关（非待绑定状态才显示） */}
+                {!isPending(item) && (
+                  <Switch
+                    size="small"
+                    checked={item.enabled}
+                    onChange={(checked) => handleToggleEnabled(item.id, checked)}
+                    style={{ flexShrink: 0 }}
+                  />
+                )}
                 <Popconfirm
                   title="确认解绑"
                   description={`解除与「${item.project_name || item.project_path}」的绑定？`}

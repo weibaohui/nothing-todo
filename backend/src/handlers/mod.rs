@@ -3,7 +3,7 @@ use axum::{
     extract::{FromRequest, Path, Request, State, WebSocketUpgrade},
     http::{StatusCode, header},
     response::{Html, IntoResponse, Response},
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
 };
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{CorsLayer, Any};
@@ -640,6 +640,7 @@ pub fn create_app(
         .route("/api/feishu/bindings", get(feishu_binding::list_bindings).post(feishu_binding::create_binding))
         .route("/api/feishu/bindings/by-chat", delete(feishu_binding::delete_binding_by_chat))
         .route("/api/feishu/bindings/{id}", delete(feishu_binding::delete_binding))
+        .route("/api/feishu/bindings/{id}/enabled", patch(feishu_binding::update_binding_enabled))
         .route("/api/agent-bots/{id}", delete(agent_bot::delete_agent_bot))
         .route("/api/agent-bots/{id}/config", put(agent_bot::update_agent_bot_config))
         .route("/health", get(health_handler))

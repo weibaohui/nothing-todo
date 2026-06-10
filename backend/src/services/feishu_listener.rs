@@ -404,6 +404,14 @@ impl FeishuListener {
         //   已结束的 record 导致 should_resume=false，会话链断裂。
         match db.get_feishu_project_binding(bot_id, &msg.channel).await {
             Ok(Some(binding)) => {
+                // enabled=false 不参与路由，降级到斜杠命令/默认回复
+                if !binding.enabled {
+                    tracing::info!("[feishu:{}] binding {} is disabled, skipping", bot_id, binding.id);
+                    if let Some(rid) = &reaction_id {
+                        Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
+                    }
+                    return;
+                }
                 // 检查绑定的 todo 是否存在
                 if let Ok(Some(todo)) = db.get_todo(binding.todo_id).await {
                     // Determine if we should resume an existing session or start fresh.

@@ -29,6 +29,7 @@ pub struct BindingResponse {
     pub session_id: Option<String>,
     pub latest_record_id: Option<i64>,
     pub status: String,
+    pub enabled: bool,
     pub created_at: String,
     pub updated_at: String,
     /// Resolved from project_dir_id
@@ -73,6 +74,7 @@ pub async fn list_bindings(
             session_id: b.session_id,
             latest_record_id: b.latest_record_id,
             status: b.status,
+            enabled: b.enabled,
             created_at: b.created_at,
             updated_at: b.updated_at,
             project_name,
@@ -159,6 +161,7 @@ pub async fn create_binding(
         session_id: binding.session_id,
         latest_record_id: binding.latest_record_id,
         status: binding.status,
+        enabled: binding.enabled,
         created_at: binding.created_at,
         updated_at: binding.updated_at,
         project_name: dir.name,
@@ -190,4 +193,51 @@ pub async fn delete_binding_by_chat(
 pub struct DeleteByChatQuery {
     pub bot_id: i64,
     pub chat_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateBindingEnabledRequest {
+    pub enabled: bool,
+}
+
+/// PATCH /api/feishu/bindings/{id}/enabled
+pub async fn update_binding_enabled(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<UpdateBindingEnabledRequest>,
+) -> Result<Json<ApiResponse<BindingResponse>>, AppError> {
+    state.db
+        .update_feishu_project_binding_enabled(id, req.enabled)
+        .await?;
+
+    let binding = state.db
+        .get_feishu_project_binding_by_id(id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+
+    // Load project directory info for response
+    let (project_name, project_path) = state.db
+        .get_project_directory_by_id(binding.project_dir_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|d| (d.name, Some(d.path)))
+        .unwrap_or((None, None));
+
+    Ok(Json(ApiResponse::ok(BindingResponse {
+        id: binding.id,
+        bot_id: binding.bot_id,
+        chat_id: binding.chat_id,
+        chat_type: binding.chat_type,
+        project_dir_id: binding.project_dir_id,
+        todo_id: binding.todo_id,
+        session_id: binding.session_id,
+        latest_record_id: binding.latest_record_id,
+        status: binding.status,
+        enabled: binding.enabled,
+        created_at: binding.created_at,
+        updated_at: binding.updated_at,
+        project_name,
+        project_path,
+    })))
 }

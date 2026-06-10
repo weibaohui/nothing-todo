@@ -755,9 +755,13 @@ impl Database {
             )",
         )
         .await?;
+        // 添加 enabled 字段（支持禁用而非删除绑定）
+        self.exec("ALTER TABLE feishu_project_bindings ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
+            .await
+            .ok();
         // Partial unique index: active bindings (non-pending) must be unique per (bot_id, chat_id)
         // Pending bindings (chat_id='__pending__') excluded so one bot can have multiple pending
-        self.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_feishu_bindings_active ON feishu_project_bindings(bot_id, chat_id) WHERE chat_id != '__pending__'")
+        self.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_feishu_bindings_active ON feishu_project_bindings(bot_id, chat_id) WHERE chat_id != '__pending__' AND enabled = 1")
             .await?;
         // Index for latest_record_id lookups (hot path in resume routing & cleanup)
         self.exec("CREATE INDEX IF NOT EXISTS idx_feishu_bindings_record_id ON feishu_project_bindings(latest_record_id)")
