@@ -163,6 +163,12 @@ export function getExecutorOption(value: string): ExecutorOption {
 
 export const RESUMABLE_EXECUTORS = new Set(['claudecode', 'kimi', 'opencode', 'joinai', 'hermes', 'codewhale']);
 
+/// 默认执行器
+export const DEFAULT_EXECUTOR = 'claudecode';
+
+/** 仅支持继续对话的执行器（用于选择 UI 的下拉数据源） */
+export const RESUMABLE_EXECUTOR_OPTIONS = EXECUTORS.filter(e => RESUMABLE_EXECUTORS.has(e.value));
+
 export function supportsResume(record: ExecutionRecord): boolean {
   return (
     record.status !== 'running' &&

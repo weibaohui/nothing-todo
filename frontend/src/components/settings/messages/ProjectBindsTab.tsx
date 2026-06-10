@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Select, Button, List, Empty, Spin, Tag, Popconfirm, message, Modal, Switch, Radio } from 'antd';
 import { LinkOutlined, DisconnectOutlined, FolderOutlined, RobotOutlined } from '@ant-design/icons';
 import * as db from '@/utils/database';
@@ -6,12 +6,17 @@ import { PENDING_CHAT_ID } from '@/utils/database/bots';
 import type { AgentBot, FeishuProjectBindingItem } from '@/utils/database/bots';
 import type { ProjectDirectory } from '@/utils/database';
 import type { Todo } from '@/types';
-import { EXECUTORS, RESUMABLE_EXECUTORS } from '@/types/execution';
+import { RESUMABLE_EXECUTOR_OPTIONS, DEFAULT_EXECUTOR } from '@/types/execution';
 
-/** 仅显示支持继续对话的执行器选项 */
-const RESUMABLE_EXECUTOR_OPTIONS = EXECUTORS.filter(e => RESUMABLE_EXECUTORS.has(e.value));
-
-/** 项目绑定管理面板 — 管理飞书聊天与项目目录的绑定关系 */
+/**
+ * 项目绑定管理面板 — 管理飞书聊天与项目目录的绑定关系。
+ *
+ * 两种绑定模式：
+ * 1. 新建 Todo 模式：用户选择项目目录和执行器，系统创建新 Todo 并绑定
+ * 2. 绑定已有 Todo 模式：用户选择已有 Todo（其 workspace 必须与选定目录一致），直接复用其历史会话
+ *
+ * 同一 bot 同一时间只有一个活跃绑定（Radio 单选），禁用后保留记录可重新启用。
+ */
 export function ProjectBindsTab() {
   const [bindings, setBindings] = useState<FeishuProjectBindingItem[]>([]);
   const [bots, setBots] = useState<AgentBot[]>([]);
@@ -20,7 +25,7 @@ export function ProjectBindsTab() {
   const [loading, setLoading] = useState(false);
   const [selectedBotId, setSelectedBotId] = useState<number | undefined>(undefined);
   const [selectedDirId, setSelectedDirId] = useState<number | undefined>(undefined);
-  const [selectedExecutor, setSelectedExecutor] = useState<string>('claudecode');
+  const [selectedExecutor, setSelectedExecutor] = useState<string>(DEFAULT_EXECUTOR);
   const [bindToExisting, setBindToExisting] = useState(false);
   const [selectedTodoId, setSelectedTodoId] = useState<number | undefined>(undefined);
   const [bindModalOpen, setBindModalOpen] = useState(false);
@@ -71,13 +76,32 @@ export function ProjectBindsTab() {
     }
   };
 
+  /**
+   * 重置 Modal 状态为默认值，确保每次打开 Modal 都是干净的创建流程。
+   *
+   * 之所以单独抽成函数而不是内联，是因为：
+   * 1. Modal 打开和取消时都要重置，需要复用
+   * 2. resetModal 保证了状态的一致性，避免遗漏某个字段
+   *
+   * 默认值策略：executor 使用 DEFAULT_EXECUTOR（系统统一默认执行器），
+   * bindToExisting 和 selectedTodoId 清空，确保进入"新建 Todo"模式。
+   */
   const resetModal = () => {
     setSelectedDirId(undefined);
-    setSelectedExecutor('claudecode');
+    setSelectedExecutor(DEFAULT_EXECUTOR);
     setBindToExisting(false);
     setSelectedTodoId(undefined);
   };
 
+  /**
+   * 创建绑定。
+   *
+   * executor 和 todo_id 为互斥字段：
+   * - bindToExisting=true 时传入 todo_id（绑定已有 Todo，复用其历史会话），executor 传 undefined
+   * - bindToExisting=false 时传入 executor（新建 Todo），todo_id 传 undefined
+   *
+   * 之所以传 undefined 而非省略字段，是为了保持请求结构完整，便于后端做互斥校验。
+   */
   const handleCreateBinding = async () => {
     if (selectedBotId === undefined) {
       message.error('请选择 Bot');
@@ -145,8 +169,12 @@ export function ProjectBindsTab() {
     }
   };
 
-  // Radio 选择：启用对应绑定（单选，同一时间只有一个活跃）
-  // 选新绑定前先禁用旧绑定，避免数据库 unique 约束冲突
+  /**
+   * Radio 单选：启用对应绑定（同一时间只有一个活跃）。
+   *
+   * 选新绑定前先禁用旧绑定，避免数据库 partial unique index 约束冲突
+   *（同一个 bot+chat 只能有一个 enabled=true 的绑定）。
+   */
   const handleSelectBinding = async (id: number) => {
     if (selectedBindingId === id) return; // 已是选中状态
     try {
@@ -170,8 +198,22 @@ export function ProjectBindsTab() {
     return <Tag>空闲</Tag>;
   };
 
-  // 过滤出有 workspace 的项目类 Todo，供用户选择绑定到已有 Todo
-  const projectTodos = todos.filter(t => t.workspace);
+  /**
+   * 过滤出可绑定到已有 Todo 的列表。
+   *
+   * 仅显示有 workspace 的 Todo，且其 workspace 必须与用户当前选定的项目目录一致，
+   * 避免跨项目错绑导致历史会话上下文错位（后端会强制更新 Todo 的 workspace）。
+   * 若用户尚未选择目录，则显示所有有 workspace 的 Todo。
+   */
+  const projectTodos = useMemo(() => {
+    const selectedDir = directories.find(d => d.id === selectedDirId);
+    const dirPath = selectedDir?.path;
+    return todos.filter(t => {
+      if (!t.workspace) return false;
+      // 若已选目录，仅显示 workspace 与目录路径一致的 Todo
+      return dirPath ? t.workspace === dirPath : true;
+    });
+  }, [todos, directories, selectedDirId]);
 
   return (
     <Spin spinning={loading}>
@@ -292,6 +334,7 @@ export function ProjectBindsTab() {
           placeholder="选择项目目录"
           style={{ width: '100%', marginBottom: 12 }}
           value={selectedDirId}
+          // 切换目录时清空已选 Todo，避免目录与 Todo workspace 不匹配的误解
           onChange={(v) => { setSelectedDirId(v); setSelectedTodoId(undefined); }}
           options={directories.map(d => ({
             label: `${d.name || '(未命名)'} — ${d.path}`,
@@ -299,11 +342,20 @@ export function ProjectBindsTab() {
           }))}
         />
 
-        {/* 绑定已有 Todo 开关 */}
+        {/*
+          绑定已有 Todo 开关。
+          Switch 而非 Radio，因为这两个模式是互斥的独立状态，不是同一属性的多个选项。
+          切换时重置 selectedTodoId（确保旧选择不影响新流程），同时重置 selectedExecutor
+          回到默认的 DEFAULT_EXECUTOR，保证关闭后用户看到的是新建模式的正确默认值。
+        */}
         <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Switch
             checked={bindToExisting}
-            onChange={(checked) => { setBindToExisting(checked); setSelectedTodoId(undefined); }}
+            onChange={(checked) => {
+              setBindToExisting(checked);
+              setSelectedTodoId(undefined);
+              setSelectedExecutor(DEFAULT_EXECUTOR);
+            }}
             size="small"
           />
           <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
@@ -313,6 +365,10 @@ export function ProjectBindsTab() {
 
         {bindToExisting ? (
           <>
+            {/*
+              Todo 选择器：仅显示 workspace 与选定目录一致的 Todo。
+              Label 格式为 "#id title · workspace路径"，方便用户确认选中的是正确的 Todo。
+            */}
             <div style={{ marginBottom: 8, fontSize: 13, color: 'var(--color-text-secondary)' }}>
               选择要绑定的 Todo：
             </div>
@@ -329,6 +385,10 @@ export function ProjectBindsTab() {
           </>
         ) : (
           <>
+            {/*
+              执行器选择：仅显示支持继续对话的执行器（RESUMABLE_EXECUTOR_OPTIONS）。
+              默认值为 DEFAULT_EXECUTOR，这是系统统一的默认执行器。
+            */}
             <div style={{ marginBottom: 8, fontSize: 13 }}>选择执行器（仅支持继续对话的执行器）：</div>
             <Select
               style={{ width: '100%', marginBottom: 12 }}

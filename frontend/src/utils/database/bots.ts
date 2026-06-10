@@ -255,12 +255,23 @@ export async function getFeishuBindings(botId?: number): Promise<FeishuProjectBi
   return unwrap(await api.get('/api/feishu/bindings', { params }));
 }
 
+/**
+ * 创建飞书项目绑定。
+ *
+ * executor 和 todo_id 为互斥参数：
+ * - 传入 executor（支持继续对话的执行器）表示新建 Todo
+ * - 传入 todo_id（已有 Todo 的 ID）表示绑定到已有 Todo，复用其历史会话
+ *
+ * 两者都传时后端返回错误。都不传时后端使用默认 executor 新建 Todo。
+ */
 export async function createFeishuBinding(params: {
   bot_id: number;
   chat_id: string;
   chat_type: string;
   project_dir_id: number;
+  /** 指定执行器（可选，仅在新建 Todo 时使用）。仅支持 claudecode/kimi/opencode/joinai/hermes/codewhale */
   executor?: string;
+  /** 绑定到已有 Todo（可选）。提供后表示复用该 Todo 的历史会话，与 executor 互斥 */
   todo_id?: number;
 }): Promise<FeishuProjectBindingItem> {
   return unwrap(await api.post('/api/feishu/bindings', params));

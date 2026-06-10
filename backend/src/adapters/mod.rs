@@ -116,6 +116,12 @@ pub static EXECUTORS: &[ExecutorDef] = &[
     },
 ];
 
+/// 支持继续对话的执行器集合（与前端 RESUMABLE_EXECUTORS 保持一致）
+pub const RESUMABLE_EXECUTORS: &[&str] = &["claudecode", "kimi", "opencode", "joinai", "hermes", "codewhale"];
+
+/// 默认执行器
+pub const DEFAULT_EXECUTOR: &str = "claudecode";
+
 /// Find executor definition by name or alias
 pub fn find_executor(name: &str) -> Option<&'static ExecutorDef> {
     EXECUTORS.iter().find(|e| e.matches(name))
