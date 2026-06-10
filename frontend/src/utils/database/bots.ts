@@ -259,6 +259,8 @@ export async function createFeishuBinding(params: {
   chat_id: string;
   chat_type: string;
   project_dir_id: number;
+  executor?: string;
+  todo_id?: number;
 }): Promise<FeishuProjectBindingItem> {
   return unwrap(await api.post('/api/feishu/bindings', params));
 }

@@ -11,6 +11,11 @@ pub struct CreateBindingRequest {
     pub chat_id: String,
     pub chat_type: String,
     pub project_dir_id: i64,
+    /// 指定执行器（可选），仅支持继续对话的执行器有效。
+    /// 若不指定，默认为 claudecode。
+    pub executor: Option<String>,
+    /// 绑定到已有 Todo（可选）。若不指定，则新建 Todo。
+    pub todo_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -94,29 +99,38 @@ pub async fn create_binding(
         .await?
         .ok_or_else(|| AppError::BadRequest("Project directory not found".to_string()))?;
 
-    // Step 1: Create Todo first — if this fails, nothing is lost.
-    let todo_title = format!("飞书-{}", dir.name.as_deref().unwrap_or(&dir.path));
-    let todo_prompt = format!(
-        "你是飞书Bot的AI助手，正在项目「{name}」({path})中工作。\n\
-         用户通过飞书与你交流，请根据用户的需求在项目目录中完成开发任务。\n\
-         你可以读取、修改项目文件，运行命令等。\n\n\
-         用户诉求：{{message}}
-         项目目录：{path}",
-        name = dir.name.as_deref().unwrap_or("unknown"),
-        path = dir.path,
-    );
+    // Step 1: 确定 todo_id — 有指定则绑定到已有 Todo，否则新建
+    let todo_id = if let Some(tid) = req.todo_id {
+        // 绑定到已有 Todo：验证存在，并更新 workspace
+        state.db.get_todo(tid).await?
+            .ok_or_else(|| AppError::BadRequest("指定的 Todo 不存在".to_string()))?;
+        if let Err(e) = state.db.update_todo_workspace(tid, Some(&dir.path)).await {
+            tracing::warn!("[binding] failed to update todo {} workspace: {e}", tid);
+        }
+        tid
+    } else {
+        // 新建 Todo
+        let todo_title = format!("飞书-{}", dir.name.as_deref().unwrap_or(&dir.path));
+        let todo_prompt = format!(
+            "你是飞书Bot的AI助手，正在项目「{name}」({path})中工作。\n\
+             用户通过飞书与你交流，请根据用户的需求在项目目录中完成开发任务。\n\
+             你可以读取、修改项目文件，运行命令等。\n\n\
+             用户诉求：{{message}}\n\
+             项目目录：{path}",
+            name = dir.name.as_deref().unwrap_or("unknown"),
+            path = dir.path,
+        );
+        let new_todo_id = state.db.create_todo_with_executor(&todo_title, &todo_prompt, req.executor.as_deref()).await?;
+        if let Err(e) = state.db.update_todo_workspace(new_todo_id, Some(&dir.path)).await {
+            tracing::warn!("[binding] failed to set todo workspace: {e}");
+        }
+        if let Err(e) = state.db.update_todo_worktree_enabled(new_todo_id, false).await {
+            tracing::warn!("[binding] failed to set worktree_enabled: {e}");
+        }
+        new_todo_id
+    };
 
-    let todo_id = state.db.create_todo(&todo_title, &todo_prompt).await?;
-
-    // Step 2: Update workspace/worktree — warn on failure but don't abort
-    if let Err(e) = state.db.update_todo_workspace(todo_id, Some(&dir.path)).await {
-        tracing::warn!("[binding] failed to set todo workspace: {e}");
-    }
-    if let Err(e) = state.db.update_todo_worktree_enabled(todo_id, false).await {
-        tracing::warn!("[binding] failed to set worktree_enabled: {e}");
-    }
-
-    // Step 3: Delete old binding + create new binding (close together to minimize window)
+    // Step 2: Delete old binding + create new binding
     let _ = state.db
         .delete_feishu_project_binding_by_chat(req.bot_id, &req.chat_id)
         .await;

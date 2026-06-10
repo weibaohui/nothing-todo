@@ -1,31 +1,42 @@
 import { useState, useEffect } from 'react';
-import { Select, Button, List, Empty, Spin, Tag, Popconfirm, message, Modal } from 'antd';
+import { Select, Button, List, Empty, Spin, Tag, Popconfirm, message, Modal, Switch } from 'antd';
 import { LinkOutlined, DisconnectOutlined, FolderOutlined, RobotOutlined } from '@ant-design/icons';
 import * as db from '@/utils/database';
 import { PENDING_CHAT_ID } from '@/utils/database/bots';
 import type { AgentBot, FeishuProjectBindingItem } from '@/utils/database/bots';
 import type { ProjectDirectory } from '@/utils/database';
+import type { Todo } from '@/types';
+import { EXECUTORS, RESUMABLE_EXECUTORS } from '@/types/execution';
+
+/** 仅显示支持继续对话的执行器选项 */
+const RESUMABLE_EXECUTOR_OPTIONS = EXECUTORS.filter(e => RESUMABLE_EXECUTORS.has(e.value));
 
 /** 项目绑定管理面板 — 管理飞书聊天与项目目录的绑定关系 */
 export function ProjectBindsTab() {
   const [bindings, setBindings] = useState<FeishuProjectBindingItem[]>([]);
   const [bots, setBots] = useState<AgentBot[]>([]);
   const [directories, setDirectories] = useState<ProjectDirectory[]>([]);
+  const [todos, setTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedBotId, setSelectedBotId] = useState<number | undefined>(undefined);
   const [selectedDirId, setSelectedDirId] = useState<number | undefined>(undefined);
+  const [selectedExecutor, setSelectedExecutor] = useState<string>('claudecode');
+  const [bindToExisting, setBindToExisting] = useState(false);
+  const [selectedTodoId, setSelectedTodoId] = useState<number | undefined>(undefined);
   const [bindModalOpen, setBindModalOpen] = useState(false);
   const [binding, setBinding] = useState(false);
 
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [b, d] = await Promise.all([
+      const [b, d, t] = await Promise.all([
         db.getAgentBots(),
         db.getProjectDirectories(),
+        db.getAllTodos(),
       ]);
       setBots(b.filter(bot => bot.bot_type === 'feishu'));
       setDirectories(d);
+      setTodos(t);
 
       if (selectedBotId !== undefined) {
         setBindings(await db.getFeishuBindings(selectedBotId));
@@ -54,6 +65,13 @@ export function ProjectBindsTab() {
     }
   };
 
+  const resetModal = () => {
+    setSelectedDirId(undefined);
+    setSelectedExecutor('claudecode');
+    setBindToExisting(false);
+    setSelectedTodoId(undefined);
+  };
+
   const handleCreateBinding = async () => {
     if (selectedBotId === undefined) {
       message.error('请选择 Bot');
@@ -63,18 +81,24 @@ export function ProjectBindsTab() {
       message.error('请选择项目目录');
       return;
     }
+    if (bindToExisting && selectedTodoId === undefined) {
+      message.error('请选择要绑定的 Todo');
+      return;
+    }
 
     setBinding(true);
     try {
-      // Create binding via API (auto-creates Todo inside)
       await db.createFeishuBinding({
         bot_id: selectedBotId,
-        chat_id: PENDING_CHAT_ID, // placeholder — set via /bind on Feishu
+        chat_id: PENDING_CHAT_ID,
         chat_type: 'p2p',
         project_dir_id: selectedDirId,
+        executor: bindToExisting ? undefined : selectedExecutor,
+        todo_id: bindToExisting ? selectedTodoId : undefined,
       });
       message.success('绑定已创建（请在飞书中使用 /bind 命令绑定具体聊天）');
       setBindModalOpen(false);
+      resetModal();
       handleBotChange(selectedBotId);
     } catch (err: any) {
       message.error('创建绑定失败: ' + (err?.message || String(err)));
@@ -101,6 +125,9 @@ export function ProjectBindsTab() {
     return <Tag>空闲</Tag>;
   };
 
+  // 过滤出有 workspace 的项目类 Todo，供用户选择绑定到已有 Todo
+  const projectTodos = todos.filter(t => t.workspace);
+
   return (
     <Spin spinning={loading}>
       {/* Bot 选择器 */}
@@ -117,7 +144,7 @@ export function ProjectBindsTab() {
             value: b.id,
           }))}
         />
-        <Button type="primary" icon={<LinkOutlined />} onClick={() => setBindModalOpen(true)}>
+        <Button type="primary" icon={<LinkOutlined />} onClick={() => { resetModal(); setBindModalOpen(true); }}>
           新建绑定
         </Button>
       </div>
@@ -178,23 +205,67 @@ export function ProjectBindsTab() {
       <Modal
         title="新建项目绑定"
         open={bindModalOpen}
-        onCancel={() => setBindModalOpen(false)}
+        onCancel={() => { setBindModalOpen(false); resetModal(); }}
         onOk={handleCreateBinding}
         confirmLoading={binding}
-        okText="创建"
+        okText={bindToExisting ? '绑定' : '创建'}
       >
         <div style={{ marginBottom: 12 }}>选择要绑定的项目目录：</div>
         <Select
           placeholder="选择项目目录"
-          style={{ width: '100%' }}
+          style={{ width: '100%', marginBottom: 12 }}
           value={selectedDirId}
-          onChange={setSelectedDirId}
+          onChange={(v) => { setSelectedDirId(v); setSelectedTodoId(undefined); }}
           options={directories.map(d => ({
             label: `${d.name || '(未命名)'} — ${d.path}`,
             value: d.id,
           }))}
         />
-        <div style={{ marginTop: 12, fontSize: 13, color: 'var(--color-text-secondary)' }}>
+
+        {/* 绑定已有 Todo 开关 */}
+        <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Switch
+            checked={bindToExisting}
+            onChange={(checked) => { setBindToExisting(checked); setSelectedTodoId(undefined); }}
+            size="small"
+          />
+          <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
+            绑定到已有的 Todo（继续之前的对话）
+          </span>
+        </div>
+
+        {bindToExisting ? (
+          <>
+            <div style={{ marginBottom: 8, fontSize: 13, color: 'var(--color-text-secondary)' }}>
+              选择要绑定的 Todo：
+            </div>
+            <Select
+              placeholder="选择一个 Todo"
+              style={{ width: '100%', marginBottom: 12 }}
+              value={selectedTodoId}
+              onChange={setSelectedTodoId}
+              options={projectTodos.map(t => ({
+                label: `#${t.id} ${t.title} ${t.workspace ? `· ${t.workspace}` : ''}`,
+                value: t.id,
+              }))}
+            />
+          </>
+        ) : (
+          <>
+            <div style={{ marginBottom: 8, fontSize: 13 }}>选择执行器（仅支持继续对话的执行器）：</div>
+            <Select
+              style={{ width: '100%', marginBottom: 12 }}
+              value={selectedExecutor}
+              onChange={setSelectedExecutor}
+              options={RESUMABLE_EXECUTOR_OPTIONS.map(e => ({
+                label: e.label,
+                value: e.value,
+              }))}
+            />
+          </>
+        )}
+
+        <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
           创建绑定后，请在对应的飞书聊天中使用 <code>/bind &lt;项目名称&gt;</code> 命令完成绑定。
         </div>
       </Modal>

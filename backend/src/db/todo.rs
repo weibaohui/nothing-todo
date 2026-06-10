@@ -105,6 +105,12 @@ impl Database {
     }
 
     pub async fn create_todo(&self, title: &str, prompt: &str) -> Result<i64, sea_orm::DbErr> {
+        self.create_todo_with_executor(title, prompt, Some("claudecode")).await
+    }
+
+    /// 创建 Todo，可指定执行器。
+    /// executor 为 None 时默认为 claudecode。
+    pub async fn create_todo_with_executor(&self, title: &str, prompt: &str, executor: Option<&str>) -> Result<i64, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             title: ActiveValue::Set(title.to_string()),
@@ -112,7 +118,7 @@ impl Database {
             status: ActiveValue::Set(Some(TodoStatus::Pending.to_string())),
             created_at: ActiveValue::Set(Some(now.clone())),
             updated_at: ActiveValue::Set(Some(now)),
-            executor: ActiveValue::Set(Some("claudecode".to_string())),
+            executor: ActiveValue::Set(Some(executor.unwrap_or("claudecode").to_string())),
             ..Default::default()
         };
         let inserted = am.insert(&self.conn).await?;
