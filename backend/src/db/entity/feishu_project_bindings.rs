@@ -48,6 +48,10 @@ pub struct Model {
     /// 对 running 状态可发起 resume 执行（新增 execution_record 但不改 session_id）
     pub status: String,
 
+    /// 是否启用（true=激活，false=禁用）
+    /// 禁用后该绑定不再参与路由，但保留历史记录供后续重新启用
+    pub enabled: bool,
+
     /// 创建时间（ISO 8601 UTC）
     pub created_at: String,
 

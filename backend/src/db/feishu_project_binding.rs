@@ -14,6 +14,8 @@ pub struct FeishuProjectBinding {
     pub session_id: Option<String>,
     pub latest_record_id: Option<i64>,
     pub status: String,
+    /// 是否激活（true=参与路由，false=禁用但保留记录）
+    pub enabled: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -46,6 +48,7 @@ impl Database {
             session_id: ActiveValue::Set(None),
             latest_record_id: ActiveValue::Set(None),
             status: ActiveValue::Set(crate::models::binding_status::IDLE.to_string()),
+            enabled: ActiveValue::Set(true),
             created_at: ActiveValue::Set(now.clone()),
             updated_at: ActiveValue::Set(now),
             ..Default::default()
@@ -168,6 +171,22 @@ impl Database {
         self.exec_update(am).await
     }
 
+    /// 启用/禁用绑定（仅修改 enabled 状态，不删除记录）
+    pub async fn update_feishu_project_binding_enabled(
+        &self,
+        id: i64,
+        enabled: bool,
+    ) -> Result<(), sea_orm::DbErr> {
+        let now = crate::models::utc_timestamp();
+        let am = feishu_project_bindings::ActiveModel {
+            id: ActiveValue::Unchanged(id),
+            enabled: ActiveValue::Set(enabled),
+            updated_at: ActiveValue::Set(now),
+            ..Default::default()
+        };
+        self.exec_update(am).await
+    }
+
     /// Delete a binding.
     pub async fn delete_feishu_project_binding(
         &self,
@@ -228,6 +247,7 @@ impl Database {
             session_id: m.session_id,
             latest_record_id: m.latest_record_id,
             status: m.status,
+            enabled: m.enabled,
             created_at: m.created_at,
             updated_at: m.updated_at,
         }
