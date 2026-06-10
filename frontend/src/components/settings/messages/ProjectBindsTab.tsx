@@ -113,13 +113,25 @@ export function ProjectBindsTab() {
     }
   };
 
-  const handleDeleteBinding = async (id: number) => {
+  // 解绑：仅禁用（enabled=false），保留记录
+  const handleUnbindBinding = async (id: number) => {
     try {
-      await db.deleteFeishuBinding(id);
+      await db.updateFeishuBindingEnabled(id, false);
       message.success('已解绑');
       handleBotChange(selectedBotId);
     } catch (err: any) {
       message.error('解绑失败: ' + (err?.message || String(err)));
+    }
+  };
+
+  // 删除：彻底删除绑定记录
+  const handleDeleteBinding = async (id: number) => {
+    try {
+      await db.deleteFeishuBinding(id);
+      message.success('已删除');
+      handleBotChange(selectedBotId);
+    } catch (err: any) {
+      message.error('删除失败: ' + (err?.message || String(err)));
     }
   };
 
@@ -238,12 +250,27 @@ export function ProjectBindsTab() {
                     style={{ flexShrink: 0 }}
                   />
                 )}
+                {/* 解绑：仅禁用（enabled=false），保留记录 */}
+                {!isPending(item) && (
+                  <Popconfirm
+                    title="确认解绑"
+                    description={`解除与「${item.project_name || item.project_path}」的绑定？（可随时重新启用）`}
+                    onConfirm={() => handleUnbindBinding(item.id)}
+                  >
+                    <Button type="text" icon={<DisconnectOutlined />} size="small">
+                      解绑
+                    </Button>
+                  </Popconfirm>
+                )}
+                {/* 删除：彻底删除记录 */}
                 <Popconfirm
-                  title="确认解绑"
-                  description={`解除与「${item.project_name || item.project_path}」的绑定？`}
+                  title="确认删除"
+                  description={`删除与「${item.project_name || item.project_path}」的绑定记录？此操作不可恢复。`}
                   onConfirm={() => handleDeleteBinding(item.id)}
                 >
-                  <Button type="text" danger icon={<DisconnectOutlined />} size="small" />
+                  <Button type="text" danger size="small">
+                    删除
+                  </Button>
                 </Popconfirm>
               </div>
             </List.Item>
