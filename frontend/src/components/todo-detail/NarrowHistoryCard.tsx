@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Button, Popconfirm, Tag, Tooltip } from 'antd';
-import { MessageOutlined, FileTextOutlined, StopOutlined, CopyOutlined, LinkOutlined } from '@ant-design/icons';
+import { Button, Popconfirm, Tag, Tooltip, Popover, InputNumber, Space } from 'antd';
+import { MessageOutlined, FileTextOutlined, StopOutlined, CopyOutlined, LinkOutlined, StarOutlined, StarFilled } from '@ant-design/icons';
 import { ExecutorBadge } from '@/components/ExecutorBadge';
 import { XMarkdown } from '@ant-design/x-markdown';
 import { supportsResume } from '@/types';
@@ -9,16 +9,18 @@ import * as db from '@/utils/database';
 import { getElapsedSeconds, hasLogsStatic } from './helpers';
 import { NarrowLogView } from './NarrowLogView';
 import { getHookTriggerLabel } from '@/utils/database/hooks';
+import { ReviewStatusBadge } from './RecordDetailView';
 import type { ExecutionRecord, ExecutionStats, LogEntry } from '@/types';
 
 /** Narrow mode: single history card */
-export function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, onRefresh, getRunningTask, resolveStats, parseLogs, messageApi, onViewModeChange }: {
+export function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, onRefresh, onRate, getRunningTask, resolveStats, parseLogs, messageApi, onViewModeChange }: {
   record: ExecutionRecord;
   viewMode: 'log' | 'chat';
   onOpenResume: (r: ExecutionRecord) => void;
   onExport: (r: ExecutionRecord) => void;
   onStop: (id: number) => Promise<void>;
   onRefresh: (id: number) => Promise<void>;
+  onRate: (recordId: number, rating: number | null) => Promise<void>;
   getRunningTask: (r: ExecutionRecord) => any;
   resolveStats: (r: ExecutionRecord, running: boolean) => ExecutionStats | null | undefined;
   parseLogs: (r: ExecutionRecord) => LogEntry[];
@@ -86,6 +88,9 @@ export function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, on
           {!isRunning && supportsResume(record) && (
             <Button type="primary" size="small" icon={<MessageOutlined />} onClick={() => onOpenResume(record)}>继续对话</Button>
           )}
+          {!isRunning && (
+            <NarrowRatingControl record={record} onRate={onRate} />
+          )}
           {hasLogsStatic(record) && (
             <Button size="small" icon={<FileTextOutlined />} onClick={() => onExport(record)}>导出YAML</Button>
           )}
@@ -139,6 +144,11 @@ export function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, on
           </div>
         );
       })()}
+      {/* 评分与评审状态 */}
+      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <NarrowRatingControl record={record} onRate={onRate} />
+        <ReviewStatusBadge status={record.last_review_status} />
+      </div>
       <NarrowLogView
         record={record}
         isRunning={isRunning}
@@ -149,5 +159,63 @@ export function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, on
         onViewModeChange={onViewModeChange}
       />
     </div>
+  );
+}
+
+/** 手机版评分控件（简化版） */
+function NarrowRatingControl({
+  record,
+  onRate,
+}: {
+  record: ExecutionRecord;
+  onRate: (recordId: number, rating: number | null) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState<number | null>(record.rating ?? null);
+
+  useEffect(() => {
+    setValue(record.rating ?? null);
+  }, [record.rating, record.id]);
+
+  const handleSubmit = async (next: number | null) => {
+    try {
+      await onRate(record.id, next);
+      setOpen(false);
+    } catch {
+      // 错误由上层拦截器统一提示
+    }
+  };
+
+  if (record.rating != null) {
+    return (
+      <Popover content={
+        <div style={{ width: 200 }}>
+          <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--color-text-secondary)' }}>评分：{record.rating}</div>
+          <Space.Compact style={{ width: '100%' }}>
+            <InputNumber min={0} max={100} value={value ?? 0} onChange={v => setValue(typeof v === 'number' ? v : null)} style={{ width: '100%' }} />
+            <Button onClick={() => handleSubmit(value)}>改</Button>
+          </Space.Compact>
+          <Button type="link" danger size="small" style={{ padding: '4px 0 0' }} onClick={() => handleSubmit(null)}>清除</Button>
+        </div>
+      } open={open} onOpenChange={setOpen} placement="bottomRight">
+        <Button size="small" icon={<StarFilled style={{ color: '#fadb14' }} />} onClick={() => setOpen(o => !o)}>
+          {record.rating}
+        </Button>
+      </Popover>
+    );
+  }
+
+  return (
+    <Popover content={
+      <div style={{ width: 200 }}>
+        <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--color-text-secondary)' }}>为本次执行结果评分（0-100）</div>
+        <Space.Compact style={{ width: '100%' }}>
+          <InputNumber min={0} max={100} value={value} onChange={v => setValue(typeof v === 'number' ? v : null)} placeholder="0-100" style={{ width: '100%' }} />
+          <Button type="primary" onClick={() => handleSubmit(value)}>评分</Button>
+        </Space.Compact>
+      </div>
+    } open={open} onOpenChange={setOpen} placement="bottomRight">
+      <Button size="small" icon={<StarOutlined />} onClick={() => setOpen(o => !o)}>评分</Button>
+    </Popover>
   );
 }

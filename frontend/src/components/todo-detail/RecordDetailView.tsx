@@ -420,7 +420,7 @@ function RecordRatingControl({
 }
 
 /** 评审状态徽章: pending(评审中) / success(评审成功) / failed(评审失败) / interrupted(被打断) */
-function ReviewStatusBadge({ status }: { status?: 'pending' | 'success' | 'failed' | 'interrupted' | null }) {
+export function ReviewStatusBadge({ status }: { status?: 'pending' | 'success' | 'failed' | 'interrupted' | null }) {
   if (!status) return null;
   const map: Record<string, { color: string; bg: string; border: string; text: string; icon: ReactNode }> = {
     pending:     { color: '#1677ff', bg: '#1677ff14', border: '#1677ff30', text: '⏳ 评审中',   icon: <SyncOutlined spin /> },

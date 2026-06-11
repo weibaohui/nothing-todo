@@ -436,6 +436,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
                     onExport={handleExportMarkdown}
                     onStop={handleStopExecution}
                     onRefresh={refreshSingleRecord}
+                    onRate={handleRateExecution}
                     getRunningTask={getRunningTaskForRecord}
                     resolveStats={resolveExecutionStats}
                     parseLogs={parseRecordLogs}

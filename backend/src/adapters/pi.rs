@@ -177,8 +177,9 @@ impl CodeExecutor for PiExecutor {
                         match ame.event_type.as_deref() {
                             Some("text_delta") => {
                                 // text_delta 是实际回复的增量内容
+                                // 移除尾部换行符，避免 PI 输出每字符一行时在最终结果中引入多余换行
                                 if let Some(delta) = &ame.delta {
-                                    let trimmed = delta.trim();
+                                    let trimmed = delta.trim_end();
                                     if !trimmed.is_empty() {
                                         return Some(ParsedLogEntry {
                                             timestamp: utc_timestamp(),
@@ -193,8 +194,9 @@ impl CodeExecutor for PiExecutor {
                             }
                             Some("thinking_delta") => {
                                 // thinking_delta 是 thinking 的增量内容
+                                // 移除尾部换行符，避免多余换行
                                 if let Some(delta) = &ame.delta {
-                                    let trimmed = delta.trim();
+                                    let trimmed = delta.trim_end();
                                     if !trimmed.is_empty() {
                                         return Some(ParsedLogEntry {
                                             timestamp: utc_timestamp(),
