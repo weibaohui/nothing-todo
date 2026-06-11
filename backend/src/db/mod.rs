@@ -1615,6 +1615,7 @@ mod tests {
             scheduler_timezone: None,
             workspace: None,
             worktree_enabled: None,
+            acceptance_criteria: None,
         })
         .await
         .unwrap();
@@ -1773,6 +1774,7 @@ mod tests {
             scheduler_timezone: None,
             workspace: Some("/tmp/workspace"),
             worktree_enabled: None,
+            acceptance_criteria: None,
         })
         .await
         .unwrap();

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 use crate::models::TodoStatus;
 
 /// Hook trigger types.
@@ -75,10 +76,66 @@ pub struct TodoHookItem {
     pub skip_if_missing: bool,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// Optional rating gate (0-100). When set, the hook only fires if the
+    /// source todo's most recent FINISHED execution record has a
+    /// `rating >= min_rating`. `None` means no gate (always fire) — this
+    /// preserves the original behaviour for any hook that doesn't opt in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_rating: Option<i32>,
+    /// What to do when the latest finished record has no rating (NULL).
+    /// Defaults to `Skip` (do not fire) — the conservative choice for users
+    /// who explicitly enabled a rating gate: if you cared enough to set a
+    /// threshold, an unrated result is probably not what you wanted to chain
+    /// off of. `Pass` is the opt-in permissive mode for teams that want the
+    /// gate to only block obviously-bad runs.
+    #[serde(default = "default_unrated_policy")]
+    pub unrated_policy: UnratedPolicy,
 }
 
 fn default_enabled() -> bool {
     true
+}
+
+fn default_unrated_policy() -> UnratedPolicy {
+    UnratedPolicy::Skip
+}
+
+/// Policy applied by the rating gate when the latest finished record has
+/// no rating set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UnratedPolicy {
+    /// Do not fire the hook. This is the safe default: an unrated record
+    /// can't be evaluated against `min_rating`, so we treat "no opinion" as
+    /// "don't chain off of this".
+    #[default]
+    Skip,
+    /// Treat the missing rating as if it had passed. Useful when you only
+    /// want the gate to actively block runs you've explicitly scored low.
+    Pass,
+}
+
+impl UnratedPolicy {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Skip => "skip",
+            Self::Pass => "pass",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "skip" => Some(Self::Skip),
+            "pass" => Some(Self::Pass),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for UnratedPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
 }
 
 /// Wrapper for the `todos.hooks` JSON column.
@@ -110,12 +167,33 @@ impl TodoHooks {
                 .into_iter()
                 .filter_map(|raw| {
                     let trigger = HookTrigger::from_str(&raw.trigger)?;
+                    // Validate rating gate fields defensively: a malformed
+                    // value (out-of-range or unknown policy) shouldn't take
+                    // down the whole hook list, it just disables this item.
+                    let min_rating = match raw.min_rating {
+                        None => None,
+                        Some(v) if (0..=100).contains(&v) => Some(v),
+                        Some(v) => {
+                            warn!(
+                                "hook #{} has out-of-range min_rating {}, ignoring",
+                                raw.id, v
+                            );
+                            None
+                        }
+                    };
+                    let unrated_policy = raw
+                        .unrated_policy
+                        .as_deref()
+                        .and_then(UnratedPolicy::from_str)
+                        .unwrap_or_default();
                     Some(TodoHookItem {
                         id: raw.id,
                         trigger,
                         target_todo_id: raw.target_todo_id,
                         skip_if_missing: raw.skip_if_missing,
                         enabled: raw.enabled,
+                        min_rating,
+                        unrated_policy,
                     })
                 })
                 .collect(),
@@ -148,6 +226,15 @@ struct RawTodoHookItem {
     skip_if_missing: bool,
     #[serde(default = "default_enabled")]
     enabled: bool,
+    /// Optional rating threshold (0-100). Older payloads won't have this
+    /// field and serde's `default` keeps them working unchanged.
+    #[serde(default)]
+    min_rating: Option<i32>,
+    /// Policy for when the latest record has no rating. Stored as a snake
+    /// case string to match the on-disk format; unknown values fall back to
+    /// the default policy at `parse` time.
+    #[serde(default)]
+    unrated_policy: Option<String>,
 }
 
 /// Build the `message` payload that a hook delivers to the target todo's

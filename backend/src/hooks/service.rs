@@ -4,7 +4,7 @@ use tracing::{warn};
 use crate::executor_service::RunTodoExecutionRequest;
 use crate::handlers::execution::start_todo_execution;
 use crate::hooks::models::*;
-use crate::models::Todo;
+use crate::models::{ExecutionRecord, ExecutionStatus, Todo};
 use crate::service_context::ServiceContext;
 
 /// Hook dispatch engine.
@@ -172,6 +172,91 @@ async fn lookup_source_result(ctx: &ServiceContext, source_id: i64) -> Option<St
     }
 }
 
+/// Look up the most recent FINISHED (success or failed) execution record for
+/// `source_id`. Returns the full record so callers can inspect `rating` for
+/// the rating gate. Returns `None` if the source has never run or its most
+/// recent record is still in-flight (`running`/`pending`).
+///
+/// We deliberately look at the most recent finished record rather than the
+/// most recent record of any status: while a hook is firing the source
+/// could have a fresh `running` row that hides a previously-finished
+/// scored row, which would make the gate flicker. The terminal record is
+/// the one whose rating is stable and meaningful for chaining decisions.
+async fn lookup_latest_finished_record(
+    ctx: &ServiceContext,
+    source_id: i64,
+) -> Option<ExecutionRecord> {
+    // status="all" means no status filter (see `get_execution_records`), and
+    // ORDER BY started_at DESC LIMIT 1 gives us the most recent record.
+    let query = crate::db::execution::ExecutionRecordQuery {
+        todo_id: source_id,
+        limit: 1,
+        offset: 0,
+        status: Some("all"),
+    };
+    match ctx.db.get_execution_records(query).await {
+        Ok((records, _)) => records
+            .into_iter()
+            .find(|r| r.status != ExecutionStatus::Running),
+        Err(e) => {
+            warn!(
+                "hook: failed to load source todo #{} latest finished record: {}",
+                source_id, e
+            );
+            None
+        }
+    }
+}
+
+/// Decision produced by `evaluate_rating_gate`. The hook service uses this
+/// to decide whether to dispatch the target todo or skip the hook.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum GateDecision {
+    /// Fire the target todo normally.
+    Allow,
+    /// Skip the hook because the gate wasn't met. Carries a short reason
+    /// suitable for the warn log.
+    Deny(&'static str),
+}
+
+/// Evaluate the optional rating gate on a hook item against the source
+/// todo's most recent finished execution record.
+///
+/// Rules:
+///
+/// * `min_rating = None` → always allow (no gate configured). This is the
+///   backward-compatible path for any existing hook that hasn't opted in.
+/// * `latest_finished = None` (source has never finished a run) → apply
+///   `unrated_policy`. Default `Skip` denies, `Pass` allows.
+/// * `latest_finished.rating = None` (user hasn't scored the run) → apply
+///   `unrated_policy` again. Same semantics as "no record at all" — the
+///   gate can't say the run is good enough, but the user policy decides
+///   whether that's a fail.
+/// * `latest_finished.rating >= min_rating` → allow.
+/// * otherwise → deny with a descriptive reason including the actual score.
+fn evaluate_rating_gate(
+    item: &TodoHookItem,
+    latest_finished: Option<&ExecutionRecord>,
+) -> GateDecision {
+    let Some(min_rating) = item.min_rating else {
+        return GateDecision::Allow;
+    };
+    let Some(record) = latest_finished else {
+        return match item.unrated_policy {
+            UnratedPolicy::Skip => GateDecision::Deny("no finished record"),
+            UnratedPolicy::Pass => GateDecision::Allow,
+        };
+    };
+    match record.rating {
+        None => match item.unrated_policy {
+            UnratedPolicy::Skip => GateDecision::Deny("rating is null"),
+            UnratedPolicy::Pass => GateDecision::Allow,
+        },
+        Some(r) if r >= min_rating => GateDecision::Allow,
+        Some(_) => GateDecision::Deny("rating below threshold"),
+    }
+}
+
 async fn execute_target_todo(
     ctx: &ServiceContext,
     item: &TodoHookItem,
@@ -206,6 +291,32 @@ async fn execute_target_todo(
     // `run_todo_execution_with_params` does the substitution and the
     // executor sees the final composed message.
     let source_result = lookup_source_result(ctx, source.id).await;
+
+    // Rating gate: only enforce when the hook is configured with a
+    // `min_rating`. Fetching the latest finished record is one extra cheap
+    // query, and we only do it when the gate might be active. The lookup
+    // also doubles as the "is the source ready to chain off of" check.
+    let source_record = lookup_latest_finished_record(ctx, source.id).await;
+    match evaluate_rating_gate(item, source_record.as_ref()) {
+        GateDecision::Allow => {}
+        GateDecision::Deny(reason) => {
+            let rating = source_record
+                .as_ref()
+                .and_then(|r| r.rating)
+                .map(|r| r.to_string())
+                .unwrap_or_else(|| "null".to_string());
+            let min = item
+                .min_rating
+                .map(|m| m.to_string())
+                .unwrap_or_else(|| "none".to_string());
+            warn!(
+                "hook #{} skipped by rating gate (min_rating={}, policy={}, source rating={}, reason={})",
+                item.id, min, item.unrated_policy, rating, reason
+            );
+            return Ok(());
+        }
+    }
+
     let message_payload = build_hook_message(source, source_result.as_deref());
     let message = target.prompt.clone();
     let mut params = std::collections::HashMap::new();
@@ -261,5 +372,210 @@ async fn execute_target_todo(
             "hook trigger thread for todo #{} dropped reply channel",
             target.id
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for the rating-gate logic. We don't need a database for
+    //! these — the gate is a pure function over `(TodoHookItem, Option<&ExecutionRecord>)`.
+    use super::*;
+    use crate::models::ExecutionStatus;
+
+    fn item(min_rating: Option<i32>, policy: UnratedPolicy) -> TodoHookItem {
+        TodoHookItem {
+            id: 1,
+            trigger: HookTrigger::StateChangedToCompleted,
+            target_todo_id: 2,
+            skip_if_missing: true,
+            enabled: true,
+            min_rating,
+            unrated_policy: policy,
+        }
+    }
+
+    fn rec(rating: Option<i32>) -> ExecutionRecord {
+        ExecutionRecord {
+            id: 99,
+            todo_id: 1,
+            status: ExecutionStatus::Success,
+            command: String::new(),
+            stdout: String::new(),
+            stderr: String::new(),
+            result: None,
+            started_at: String::new(),
+            finished_at: None,
+            usage: None,
+            executor: None,
+            model: None,
+            trigger_type: "manual".to_string(),
+            pid: None,
+            task_id: None,
+            session_id: None,
+            todo_progress: None,
+            execution_stats: None,
+            resume_message: None,
+            source_todo_id: None,
+            source_todo_title: None,
+            source_hook_id: None,
+            rating,
+        }
+    }
+
+    #[test]
+    fn no_min_rating_always_allows() {
+        // Hooks that don't opt into the gate keep their original behaviour
+        // regardless of the source record's rating (or lack thereof).
+        let i = item(None, UnratedPolicy::Skip);
+        assert_eq!(
+            evaluate_rating_gate(&i, None),
+            GateDecision::Allow,
+            "no record at all"
+        );
+        assert_eq!(
+            evaluate_rating_gate(&i, Some(&rec(None))),
+            GateDecision::Allow,
+            "record with no rating"
+        );
+        assert_eq!(
+            evaluate_rating_gate(&i, Some(&rec(Some(0)))),
+            GateDecision::Allow,
+            "record with low rating"
+        );
+        assert_eq!(
+            evaluate_rating_gate(&i, Some(&rec(Some(100)))),
+            GateDecision::Allow,
+            "record with high rating"
+        );
+    }
+
+    #[test]
+    fn min_rating_passes_when_score_meets_threshold() {
+        let i = item(Some(80), UnratedPolicy::Skip);
+        assert_eq!(evaluate_rating_gate(&i, Some(&rec(Some(80)))), GateDecision::Allow);
+        assert_eq!(evaluate_rating_gate(&i, Some(&rec(Some(99)))), GateDecision::Allow);
+        assert_eq!(evaluate_rating_gate(&i, Some(&rec(Some(100)))), GateDecision::Allow);
+    }
+
+    #[test]
+    fn min_rating_denies_when_score_below_threshold() {
+        let i = item(Some(80), UnratedPolicy::Skip);
+        match evaluate_rating_gate(&i, Some(&rec(Some(79)))) {
+            GateDecision::Deny(_) => {}
+            other => panic!("expected Deny, got {:?}", other),
+        }
+        match evaluate_rating_gate(&i, Some(&rec(Some(0)))) {
+            GateDecision::Deny(_) => {}
+            other => panic!("expected Deny, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn unrated_skip_denies_null_rating() {
+        // Default policy: unrated records don't pass the gate. This is the
+        // safe behaviour for users who set a threshold because they care
+        // about quality — an unrated result can't be trusted.
+        let i = item(Some(60), UnratedPolicy::Skip);
+        assert_eq!(
+            evaluate_rating_gate(&i, Some(&rec(None))),
+            GateDecision::Deny("rating is null")
+        );
+    }
+
+    #[test]
+    fn unrated_pass_allows_null_rating() {
+        // Opt-in permissive mode: missing rating is treated as "no
+        // objection", so the hook fires.
+        let i = item(Some(60), UnratedPolicy::Pass);
+        assert_eq!(
+            evaluate_rating_gate(&i, Some(&rec(None))),
+            GateDecision::Allow
+        );
+    }
+
+    #[test]
+    fn unrated_skip_denies_when_no_record_exists() {
+        // Source has never finished a run. Even with `Skip`, the gate
+        // should deny because there's no record to evaluate. The
+        // distinction between "no record" and "record with null rating"
+        // matters in the log message but not in the decision.
+        let i = item(Some(60), UnratedPolicy::Skip);
+        assert_eq!(
+            evaluate_rating_gate(&i, None),
+            GateDecision::Deny("no finished record")
+        );
+    }
+
+    #[test]
+    fn unrated_pass_allows_when_no_record_exists() {
+        let i = item(Some(60), UnratedPolicy::Pass);
+        assert_eq!(
+            evaluate_rating_gate(&i, None),
+            GateDecision::Allow
+        );
+    }
+
+    #[test]
+    fn unrated_policy_does_not_change_threshold_decision() {
+        // Policy is only consulted when rating is missing. With a numeric
+        // rating, the threshold itself is the sole deciding factor.
+        let i = item(Some(50), UnratedPolicy::Pass);
+        assert_eq!(evaluate_rating_gate(&i, Some(&rec(Some(60)))), GateDecision::Allow);
+        match evaluate_rating_gate(&i, Some(&rec(Some(40)))) {
+            GateDecision::Deny(_) => {}
+            other => panic!("expected Deny, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn unrated_policy_deserializes_from_snake_case() {
+        // The on-disk format is snake_case; make sure the parser accepts
+        // both variants and rejects unknown values.
+        assert_eq!(UnratedPolicy::from_str("skip"), Some(UnratedPolicy::Skip));
+        assert_eq!(UnratedPolicy::from_str("pass"), Some(UnratedPolicy::Pass));
+        assert_eq!(UnratedPolicy::from_str(""), None);
+        assert_eq!(UnratedPolicy::from_str("deny"), None);
+    }
+
+    #[test]
+    fn unrated_policy_default_is_skip() {
+        // Default::default() is the safe option, matching the documented
+        // contract on the field.
+        assert_eq!(UnratedPolicy::default(), UnratedPolicy::Skip);
+    }
+
+    #[test]
+    fn parse_tolerates_missing_or_unknown_gate_fields() {
+        // Older payloads that don't have the new gate fields must still
+        // parse cleanly. Items with out-of-range `min_rating` are kept
+        // (with the gate dropped) so a bad write doesn't take down the
+        // whole hook list.
+        let json = r#"{
+          "items": [
+            { "id": 1, "trigger": "state_changed_to_completed", "target_todo_id": 2, "enabled": true },
+            { "id": 2, "trigger": "state_changed_to_completed", "target_todo_id": 3, "enabled": true, "min_rating": 75, "unrated_policy": "pass" },
+            { "id": 3, "trigger": "state_changed_to_completed", "target_todo_id": 4, "enabled": true, "min_rating": 200 },
+            { "id": 4, "trigger": "state_changed_to_completed", "target_todo_id": 5, "enabled": true, "min_rating": 50, "unrated_policy": "nonsense" }
+          ]
+        }"#;
+        let parsed = TodoHooks::parse(Some(json));
+        assert_eq!(parsed.items.len(), 4);
+
+        // Item 1: legacy payload, no gate.
+        assert!(parsed.items[0].min_rating.is_none());
+        assert_eq!(parsed.items[0].unrated_policy, UnratedPolicy::Skip);
+
+        // Item 2: full gate configured.
+        assert_eq!(parsed.items[1].min_rating, Some(75));
+        assert_eq!(parsed.items[1].unrated_policy, UnratedPolicy::Pass);
+
+        // Item 3: out-of-range min_rating gets dropped (so the hook still
+        // works, just without the gate), and policy falls back to default.
+        assert!(parsed.items[2].min_rating.is_none());
+        assert_eq!(parsed.items[2].unrated_policy, UnratedPolicy::Skip);
+
+        // Item 4: unknown policy string falls back to default (Skip).
+        assert_eq!(parsed.items[3].min_rating, Some(50));
+        assert_eq!(parsed.items[3].unrated_policy, UnratedPolicy::Skip);
     }
 }
