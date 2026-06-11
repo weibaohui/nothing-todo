@@ -119,8 +119,11 @@ impl CodeExecutor for PiExecutor {
                 }
                 "message_end" => {
                     // message_end 包含完整的消息内容
-                    // 提取最终的 text 回复（忽略 thinking），用于 get_final_result
+                    // 只有 assistant 消息才包含 AI 回复内容，user 消息不需要处理
                     if let Some(msg) = event.message {
+                        if msg.role.as_deref() != Some("assistant") {
+                            return None;
+                        }
                         let mut text_parts = Vec::new();
                         for block in &msg.content {
                             if let super::pi_event::PiContentBlock::Text { text } = block {
