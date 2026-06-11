@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { Button, Tag, Empty, Segmented, Popconfirm, Tooltip, Pagination, message, Popover, InputNumber, Space } from 'antd';
-import { StarOutlined, StarFilled } from '@ant-design/icons';
+import { StarOutlined, StarFilled, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, PauseCircleOutlined } from '@ant-design/icons';
 import { MessageOutlined, FileTextOutlined, StopOutlined, CopyOutlined, UnorderedListOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
 import XMarkdown from '@ant-design/x-markdown';
 import { ExecutorBadge } from '@/components/ExecutorBadge';
@@ -387,28 +387,67 @@ function RecordRatingControl({
     // 已评分：以徽章形式呈现，点击重新编辑
     return (
       <Popover content={content} open={open} onOpenChange={setOpen} placement="bottomRight">
-        <Button
-          size="small"
-          icon={<StarFilled style={{ color: '#fadb14' }} />}
-          onClick={() => setOpen(o => !o)}
-          aria-label="已评分，点击修改"
-        >
-          {record.rating}
-        </Button>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <Button
+            size="small"
+            icon={<StarFilled style={{ color: '#fadb14' }} />}
+            onClick={() => setOpen(o => !o)}
+            aria-label="已评分，点击修改"
+          >
+            {record.rating}
+          </Button>
+          <ReviewStatusBadge status={record.last_review_status} />
+        </span>
       </Popover>
     );
   }
 
   return (
     <Popover content={content} open={open} onOpenChange={setOpen} placement="bottomRight">
-      <Button
-        size="small"
-        icon={<StarOutlined />}
-        onClick={() => setOpen(o => !o)}
-        aria-label="评分"
-      >
-        评分
-      </Button>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <Button
+          size="small"
+          icon={<StarOutlined />}
+          onClick={() => setOpen(o => !o)}
+          aria-label="评分"
+        >
+          评分
+        </Button>
+        <ReviewStatusBadge status={record.last_review_status} />
+      </span>
     </Popover>
+  );
+}
+
+/** 评审状态徽章: pending(评审中) / success(评审成功) / failed(评审失败) / interrupted(被打断) */
+function ReviewStatusBadge({ status }: { status?: 'pending' | 'success' | 'failed' | 'interrupted' | null }) {
+  if (!status) return null;
+  const map: Record<string, { color: string; bg: string; border: string; text: string; icon: ReactNode }> = {
+    pending:     { color: '#1677ff', bg: '#1677ff14', border: '#1677ff30', text: '⏳ 评审中',   icon: <SyncOutlined spin /> },
+    success:     { color: '#52c41a', bg: '#52c41a14', border: '#52c41a30', text: '✅ 评审成功', icon: <CheckCircleOutlined /> },
+    failed:      { color: '#ff4d4f', bg: '#ff4d4f14', border: '#ff4d4f30', text: '❌ 评审失败', icon: <CloseCircleOutlined /> },
+    interrupted: { color: '#faad14', bg: '#faad1414', border: '#faad1430', text: '⏸ 中断',     icon: <PauseCircleOutlined /> },
+  };
+  const s = map[status];
+  if (!s) return null;
+  return (
+    <span
+      style={{
+        fontSize: 11,
+        padding: '1px 6px',
+        borderRadius: 4,
+        color: s.color,
+        background: s.bg,
+        border: `1px solid ${s.border}`,
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 3,
+        whiteSpace: 'nowrap',
+      }}
+      title={`自动评审状态: ${status}`}
+    >
+      {s.icon}
+      {s.text}
+    </span>
   );
 }

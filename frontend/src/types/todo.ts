@@ -21,6 +21,12 @@ export interface Todo {
   worktree_enabled?: boolean;
   hooks?: TodoHookItem[];
   acceptance_criteria?: string | null;
+  /** Whether to spawn an auto-review child todo after this one finishes. Default true. */
+  auto_review_enabled?: boolean;
+  /** 0 = normal todo, 1 = reviewer template, 2 = review instance child. */
+  todo_type?: 0 | 1 | 2;
+  /** For review instances: the original todo that was reviewed. */
+  parent_todo_id?: number | null;
 }
 
 export interface Tag {

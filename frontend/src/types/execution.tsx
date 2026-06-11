@@ -60,6 +60,12 @@ export interface ExecutionRecord {
   source_hook_id?: number | null;
   /** User-provided score for this execution's result (0-100). */
   rating?: number | null;
+  /** For review instance records: the original execution record that was reviewed. */
+  source_execution_record_id?: number | null;
+  /** For the original execution record: status of the most recent auto-review. */
+  last_review_status?: 'pending' | 'success' | 'failed' | 'interrupted' | null;
+  /** ISO timestamp when the most recent auto-review finished. */
+  last_reviewed_at?: string | null;
 }
 
 export interface ExecutionSummary {
