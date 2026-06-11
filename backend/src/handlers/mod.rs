@@ -554,6 +554,24 @@ pub fn create_app(
     };
     let hook_service = Arc::new(HookService::new(hook_ctx));
 
+    // Create AutoReviewService and ensure the reviewer template todo exists.
+    // create_app 是 sync 函数, 不能直接 .await; 复用当前 tokio runtime 的 Handle
+    // 同步跑 init (带 block_in_place 避免阻塞 reactor 线程).
+    use crate::services::auto_review::{ensure_reviewer_template, DEFAULT_REVIEWER_PROMPT, REVIEWER_TEMPLATE_TITLE};
+    {
+        let db_for_init = db.clone();
+        let init_result = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(ensure_reviewer_template(
+                &db_for_init,
+                REVIEWER_TEMPLATE_TITLE,
+                DEFAULT_REVIEWER_PROMPT,
+            ))
+        });
+        if let Err(e) = init_result {
+            tracing::warn!("Failed to ensure auto-review reviewer template: {}", e);
+        }
+    }
+
     let state = AppState {
         db,
         executor_registry,
@@ -583,6 +601,7 @@ pub fn create_app(
         .route("/api/execution-records/{id}/logs", get(execution::get_execution_logs_handler))
         .route("/api/execution-records/{id}", get(execution::get_execution_record))
         .route("/api/execution-records/{id}/resume", post(execution::resume_execution_handler))
+        .route("/api/execution-records/{id}/rating", put(execution::rate_execution_handler))
         .route("/api/dashboard-stats", get(execution::get_dashboard_stats))
         .route("/api/execute", post(execution::execute_handler))
         .route("/api/smart-create", post(execution::smart_create_handler))

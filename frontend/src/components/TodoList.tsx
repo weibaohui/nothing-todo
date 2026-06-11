@@ -296,6 +296,32 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
                     }}
                   />
                 )}
+                {todo.todo_type === 1 && (
+                  <span
+                    className="todo-tag-badge"
+                    style={{
+                      backgroundColor: '#722ed118',
+                      color: '#722ed1',
+                      border: '1px solid #722ed130',
+                    }}
+                    title="评审师模板：自动评审时复制此 todo"
+                  >
+                    [评审模板]
+                  </span>
+                )}
+                {todo.todo_type === 2 && (
+                  <span
+                    className="todo-tag-badge"
+                    style={{
+                      backgroundColor: '#13c2c218',
+                      color: '#13c2c2',
+                      border: '1px solid #13c2c230',
+                    }}
+                    title={`评审实例 (原 todo #${todo.parent_todo_id ?? '?'})`}
+                  >
+                    [评审]
+                  </span>
+                )}
               </div>
               <span
                 style={{

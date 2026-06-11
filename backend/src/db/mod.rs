@@ -302,6 +302,91 @@ impl Database {
         Ok(())
     }
 
+    /// 一次性迁移：将旧 `todos.rating`（已不再使用）合并到对应 todo 最新一条
+    /// `execution_records.rating`，然后 DROP COLUMN。
+    /// 设计原因：评分属于执行结果而非 todo 本身。
+    /// - 每个 todo 取最新一条已结束的 execution_record（按 started_at desc）
+    /// - 同一 record 已被多次评分时跳过，避免覆盖更新的评价
+    /// - 失败仅 warn，不阻塞启动
+    async fn migrate_todo_rating_to_execution_records(&self) -> Result<(), sea_orm::DbErr> {
+        // 检查旧列是否存在，不存在则直接跳过（DROP COLUMN 之后再次启动也是幂等的）
+        let check_sql = "SELECT COUNT(*) FROM pragma_table_info('todos') WHERE name='rating'";
+        let result = self
+            .conn
+            .query_one(Statement::from_string(DbBackend::Sqlite, check_sql.to_string()))
+            .await?;
+        let col_exists = result
+            .and_then(|r| r.try_get_by_index::<i64>(0).ok())
+            .unwrap_or(0)
+            > 0;
+        if !col_exists {
+            return Ok(());
+        }
+
+        tracing::info!("Migrating todos.rating -> execution_records.rating...");
+
+        // 拉取所有有评分的 todo 及其最新一条 execution_record
+        let select_sql = "\
+            SELECT t.id AS todo_id, t.rating AS rating, \
+                   (SELECT er.id FROM execution_records er \
+                    WHERE er.todo_id = t.id \
+                    ORDER BY er.started_at DESC LIMIT 1) AS latest_record_id \
+            FROM todos t \
+            WHERE t.rating IS NOT NULL";
+        let rows = self
+            .conn
+            .query_all(Statement::from_string(DbBackend::Sqlite, select_sql.to_string()))
+            .await?;
+
+        let mut migrated = 0u64;
+        for row in rows {
+            let todo_id: i64 = row.try_get_by("todo_id")?;
+            let rating: i32 = match row.try_get_by::<i64, _>("rating") {
+                Ok(v) => v as i32,
+                Err(_) => continue,
+            };
+            let latest_record_id: Option<i64> = row.try_get_by("latest_record_id").ok().flatten();
+            let Some(record_id) = latest_record_id else {
+                tracing::debug!(
+                    "Skip todo {} rating {}: no execution_records",
+                    todo_id, rating
+                );
+                continue;
+            };
+
+            // 仅在该 record 尚未评分时才写入，避免覆盖更新评价
+            let update_sql = "UPDATE execution_records \
+                SET rating = $1 \
+                WHERE id = $2 AND rating IS NULL";
+            let res = self
+                .conn
+                .execute(Statement::from_sql_and_values(
+                    DbBackend::Sqlite,
+                    update_sql,
+                    [rating.into(), record_id.into()],
+                ))
+                .await?;
+            if res.rows_affected() > 0 {
+                migrated += 1;
+            }
+        }
+
+        // 移除旧列
+        if let Err(e) = self
+            .exec("ALTER TABLE todos DROP COLUMN rating")
+            .await
+        {
+            tracing::warn!("Failed to DROP COLUMN todos.rating: {}", e);
+            return Ok(()); // 不阻塞启动，下次启动再重试
+        }
+
+        tracing::info!(
+            "Migrated {} todo ratings to execution_records, dropped todos.rating",
+            migrated
+        );
+        Ok(())
+    }
+
     async fn init_tables(&self) -> Result<(), sea_orm::DbErr> {
         self.exec(
             "CREATE TABLE IF NOT EXISTS todos (
@@ -443,6 +528,60 @@ impl Database {
         self.exec("ALTER TABLE todos ADD COLUMN hooks TEXT")
             .await
             .ok(); // 忽略错误，因为字段可能已存在
+
+        // 添加 acceptance_criteria 字段的迁移（向后兼容）—— Todo 验收条件
+        self.exec("ALTER TABLE todos ADD COLUMN acceptance_criteria TEXT")
+            .await
+            .ok();
+
+        // 添加 rating 字段的迁移（向后兼容）—— 执行记录评分
+        self.exec("ALTER TABLE execution_records ADD COLUMN rating INTEGER")
+            .await
+            .ok();
+
+        // ===== 自动评审（auto-review）字段 =====
+        // todos.todo_type: 0=normal, 1=reviewer_template(系统专用), 2=review_instance(评审实例)
+        self.exec("ALTER TABLE todos ADD COLUMN todo_type INTEGER DEFAULT 0")
+            .await
+            .ok();
+        // todos.parent_todo_id: review_instance 关联到被评审的原 todo
+        self.exec("ALTER TABLE todos ADD COLUMN parent_todo_id INTEGER")
+            .await
+            .ok();
+        // todos.auto_review_enabled: 原 todo 是否在完成后自动 spawn 评审 (默认开)
+        self.exec("ALTER TABLE todos ADD COLUMN auto_review_enabled INTEGER DEFAULT 1")
+            .await
+            .ok();
+        // execution_records.source_execution_record_id: 评审记录精确回填到"原那条"执行记录
+        self.exec("ALTER TABLE execution_records ADD COLUMN source_execution_record_id INTEGER")
+            .await
+            .ok();
+        // execution_records.last_review_status: pending/success/failed/interrupted/skipped
+        self.exec("ALTER TABLE execution_records ADD COLUMN last_review_status TEXT")
+            .await
+            .ok();
+        // execution_records.last_reviewed_at: 最近一次评审 spawn 时间
+        self.exec("ALTER TABLE execution_records ADD COLUMN last_reviewed_at TEXT")
+            .await
+            .ok();
+
+        // 索引: 加速"按 parent_todo_id 查评审实例"
+        self.exec("CREATE INDEX IF NOT EXISTS idx_todos_parent_todo_id ON todos(parent_todo_id)")
+            .await
+            .ok();
+        self.exec("CREATE INDEX IF NOT EXISTS idx_todos_todo_type ON todos(todo_type)")
+            .await
+            .ok();
+        self.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_source_record_id ON execution_records(source_execution_record_id)")
+            .await
+            .ok();
+
+        // 一次性迁移：旧 todos.rating 数据合并到对应 todo 的最新一条 execution_records.rating
+        // 然后 DROP COLUMN todos.rating（评分只属于执行结果）
+        // 失败仅 warn，不阻塞启动（与同位置的其他迁移策略一致）。
+        if let Err(e) = self.migrate_todo_rating_to_execution_records().await {
+            tracing::warn!("Failed to migrate todos.rating -> execution_records.rating: {}", e);
+        }
 
         // 迁移：将 execution_records.logs 旧字段数据转移到 execution_logs 表，并删除旧字段
         self.migrate_logs_to_execution_logs().await
@@ -1513,6 +1652,8 @@ mod tests {
             scheduler_timezone: None,
             workspace: None,
             worktree_enabled: None,
+            acceptance_criteria: None,
+            auto_review_enabled: None,
         })
         .await
         .unwrap();
@@ -1601,6 +1742,7 @@ mod tests {
             result: "done",
             usage: None,
             model: None,
+            review_meta: None,
         })
         .await
         .unwrap();
@@ -1671,6 +1813,8 @@ mod tests {
             scheduler_timezone: None,
             workspace: Some("/tmp/workspace"),
             worktree_enabled: None,
+            acceptance_criteria: None,
+            auto_review_enabled: None,
         })
         .await
         .unwrap();
@@ -1962,6 +2106,7 @@ mod tests {
             result: "",
             usage: None,
             model: None,
+            review_meta: None,
         })
         .await
         .unwrap();
@@ -1973,6 +2118,7 @@ mod tests {
             result: "",
             usage: None,
             model: None,
+            review_meta: None,
         })
         .await
         .unwrap();
@@ -2061,6 +2207,7 @@ mod tests {
             result: "done",
             usage: Some(&usage),
             model: Some("claude-3"),
+            review_meta: None,
         })
         .await
         .unwrap();
@@ -2113,6 +2260,7 @@ mod tests {
             result: "",
             usage: None,
             model: None,
+            review_meta: None,
         })
         .await
         .unwrap();
@@ -2124,6 +2272,7 @@ mod tests {
             result: "",
             usage: None,
             model: None,
+            review_meta: None,
         })
         .await
         .unwrap();
@@ -2156,6 +2305,7 @@ mod tests {
             result: "",
             usage: Some(&usage1),
             model: None,
+            review_meta: None,
         })
         .await
         .unwrap();
@@ -2175,6 +2325,7 @@ mod tests {
             result: "",
             usage: Some(&usage2),
             model: None,
+            review_meta: None,
         })
         .await
         .unwrap();

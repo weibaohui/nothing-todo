@@ -56,7 +56,12 @@ pub async fn create_todo(
         .clone()
         .unwrap_or_else(|| "claudecode".to_string());
 
-    let id = state.db.create_todo(title, &prompt).await?;
+    let id = state.db.create_todo_with_extras(
+        title,
+        &prompt,
+        Some(&executor),
+        req.acceptance_criteria.as_deref(),
+    ).await?;
 
     // Update executor if specified
     if let Some(ref exec) = req.executor {
@@ -112,6 +117,13 @@ pub async fn create_todo(
         }
     }
 
+    // auto_review_enabled: 请求中显式指定为 Some(false) 时关闭, 其它情况保持默认 true
+    if let Some(false) = req.auto_review_enabled {
+        if let Err(e) = state.db.update_todo_auto_review_enabled(id, false).await {
+            tracing::warn!("Failed to disable auto_review for todo {}: {}", id, e);
+        }
+    }
+
     Ok(ApiResponse::ok(Todo {
         id,
         title: title.to_string(),
@@ -129,6 +141,10 @@ pub async fn create_todo(
         workspace: None,
         worktree_enabled: false,
         hooks: req.hooks.clone().unwrap_or_default(),
+        acceptance_criteria: req.acceptance_criteria.clone(),
+        todo_type: 0,
+        parent_todo_id: None,
+        auto_review_enabled: req.auto_review_enabled.unwrap_or(true),
     }))
 }
 
@@ -195,6 +211,8 @@ pub async fn update_todo(
             scheduler_timezone: scheduler_timezone.as_deref(),
             workspace: workspace.as_deref(),
             worktree_enabled: Some(worktree_enabled),
+            acceptance_criteria: req.acceptance_criteria.as_deref(),
+            auto_review_enabled: req.auto_review_enabled,
         })
         .await
         .map_err(AppError::from)?;

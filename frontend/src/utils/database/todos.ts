@@ -13,8 +13,13 @@ export async function createTodo(
   prompt: string = '',
   tagIds: number[] = [],
   hooks: TodoHookItem[] = [],
+  acceptanceCriteria?: string,
+  autoReviewEnabled?: boolean,
 ): Promise<Todo> {
-  return unwrap(await api.post('/api/todos', { title, prompt, tag_ids: tagIds, hooks }));
+  const body: Record<string, unknown> = { title, prompt, tag_ids: tagIds, hooks };
+  if (acceptanceCriteria !== undefined) body.acceptance_criteria = acceptanceCriteria;
+  if (autoReviewEnabled !== undefined) body.auto_review_enabled = autoReviewEnabled;
+  return unwrap(await api.post('/api/todos', body));
 }
 
 export async function updateTodo(
@@ -28,6 +33,8 @@ export async function updateTodo(
   workspace?: string | null,
   worktree_enabled?: boolean,
   hooks?: TodoHookItem[],
+  acceptance_criteria?: string | null,
+  auto_review_enabled?: boolean,
 ): Promise<Todo> {
   const body: Record<string, unknown> = { title, prompt, status };
   if (executor !== undefined) body.executor = executor;
@@ -36,6 +43,8 @@ export async function updateTodo(
   if (workspace !== undefined) body.workspace = workspace;
   if (worktree_enabled !== undefined) body.worktree_enabled = worktree_enabled;
   if (hooks !== undefined) body.hooks = hooks;
+  if (acceptance_criteria !== undefined) body.acceptance_criteria = acceptance_criteria;
+  if (auto_review_enabled !== undefined) body.auto_review_enabled = auto_review_enabled;
 
   return unwrap(await api.put(`/api/todos/${id}`, body));
 }

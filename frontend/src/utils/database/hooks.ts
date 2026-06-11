@@ -17,12 +17,30 @@ export type HookTrigger =
   | 'state_changed_to_completed'
   | 'state_changed_to_failed';
 
+/**
+ * Policy for how the rating gate treats an unrated record. Matches the
+ * backend `UnratedPolicy` enum (snake_case serialization).
+ */
+export type UnratedPolicy = 'skip' | 'pass';
+
 export interface TodoHookItem {
   id: number;
   trigger: HookTrigger;
   target_todo_id: number;
   skip_if_missing?: boolean;
   enabled: boolean;
+  /**
+   * Optional rating gate. When set (0-100), the hook only fires if the
+   * source todo's most recent FINISHED execution record has
+   * `rating >= min_rating`. `undefined`/`null` means no gate (always fire).
+   */
+  min_rating?: number | null;
+  /**
+   * What to do when the source todo has no rating on its latest finished
+   * record. Defaults to `'skip'` (do not fire). `'pass'` treats the missing
+   * rating as if it had passed the gate.
+   */
+  unrated_policy?: UnratedPolicy;
 }
 
 export const HOOK_TRIGGERS: ReadonlyArray<{ value: HookTrigger; label: string }> = [
@@ -31,6 +49,23 @@ export const HOOK_TRIGGERS: ReadonlyArray<{ value: HookTrigger; label: string }>
   { value: 'state_changed_to_completed', label: '状态变为已完成' },
   { value: 'state_changed_to_failed', label: '状态变为失败' },
 ];
+
+export const UNRATED_POLICIES: ReadonlyArray<{ value: UnratedPolicy; label: string; description: string }> = [
+  {
+    value: 'skip',
+    label: '未评分时跳过',
+    description: '安全默认：未评分视为不达标，不触发下游',
+  },
+  {
+    value: 'pass',
+    label: '未评分时通过',
+    description: '宽松：只有明确低分才会拦截，未评分时正常触发',
+  },
+];
+
+/** Default rating gate when the user opens the modal fresh. */
+export const DEFAULT_MIN_RATING: number | null = null;
+export const DEFAULT_UNRATED_POLICY: UnratedPolicy = 'skip';
 
 const HOOK_TRIGGER_LABEL_BY_VALUE: Record<HookTrigger, string> = HOOK_TRIGGERS.reduce(
   (acc, t) => ({ ...acc, [t.value]: t.label }),
