@@ -119,7 +119,7 @@ impl CodeExecutor for PiExecutor {
                 }
                 "message_end" => {
                     // message_end 包含完整的消息内容
-                    // 只有 assistant 消息才包含 AI 回复内容，user 消息不需要处理
+                    // 提取 assistant 消息的 text 内容
                     if let Some(msg) = event.message {
                         if msg.role.as_deref() != Some("assistant") {
                             return None;
@@ -150,26 +150,82 @@ impl CodeExecutor for PiExecutor {
                     None
                 }
                 "message_update" => {
-                    // message_update 包含增量内容，处理 thinking 和 text delta
-                    if let Some(msg) = event.message {
-                        for block in &msg.content {
-                            match block {
-                                super::pi_event::PiContentBlock::Thinking { thinking } => {
-                                    if let Some(t) = thinking {
-                                        let trimmed = t.trim();
-                                        if !trimmed.is_empty() {
-                                            return Some(ParsedLogEntry {
-                                                timestamp: utc_timestamp(),
-                                                log_type: "thinking".to_string(),
-                                                content: trimmed.chars().take(500).collect(),
-                                                usage: None,
-                                                tool_name: None,
-                                                tool_input_json: None,
-                                            });
+                    // message_update 包含增量内容
+                    // 优先从 assistantMessageEvent 提取 text delta（实际回复内容）
+                    if let Some(ame) = event.assistant_message_event {
+                        // 处理 text_delta - 这是实际的回复文本
+                        if ame.event_type.as_deref() == Some("text_delta") {
+                            if let Some(delta) = &ame.delta {
+                                let trimmed = delta.trim();
+                                if !trimmed.is_empty() {
+                                    return Some(ParsedLogEntry {
+                                        timestamp: utc_timestamp(),
+                                        log_type: "assistant".to_string(),
+                                        content: trimmed.to_string(),
+                                        usage: None,
+                                        tool_name: None,
+                                        tool_input_json: None,
+                                    });
+                                }
+                            }
+                        }
+                        // 处理 thinking_delta - 这是 thinking 内容的增量
+                        if ame.event_type.as_deref() == Some("thinking_delta") {
+                            if let Some(delta) = &ame.delta {
+                                let trimmed = delta.trim();
+                                if !trimmed.is_empty() {
+                                    return Some(ParsedLogEntry {
+                                        timestamp: utc_timestamp(),
+                                        log_type: "thinking".to_string(),
+                                        content: trimmed.chars().take(500).collect(),
+                                        usage: None,
+                                        tool_name: None,
+                                        tool_input_json: None,
+                                    });
+                                }
+                            }
+                        }
+                        // 处理 thinking_start / thinking_end - 完整的 thinking 内容
+                        if ame.event_type.as_deref() == Some("thinking_start") ||
+                           ame.event_type.as_deref() == Some("thinking_end") {
+                            if let Some(partial) = &ame.partial {
+                                for block in &partial.content {
+                                    if let super::pi_event::PiContentBlock::Thinking { thinking } = block {
+                                        if let Some(t) = thinking {
+                                            let trimmed = t.trim();
+                                            if !trimmed.is_empty() {
+                                                return Some(ParsedLogEntry {
+                                                    timestamp: utc_timestamp(),
+                                                    log_type: "thinking".to_string(),
+                                                    content: trimmed.chars().take(500).collect(),
+                                                    usage: None,
+                                                    tool_name: None,
+                                                    tool_input_json: None,
+                                                });
+                                            }
                                         }
                                     }
                                 }
-                                _ => {}
+                            }
+                        }
+                    }
+                    // 备用：从 message.content 解析（处理非 assistant 消息或无 assistantMessageEvent 的情况）
+                    if let Some(msg) = event.message {
+                        for block in &msg.content {
+                            if let super::pi_event::PiContentBlock::Thinking { thinking } = block {
+                                if let Some(t) = thinking {
+                                    let trimmed = t.trim();
+                                    if !trimmed.is_empty() {
+                                        return Some(ParsedLogEntry {
+                                            timestamp: utc_timestamp(),
+                                            log_type: "thinking".to_string(),
+                                            content: trimmed.chars().take(500).collect(),
+                                            usage: None,
+                                            tool_name: None,
+                                            tool_input_json: None,
+                                        });
+                                    }
+                                }
                             }
                         }
                     }

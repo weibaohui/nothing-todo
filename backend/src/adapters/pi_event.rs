@@ -22,6 +22,9 @@ pub struct PiEvent {
     // message 事件
     #[serde(default)]
     pub message: Option<PiMessage>,
+    // message_update 中的 assistant 事件（包含 thinking_delta / text_delta）
+    #[serde(default, rename = "assistantMessageEvent")]
+    pub assistant_message_event: Option<PiAssistantMessageEvent>,
     // tool_execution 事件
     #[serde(default)]
     pub tool_execution: Option<PiToolExecution>,
@@ -66,6 +69,28 @@ pub enum PiContentBlock {
     Thinking { thinking: Option<String> },
     #[serde(rename = "redacted")]
     Redacted { redacted: Option<String> },
+}
+
+/// assistantMessageEvent 中的内容（message_update 时包含 thinking_delta / text_delta）
+#[derive(Debug, Clone, Deserialize)]
+pub struct PiAssistantMessageEvent {
+    #[serde(rename = "type")]
+    pub event_type: Option<String>,
+    #[serde(default)]
+    pub content_index: Option<u32>,
+    #[serde(default)]
+    pub delta: Option<String>,
+    #[serde(default)]
+    pub partial: Option<PiAssistantMessagePartial>,
+}
+
+/// partial 内容（包含完整的 thinking 或 text）
+#[derive(Debug, Clone, Deserialize)]
+pub struct PiAssistantMessagePartial {
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub content: Vec<PiContentBlock>,
 }
 
 /// 工具执行事件（tool_execution_start / tool_execution_update / tool_execution_end）
