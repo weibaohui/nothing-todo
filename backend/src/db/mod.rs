@@ -66,7 +66,7 @@ impl Database {
         };
 
         let mut opt = ConnectOptions::new(url);
-        opt.max_connections(1)
+        opt.max_connections(10)
             .min_connections(1)
             .connect_timeout(Duration::from_secs(5))
             .sqlx_logging(false);
