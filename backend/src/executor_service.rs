@@ -1227,9 +1227,8 @@ async fn run_auto_review_inner(
         .replace("{original_output}", &truncated)
         .replace("{acceptance_criteria}", acceptance_criteria);
 
-    // 4) clone 评审实例 todo
-    let review_todo_id = db.clone_todo_for_review(template_id, original.id).await
-        .map_err(|e| format!("clone review instance: {}", e))?;
+    // 4) 复用评审师模板 todo，直接执行（不 clone 新实例）
+    let review_todo_id = template_id;
 
     // 5) 标记 pending
     let _ = db.set_record_last_review_status(record_id, "pending").await;
@@ -1295,11 +1294,6 @@ async fn run_auto_review_inner(
     }
     let _ = db.link_review_to_source(review_record_id, record_id, review_status_str).await;
     let _ = db.set_record_last_review_status(record_id, review_status_str).await;
-    // 评审实例自身 todo 也转完成
-    let _ = db.finish_todo_execution(
-        review_todo_id,
-        matches!(review_status_str, "success"),
-    ).await;
 
     tracing::info!(
         "auto-review done: original_todo=#{} record=#{} review_todo=#{} review_record=#{} status={} rating={:?}",
