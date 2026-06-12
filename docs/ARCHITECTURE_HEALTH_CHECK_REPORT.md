@@ -58,9 +58,9 @@
 │                       │                      │
 │  ┌────────────────────▼──────────────────┐  │
 │  │     Adapters (执行器适配器)            │  │
-│  │  claude_code / joinai / codebuddy /  │  │
+│  │  claude_code / mobilecoder / codebuddy /  │  │
 │  │  opencode / atomcode / hermes / kimi  │  │
-│  │  / codex / codewhale                  │  │
+│  │  / codex / codewhale / pi             │  │
 │  └────────────────────┬──────────────────┘  │
 │                       │                      │
 │  ┌────────────────────▼──────────────────┐  │
@@ -117,7 +117,7 @@
    - Mutex 保护 + 失败回滚机制
    - flush 互斥锁防止并发写库竞态
 3. **优雅取消**：任务取消使用 `tokio::select!` + biased 优先处理，支持进程树级 SIGTERM → SIGKILL
-4. **执行器适配器模式**：统一的 `CodeExecutor` trait，9 个执行器的具体实现各自独立
+4. **执行器适配器模式**：统一的 `CodeExecutor` trait，10 个执行器的具体实现各自独立
 5. **WebSocket 实时推送**：Started / Output / Finished / Sync / TodoProgress / ExecutionStats 六种事件
 6. **数据库表设计**：完整的索引、触发器（UTC 时间自动填充）、迁移兼容（ADD COLUMN IF NOT EXISTS）
 7. **JSON 提取器**：自定义 `ApiJson` 提取器，统一 JSON 解析错误格式

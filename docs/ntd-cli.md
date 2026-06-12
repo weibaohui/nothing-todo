@@ -95,7 +95,7 @@ ntd todo create [TITLE] [OPTIONS]
 
 **执行器类型：**
 - `claudecode` - Claude Code
-- `joinai` - JoinAI
+- `mobilecoder` - MobileCoder
 - `codebuddy` - CodeBuddy
 - `opencode` - OpenCode
 - `atomcode` - AtomCode
@@ -103,6 +103,7 @@ ntd todo create [TITLE] [OPTIONS]
 - `kimi` - Kimi
 - `codex` - Codex
 - `codewhale` - CodeWhale
+- `pi` - Pi
 
 **示例：**
 ```bash
@@ -562,7 +563,7 @@ ntd skill install [OPTIONS]
 | `--force` | `-f` | 强制重新安装（即使目录已存在） |
 | `--executor <LIST>` | `-e` | 仅安装到指定执行器（逗号分隔，例如 `claudecode,atomcode`）；不传则安装到全部已知执行器 |
 
-支持的执行器：`claudecode`、`hermes`、`codex`、`codebuddy`、`opencode`、`atomcode`、`kimi`、`joinai`、`codewhale`。
+支持的执行器：`claudecode`、`hermes`、`codex`、`codebuddy`、`opencode`、`atomcode`、`kimi`、`mobilecoder`、`codewhale`、`pi`。
 
 **示例：**
 ```bash
