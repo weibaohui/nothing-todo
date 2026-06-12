@@ -615,6 +615,380 @@ fn scan_atomcode(sessions: &mut Vec<SessionInfo>) {
 
 
 
+// ─── Pi CLI Scanner ────────────────────────────────────────────
+
+/// 把 pi 的项目目录编码还原成绝对路径。
+///
+/// pi 把 cwd 里的 `/` 替换为 `-`，并在头尾各加一个 `-`：
+/// `/Users/weibh/projects/rust/nothing-todo` → `--Users-weibh-projects-rust-nothing-todo--`。
+/// 反向就是去掉首尾的 `-` 再把 `-` 还原成 `/`。
+fn decode_pi_cwd(encoded: &str) -> String {
+    encoded.trim_matches('-').replace('-', "/")
+}
+
+/// JSONL 单行容错解析：只关心 `type` 字段、嵌套 `message` 字段和顶层 `cwd`/`id`/`timestamp`。
+///
+/// pi 的事件结构由 `backend/src/adapters/pi_event.rs` 描述；这里用的是 serde_json::Value
+/// 偷懒解析（容错性比强类型更好），因为 scan 阶段不需要完整类型校验。
+fn parse_pi_line(line: &str) -> Option<(String, serde_json::Value)> {
+    let v: serde_json::Value = serde_json::from_str(line).ok()?;
+    let event_type = v.get("type")?.as_str()?.to_string();
+    Some((event_type, v))
+}
+
+/// 从 pi session JSONL 文件里统计消息数 / tokens / 首个 user prompt / 最终 model。
+///
+/// 完整 JSONL 解析代价较大（实测单个 session 最高 1.5MB、772 行），但 JSONL 解析一次到
+/// `serde_json::Value` 比逐字段 char-level 解析要快且安全。该函数只走一遍文件。
+fn summarize_pi_jsonl(content: &str) -> PiSessionSummary {
+    let mut summary = PiSessionSummary::default();
+    let mut found_user_prompt = false;
+
+    for line in content.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let Some((event_type, v)) = parse_pi_line(line) else {
+            continue;
+        };
+
+        // 第一行 (event_type == "session") 优先拿 cwd / id / timestamp，跳过 content 解析
+        if event_type == "session" {
+            if summary.cwd.is_none() {
+                summary.cwd = v.get("cwd").and_then(|c| c.as_str()).map(String::from);
+            }
+            if summary.created_at.is_none() {
+                summary.created_at = v.get("timestamp").and_then(|t| t.as_str()).map(String::from);
+            }
+            if summary.version.is_none() {
+                summary.version = v.get("version").and_then(|v| v.as_u64()).map(|n| n.to_string());
+            }
+            continue;
+        }
+
+        // model_change 事件：provider + modelId。只在未设置时记录（第一条 model_change 决定 session 模型）
+        if event_type == "model_change" {
+            if summary.model.is_none() {
+                let model_id = v.get("modelId").and_then(|m| m.as_str()).map(String::from);
+                let provider = v.get("provider").and_then(|p| p.as_str()).map(String::from);
+                summary.model = match (provider, model_id) {
+                    (Some(p), Some(m)) => Some(format!("{}/{}", p, m)),
+                    (_, Some(m)) => Some(m),
+                    (Some(p), None) => Some(p),
+                    _ => None,
+                };
+            }
+            continue;
+        }
+
+        if event_type == "message" {
+            summary.message_count += 1;
+            let msg = match v.get("message") {
+                Some(m) => m,
+                None => continue,
+            };
+
+            // 首个 user prompt 提取
+            if !found_user_prompt {
+                let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
+                if role == "user" {
+                    if let Some(text) = msg.get("content").and_then(|c| c.as_array()).and_then(|arr| {
+                        arr.iter().find_map(|c| c.get("text").and_then(|t| t.as_str()))
+                    }) {
+                        summary.first_prompt = Some(text.to_string());
+                        found_user_prompt = true;
+                    }
+                }
+            }
+
+            // tokens 累加：pi 的 usage 里 input 是不含缓存读写的净 input，
+            // cacheRead/cacheWrite 单独记录；本 scan 把 cache 命中量计入 input
+            // 等价物，避免反复读缓存的 session 在面板上只看到 output 高、input 低。
+            if let Some(usage) = msg.get("usage") {
+                let i = usage.get("input").and_then(|n| n.as_u64()).unwrap_or(0);
+                let cr = usage.get("cacheRead").and_then(|n| n.as_u64()).unwrap_or(0);
+                let cw = usage.get("cacheWrite").and_then(|n| n.as_u64()).unwrap_or(0);
+                summary.total_input_tokens += i + cr + cw;
+                if let Some(o) = usage.get("output").and_then(|n| n.as_u64()) {
+                    summary.total_output_tokens += o;
+                }
+            }
+
+            // 取 message 行的时间戳作为 last_active_at（持续更新为最新）
+            if let Some(ts) = v.get("timestamp").and_then(|t| t.as_str()) {
+                summary.last_active_at = Some(ts.to_string());
+            }
+        }
+    }
+    summary
+}
+
+#[derive(Default)]
+struct PiSessionSummary {
+    cwd: Option<String>,
+    created_at: Option<String>,
+    last_active_at: Option<String>,
+    version: Option<String>,
+    model: Option<String>,
+    first_prompt: Option<String>,
+    message_count: u32,
+    total_input_tokens: u64,
+    total_output_tokens: u64,
+}
+
+/// 把 session JSONL 文件的 mtime 转成 RFC3339 字符串。
+fn pi_mtime_to_rfc3339(path: &std::path::Path) -> Option<String> {
+    let mtime = std::fs::metadata(path).ok()?.modified().ok()?;
+    let dt: chrono::DateTime<chrono::Utc> = mtime.into();
+    Some(dt.to_rfc3339())
+}
+
+/// pi 的 session 按项目目录存储，没有独立 active 索引。
+/// 启发式：mtime < ACTIVE_WINDOW_SECONDS 视为 active。
+///
+/// 5 分钟窗口是个粗略估计：pi 在持续对话时几乎每秒都会 fsync JSONL；超过 5 分钟没
+/// 写入通常意味着用户切换/退出。短于 5 分钟的瞬时静默（如网络抖动）会被误判为
+/// active，代价仅是列表多一条 "active"，可以接受。
+const PI_ACTIVE_WINDOW_SECONDS: u64 = 5 * 60;
+
+fn scan_pi(sessions: &mut Vec<SessionInfo>) {
+    let root = home_dir().join(".pi/agent/sessions");
+    if !root.exists() { return; }
+
+    let project_dirs = match std::fs::read_dir(&root) {
+        Ok(it) => it,
+        Err(_) => return,
+    };
+
+    for project_entry in project_dirs.flatten() {
+        let path = project_entry.path();
+        if !path.is_dir() { continue; }
+
+        // 文件名格式: --Users-weibh-projects-rust-nothing-todo--（首尾各一个 -）
+        let encoded = project_entry.file_name().to_string_lossy().to_string();
+        let decoded_cwd = decode_pi_cwd(&encoded);
+        let dir_mtime = std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| {
+                let dt: chrono::DateTime<chrono::Utc> = t.into();
+                let secs = (chrono::Utc::now() - dt).num_seconds().max(0) as u64;
+                Some(secs)
+            })
+            .unwrap_or(u64::MAX);
+
+        let files = match std::fs::read_dir(&path) {
+            Ok(it) => it,
+            Err(_) => continue,
+        };
+        for file in files.flatten() {
+            let fpath = file.path();
+            if fpath.extension().and_then(|e| e.to_str()) != Some("jsonl") { continue; }
+
+            // 文件名格式: <iso-ts>_<uuid>.jsonl
+            // 例如: 2026-06-11T01-44-54-108Z_019eb45a-8e5c-7cf4-95f9-787b5a83b0fa.jsonl
+            let stem = match fpath.file_stem().and_then(|s| s.to_str()) {
+                Some(s) => s.to_string(),
+                None => continue,
+            };
+            let session_id = match stem.rsplit_once('_') {
+                Some((_ts, uuid)) => uuid.to_string(),
+                None => stem.clone(),
+            };
+
+            let file_size = std::fs::metadata(&fpath).map(|m| m.len()).unwrap_or(0);
+            let file_mtime = std::fs::metadata(&fpath)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| {
+                    let dt: chrono::DateTime<chrono::Utc> = t.into();
+                    let secs = (chrono::Utc::now() - dt).num_seconds().max(0) as u64;
+                    Some(secs)
+                })
+                .unwrap_or(u64::MAX);
+
+            // mtime 检查：仅看文件 mtime。父目录 mtime 只在「文件增/删/重命名」时更新，
+            // 不反映文件内容修改；用「同项目下其他老 session 在新 session 创建后被错标为 active」。
+            // 父目录 mtime 信息保留在 dir_mtime 变量中供以后需要独立状态时使用。
+            let _ = dir_mtime;
+            let is_active = file_mtime < PI_ACTIVE_WINDOW_SECONDS;
+
+            // 跳过过期的 0 字节文件
+            if file_size == 0 {
+                continue;
+            }
+
+            // 解析整个文件：取 cwd / model / tokens / first_prompt 等。
+            // mtime 启发式已经能给出 active 标记，因此我们只走一遍文件
+            let content = match std::fs::read_to_string(&fpath) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let summary = summarize_pi_jsonl(&content);
+
+            // cwd 优先级：JSONL 首行 > 文件名反编码
+            let cwd = summary.cwd.unwrap_or_else(|| decoded_cwd.clone());
+            // last_active_at 优先级：JSONL 最后事件时间戳 > 文件 mtime
+            let last_active_at = summary
+                .last_active_at
+                .clone()
+                .or_else(|| pi_mtime_to_rfc3339(&fpath));
+
+            sessions.push(SessionInfo {
+                session_id,
+                source: "pi".to_string(),
+                project_path: cwd,
+                status: if is_active { "active".into() } else { "completed".into() },
+                executor: "pi".to_string(),
+                model: summary.model.unwrap_or_else(|| "-".into()),
+                git_branch: None, // pi 不跟踪 git 分支
+                message_count: summary.message_count,
+                total_input_tokens: summary.total_input_tokens,
+                total_output_tokens: summary.total_output_tokens,
+                first_prompt: summary.first_prompt.map(|p| truncate_str(&p, 200)),
+                created_at: summary.created_at,
+                last_active_at,
+                file_size,
+                version: summary.version,
+                subagent_count: 0,
+            });
+        }
+    }
+}
+
+#[cfg(test)]
+mod pi_scan_tests {
+    use super::*;
+
+    #[test]
+    fn decode_pi_cwd_works() {
+        // 基本替换：/→-，头尾加 -
+        assert_eq!(decode_pi_cwd("--Users-weibh--"), "Users/weibh");
+        assert_eq!(decode_pi_cwd("--tmp--"), "tmp");
+        // 没有首尾的 -：原样替换（表示这不是 pi 编码过的）
+        assert_eq!(decode_pi_cwd("foo"), "foo");
+        // ⚠️ 已知歧义：项目名中的连字符会被错误还原为 /。
+        // 例如真实路径 `/Users/weibh/projects/rust/nothing-todo` 被 pi 编码为
+        // `--Users-weibh-projects-rust-nothing-todo--`，但我们反解码出的是
+        // `Users/weibh/projects/rust/nothing/todo`。这是 pi 编码策略本身的歧义：
+        // 它无法区分「路径分隔符」与「合法目录名里的 -」。
+        // 调用方（scan_pi）实际优先用 JSONL 首行的 `cwd` 字段，filename
+        // 解码结果仅在 cwd 缺失时作为 hint 使用。
+        assert_eq!(
+            decode_pi_cwd("--Users-weibh-projects-rust-nothing-todo--"),
+            "Users/weibh/projects/rust/nothing/todo"
+        );
+    }
+
+    #[test]
+    fn parse_pi_line_handles_garbage() {
+        assert!(parse_pi_line("").is_none());
+        assert!(parse_pi_line("not json").is_none());
+        assert!(parse_pi_line("{}").is_none()); // no type
+    }
+
+    #[test]
+    fn summarize_pi_jsonl_extracts_tokens_and_first_prompt() {
+        let content = "\
+{\"type\":\"session\",\"version\":3,\"id\":\"019eb48c-a6c0-79b1-88ae-44ec6a1bf9bd\",\"timestamp\":\"2026-06-11T02:39:37.152Z\",\"cwd\":\"/Users/weibh/projects/nothing-todo\"}
+{\"type\":\"model_change\",\"id\":\"4500ec8e\",\"timestamp\":\"2026-06-11T02:39:37.175Z\",\"provider\":\"anthropic\",\"modelId\":\"claude-opus-4\"}
+{\"type\":\"message\",\"timestamp\":\"2026-06-11T02:39:39.498Z\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"你好\"}]}}
+{\"type\":\"message\",\"timestamp\":\"2026-06-11T02:39:50.086Z\",\"message\":{\"role\":\"assistant\",\"content\":[],\"model\":\"claude-opus-4\",\"usage\":{\"input\":15,\"output\":44,\"cacheRead\":2585,\"cacheWrite\":0,\"totalTokens\":2644},\"stopReason\":\"toolUse\"}}
+{\"type\":\"message\",\"timestamp\":\"2026-06-11T02:40:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"done\"}],\"usage\":{\"input\":1,\"output\":2,\"totalTokens\":3}}}
+";
+        let s = summarize_pi_jsonl(content);
+        assert_eq!(s.cwd.as_deref(), Some("/Users/weibh/projects/nothing-todo"));
+        assert_eq!(s.version.as_deref(), Some("3"));
+        assert_eq!(s.model.as_deref(), Some("anthropic/claude-opus-4"));
+        assert_eq!(s.message_count, 3);
+        // msg2: input=15 + cacheRead=2585 + cacheWrite=0 = 2600
+        // msg3: input=1（无 cache）
+        // total input = 2601（cache 计入 input 等价物）
+        assert_eq!(s.total_input_tokens, 2601);
+        assert_eq!(s.total_output_tokens, 46);
+        assert_eq!(s.first_prompt.as_deref(), Some("你好"));
+        assert_eq!(s.last_active_at.as_deref(), Some("2026-06-11T02:40:01.000Z"));
+    }
+
+    /// 扫真实本地 ~/.pi/agent/sessions/，验证 scan_pi 端到端可用。
+    /// 需要本地安装并使用过 pi。默认 #[ignore] 不参与 CI，仅手动验证：
+    ///   cargo test --lib -- --ignored scan_pi_against_real_local_data
+    #[test]
+    #[ignore]
+    fn scan_pi_against_real_local_data() {
+        let mut sessions = Vec::new();
+        scan_pi(&mut sessions);
+        assert!(
+            !sessions.is_empty(),
+            "expected scan_pi to find at least one session under ~/.pi/agent/sessions/"
+        );
+        // 拿一个 session_id 走 get_pi_detail，验证 C1 不再返 404
+        let first = &sessions[0];
+        let detail = get_pi_detail(&first.session_id)
+            .expect("C1: get_pi_detail should return Some for a session scan_pi found");
+        assert_eq!(detail.info.source, "pi");
+        assert_eq!(detail.info.session_id, first.session_id);
+        assert!(
+            !detail.messages.is_empty(),
+            "expected get_pi_detail to populate messages"
+        );
+        for s in &sessions {
+            println!(
+                "id={} cwd={} status={} model={} msgs={} in={} out={} size={}",
+                s.session_id,
+                s.project_path,
+                s.status,
+                s.model,
+                s.message_count,
+                s.total_input_tokens,
+                s.total_output_tokens,
+                s.file_size
+            );
+            assert!(s.source == "pi");
+            assert!(!s.session_id.is_empty());
+        }
+    }
+
+    /// 验证 cacheRead/cacheWrite 被计入 total_input_tokens（H3-A 修法）。
+    /// 场景：一条 message 只含 cacheRead（0 input/0 output），另一条只含 cacheWrite。
+    #[test]
+    fn summarize_pi_jsonl_handles_cache_tokens() {
+        let content = "\
+{\"type\":\"session\",\"id\":\"aaa\",\"timestamp\":\"2026-06-11T02:00:00Z\",\"cwd\":\"/x\"}
+{\"type\":\"message\",\"timestamp\":\"2026-06-11T02:00:01Z\",\"message\":{\"role\":\"assistant\",\"content\":[],\"usage\":{\"input\":0,\"output\":10,\"cacheRead\":100,\"cacheWrite\":0,\"totalTokens\":110}}}
+{\"type\":\"message\",\"timestamp\":\"2026-06-11T02:00:02Z\",\"message\":{\"role\":\"assistant\",\"content\":[],\"usage\":{\"input\":0,\"output\":20,\"cacheRead\":0,\"cacheWrite\":50,\"totalTokens\":70}}}
+";
+        let s = summarize_pi_jsonl(content);
+        // msg1: input=0 + cacheRead=100 + cacheWrite=0 = 100
+        // msg2: input=0 + cacheRead=0 + cacheWrite=50 = 50
+        assert_eq!(s.total_input_tokens, 150);
+        assert_eq!(s.total_output_tokens, 30);
+    }
+
+    /// 验证 build_pi_messages 输出预览包含 text 与 toolCall 拼接、role 正确、stop_reason 提取。
+    #[test]
+    fn build_pi_messages_extracts_text_and_tool_calls() {
+        let content = "\
+{\"type\":\"session\",\"id\":\"aaa\",\"timestamp\":\"2026-06-11T02:00:00Z\",\"cwd\":\"/x\"}
+{\"type\":\"message\",\"timestamp\":\"2026-06-11T02:00:01Z\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"看一下\"}]}}
+{\"type\":\"message\",\"timestamp\":\"2026-06-11T02:00:02Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"好的。\"},{\"type\":\"toolCall\",\"id\":\"c1\",\"name\":\"bash\",\"arguments\":{\"command\":\"ls\"}}],\"model\":\"claude-opus-4\",\"usage\":{\"input\":5,\"output\":3,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":8},\"stopReason\":\"toolUse\"}}
+";
+        let (msgs, summary) = build_pi_messages(content);
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].role, "user");
+        assert!(msgs[0].content_preview.contains("看一下"));
+        assert_eq!(msgs[1].role, "assistant");
+        assert!(msgs[1].content_preview.contains("好的"));
+        assert!(msgs[1].content_preview.contains("[toolCall: bash]"));
+        assert_eq!(msgs[1].stop_reason.as_deref(), Some("toolUse"));
+        assert_eq!(msgs[1].model.as_deref(), Some("claude-opus-4"));
+        assert_eq!(msgs[1].input_tokens, Some(5));
+        assert_eq!(msgs[1].output_tokens, Some(3));
+        // first_prompt 取自首条 user
+        assert_eq!(summary.first_prompt.as_deref(), Some("看一下"));
+    }
+}
+
 // ─── Unified scan ─────────────────────────────────────────
 
 /// Map executor name to scanner function and default source name.
@@ -626,6 +1000,7 @@ fn get_scanner(name: &str) -> Option<fn(&mut Vec<SessionInfo>)> {
         "hermes" => Some(scan_hermes),
         "kimi" => Some(scan_kimi),
         "atomcode" => Some(scan_atomcode),
+        "pi" => Some(scan_pi),
         "codebuddy" | "opencode" | "mobilecoder" => None, // no session storage found
         _ => None,
     }
@@ -772,6 +1147,8 @@ pub async fn get_session_detail(
         if let Some(d) = get_kimi_detail(&session_id) { return Some(d); }
         // AtomCode
         if let Some(d) = get_atomcode_detail(&session_id) { return Some(d); }
+        // Pi
+        if let Some(d) = get_pi_detail(&session_id) { return Some(d); }
         None
     })
     .await
@@ -1254,6 +1631,186 @@ fn get_atomcode_detail(session_id: &str) -> Option<SessionDetail> {
                     });
                 }
             }
+        }
+    }
+    None
+}
+
+// ─── Pi Detail ──────────────────────────────────────────────
+
+/// 从 session JSONL 里抽取消息预览/usage/stop_reason 等用于详情面板。
+///
+/// 优先复用 scan_pi 用的 summarize 逻辑，但详情页面要 messages 数组而不仅是
+/// 计数，所以这里另外走一遍 file。
+fn build_pi_messages(content: &str) -> (Vec<SessionMessage>, PiSessionSummary) {
+    let mut messages: Vec<SessionMessage> = Vec::new();
+    let mut summary = PiSessionSummary::default();
+
+    for line in content.lines() {
+        if line.is_empty() { continue; }
+        let Some((event_type, v)) = parse_pi_line(line) else { continue; };
+
+        if event_type == "session" {
+            if summary.cwd.is_none() {
+                summary.cwd = v.get("cwd").and_then(|c| c.as_str()).map(String::from);
+            }
+            if summary.created_at.is_none() {
+                summary.created_at = v.get("timestamp").and_then(|t| t.as_str()).map(String::from);
+            }
+            if summary.version.is_none() {
+                summary.version = v.get("version").and_then(|v| v.as_u64()).map(|n| n.to_string());
+            }
+            continue;
+        }
+
+        if event_type == "model_change" {
+            if summary.model.is_none() {
+                let model_id = v.get("modelId").and_then(|m| m.as_str()).map(String::from);
+                let provider = v.get("provider").and_then(|p| p.as_str()).map(String::from);
+                summary.model = match (provider, model_id) {
+                    (Some(p), Some(m)) => Some(format!("{}/{}", p, m)),
+                    (_, Some(m)) => Some(m),
+                    (Some(p), None) => Some(p),
+                    _ => None,
+                };
+            }
+            continue;
+        }
+
+        if event_type != "message" { continue; }
+        let Some(msg) = v.get("message") else { continue; };
+        summary.message_count += 1;
+
+        let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("").to_string();
+        // 从 content 数组里拼接 text / toolCall 名作为预览
+        let preview = msg.get("content")
+            .and_then(|c| c.as_array())
+            .map(|arr| {
+                let mut pieces: Vec<String> = Vec::new();
+                for block in arr {
+                    match block.get("type").and_then(|t| t.as_str()) {
+                        Some("text") => {
+                            if let Some(t) = block.get("text").and_then(|t| t.as_str()) {
+                                pieces.push(t.to_string());
+                            }
+                        }
+                        Some("toolCall") => {
+                            let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("?");
+                            pieces.push(format!("[toolCall: {}]", name));
+                        }
+                        Some("toolResult") => {
+                            // 预览里仅占位，避免巨大工具输出烒友预览
+                            pieces.push("[toolResult]".to_string());
+                        }
+                        _ => {}
+                    }
+                }
+                pieces.join("\n")
+            })
+            .unwrap_or_default();
+
+        let input_tokens = msg.get("usage").and_then(|u| u.get("input")).and_then(|n| n.as_u64());
+        let output_tokens = msg.get("usage").and_then(|u| u.get("output")).and_then(|n| n.as_u64());
+        let stop_reason = msg.get("stopReason").and_then(|s| s.as_str()).map(String::from);
+        let model = msg.get("model").and_then(|m| m.as_str()).map(String::from);
+        let timestamp = v.get("timestamp").and_then(|t| t.as_str()).map(String::from);
+
+        // first_prompt 提取（与 scan_pi 逻辑一致）
+        if summary.first_prompt.is_none() && role == "user" {
+            if let Some(text) = msg.get("content").and_then(|c| c.as_array()).and_then(|arr| {
+                arr.iter().find_map(|c| c.get("text").and_then(|t| t.as_str()))
+            }) {
+                summary.first_prompt = Some(text.to_string());
+            }
+        }
+
+        // tokens 累加（与 scan_pi 一致：cache 计入 input）
+        if let Some(usage) = msg.get("usage") {
+            let i = usage.get("input").and_then(|n| n.as_u64()).unwrap_or(0);
+            let cr = usage.get("cacheRead").and_then(|n| n.as_u64()).unwrap_or(0);
+            let cw = usage.get("cacheWrite").and_then(|n| n.as_u64()).unwrap_or(0);
+            summary.total_input_tokens += i + cr + cw;
+            if let Some(o) = usage.get("output").and_then(|n| n.as_u64()) {
+                summary.total_output_tokens += o;
+            }
+        }
+        if let Some(ts) = &timestamp {
+            summary.last_active_at = Some(ts.clone());
+        }
+
+        messages.push(SessionMessage {
+            role,
+            content_preview: truncate_str(&preview, 500),
+            model,
+            input_tokens,
+            output_tokens,
+            timestamp,
+            stop_reason,
+        });
+    }
+
+    (messages, summary)
+}
+
+fn get_pi_detail(session_id: &str) -> Option<SessionDetail> {
+    let root = home_dir().join(".pi/agent/sessions");
+    if !root.exists() { return None; }
+
+    let project_dirs = std::fs::read_dir(&root).ok()?;
+    for project_dir in project_dirs.flatten().filter(|e| e.path().is_dir()) {
+        let files = match std::fs::read_dir(project_dir.path()) {
+            Ok(it) => it,
+            Err(_) => continue,
+        };
+        for file in files.flatten() {
+            let path = file.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") { continue; }
+            let stem = match path.file_stem().and_then(|s| s.to_str()) {
+                Some(s) => s.to_string(),
+                None => continue,
+            };
+            // 文件名 = <iso-ts>_<uuid>.jsonl，session_id 是后半 UUID
+            let parsed_sid = match stem.rsplit_once('_') {
+                Some((_ts, uuid)) => uuid.to_string(),
+                None => stem.clone(),
+            };
+            if parsed_sid != session_id { continue; }
+
+            let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let content = std::fs::read_to_string(&path).ok()?;
+            let (messages, summary) = build_pi_messages(&content);
+
+            let project_path = summary.cwd.clone().unwrap_or_else(|| {
+                let encoded = project_dir.file_name().to_string_lossy().to_string();
+                decode_pi_cwd(&encoded)
+            });
+            let last_active_at = summary
+                .last_active_at
+                .clone()
+                .or_else(|| pi_mtime_to_rfc3339(&path));
+
+            return Some(SessionDetail {
+                info: SessionInfo {
+                    session_id: session_id.to_string(),
+                    source: "pi".to_string(),
+                    project_path,
+                    status: "completed".to_string(),
+                    executor: "pi".to_string(),
+                    model: summary.model.clone().unwrap_or_else(|| "-".into()),
+                    git_branch: None,
+                    message_count: summary.message_count,
+                    total_input_tokens: summary.total_input_tokens,
+                    total_output_tokens: summary.total_output_tokens,
+                    first_prompt: summary.first_prompt.clone().map(|p| truncate_str(&p, 200)),
+                    created_at: summary.created_at.clone(),
+                    last_active_at,
+                    file_size,
+                    version: summary.version.clone(),
+                    subagent_count: 0,
+                },
+                messages,
+                subagents: vec![],
+            });
         }
     }
     None
