@@ -401,14 +401,48 @@ async fn version_upgrade_handler() -> impl IntoResponse {
             ntd_cmd_clone, ntd_cmd_clone, ntd_cmd_clone, ntd_cmd_clone
         );
 
-        let result = std::process::Command::new("sh")
-            .args(["-c", &redeploy_script])
-            .status();
+        #[cfg(target_os = "linux")]
+        {
+            // 在 Linux 上使用 systemd-run 将 redeploy 脚本运行在独立的 transient scope 中。
+            // 直接使用 sh -c 启动的子进程与 daemon 处于同一 cgroup，
+            // 当 ntd daemon stop 触发 systemd 停止服务时，cgroup 清理会杀掉 sh 进程，
+            // 导致后续 uninstall/install/start 从未执行。
+            // systemd-run --scope 创建独立 cgroup 的作用域，不受 ntd.service 停止影响。
+            let result = std::process::Command::new("systemd-run")
+                .args([
+                    "--user",
+                    "--scope",
+                    "--collect",
+                    "--property=Description=ntd upgrade redeploy",
+                    "/bin/sh",
+                    "-c",
+                    &redeploy_script,
+                ])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
 
-        match &result {
-            Ok(s) if s.success() => tracing::info!("Daemon redeployed successfully"),
-            Ok(s) => tracing::error!("Daemon redeploy failed with exit code {}", s),
-            Err(e) => tracing::error!("Daemon redeploy exec error: {}", e),
+            match &result {
+                Ok(s) if s.success() => tracing::info!("Daemon redeployed successfully via systemd-run"),
+                Ok(s) => tracing::error!("Daemon redeploy failed with exit code {}", s),
+                Err(e) => tracing::error!("Daemon redeploy exec error: {}", e),
+            }
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            // macOS (launchd) 不使用 cgroup，sh -c 子进程会被 reparent 到 launchd，
+            // 不被 daemon 停止所影响，可以直接使用 sh -c。
+            let result = std::process::Command::new("sh")
+                .args(["-c", &redeploy_script])
+                .status();
+
+            match &result {
+                Ok(s) if s.success() => tracing::info!("Daemon redeployed successfully"),
+                Ok(s) => tracing::error!("Daemon redeploy failed with exit code {}", s),
+                Err(e) => tracing::error!("Daemon redeploy exec error: {}", e),
+            }
         }
     });
 
