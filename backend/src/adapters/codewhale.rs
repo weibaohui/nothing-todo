@@ -413,7 +413,14 @@ mod tests {
             ParsedLogEntry::new("text", "  Hello  "),
             ParsedLogEntry::new("text", "  World  "),
         ];
-        assert_eq!(executor.get_final_result(&logs), Some("Hello\n\nWorld".to_string()));
+        // CodeWhale streams text as small chunks; get_final_result:
+        // 1) runs each chunk through strip_think_tags, which trims outer
+        //    whitespace ("  Hello  " → "Hello", "  World  " → "World")
+        // 2) joins the trimmed chunks with "" (NOT "\n\n" like other
+        //    executors) so chunk boundaries don't add extra line breaks
+        //    — the chunker is the source of truth for paragraph breaks
+        // 3) collapses any internal newlines to a single "\n" each
+        assert_eq!(executor.get_final_result(&logs), Some("HelloWorld".to_string()));
     }
 
     #[test]

@@ -99,7 +99,7 @@ mod hook_trigger_tests {
 
 #[cfg(test)]
 mod todo_hook_item_tests {
-    use ntd::hooks::{HookTrigger, TodoHookItem};
+    use ntd::hooks::{HookTrigger, TodoHookItem, UnratedPolicy};
 
     #[test]
     fn deserialize_minimal_defaults_enabled_true() {
@@ -124,6 +124,8 @@ mod todo_hook_item_tests {
             target_todo_id: 99,
             skip_if_missing: true,
             enabled: false,
+            min_rating: Some(80),
+            unrated_policy: UnratedPolicy::Pass,
         };
         let json = serde_json::to_string(&item).unwrap();
         let decoded: TodoHookItem = serde_json::from_str(&json).unwrap();
@@ -153,7 +155,7 @@ mod todo_hook_item_tests {
 
 #[cfg(test)]
 mod todo_hooks_tests {
-    use ntd::hooks::{HookTrigger, TodoHookItem, TodoHooks};
+    use ntd::hooks::{HookTrigger, TodoHookItem, TodoHooks, UnratedPolicy};
 
     fn item(id: i64, trigger: HookTrigger, target: i64, enabled: bool) -> TodoHookItem {
         TodoHookItem {
@@ -162,6 +164,8 @@ mod todo_hooks_tests {
             target_todo_id: target,
             skip_if_missing: false,
             enabled,
+            min_rating: None,
+            unrated_policy: UnratedPolicy::default(),
         }
     }
 
@@ -353,7 +357,7 @@ mod hook_context_tests {
 
 #[cfg(test)]
 mod hook_dispatch_tests {
-    use ntd::hooks::{TodoHookItem, HookTrigger};
+    use ntd::hooks::{HookTrigger, TodoHookItem, UnratedPolicy};
     use ntd::models::{Todo, TodoStatus};
 
     fn todo(id: i64, title: &str, prompt: &str, status: TodoStatus) -> Todo {
@@ -374,6 +378,10 @@ mod hook_dispatch_tests {
             workspace: Some("/tmp/work".to_string()),
             worktree_enabled: false,
             hooks: vec![],
+            acceptance_criteria: None,
+            todo_type: 0,
+            parent_todo_id: None,
+            auto_review_enabled: true,
         }
     }
 
@@ -435,6 +443,8 @@ mod hook_dispatch_tests {
             target_todo_id: 7,
             skip_if_missing: true,
             enabled: true,
+            min_rating: None,
+            unrated_policy: UnratedPolicy::default(),
         };
         let json = serde_json::to_string(&item).unwrap();
         assert!(!json.contains("prompt_template"), "prompt_template must not be in the wire format: {}", json);
