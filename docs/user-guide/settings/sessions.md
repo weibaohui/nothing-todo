@@ -15,7 +15,7 @@ Session 是 ntd 把**跨执行器的会话**统一抽象出来的视图。原先
 |字段 |含义 |
 |------|------|
 | `session_id` | ntd内部 ID（hash of source + project + first_prompt） |
-| `source` |来源：`claudecode` / `codex` / `hermes` / `kimi` / `atomcode` |
+| `source` |来源：`claudecode` / `codex` / `hermes` / `kimi` / `atomcode` / `pi` |
 | `project_path` |关联项目目录 |
 | `executor` |实际跑的执行器 |
 | `model` |用的模型（`claude-3.5-sonnet` 等） |
@@ -29,17 +29,20 @@ Session 是 ntd 把**跨执行器的会话**统一抽象出来的视图。原先
 
 ## 2.Session 来源
 
-|来源 |文件位置 |
-|------|----------|
-| `claudecode` | `~/.claude/projects/**/*.jsonl` |
-| `codex` | `~/.codex/sessions/**/*.jsonl` |
-| `hermes` | `~/.hermes/sessions/**/*.jsonl` |
-| `kimi` | `~/.kimi/sessions/**/*.jsonl` |
-| `atomcode` | `~/.atomcode/sessions/**/*.jsonl` |
+|来源 |文件位置 |Active 判断方式 |
+|------|----------|---------|
+| `claudecode` | `~/.claude/projects/**/*.jsonl` | 独立 `~/.claude/sessions/<sid>.json` 索引文件 |
+| `codex` | `~/.codex/sessions/**/*.jsonl` | 独立索引文件 |
+| `hermes` | `~/.hermes/sessions/**/*.jsonl` | 独立索引文件 |
+| `kimi` | `~/.kimi/sessions/**/*.jsonl` | 独立索引文件 |
+| `atomcode` | `~/.atomcode/sessions/**/*.json` | 仅 `completed`（无 active 状态） |
+| `pi` | `~/.pi/agent/sessions/<encoded-cwd>/<ts>_<uuid>.jsonl` | mtime < 5 min 启发式 |
 
 后端 `session.rs`启动时 +定期扫描这些目录，解析 jsonl文件提取元信息。
 
 > `codebuddy` / `opencode` / `mobilecoder` / `codewhale` **不**在扫描范围内（参见 `session.rs::scan_for_executors` 的 `match executor`）。原文档提到的 `cc-connect` 来源也已移除。
+>
+> **Pi 编码坑点**：pi 把 cwd 里的 `/` 替换为 `-` 并在头尾各加一个 `-` 作为项目目录名（`/Users/weibh/projects/rust/nothing-todo` → `--Users-weibh-projects-rust-nothing-todo--`）。这导致项目名里的 `-` 与分隔符不可区分（例如上例解码后会变成 `Users/weibh/projects/rust/nothing/todo`）。`scan_pi` 优先使用 JSONL 首行 `cwd` 字段，文件名解码仅作为 fallback。
 
 ---
 
