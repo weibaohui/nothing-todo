@@ -103,6 +103,7 @@ ntd todo create [TITLE] [OPTIONS]
 - `kimi` - Kimi
 - `codex` - Codex
 - `codewhale` - CodeWhale
+- `pi` - Pi
 
 **示例：**
 ```bash

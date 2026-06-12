@@ -49,7 +49,7 @@ ntd CLI 是为 AI 交互设计的命令行工具，用于管理 AI 驱动的 Tod
 | `prompt` / `-p` | string | 否 | 执行提示词（与 `--file` 二选一） |
 | `--file`, `-f` | string | 否 | 从文件读取 prompt 内容 |
 | `--stdin` | bool | 否 | 从 stdin 读取整个 Todo JSON（`title` 可省略） |
-| `--executor` / `-e` | string | 否 | 执行器类型 (`claudecode`, `mobilecoder`, `codebuddy`, `opencode`, `atomcode`, `hermes`, `kimi`, `codex`, `codewhale`) |
+| `--executor` / `-e` | string | 否 | 执行器类型 (`claudecode`, `mobilecoder`, `codebuddy`, `opencode`, `atomcode`, `hermes`, `kimi`, `codex`, `codewhale`, `pi`) |
 | `--workspace`, `-w` | string | 否 | 工作目录路径 |
 | `--tags` | string | 否 | 标签 ID 列表，逗号分隔（如 `1,2,3`） |
 | `--schedule` | string | 否 | Cron 表达式，启用定时执行（如 `0 9 * * 1` 表示每周一 9:00） |

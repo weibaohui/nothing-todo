@@ -1532,3 +1532,4 @@ POST /webhook/trigger/{todo_id}
 | `kimi` | Kimi |
 | `codex` | Codex |
 | `codewhale` | CodeWhale |
+| `pi` | Pi |

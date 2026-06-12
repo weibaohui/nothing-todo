@@ -2,7 +2,7 @@
 name: ntd-usage
 description: ntd (Nothing Todo) AI Todo 应用 — CLI & API 使用指南
 version: 1.0.1
-executors: [claudecode, atomcode, mobilecoder, hermes, codex, codebuddy, opencode, kimi]
+executors: [claudecode, atomcode, mobilecoder, hermes, codex, codebuddy, opencode, kimi, pi]
 ---
 
 # ntd (Nothing Todo) 使用指南
