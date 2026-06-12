@@ -71,7 +71,6 @@ fn json_request(method: &str, uri: &str, body: serde_json::Value) -> Request<Bod
 // - 2 workers is sufficient for test workload and keeps resource usage low.
 // Scope: all `#[tokio::test]` in this file use this configuration for consistency
 // and to prevent intermittent test failures caused by runtime mismatches.
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_get_todos() {
     let app = create_test_app().await;

@@ -425,11 +425,11 @@ mod tests {
         ];
         // CodeWhale streams text as small chunks; get_final_result must preserve
         // word boundaries across chunks:
-        // 1) Concatenate all raw chunks first: "  Hello  " + "  World  " → "  Hello    World  "
-        // 2) Strip think tags from the full concatenated text (which also trims outer whitespace)
-        // 3) Normalize internal whitespace/newlines
-        // This prevents inter-chunk spaces from being lost (the old approach trimmed
-        // each chunk separately, turning "  Hello  " + "  World  " into "HelloWorld").
+        // 1) Concatenate all raw chunks first (without per-chunk trimming)
+        // 2) Then strip <think> tags from the full concatenated text once
+        // 3) Finally normalize whitespace on the result
+        // This prevents inter-chunk spaces from being lost.
+        // "  Hello  " + "  World  " → "Hello World"
         assert_eq!(executor.get_final_result(&logs), Some("Hello World".to_string()));
     }
 
