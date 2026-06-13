@@ -1588,8 +1588,7 @@ mod tests {
 
     async fn create_test_execution_record(db: &Database, todo_id: i64, command: &str) -> i64 {
         db.create_execution_record(NewExecutionRecord {
-            // NewExecutionRecord.todo_id is `i64` (non-optional) in current schema，
-            // 直接传值而不是包成 Some；旧 API 用 `Some(todo_id)` 已不再兼容
+            // `NewExecutionRecord.todo_id` is now `i64` (was `Option<i64>`); pass directly.
             todo_id,
             command,
             executor: "claudecode",

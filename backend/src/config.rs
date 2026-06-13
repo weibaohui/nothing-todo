@@ -307,6 +307,11 @@ impl Config {
     /// 但每条 ExecEvent 序列化后通常 < 1KB，100000 条也只占约 100MB，运维需要时可自行调大。
     pub fn clamp_broadcast_channel_capacity(&mut self) {
         if self.broadcast_channel_capacity < MIN_BROADCAST_CHANNEL_CAPACITY {
+            tracing::warn!(
+                "broadcast_channel_capacity {} below minimum {}, raising to minimum",
+                self.broadcast_channel_capacity,
+                MIN_BROADCAST_CHANNEL_CAPACITY
+            );
             self.broadcast_channel_capacity = MIN_BROADCAST_CHANNEL_CAPACITY;
         }
     }
