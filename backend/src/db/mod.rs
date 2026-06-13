@@ -432,7 +432,7 @@ impl Database {
         // 走 schema migration 框架:首次启动跑全部 DDL,之后启动只读一次 schema_version 就跳过
         // (issue #498:旧实现每次启动跑上百条 DDL,即使 IF NOT EXISTS 也要解析+规划+扫描 schema)
         //
-        // H1 fix: 稳态短路。若 schema 已经是最新版本,说明 DDL 早已应用、
+        // 稳态短路。若 schema 已经是最新版本,说明 DDL 早已应用、
         // 配套的 data migrations(todos.rating / logs / feishu_fk_cascade)也已在
         // 上一次首次启动 / 升级时跑完,此时再无条件调一次会浪费 ~10+ SELECT
         // (其中 6 个是 feishu_fk_cascade 的 needs_fk_migration) + Vec/closure 工作。

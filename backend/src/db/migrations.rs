@@ -601,7 +601,7 @@ async fn apply_migration(db: &Database, m: &Migration) -> Result<(), sea_orm::Db
     }
 
     // 记录迁移版本 - 这里失败才算真正失败
-    // H2 fix: 用绑定参数而非 format! + 手动引号转义。表名仍是 const(format! 拼接),
+    // 用绑定参数而非 format! + 手动引号转义。表名仍是 const(format! 拼接),
     // 不存在注入风险;但 version/name/timestamp 走 `$1/$2/$3` 参数化,与代码库其余
     // 部分的 `Statement::from_sql_and_values` 风格一致,避免未来 m.name 改成
     // 动态来源(registry / config)时变成 SQL 注入。
