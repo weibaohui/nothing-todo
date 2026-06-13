@@ -203,17 +203,42 @@ pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade)
                 .await;
         }
 
-        while let Ok(event) = rx.recv().await {
-            let json = serde_json::to_string(&event).unwrap_or_default();
-            if json.is_empty() {
-                continue;
-            }
-            if ws
-                .send(axum::extract::ws::Message::Text(json.into()))
-                .await
-                .is_err()
-            {
-                break;
+        // 循环从 broadcast channel 读取事件并推到 WebSocket。
+        //
+        // 注意 `rx.recv()` 在 channel 容量耗尽时返回 `RecvError::Lagged(n)`:
+        // ring buffer 已被覆盖,n 条旧事件丢失(包括可能错过的 Finished 等
+        // 关键事件)。这里选择 **重新订阅** —— `subscribe()` 拿到的 rx 指向
+        // channel 当前 head,自然跳过被覆盖的积压;前端只会看到日志断流
+        // 不会断开连接。如果不处理 Lagged,原 `while let Ok(...)` 会立刻
+        // 退出 → WS 断开 → 前端误判任务仍在执行。
+        //
+        // 对比 `services/feishu_push.rs:91-93` 的同模式实现。
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    let json = serde_json::to_string(&event).unwrap_or_default();
+                    if json.is_empty() {
+                        continue;
+                    }
+                    if ws
+                        .send(axum::extract::ws::Message::Text(json.into()))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!(
+                        "[ws-events] client lagged, skipped {} events; resubscribing to skip backlog",
+                        n
+                    );
+                    rx = state.tx.subscribe();
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    tracing::info!("[ws-events] broadcast channel closed, closing WebSocket");
+                    break;
+                }
             }
         }
     })
