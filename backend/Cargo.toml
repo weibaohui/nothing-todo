@@ -63,3 +63,12 @@ vergen-gitcl = "1"
 lto = true
 codegen-units = 1
 strip = true
+
+# Issue #495 clippy lint: 同时作用于 lib 和 bin crate（包括 main.rs）。
+# 之前在 `lib.rs` 写 `#![warn(clippy::unwrap_used, ...)]` 只对 lib crate 生效，
+# main.rs / 子命令 handler 里的 `.unwrap()` 仍然 silent pass。这里用
+# Cargo package 级（`backend/Cargo.toml` 自身，非 workspace root）的
+# `[lints.clippy]`，是单一真值来源，覆盖该 package 下所有 target（lib + bin）。
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
