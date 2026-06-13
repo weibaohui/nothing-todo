@@ -12,7 +12,9 @@
 //! - `clippy::unwrap_used`：`Result::unwrap()` / `Option::unwrap()`
 //! - `clippy::expect_used`：`Result::expect()` / `Option::expect()`
 //!
-//! 测试模块（`#[cfg(test)]`）默认允许 unwrap/expect，不影响主二进制。
+//! 注意：clippy `unwrap_used` / `expect_used` 在 `#[cfg(test)]` 模块**并不会
+//! 自动关闭**——CI 仍会 fail。如需在测试里使用 `.unwrap()` / `.expect()`，需
+//! 在 fn / mod 上加 `#[allow(clippy::unwrap_used, clippy::expect_used)]` 标注。
 
 // 注意：clippy unwrap_used / expect_used lint 已迁移到 `Cargo.toml` 的
 // `[lints.clippy]`（见该文件尾部），同时作用于 lib 和 bin crate。
