@@ -12,10 +12,10 @@
 
 ### 核心特性
 
-- **多 AI 执行器** — 集成 10+ 种 AI CLI 执行器（详见「执行器」一节）
-- **智能任务管理** — 创建、编辑、跟踪 Todo，5 种状态机（待办/进行中/已完成/已取消/已归档）
-- **可视化仪表盘** — 实时统计完成情况，支持 6h/12h/24h/3d/7d 时间区间趋势
-- **看板视图** — 瀑布流展示最近完成的任务及 AI 执行结论
+- **多 AI 执行器** — 集成 11 种 AI CLI 执行器 + 1 个共享事件协议（详见「执行器」一节）。**唯一真实来源是 `backend/src/adapters/mod.rs` 的 `EXECUTORS` 静态映射**，新增/重命名执行器时必须同步修改该文件与本表。
+- **智能任务管理** — 创建、编辑、跟踪 Todo，6 种状态机：`Pending` / `InProgress` / `Running` / `Completed` / `Failed` / `Cancelled`（`backend/src/models/mod.rs::TodoStatus`）。
+- **可视化仪表盘** — 实时统计完成情况，支持 `5小时 / 7天 / 14天 / 30天 / 自定义` 时间区间筛选（`frontend/src/components/dashboard/constants.ts::TIME_RANGE_OPTIONS`）。
+- **看板视图** — 瀑布流展示最近完成的任务及 AI 执行结论，支持 `6h / 12h / 24h / 3d / 7d` 时间区间筛选（`frontend/src/components/kanban/constants.ts`、`MemorialBoard.tsx`）。
 - **Session 管理** — 任务会话历史追踪，支持会话续连和状态恢复
 - **项目目录管理** — 多项目隔离，每个项目独立目录和工作空间
 - **Worktree 隔离** — Claude Code/Codex 等执行时自动创建 Git Worktree，隔离分支操作
@@ -163,25 +163,25 @@ make build  # 构建生产版本
 
 `backend/src/adapters/` 下每个文件对应一种 AI CLI 执行器的适配器。**新增执行器**时遵循 `docs/ADD_EXECUTOR_GUIDE.md`（该文档是开发新适配器的权威指南）。
 
-当前已支持的执行器（以 `backend/src/adapters/*.rs` 为准）：
+当前已支持的执行器（**唯一真实来源：`backend/src/adapters/mod.rs::EXECUTORS`**）：
 
-| 执行器类型  | 适配器文件                   | 备注                                  |
-|-------------|------------------------------|---------------------------------------|
-| `claudecode` | `claude_code.rs` + `claude_protocol.rs` | Claude Code CLI                  |
-| `joinai`     | `joinai.rs` + `joinai_event.rs`         | JoinAI                          |
-| `opencode`   | `opencode.rs` + `opencode_event.rs`     | OpenCode                         |
-| `hermes`     | `hermes.rs`                                | Hermes                          |
-| `codex`      | `codex.rs`                                 | OpenAI Codex                    |
-| `codebuddy`  | `codebuddy.rs`                             | 腾讯云 CodeBuddy                |
-| `codewhale`  | `codewhale.rs`                             | CodeWhale                       |
-| `kimi`       | `kimi.rs`                                  | 月之暗面 Kimi CLI                |
-| `mobilecoder`| `mobilecoder.rs` + `mobilecoder_event.rs` | MobileCoder                     |
-| `atomcode`   | `atomcode.rs`                              | AtomCode                        |
-| `mimo`       | `mimo.rs` + `mimo_event.rs`                | 小米 MiMo                       |
-| `pi`         | `pi.rs` + `pi_event.rs`                    | Pi                              |
-| （共享）     | `agent_event.rs`                           | 通用 Agent 事件协议             |
+| 执行器类型  | 适配器文件                       | 备注                                  |
+|-------------|----------------------------------|---------------------------------------|
+| `claudecode` | `claude_code.rs`                | Claude Code CLI                       |
+| `mobilecoder`| `mobilecoder.rs` + `mobilecoder_event.rs` | MobileCoder（曾名 joinai，PR #480 已重命名） |
+| `codebuddy`  | `codebuddy.rs`                  | 腾讯云 CodeBuddy                      |
+| `opencode`   | `opencode.rs` + `opencode_event.rs` | OpenCode                           |
+| `atomcode`   | `atomcode.rs`                   | AtomCode                              |
+| `hermes`     | `hermes.rs`                     | Hermes                                |
+| `kimi`       | `kimi.rs`                       | 月之暗面 Kimi CLI                     |
+| `codex`      | `codex.rs`                      | OpenAI Codex                          |
+| `codewhale`  | `codewhale.rs`                  | CodeWhale                             |
+| `pi`         | `pi.rs` + `pi_event.rs`         | Pi                                    |
+| `mimo`       | `mimo.rs` + `mimo_event.rs`     | 小米 MiMo                             |
+| （共享）     | `claude_protocol.rs`            | claudecode + codebuddy 共用协议层    |
+| （共享）     | `agent_event.rs`                | 通用 Agent 事件协议                   |
 
-> 历史上 AGENTS.md 曾误写为「仅支持 Claude Code 和 JoinAI」，请勿再沿用该描述。
+> 历史上 AGENTS.md 曾误写为「仅支持 Claude Code 和 JoinAI」；`joinai` 已在 `fa331bd` commit 重命名为 `mobilecoder`，请勿再把 joinai 写回表格。
 
 ## 目录结构
 
@@ -225,7 +225,12 @@ nothing-todo/
 │   ├── index.html / public/       # 入口与静态资源
 │   ├── dist/                      # 构建产物（git 忽略）
 │   ├── node_modules/              # 依赖（git 忽略）
-│   ├── test-results/              # Playwright 产物（git 忽略）
+│   ├── test-results/              # Playwright 产物（当前 `.gitignore` 仅忽略 `.last-run.json`，详见下节）
+│   ├── e2e-test.spec.ts           # 现有 Playwright spec（根目录，**待迁到 tests/**，见下节）
+│   ├── debug_click.cjs            # 临时调试脚本（根目录，**待迁到 tests/**）
+│   ├── inspect.cjs                # 临时调试脚本（根目录，**待迁到 tests/**）
+│   ├── test_crash.cjs / .js       # 临时调试脚本（根目录，**待迁到 tests/**）
+│   ├── test_executor_config.cjs   # 临时调试脚本（根目录，**待迁到 tests/**）
 │   └── src/
 │       ├── main.tsx               # React 入口
 │       ├── App.tsx / App.css
@@ -269,7 +274,7 @@ nothing-todo/
 │   ├── nothing-todo-linux-arm64/
 │   ├── nothing-todo-linux-x64/
 │   └── nothing-todo-windows-x64/
-└── script/                        # 杂项脚本
+└── script/                        # 杂项脚本（当前仅 `npm_publish.sh`）
 ```
 
 ## 前端导入规范
@@ -286,55 +291,64 @@ nothing-todo/
 
 **重要：修改前端 UI 后，必须使用 Playwright 进行自动化验证，再通知用户。**
 
-### 测试脚本位置（强制要求）
+> **注意**：本节列出的「统一放 `frontend/tests/`」「`testDir` 指 `tests/`」是**目标态规范**，并非当前已落地状态。当前 `frontend/` 根目录仍有散落的 spec / 调试脚本（见下「当前实际情况」）。请在改动 UI 时**顺手迁移**而不是「按文档查目录」。
 
-**所有使用 Playwright 编写的前端功能测试（含正式 spec 和调试脚本）必须统一放在 `frontend/tests/` 目录下，禁止散落到 `frontend/` 根目录、`/tmp/` 或其他位置。**
+### 测试脚本位置（目标态）
 
-- 目录约定：与后端 `backend/tests/` 保持一致，前端对应 `frontend/tests/`。
-- 文件命名：
-  - 正式 spec：`frontend/tests/**/*.spec.ts`，由 `@playwright/test` 直接驱动。
-  - 临时调试脚本：`frontend/tests/check_*.cjs` 或 `frontend/tests/check_*.js`，按需保留/清理。
-- Playwright 配置：`frontend/playwright.config.ts` 必须将 `testDir` 指向 `frontend/tests`，并在 `testMatch` 中覆盖 spec 与调试脚本。
+- 正式 spec：`frontend/tests/**/*.spec.ts`，由 `@playwright/test` 直接驱动。
+- 临时调试脚本：`frontend/tests/check_*.cjs` 或 `frontend/tests/check_*.js`，按需保留/清理。
+- 与后端 `backend/tests/` 保持一致的目录约定。
 - 禁止放在 `/tmp/` 等系统临时目录：CI、他人复跑、回归对比都依赖仓库内可追溯的脚本。
 
-### 当前实际情况
+### 当前实际情况（**真值来源**）
 
-- 历史上曾把 spec（如 `frontend/e2e-test.spec.ts`）和调试脚本（`test_*.cjs`、`debug_click.cjs`、`inspect.cjs` 等）直接放在 `frontend/` 根目录，违反上述约定，需要在改动 UI 时顺手迁回 `frontend/tests/` 并同步更新 `playwright.config.ts`。
-- `frontend/test-results/` 是 Playwright 产物目录，由运行自动生成，已在 `.gitignore` 中忽略（除错误上下文外的报告），不要手动提交。
+- **`frontend/tests/` 目录当前不存在**。
+- **`playwright.config.ts` 仍指向 `testDir: '.'` + `testMatch: 'e2e-test.spec.ts'`**，且 `baseURL` 为 `http://localhost:5173`（Vite dev server 端口，不是 `make dev` 的 18088）。
+- 散落在 `frontend/` 根目录的待迁脚本：`e2e-test.spec.ts`、`debug_click.cjs`、`inspect.cjs`、`test_crash.cjs`、`test_crash.js`、`test_executor_config.cjs`。
+- `.gitignore` **只忽略 `frontend/test-results/.last-run.json` 一个文件**，`test-results/` 下其他 Playwright 产物（trace.zip、HTML 报告、screenshots、video）并未忽略 — 见下「Playwright 产物清理」节。
+- 把以上「目标态规范」当现状来读会得到错误结论（如以为已存在 `tests/` 目录）。任何引用都要以本节为准。
+
+### Playwright 产物清理
+
+- `frontend/test-results/` 在 `.gitignore` 中目前只忽略 `.last-run.json`。
+- 实际产物（`e2e-test-Executor-UI-Tests-*/`、trace.zip、HTML report、screenshots、video）需要单独忽略；建议在 `.gitignore` 改成 `frontend/test-results/`（整目录）或加 `frontend/test-results/**/*.zip` / `frontend/test-results/**/trace*`。
+- 修复 `.gitignore` **不在本 PR 范围**，留待后续 PR 单独处理。
 
 ### 运行方式
 
-由于 Playwright 依赖位于 `frontend/node_modules/`，需要在 `frontend/` 目录下执行：
+由于 Playwright 依赖位于 `frontend/node_modules/`，需要在 `frontend/` 目录下执行（**注意** `playwright.config.ts` 的 `baseURL` 是 Vite dev 端口 5173，不是 `make dev` 的 18088）：
 
 ```bash
 cd frontend && npx playwright test --reporter=list
 ```
 
-针对单个调试脚本（仍位于 `frontend/tests/` 下）：
+针对单个调试脚本（仍在 `frontend/` 根目录，迁移前可这样跑）：
 
 ```bash
-cd frontend && npx playwright test tests/check_xxx.spec.ts --reporter=list
+cd frontend && npx playwright test e2e-test.spec.ts --reporter=list
 ```
 
 ### 验证流程
 
-1. 修改前端代码后，执行 `make dev` 重启开发服务（默认监听 `http://localhost:18088`）。
-2. 在 `frontend/tests/` 下编写或更新对应的 Playwright spec / 调试脚本。
-3. 若新增或移动了 spec 文件，同步更新 `frontend/playwright.config.ts` 的 `testDir` / `testMatch`。
+1. 修改前端代码后，执行 `make dev` 重启开发服务（默认监听 `http://localhost:18088`，backend embedded 模式）。
+2. 如果只想跑 Vite dev server，可用 `cd frontend && npm run dev`（端口 5173），但 `/api` 会经 `vite.config.ts` 代理到 `8088`（生产端口）。
+3. 在 `frontend/` 根目录（暂未迁移）编写或更新 Playwright 脚本；**顺手迁到 `frontend/tests/` 并同步更新 `playwright.config.ts` 是推荐动作，但非强制阻塞**。
 4. 运行 Playwright 验证 UI 效果；不通过则继续修复，直到用例稳定。
 5. 验证通过、确保无遗留 `/tmp/` 散落脚本后再通知用户。
 
 ### 常用验证脚本示例
 
 ```typescript
-// 文件位置：frontend/tests/check_theme.spec.ts
+// 文件位置（迁移前）：frontend/check_xxx.spec.ts
 // 用途：验证深色模式组件渲染
+// 注意：使用 page.goto('/') 让 playwright.config.ts 的 baseURL 接管，
+//      避免在 5173 / 18088 之间二选一时遗漏场景。
 import { test, expect } from '@playwright/test';
 
 test('深色模式渲染校验', async ({ page }) => {
   // 通过 localStorage 写入主题键，刷新后由 ThemeProvider 接管，
   // 避免仅依赖系统色导致用例在 CI 上不稳定。
-  await page.goto('http://localhost:18088');
+  await page.goto('/');
   await page.evaluate(() => localStorage.setItem('app_theme', 'dark'));
   await page.reload();
   await page.waitForTimeout(2000);
@@ -348,7 +362,7 @@ test('深色模式渲染校验', async ({ page }) => {
   console.log('验证结果:', result);
 
   // 截图留档，便于在 PR 中附图说明。
-  await page.screenshot({ path: 'frontend/tests/__screenshots__/verify.png' });
+  await page.screenshot({ path: 'frontend/check_xxx.png' });
 });
 ```
 
@@ -391,3 +405,8 @@ cd backend && cargo test                              # 后端测试
 - 本文件是「项目地图 + 工作守则」，**与代码现状保持同步是最高优先级**。任何目录、依赖、执行器、技术栈、命令的变动都应同步到本文件。
 - 修改时遵循本文件自身的「代码注释规范」一节：写「为什么这么写」，而不是复述内容。
 - 提交 PR 时如果新增/移动了目录或新增了执行器，记得在 PR 描述中点出 AGENTS.md 的对应章节已更新。
+- **真值来源优先级**：`backend/src/adapters/mod.rs::EXECUTORS` > `backend/src/models/` 枚举 > `frontend/src/components/*/constants.ts` > `frontend/playwright.config.ts` > 本文件。本文件与上述源文件冲突时，以源文件为准。
+- **已知不一致（待后续 PR 跟进，不在本次范围）**：
+  - `ntd-skills/ntd-usage/SKILL.md` front-matter `executors` 字段缺 `codewhale` 和 `mimo`，与本表 11 个不一致。
+  - `frontend/test-results/` 整目录未在 `.gitignore` 中（只忽略了一个 `.last-run.json`）。
+  - `frontend/tests/` 目录与 `playwright.config.ts` 改造尚未落地；`frontend/` 根目录仍有 6 个待迁脚本。
