@@ -279,7 +279,13 @@ impl LogFlusher {
             std::mem::take(&mut *h)
         };
         for h in handles {
-            let _ = h.await;
+            // 显式检查 spawn 出的 flush task 是否 panic：silent `_ = h.await`
+            // 会把内部 serialize / DB 写入的 panic 信息完全吞掉，定位极难。
+            if let Err(e) = h.await {
+                if e.is_panic() {
+                    tracing::error!("LogFlusher flush task panicked: {}", e);
+                }
+            }
         }
     }
 
