@@ -86,10 +86,17 @@ impl TaskManager {
 
     /// 取消任务：取出 sender 并发出取消信号。
     /// 返回 true 表示找到了对应 task 并已发出信号；false 表示 task 不存在。
+    ///
+    /// PR #545 review CRITICAL #1 修复: 旧实现用 `tx.send(()).await`（async），
+    /// 对所有外部 caller 带来「cancel 延迟耦合 executor 启动时间」的语义回归——
+    /// 在 spawned task 还没进入 `tokio::select!` 时 cancel 会一直 park。
+    /// 改用非阻塞 `try_send`：buffer=1 时 buffer 空就立刻成功；receiver 已 drop
+    /// 时 `try_send` 返回 `Err`，被 `let _` 吞掉——任务已自然结束，无需 cancel。
     pub async fn cancel(&self, task_id: &str) -> bool {
         if let Some(tx) = self.tasks.lock().await.remove(task_id) {
-            // send 可能失败（receiver 已被 drop），忽略错误——任务可能已结束。
-            let _ = tx.send(()).await;
+            // try_send 是非阻塞的：buffer=1 + 之前没 send 过 ⇒ 必成功。
+            // 唯一失败是 receiver 已 drop（任务自然结束），吞掉错误即可。
+            let _ = tx.try_send(());
             true
         } else {
             false
@@ -139,11 +146,30 @@ impl Drop for TaskGuard {
     fn drop(&mut self) {
         // 仅当 caller 没显式 remove 时才需要 spawn 清理任务。
         // 由于 remove() 是幂等的，即使重复调用也无副作用，所以这里可以无条件 spawn。
+        //
+        // PR #545 review CRITICAL #2 修复: 旧实现直接 `tokio::spawn` 要求 caller
+        // 必须在 tokio runtime 内——runtime shutdown、sync test、`spawn_blocking`
+        // 线程里 drop guard 会 panic，且 panic 会 leak task entry（issue #506
+        // 想修的 bug 重新引入）。现在用 `Handle::try_current()` 探测 runtime
+        // 可用性：可用则 spawn 异步清理；不可用则放弃异步清理、记日志（runtime
+        // shutdown 是显式行为，调用方应负责在此之前已通过 `cancel` / `remove`
+        // 走完正常清理路径，guard 仅是「忘了手动清理」的安全网）。
         let manager = self.manager.clone();
         let task_id = std::mem::take(&mut self.task_id);
-        tokio::spawn(async move {
-            manager.remove(&task_id).await;
-        });
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                manager.remove(&task_id).await;
+            });
+        } else {
+            // Runtime 已退出：guard 退化为 no-op，避免 panic 掩盖真正的 shutdown
+            // 错误。task_id 仍留在 `tasks` map 中，但在 shutdown 上下文里整个
+            // 进程都即将退出，leak 不会跨进程边界。
+            tracing::debug!(
+                "TaskGuard dropped outside tokio runtime for task '{}'; \
+                 skipping async cleanup (process is shutting down)",
+                task_id
+            );
+        }
     }
 }
 
