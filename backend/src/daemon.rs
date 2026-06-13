@@ -1255,14 +1255,18 @@ fn task_scheduler_stop() {
 // Windows Task Scheduler restart:stop → 等 → start。
 //
 // 原实现 std::thread::sleep(2s) 在 tokio runtime 上同样会阻塞当前
-// OS 线程,而且 2s 对现代 SSD 上 schtasks /end 完成来说偏长。
-// 改用 tokio::time::sleep().await 让出 worker;时长从 2s 缩到 500ms,
-// 与 launchd 路径对齐——schtasks /end 实际完成时间通常 < 100ms,
-// 500ms 已足够覆盖异常情况又不会让 CLI 用户久等。
+// OS 线程;改用 tokio::time::sleep().await 让出 worker。
+//
+// 时长:第一次提交缩到 500ms 对齐 launchd 路径,但收到 review 反馈
+// 在慢盘/慢 VM/AV 扫描下可能 race(schtasks /end 长尾可达数百 ms,
+// start 早于 stop 完全生效会撞上 "Service is already running" 分支)。
+// 这里改用 1s 作为折中:既比原 2s 显著缩短(用户感受的 CLI 等待),
+// 又保留足够冗余覆盖慢主机的长尾场景。比 launchd 的 500ms 更保守,
+// 因为 schtasks /end → start 的串行依赖比 launchd bootout 更紧。
 #[cfg(target_os = "windows")]
 async fn task_scheduler_restart() {
     task_scheduler_stop();
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     task_scheduler_start();
 }
 
