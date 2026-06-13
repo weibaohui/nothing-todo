@@ -78,6 +78,9 @@ impl Database {
         db.exec("PRAGMA busy_timeout = 5000").await?;
         // Enable foreign key enforcement (SQLite default is OFF; CASCADE depends on this)
         db.exec("PRAGMA foreign_keys = ON").await?;
+        // WAL mode already handles most crash-safety; NORMAL avoids redundant double-fsync
+        // (WAL default is FULL, which is overkill when WAL journal itself is crash-safe)
+        db.exec("PRAGMA synchronous = NORMAL").await?;
         // Enable WAL mode and verify it took effect
         match db.conn
             .query_one(Statement::from_string(DbBackend::Sqlite, "PRAGMA journal_mode = WAL".to_string()))
