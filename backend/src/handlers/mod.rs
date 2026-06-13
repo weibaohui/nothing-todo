@@ -32,7 +32,13 @@ pub struct AppState {
     pub tx: broadcast::Sender<ExecEvent>,
     pub scheduler: Arc<TodoScheduler>,
     pub task_manager: Arc<TaskManager>,
-    pub config: Arc<tokio::sync::RwLock<Config>>,
+    /// In-memory copy of the persisted Config. Wrapped in `std::sync::RwLock`
+    /// (not `tokio::sync::RwLock`) because the read path is on the hot
+    /// request loop while writes are rare (only `PUT /api/config` /
+    /// cloud-sync updates). Callers must drop the guard before any `.await`
+    /// to keep the future `Send`. See `service_context::ServiceContext::config`
+    /// for the same rationale.
+    pub config: Arc<std::sync::RwLock<Config>>,
     pub feishu_listener: Arc<FeishuListener>,
     pub feishu_push_mutator: broadcast::Sender<crate::services::feishu_push::PushConfigUpdate>,
     pub hook_service: Arc<HookService>,

@@ -142,10 +142,14 @@ pub async fn fetch_remote_templates(url: &str) -> Result<Vec<RemoteTemplate>, St
 pub async fn get_custom_template_status(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<CustomTemplateStatus>, AppError> {
-    let cfg = state.config.read().await;
-    let auto_sync_enabled = cfg.auto_sync_custom_templates_enabled;
-    let auto_sync_cron = cfg.auto_sync_custom_templates_cron.clone();
-    drop(cfg);
+    // 块作用域拷出 owned 值,锁卫立即 drop,避免后续 .await 持 std 读锁卫。
+    let (auto_sync_enabled, auto_sync_cron) = {
+        let cfg = state.config.read().unwrap();
+        (
+            cfg.auto_sync_custom_templates_enabled,
+            cfg.auto_sync_custom_templates_cron.clone(),
+        )
+    };
 
     let subscription = state.db.get_custom_template_subscription().await?;
     let (subscribed, source_url, last_sync_at) = match subscription {
@@ -273,11 +277,14 @@ pub async fn update_auto_sync_config(
             .ok_or_else(|| AppError::BadRequest("Cron expression has no future executions".to_string()))?;
     }
 
-    let mut cfg = state.config.write().await;
-    cfg.auto_sync_custom_templates_enabled = req.enabled;
-    cfg.auto_sync_custom_templates_cron = req.cron;
+    // 块作用域内 clone 出 owned 值,await 落盘前写锁已 drop。
+    let cfg_clone = {
+        let mut cfg = state.config.write().unwrap();
+        cfg.auto_sync_custom_templates_enabled = req.enabled;
+        cfg.auto_sync_custom_templates_cron = req.cron;
+        cfg.clone()
+    };
 
-    let cfg_clone = cfg.clone();
     tokio::task::spawn_blocking(move || cfg_clone.save())
         .await
         .map_err(|e| AppError::Internal(format!("Join error: {}", e)))?
@@ -290,7 +297,7 @@ pub async fn update_auto_sync_config(
 pub fn start_custom_template_auto_sync(
     _cron_expr: &str,
     db: Arc<Database>,
-    config: std::sync::Arc<tokio::sync::RwLock<crate::config::Config>>,
+    config: std::sync::Arc<std::sync::RwLock<crate::config::Config>>,
 ) -> Result<(), String> {
     // Validate initial cron expression but will re-read from config in the loop
     let _ = cron::Schedule::from_str(_cron_expr)
@@ -299,25 +306,32 @@ pub fn start_custom_template_auto_sync(
     let db_clone = db.clone();
     tokio::spawn(async move {
         loop {
-            // Read current config from in-memory state
+            // 关键:std::sync 读锁卫不能跨 .await。用显式 if-else + 块作用域
+            // 把 disabled 分支的 sleep().await 放在 cfg 锁卫作用域外。
             let (enabled, next_delay) = {
-                let cfg = config.read().await;
-                if !cfg.auto_sync_custom_templates_enabled {
-                    // Auto sync disabled, wait and check again
+                let enabled = {
+                    let cfg = config.read().unwrap();
+                    cfg.auto_sync_custom_templates_enabled
+                };
+                if !enabled {
                     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                     continue;
                 }
-                let schedule = cron::Schedule::from_str(&cfg.auto_sync_custom_templates_cron)
-                    .unwrap_or_else(|_| cron::Schedule::from_str("0 0 * * *").unwrap());
-                let next = schedule.upcoming(chrono::Utc).next();
-                let delay = match next {
-                    Some(dt) => {
-                        let now = chrono::Utc::now();
-                        (dt - now).to_std().unwrap_or(std::time::Duration::from_secs(60))
-                    }
-                    None => std::time::Duration::from_secs(3600),
+                let (enabled, delay) = {
+                    let cfg = config.read().unwrap();
+                    let schedule = cron::Schedule::from_str(&cfg.auto_sync_custom_templates_cron)
+                        .unwrap_or_else(|_| cron::Schedule::from_str("0 0 * * *").unwrap());
+                    let next = schedule.upcoming(chrono::Utc).next();
+                    let delay = match next {
+                        Some(dt) => {
+                            let now = chrono::Utc::now();
+                            (dt - now).to_std().unwrap_or(std::time::Duration::from_secs(60))
+                        }
+                        None => std::time::Duration::from_secs(3600),
+                    };
+                    (cfg.auto_sync_custom_templates_enabled, delay)
                 };
-                (cfg.auto_sync_custom_templates_enabled, delay)
+                (enabled, delay)
             };
 
             tokio::time::sleep(next_delay).await;

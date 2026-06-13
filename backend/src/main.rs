@@ -462,7 +462,7 @@ async fn run_server(cli_port: Option<u16>) {
     }
     let (tx, _rx) = broadcast::channel(cfg.broadcast_channel_capacity);
     let task_manager = Arc::new(TaskManager::new());
-    let config = Arc::new(tokio::sync::RwLock::new(cfg.clone()));
+    let config = Arc::new(std::sync::RwLock::new(cfg.clone()));
 
     // 在 TodoScheduler 之前构造一份共享的 HookService 单例：scheduler 的 cron 回调
     // 以及 create_app 内的 handler 路径都要用同一份 Arc<HookService>，避免 executor

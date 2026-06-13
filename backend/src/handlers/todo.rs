@@ -83,7 +83,7 @@ pub async fn create_todo(
         .cloned();
 
     // Get timezone from request, or fall back to system default
-    let system_default_tz = state.config.read().await.scheduler_default_timezone.clone();
+    let system_default_tz = state.config.read().unwrap().scheduler_default_timezone.clone();
     let scheduler_timezone = req
         .scheduler_timezone
         .as_ref()
@@ -184,7 +184,7 @@ pub async fn update_todo(
         .cloned();
 
     // Get timezone: req > existing > system default
-    let system_default_tz = state.config.read().await.scheduler_default_timezone.clone();
+    let system_default_tz = state.config.read().unwrap().scheduler_default_timezone.clone();
     let existing_tz = current.scheduler_timezone.clone();
     let scheduler_timezone = req
         .scheduler_timezone

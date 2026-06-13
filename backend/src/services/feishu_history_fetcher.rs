@@ -5,7 +5,7 @@ use std::time::Duration;
 use dashmap::DashMap;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde::Deserialize;
-use tokio::sync::RwLock;
+use std::sync::RwLock;
 use tokio::time::interval;
 use tracing::{debug, info, warn};
 
@@ -333,7 +333,7 @@ impl FeishuHistoryFetcher {
 
                         // Check message age: skip processing if too old
                         let max_age_secs = {
-                            let cfg = self.ctx.config.read().await;
+                            let cfg = self.ctx.config.read().unwrap();
                             cfg.history_message_max_age_secs
                         };
                         let msg_time = chrono::DateTime::parse_from_rfc3339(&created_at)
@@ -427,7 +427,7 @@ impl FeishuHistoryFetcher {
             let body = parts.next().unwrap_or("").trim();
 
             if !body.is_empty() {
-                let cfg = config.read().await;
+                let cfg = config.read().unwrap();
                 if let Some(rule) = cfg
                     .slash_command_rules
                     .iter()
@@ -439,7 +439,7 @@ impl FeishuHistoryFetcher {
         }
 
         // Fall through to default response
-        let cfg = config.read().await;
+        let cfg = config.read().unwrap();
         cfg.default_response_todo_id
     }
 

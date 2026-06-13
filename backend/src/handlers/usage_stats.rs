@@ -102,7 +102,7 @@ pub struct UsageStatsSettings {
 pub async fn get_usage_stats_settings(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<UsageStatsSettings>, AppError> {
-    let cfg = state.config.read().await;
+    let cfg = state.config.read().unwrap();
     Ok(ApiResponse::ok(UsageStatsSettings {
         auto_usage_stats_enabled: cfg.auto_usage_stats_enabled,
         auto_usage_stats_cron: cfg.auto_usage_stats_cron.clone(),
@@ -127,13 +127,16 @@ pub async fn update_usage_stats_settings(
             .ok_or_else(|| AppError::BadRequest("Cron expression has no future executions".to_string()))?;
     }
 
-    let mut cfg = state.config.write().await;
-    cfg.auto_usage_stats_enabled = req.enabled;
-    cfg.auto_usage_stats_cron = req.cron;
-    cfg.normalize_paths();
-    cfg.clamp_execution_timeout_secs();
+    // 块作用域内 clone 出 owned 值,await 落盘前写锁已 drop。
+    let cfg_clone = {
+        let mut cfg = state.config.write().unwrap();
+        cfg.auto_usage_stats_enabled = req.enabled;
+        cfg.auto_usage_stats_cron = req.cron;
+        cfg.normalize_paths();
+        cfg.clamp_execution_timeout_secs();
+        cfg.clone()
+    };
 
-    let cfg_clone = cfg.clone();
     tokio::task::spawn_blocking(move || cfg_clone.save())
         .await
         .map_err(|e| AppError::Internal(format!("Join error: {}", e)))?

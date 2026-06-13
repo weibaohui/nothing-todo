@@ -141,7 +141,7 @@ pub async fn cloud_sync_status(
     // 关键：先把所有需要从 config 读的值一次性拷出来，然后立刻释放读锁。
     // 之后再去打云端 HTTP，否则在网络抖动期间会一直持读锁，阻塞其他写者。
     let (connected, authenticated, server_url, token, last_sync_at_fallback) = {
-        let cfg = state.config.read().await;
+        let cfg = state.config.read().unwrap();
         let server_url = cfg.cloud_sync.server_url.clone();
         let token = cfg.cloud_sync.sync_token.clone();
         let last_sync_at = cfg.cloud_sync.last_sync_at.clone();
@@ -214,7 +214,7 @@ pub struct SaveResponse {
 pub async fn cloud_get_config(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<CloudConfigResponse>, AppError> {
-    let cfg = state.config.read().await;
+    let cfg = state.config.read().unwrap();
 
     Ok(ApiResponse::ok(CloudConfigResponse {
         server_url: cfg.cloud_sync.server_url.clone(),
@@ -229,7 +229,7 @@ pub async fn cloud_save_config(
     State(state): State<AppState>,
     Json(req): Json<CloudConfigRequest>,
 ) -> Result<ApiResponse<SaveResponse>, AppError> {
-    let mut cfg = state.config.write().await;
+    let mut cfg = state.config.write().unwrap();
     if let Some(url) = req.server_url {
         cfg.cloud_sync.server_url = url.trim_end_matches('/').to_string();
     }
@@ -394,7 +394,7 @@ pub async fn cloud_sync_push(
     // 云端早就返回了，本端 HTTP 响应却永远不返回。修法：缩短临界区。
     let dry_run = query.dry_run.unwrap_or(false);
     let (server_url, token, conflict_mode) = {
-        let cfg = state.config.read().await;
+        let cfg = state.config.read().unwrap();
         let token = cfg
             .cloud_sync
             .sync_token
@@ -522,7 +522,7 @@ pub async fn cloud_sync_push(
 
     // 更新最后同步时间：现在没有别的读锁阻塞，可以安全取写锁。
     if success && !dry_run {
-        let mut cfg = state.config.write().await;
+        let mut cfg = state.config.write().unwrap();
         cfg.cloud_sync.last_sync_at = Some(chrono::Utc::now().to_rfc3339());
         let _ = cfg.save();
     }
@@ -548,7 +548,7 @@ pub async fn cloud_sync_pull(
     // 详见 cloud_sync_push 的注释。
     let dry_run = query.dry_run.unwrap_or(false);
     let (server_url, token, conflict_mode) = {
-        let cfg = state.config.read().await;
+        let cfg = state.config.read().unwrap();
         let token = cfg
             .cloud_sync
             .sync_token
@@ -640,7 +640,7 @@ pub async fn cloud_sync_pull(
 
     // 更新最后同步时间：现在没有别的读锁阻塞，可以安全取写锁。
     if !dry_run {
-        let mut cfg = state.config.write().await;
+        let mut cfg = state.config.write().unwrap();
         cfg.cloud_sync.last_sync_at = Some(chrono::Utc::now().to_rfc3339());
         let _ = cfg.save();
     }

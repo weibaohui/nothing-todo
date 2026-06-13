@@ -1,7 +1,7 @@
 use dashmap::DashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio::sync::RwLock;
+use std::sync::RwLock;
 
 use crate::feishu::sdk::config::Config as FeishuSdkConfig;
 use crate::feishu::sdk::token_manager::TokenManager;
@@ -543,7 +543,7 @@ impl FeishuListener {
         if let Some(command_ctx) = Self::parse_slash_command(content) {
             // Try slash command match
             let matched_rule = {
-                let cfg = config.read().await;
+                let cfg = config.read().unwrap();
                 cfg.slash_command_rules
                     .iter()
                     .find(|r| r.slash_command == command_ctx.command && r.enabled)
@@ -588,7 +588,7 @@ impl FeishuListener {
             } else {
                 // No matching slash rule, fall through to default response
                 let default_todo_id = {
-                    let cfg = config.read().await;
+                    let cfg = config.read().unwrap();
                     cfg.default_response_todo_id
                 };
                 if let Some(todo_id) = default_todo_id {
@@ -629,7 +629,7 @@ impl FeishuListener {
         } else {
             // Non-slash message, check default response
             let default_todo_id = {
-                let cfg = config.read().await;
+                let cfg = config.read().unwrap();
                 cfg.default_response_todo_id
             };
 

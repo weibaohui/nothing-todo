@@ -136,8 +136,12 @@ fn todo_backup_dir() -> PathBuf {
 pub async fn download_database(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
-    let cfg = state.config.read().await;
-    let db_path = PathBuf::from(&cfg.db_path);
+    // 把 db_path 拷出 owned 值,释放读锁,避免后续的 spawn_blocking().await
+    // 持 std::sync 读锁卫跨 .await(否则 future 变 !Send)。
+    let db_path = {
+        let cfg = state.config.read().unwrap();
+        PathBuf::from(&cfg.db_path)
+    };
 
     // 路径穿越防护：验证数据库路径位于安全目录 ~/.ntd/ 内
     let canonicalized = std::fs::canonicalize(&db_path)
@@ -193,10 +197,11 @@ pub async fn download_database(
 pub async fn trigger_local_backup(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<String>, AppError> {
-    let cfg = state.config.read().await;
-    let db_path = PathBuf::from(&cfg.db_path);
-    let max_files = cfg.auto_backup_max_files;
-    drop(cfg);
+    // 块作用域内拷出 owned 值,锁卫立即 drop,避免后续的 await 持 std 读锁卫。
+    let (db_path, max_files) = {
+        let cfg = state.config.read().unwrap();
+        (PathBuf::from(&cfg.db_path), cfg.auto_backup_max_files)
+    };
 
     if !db_path.exists() {
         return Err(AppError::Internal("Database file not found".to_string()));
@@ -252,9 +257,11 @@ pub async fn trigger_local_backup(
 pub async fn database_optimize(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<String>, AppError> {
-    let cfg = state.config.read().await;
-    let db_path = PathBuf::from(&cfg.db_path);
-    drop(cfg);
+    // 块作用域拷出 owned 值,锁卫立即 drop,避免后续的 await 持 std 读锁卫。
+    let db_path = {
+        let cfg = state.config.read().unwrap();
+        PathBuf::from(&cfg.db_path)
+    };
 
     if !db_path.exists() {
         return Err(AppError::Internal("Database file not found".to_string()));
@@ -290,12 +297,19 @@ pub struct BackupStatus {
 pub async fn get_database_backup_status(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<BackupStatus>, AppError> {
-    let cfg = state.config.read().await;
-    let db_path = PathBuf::from(&cfg.db_path);
-    let auto_backup_enabled = cfg.auto_backup_enabled;
-    let auto_backup_cron = cfg.auto_backup_cron.clone();
-    let auto_backup_max_files = cfg.auto_backup_max_files;
-    drop(cfg);
+    // 块作用域内取读锁、拷出 owned 值、立即释放锁卫,避免后续 spawn_blocking().await
+    // 持 std::sync::RwLockReadGuard 跨 .await(否则 future 变 !Send,handler trait
+    // 不再 implement)。NLL 对显式 drop() 的处理在 async fn state machine 中
+    // 过于保守,直接走块作用域把锁卫边界收紧。
+    let (db_path, auto_backup_enabled, auto_backup_cron, auto_backup_max_files) = {
+        let cfg = state.config.read().unwrap();
+        (
+            PathBuf::from(&cfg.db_path),
+            cfg.auto_backup_enabled,
+            cfg.auto_backup_cron.clone(),
+            cfg.auto_backup_max_files,
+        )
+    };
 
     // 获取原始数据库文件名
     let db_filename = db_path.file_name()
@@ -367,19 +381,24 @@ pub async fn update_auto_backup(
             .ok_or_else(|| AppError::BadRequest("Cron expression has no future executions".to_string()))?;
     }
 
-    let mut cfg = state.config.write().await;
-    cfg.auto_backup_enabled = req.enabled;
-    cfg.auto_backup_cron = req.cron;
-    if let Some(max_files) = req.max_files {
-        if max_files == 0 {
-            return Err(AppError::BadRequest("保留数量不能为 0".to_string()));
+    // 关键：先把改动落到 owned clone 上，再立刻释放 std::sync 写锁，最后才 await
+    // 落盘。`std::sync::RwLockWriteGuard` 跨 .await 会让 future 变成 !Send，
+    // 破坏 tokio 多线程 runtime 的 spawn 约束；这里用块作用域把锁卫在 await 之前 drop。
+    let cfg_clone = {
+        let mut cfg = state.config.write().unwrap();
+        cfg.auto_backup_enabled = req.enabled;
+        cfg.auto_backup_cron = req.cron;
+        if let Some(max_files) = req.max_files {
+            if max_files == 0 {
+                return Err(AppError::BadRequest("保留数量不能为 0".to_string()));
+            }
+            cfg.auto_backup_max_files = max_files;
         }
-        cfg.auto_backup_max_files = max_files;
-    }
-    cfg.normalize_paths();
-    cfg.clamp_execution_timeout_secs();
+        cfg.normalize_paths();
+        cfg.clamp_execution_timeout_secs();
+        cfg.clone()
+    };
 
-    let cfg_clone = cfg.clone();
     tokio::task::spawn_blocking(move || cfg_clone.save())
         .await
         .map_err(|e| AppError::Internal(format!("Join error: {}", e)))?
@@ -403,13 +422,16 @@ pub async fn delete_backup_file(
         return Err(AppError::BadRequest("Invalid filename".to_string()));
     }
 
-    let cfg = state.config.read().await;
-    let db_path = PathBuf::from(&cfg.db_path);
-    let db_filename = db_path.file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string();
-    let path = db_backup_dir(&db_filename).join(&req.filename);
+    // 拷出 path 释放读锁,避免 spawn_blocking().await 持锁卫跨 .await。
+    let path = {
+        let cfg = state.config.read().unwrap();
+        let db_path = PathBuf::from(&cfg.db_path);
+        let db_filename = db_path.file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        db_backup_dir(&db_filename).join(&req.filename)
+    };
 
     if !path.exists() {
         return Err(AppError::NotFound);
@@ -435,13 +457,16 @@ pub async fn download_backup_file(
         return Err(AppError::BadRequest("Invalid filename".to_string()));
     }
 
-    let cfg = state.config.read().await;
-    let db_path = PathBuf::from(&cfg.db_path);
-    let db_filename = db_path.file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string();
-    let path = db_backup_dir(&db_filename).join(&query.filename);
+    // 拷出 path 释放读锁,避免 spawn_blocking().await 持锁卫跨 .await。
+    let path = {
+        let cfg = state.config.read().unwrap();
+        let db_path = PathBuf::from(&cfg.db_path);
+        let db_filename = db_path.file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        db_backup_dir(&db_filename).join(&query.filename)
+    };
 
     if !path.exists() {
         return Err(AppError::NotFound);
@@ -632,7 +657,7 @@ fn cleanup_old_db_backups(dir: &PathBuf, keep: usize) {
 pub fn start_auto_backup(
     cron_expr: &str,
     db: std::sync::Arc<Database>,
-    config: std::sync::Arc<tokio::sync::RwLock<crate::config::Config>>,
+    config: std::sync::Arc<std::sync::RwLock<crate::config::Config>>,
 ) -> Result<(), String> {
     let schedule = cron::Schedule::from_str(cron_expr)
         .map_err(|e| format!("Invalid cron: {}", e))?;
@@ -651,7 +676,7 @@ pub fn start_auto_backup(
 
             // Read current config from in-memory state
             let (db_path, max_files, cleanup_days) = {
-                let cfg = config.read().await;
+                let cfg = config.read().unwrap();
                 (cfg.db_path.clone(), cfg.auto_backup_max_files, cfg.auto_cleanup_logs_days)
             };
 
@@ -691,11 +716,15 @@ pub struct TodoBackupStatus {
 pub async fn get_todo_backup_status(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<TodoBackupStatus>, AppError> {
-    let cfg = state.config.read().await;
-    let auto_backup_enabled = cfg.auto_todo_backup_enabled;
-    let auto_backup_cron = cfg.auto_todo_backup_cron.clone();
-    let auto_backup_max_files = cfg.auto_todo_backup_max_files;
-    drop(cfg);
+    // 块作用域拷出 owned 值,锁卫立即 drop,避免后续 spawn_blocking().await 持 std 读锁卫。
+    let (auto_backup_enabled, auto_backup_cron, auto_backup_max_files) = {
+        let cfg = state.config.read().unwrap();
+        (
+            cfg.auto_todo_backup_enabled,
+            cfg.auto_todo_backup_cron.clone(),
+            cfg.auto_todo_backup_max_files,
+        )
+    };
 
     let dir = todo_backup_dir();
 
@@ -744,9 +773,11 @@ pub async fn get_todo_backup_status(
 pub async fn trigger_todo_backup(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<String>, AppError> {
-    let cfg = state.config.read().await;
-    let max_files = cfg.auto_todo_backup_max_files;
-    drop(cfg);
+    // 块作用域拷出 owned 值,锁卫立即 drop,避免后续 .await 持 std 读锁卫。
+    let max_files = {
+        let cfg = state.config.read().unwrap();
+        cfg.auto_todo_backup_max_files
+    };
 
     let dir = todo_backup_dir();
     let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
@@ -815,19 +846,23 @@ pub async fn update_todo_auto_backup(
             .ok_or_else(|| AppError::BadRequest("Cron expression has no future executions".to_string()))?;
     }
 
-    let mut cfg = state.config.write().await;
-    cfg.auto_todo_backup_enabled = req.enabled;
-    cfg.auto_todo_backup_cron = req.cron;
-    if let Some(max_files) = req.max_files {
-        if max_files == 0 {
-            return Err(AppError::BadRequest("保留数量不能为 0".to_string()));
+    // 块作用域内 clone 出 owned 值,await 落盘前写锁已 drop,
+    // 避免 std::sync::RwLockWriteGuard 跨 .await 让 future 变成 !Send。
+    let cfg_clone = {
+        let mut cfg = state.config.write().unwrap();
+        cfg.auto_todo_backup_enabled = req.enabled;
+        cfg.auto_todo_backup_cron = req.cron;
+        if let Some(max_files) = req.max_files {
+            if max_files == 0 {
+                return Err(AppError::BadRequest("保留数量不能为 0".to_string()));
+            }
+            cfg.auto_todo_backup_max_files = max_files;
         }
-        cfg.auto_todo_backup_max_files = max_files;
-    }
-    cfg.normalize_paths();
-    cfg.clamp_execution_timeout_secs();
+        cfg.normalize_paths();
+        cfg.clamp_execution_timeout_secs();
+        cfg.clone()
+    };
 
-    let cfg_clone = cfg.clone();
     tokio::task::spawn_blocking(move || cfg_clone.save())
         .await
         .map_err(|e| AppError::Internal(format!("Join error: {}", e)))?
@@ -839,31 +874,41 @@ pub async fn update_todo_auto_backup(
 /// Start Todo auto backup scheduler
 pub fn start_todo_auto_backup(
     db: std::sync::Arc<crate::db::Database>,
-    config: std::sync::Arc<tokio::sync::RwLock<crate::config::Config>>,
+    config: std::sync::Arc<std::sync::RwLock<crate::config::Config>>,
 ) -> Result<(), String> {
 
     let db_clone = db.clone();
     tokio::spawn(async move {
         loop {
-            // Read current config from in-memory state
+            // 关键:std::sync 读锁卫不能跨 .await(否则 future 变 !Send,无法
+            // tokio::spawn)。这里用显式 if-else + 块作用域把 disabled 分支
+            // 的 sleep().await 放在 cfg 锁卫作用域外,正常分支也把所有需要的
+            // 字段拷出 owned 值,锁卫在块作用域末尾 drop,后续的 sleep().await
+            // 不再持有锁。
             let (enabled, next_delay) = {
-                let cfg = config.read().await;
-                if !cfg.auto_todo_backup_enabled {
-                    // Auto backup disabled, wait and check again
+                let enabled = {
+                    let cfg = config.read().unwrap();
+                    cfg.auto_todo_backup_enabled
+                };
+                if !enabled {
                     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                     continue;
                 }
-                let schedule = cron::Schedule::from_str(&cfg.auto_todo_backup_cron)
-                    .unwrap_or_else(|_| cron::Schedule::from_str("0 0 4 * * *").unwrap());
-                let next = schedule.upcoming(chrono::Utc).next();
-                let delay = match next {
-                    Some(dt) => {
-                        let now = chrono::Utc::now();
-                        (dt - now).to_std().unwrap_or(std::time::Duration::from_secs(60))
-                    }
-                    None => std::time::Duration::from_secs(3600),
+                let (enabled, delay) = {
+                    let cfg = config.read().unwrap();
+                    let schedule = cron::Schedule::from_str(&cfg.auto_todo_backup_cron)
+                        .unwrap_or_else(|_| cron::Schedule::from_str("0 0 4 * * *").unwrap());
+                    let next = schedule.upcoming(chrono::Utc).next();
+                    let delay = match next {
+                        Some(dt) => {
+                            let now = chrono::Utc::now();
+                            (dt - now).to_std().unwrap_or(std::time::Duration::from_secs(60))
+                        }
+                        None => std::time::Duration::from_secs(3600),
+                    };
+                    (cfg.auto_todo_backup_enabled, delay)
                 };
-                (cfg.auto_todo_backup_enabled, delay)
+                (enabled, delay)
             };
 
             tokio::time::sleep(next_delay).await;
@@ -875,7 +920,7 @@ pub fn start_todo_auto_backup(
 
             let db = db_clone.clone();
             let max_files = {
-                let cfg = config.read().await;
+                let cfg = config.read().unwrap();
                 cfg.auto_todo_backup_max_files
             };
 
@@ -991,7 +1036,7 @@ pub struct LogCleanupStatus {
 pub async fn get_log_cleanup_status(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<LogCleanupStatus>, AppError> {
-    let cfg = state.config.read().await;
+    let cfg = state.config.read().unwrap();
     Ok(ApiResponse::ok(LogCleanupStatus {
         cleanup_days: cfg.auto_cleanup_logs_days,
     }))
@@ -1012,10 +1057,13 @@ pub async fn update_log_cleanup(
         }
     }
 
-    let mut cfg = state.config.write().await;
-    cfg.auto_cleanup_logs_days = req.days;
+    // 块作用域内 clone 出 owned 值,await 落盘前写锁已 drop。
+    let cfg_clone = {
+        let mut cfg = state.config.write().unwrap();
+        cfg.auto_cleanup_logs_days = req.days;
+        cfg.clone()
+    };
 
-    let cfg_clone = cfg.clone();
     tokio::task::spawn_blocking(move || cfg_clone.save())
         .await
         .map_err(|e| AppError::Internal(format!("Join error: {}", e)))?
@@ -1028,7 +1076,7 @@ pub async fn trigger_log_cleanup(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<String>, AppError> {
     let days = {
-        let cfg = state.config.read().await;
+        let cfg = state.config.read().unwrap();
         cfg.auto_cleanup_logs_days
     };
 
@@ -1115,11 +1163,15 @@ pub struct ExecutorSkillInfo {
 pub async fn get_skill_backup_status(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<SkillBackupStatus>, AppError> {
-    let cfg = state.config.read().await;
-    let auto_backup_enabled = cfg.auto_skill_backup_enabled;
-    let auto_backup_cron = cfg.auto_skill_backup_cron.clone();
-    let auto_backup_max_files = cfg.auto_skill_backup_max_files;
-    drop(cfg);
+    // 块作用域拷出 owned 值,锁卫立即 drop,避免后续 .await 持 std 读锁卫。
+    let (auto_backup_enabled, auto_backup_cron, auto_backup_max_files) = {
+        let cfg = state.config.read().unwrap();
+        (
+            cfg.auto_skill_backup_enabled,
+            cfg.auto_skill_backup_cron.clone(),
+            cfg.auto_skill_backup_max_files,
+        )
+    };
 
     let dir = skill_backup_dir();
 
@@ -1226,9 +1278,11 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::
 pub async fn trigger_skill_backup(
     State(state): State<AppState>,
 ) -> Result<ApiResponse<String>, AppError> {
-    let cfg = state.config.read().await;
-    let max_files = cfg.auto_skill_backup_max_files;
-    drop(cfg);
+    // 块作用域拷出 owned 值,锁卫立即 drop,避免后续 .await 持 std 读锁卫。
+    let max_files = {
+        let cfg = state.config.read().unwrap();
+        cfg.auto_skill_backup_max_files
+    };
 
     let dir = skill_backup_dir();
     let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
@@ -1346,19 +1400,22 @@ pub async fn update_skill_auto_backup(
             .ok_or_else(|| AppError::BadRequest("Cron expression has no future executions".to_string()))?;
     }
 
-    let mut cfg = state.config.write().await;
-    cfg.auto_skill_backup_enabled = req.enabled;
-    cfg.auto_skill_backup_cron = req.cron;
-    if let Some(max_files) = req.max_files {
-        if max_files == 0 {
-            return Err(AppError::BadRequest("保留数量不能为 0".to_string()));
+    // 块作用域内 clone 出 owned 值,await 落盘前写锁已 drop。
+    let cfg_clone = {
+        let mut cfg = state.config.write().unwrap();
+        cfg.auto_skill_backup_enabled = req.enabled;
+        cfg.auto_skill_backup_cron = req.cron;
+        if let Some(max_files) = req.max_files {
+            if max_files == 0 {
+                return Err(AppError::BadRequest("保留数量不能为 0".to_string()));
+            }
+            cfg.auto_skill_backup_max_files = max_files;
         }
-        cfg.auto_skill_backup_max_files = max_files;
-    }
-    cfg.normalize_paths();
-    cfg.clamp_execution_timeout_secs();
+        cfg.normalize_paths();
+        cfg.clamp_execution_timeout_secs();
+        cfg.clone()
+    };
 
-    let cfg_clone = cfg.clone();
     tokio::task::spawn_blocking(move || cfg_clone.save())
         .await
         .map_err(|e| AppError::Internal(format!("Join error: {}", e)))?
@@ -1458,34 +1515,43 @@ fn cleanup_old_skill_backups(dir: &PathBuf, keep: usize) {
 
 /// Start Skill auto backup scheduler
 pub fn start_skill_auto_backup(
-    config: std::sync::Arc<tokio::sync::RwLock<crate::config::Config>>,
+    config: std::sync::Arc<std::sync::RwLock<crate::config::Config>>,
 ) -> Result<(), String> {
     tokio::spawn(async move {
         loop {
+            // 关键:std::sync 读锁卫不能跨 .await。用显式 if-else + 块作用域
+            // 把 disabled 分支的 sleep().await 放在 cfg 锁卫作用域外。
             let (_enabled, next_delay) = {
-                let cfg = config.read().await;
-                if !cfg.auto_skill_backup_enabled {
+                let enabled = {
+                    let cfg = config.read().unwrap();
+                    cfg.auto_skill_backup_enabled
+                };
+                if !enabled {
                     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                     continue;
                 }
-                let schedule = cron::Schedule::from_str(&cfg.auto_skill_backup_cron)
-                    .unwrap_or_else(|_| cron::Schedule::from_str("0 0 5 * * *").unwrap());
-                let next = schedule.upcoming(chrono::Utc).next();
-                let delay = match next {
-                    Some(dt) => {
-                        let now = chrono::Utc::now();
-                        (dt - now).to_std().unwrap_or(std::time::Duration::from_secs(60))
-                    }
-                    None => std::time::Duration::from_secs(3600),
+                let (enabled, delay) = {
+                    let cfg = config.read().unwrap();
+                    let schedule = cron::Schedule::from_str(&cfg.auto_skill_backup_cron)
+                        .unwrap_or_else(|_| cron::Schedule::from_str("0 0 5 * * *").unwrap());
+                    let next = schedule.upcoming(chrono::Utc).next();
+                    let delay = match next {
+                        Some(dt) => {
+                            let now = chrono::Utc::now();
+                            (dt - now).to_std().unwrap_or(std::time::Duration::from_secs(60))
+                        }
+                        None => std::time::Duration::from_secs(3600),
+                    };
+                    (cfg.auto_skill_backup_enabled, delay)
                 };
-                (cfg.auto_skill_backup_enabled, delay)
+                (enabled, delay)
             };
 
             tokio::time::sleep(next_delay).await;
 
             // Sleep 之后重新检查 enabled 状态，避免使用过期值
             let enabled_now = {
-                let cfg = config.read().await;
+                let cfg = config.read().unwrap();
                 cfg.auto_skill_backup_enabled
             };
             if !enabled_now {
@@ -1493,7 +1559,7 @@ pub fn start_skill_auto_backup(
             }
 
             let max_files = {
-                let cfg = config.read().await;
+                let cfg = config.read().unwrap();
                 cfg.auto_skill_backup_max_files
             };
 
@@ -1510,34 +1576,43 @@ pub fn start_skill_auto_backup(
 /// 启动 AI 使用统计自动归档定时任务
 pub fn start_usage_stats_archival(
     db: std::sync::Arc<Database>,
-    config: std::sync::Arc<tokio::sync::RwLock<crate::config::Config>>,
+    config: std::sync::Arc<std::sync::RwLock<crate::config::Config>>,
 ) -> Result<(), String> {
     let db_clone = db.clone();
     tokio::spawn(async move {
         loop {
+            // 关键:std::sync 读锁卫不能跨 .await。用显式 if-else + 块作用域
+            // 把 disabled 分支的 sleep().await 放在 cfg 锁卫作用域外。
             let (_enabled, next_delay) = {
-                let cfg = config.read().await;
-                if !cfg.auto_usage_stats_enabled {
+                let enabled = {
+                    let cfg = config.read().unwrap();
+                    cfg.auto_usage_stats_enabled
+                };
+                if !enabled {
                     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                     continue;
                 }
-                let schedule = cron::Schedule::from_str(&cfg.auto_usage_stats_cron)
-                    .unwrap_or_else(|_| cron::Schedule::from_str("0 0 1 * * *").unwrap());
-                let next = schedule.upcoming(chrono::Utc).next();
-                let delay = match next {
-                    Some(dt) => {
-                        let now = chrono::Utc::now();
-                        (dt - now).to_std().unwrap_or(std::time::Duration::from_secs(60))
-                    }
-                    None => std::time::Duration::from_secs(3600),
+                let (enabled, delay) = {
+                    let cfg = config.read().unwrap();
+                    let schedule = cron::Schedule::from_str(&cfg.auto_usage_stats_cron)
+                        .unwrap_or_else(|_| cron::Schedule::from_str("0 0 1 * * *").unwrap());
+                    let next = schedule.upcoming(chrono::Utc).next();
+                    let delay = match next {
+                        Some(dt) => {
+                            let now = chrono::Utc::now();
+                            (dt - now).to_std().unwrap_or(std::time::Duration::from_secs(60))
+                        }
+                        None => std::time::Duration::from_secs(3600),
+                    };
+                    (cfg.auto_usage_stats_enabled, delay)
                 };
-                (cfg.auto_usage_stats_enabled, delay)
+                (enabled, delay)
             };
 
             tokio::time::sleep(next_delay).await;
 
             let enabled_now = {
-                let cfg = config.read().await;
+                let cfg = config.read().unwrap();
                 cfg.auto_usage_stats_enabled
             };
             if !enabled_now {

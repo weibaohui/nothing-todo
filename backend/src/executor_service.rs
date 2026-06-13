@@ -36,7 +36,7 @@ pub struct RunTodoExecutionRequest {
     pub executor_registry: Arc<ExecutorRegistry>,
     pub tx: broadcast::Sender<ExecEvent>,
     pub task_manager: Arc<TaskManager>,
-    pub config: Arc<tokio::sync::RwLock<crate::config::Config>>,
+    pub config: Arc<std::sync::RwLock<crate::config::Config>>,
     /// 共享的 hook 触发器（来自 AppState 单例）。
     ///
     /// 之所以放在 request 里而不是在 `run_todo_execution` 内重新 `Arc::new(HookService::new(...))`，
@@ -102,7 +102,7 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
 
     // Read runtime settings from config
     let (max_concurrent, timeout_secs) = {
-        let cfg = config.read().await;
+        let cfg = config.read().unwrap();
         (cfg.max_concurrent_todos, cfg.execution_timeout_secs)
     };
 
@@ -1012,7 +1012,7 @@ pub async fn run_auto_review(
     executor_registry: Arc<crate::adapters::ExecutorRegistry>,
     tx: tokio::sync::broadcast::Sender<crate::handlers::ExecEvent>,
     task_manager: Arc<crate::task_manager::TaskManager>,
-    config: Arc<tokio::sync::RwLock<crate::config::Config>>,
+    config: Arc<std::sync::RwLock<crate::config::Config>>,
     hook_service: Arc<HookService>,
     todo_id: i64,
     record_id: i64,
@@ -1067,7 +1067,7 @@ async fn run_auto_review_inner(
     executor_registry: Arc<crate::adapters::ExecutorRegistry>,
     tx: tokio::sync::broadcast::Sender<crate::handlers::ExecEvent>,
     task_manager: Arc<crate::task_manager::TaskManager>,
-    config: Arc<tokio::sync::RwLock<crate::config::Config>>,
+    config: Arc<std::sync::RwLock<crate::config::Config>>,
     hook_service: Arc<HookService>,
     todo_id: i64,
     record_id: i64,
