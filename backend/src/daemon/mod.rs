@@ -15,7 +15,7 @@
 use clap::Subcommand;
 
 // 平台无关子模块：路径定位等 helper
-mod common;
+pub(crate) mod common;
 
 // 三个平台各自的 service 后端实现
 #[cfg(target_os = "macos")]
