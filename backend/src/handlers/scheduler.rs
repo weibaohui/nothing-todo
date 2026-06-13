@@ -37,15 +37,16 @@ pub async fn update_scheduler(
                 task_manager: state.task_manager.clone(),
                 config: state.config.clone(),
             };
-            // upsert_task 返回 `SchedulerError`,通过
-            // `From<SchedulerError> for AppError` 自动映射:
-            // InvalidCron / InvalidTimezone → 400,其它 → 500。
+            // issue #499：`upsert_task` 现在返回 `SchedulerError`，`?` 通过
+            // `From<SchedulerError> for AppError` 自动映射：
+            // - `InvalidCron` / `InvalidTimezone` → 400 BadRequest
+            // - 其它 → 500 Internal
+            // 之前的版本是手写 `match` + `format!`，错误细节会丢。
             //
-            // PR #544 review HIGH #1 修复: 旧实现无差别 `warn!`,导致 500
-            // 类错误(Database / Internal)被 `RUST_LOG=error` 过滤器漏掉。
-            // 现在按 variant 分级: 用户输入错 → warn(预期,运维不需告警),
-            // 内部错 → error(需进入 Sentry / Loki error 告警)。
-            if let Err(e) = state
+            // PR #543 review HIGH #2 修复：用 `inspect_err` 在 `?` 之前补一行
+            // `tracing::error!` 让 5xx 也能在 server-side 日志带上 todo_id / cron 上下文
+            // （之前是 handler 完整丢 logging,只有 main.rs 的 generic AppError 日志）。
+            state
                 .scheduler
                 .upsert_task(
                     &ctx,
@@ -54,33 +55,12 @@ pub async fn update_scheduler(
                     scheduler_timezone.clone(),
                 )
                 .await
-            {
-                use crate::scheduler::SchedulerError;
-                // PR #544 review HIGH #1 修复: 旧实现无差别 `warn!`,导致 500
-                // 类错误(Database / Internal)被 `RUST_LOG=error` 过滤器漏掉。
-                // 现在按 variant 分级: 用户输入错 → warn(预期,运维不需告警),
-                // 内部错 → error(需进入 Sentry / Loki error 告警)。
-                //
-                // 用 match 调对应 macro 而不是 `tracing::event!(level, ...)` —
-                // `event!` 要求 level 是 const token 而非 runtime value(E0435)。
-                match &e {
-                    SchedulerError::InvalidCron(_)
-                    | SchedulerError::InvalidTimezone(_) => {
-                        tracing::warn!(
-                            "Failed to upsert scheduled task for todo {} (cron='{}', tz={:?}): {}",
-                            id, config, scheduler_timezone, e
-                        );
-                    }
-                    SchedulerError::Database(_)
-                    | SchedulerError::Internal(_) => {
-                        tracing::error!(
-                            "Failed to upsert scheduled task for todo {} (cron='{}', tz={:?}): {}",
-                            id, config, scheduler_timezone, e
-                        );
-                    }
-                }
-                return Err(AppError::from(e));
-            }
+                .inspect_err(|e| {
+                    tracing::error!(
+                        "Failed to upsert scheduled task for todo {} (cron='{}', tz={:?}): {}",
+                        id, config, scheduler_timezone, e
+                    );
+                })?;
             state
                 .db
                 .update_todo_scheduler(crate::db::SchedulerUpdate { id, enabled: req.scheduler_enabled, config: req.scheduler_config.as_deref(), timezone: scheduler_timezone.as_deref() })

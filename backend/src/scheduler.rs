@@ -12,52 +12,55 @@ use crate::executor_service::{run_todo_execution, RunTodoExecutionRequest};
 use crate::hooks::HookService;
 use crate::service_context::ServiceContext;
 
-/// 调度器相关的错误类型。
+/// 调度器模块的统一错误类型（issue #499）。
 ///
-/// 替换原来的 `Box<dyn Error + Send + Sync>` 之后,每个错误变体都带
-/// 上下文信息,调用方(handler / main.rs)可以针对 `InvalidCron` /
-/// `InvalidTimezone` 返回 400,针对 `Database` / `Internal` 返回 500。
-///
-/// 选用 `thiserror` 而不是 `anyhow`:
-/// - 这是库代码(handler 也会消费),需要让调用方根据变体做决策
-/// - `thiserror` 自动派生 `std::error::Error`,可以和其它错误混用
-/// - 与项目其它模块风格一致(参见 `feishu/sdk/ws_client.rs`、`db` 模块)
-#[derive(Error, Debug)]
+/// 之所以替换原来的 `Box<dyn Error + Send + Sync>`：
+/// - 调用方（handlers/scheduler.rs, main.rs）能针对具体错误做差异化处理，
+///   例如把 `InvalidCron` 映射为 HTTP 400，而不是笼统的 500。
+/// - 测试可以针对错误变体做断言（`assert!(matches!(e, SchedulerError::InvalidCron { .. }))`）。
+/// - 错误链不被 `Box<dyn>` 切断，tracing/log 仍能展示完整 source。
+/// - 与项目其他模块（feishu/sdk/error.rs、handlers/mod.rs 的 AppError）的 thiserror
+///   风格保持一致。
+#[derive(Debug, Error)]
 pub enum SchedulerError {
-    /// cron 表达式不合法(解析失败、字段数量不对、语法错误等)。
-    /// handler 层应该把这种错误映射成 HTTP 400,而不是 500。
+    /// 用户传入的 cron 表达式无法被 `cron` crate 解析，或字段数不为 6。
+    /// handler 层应映射为 HTTP 400（用户输入错误），而不是 500。
     ///
-    /// Display 只透传 payload（PR #544 review M1 修复）：之前用
-    /// `#[error("Invalid cron expression: {0}")]` 配合构造点
-    /// `format!("Invalid cron expression '{}' ...", ...)`，导致
-    /// "Invalid cron expression" 在响应体里出现两次。现在 payload 自己
-    /// 负责全部文案，Display 只加 `{}`，避免重复。
-    #[error("{0}")]
-    InvalidCron(String),
+    /// Display 文案保留「AI must convert natural language」提示，因为
+    /// 这是 HTTP 400 响应体里 AI agent 唯一能看到的信息（无 hint 时
+    /// agent 会重复尝试自然语言 cron）。PR #543 review HIGH #3 的修复点。
+    #[error(
+        "Invalid cron expression '{expr}' for todo {todo_id}. \
+         AI must convert natural language to valid cron format with 6 fields \
+         (seconds + 5 standard). \
+         Example: '0 */12 * * * *' (every 12 min), '0 0 9 * * *' (daily at 9am)."
+    )]
+    InvalidCron { expr: String, todo_id: i64 },
 
-    /// 时区字符串不合法(chrono_tz 解析失败)。
-    /// 同样应该映射成 HTTP 400,因为是用户输入错误。
+    /// 用户传入的时区字符串无法被 `chrono_tz::Tz` 解析。
+    /// 与 `InvalidCron` 同属用户输入错误，应映射为 HTTP 400。
     #[error("Invalid timezone: {0}")]
     InvalidTimezone(String),
 
-    /// 数据库错误(load scheduler todos 等场景)。
-    /// 通常是连接失败、磁盘满等基础设施问题,映射成 500。
+    /// 底层数据库错误（来自 `sea_orm::DbErr`）。
+    /// 通过 `#[from]` 自动实现 `From<sea_orm::DbErr>`，让 `?` 直接工作。
     #[error("Database error: {0}")]
     Database(#[from] sea_orm::DbErr),
 
-    /// 调度器内部错误(底层 tokio-cron-scheduler / `Job::new_async` /
-    /// `sched.add` 抛出的)。保留为字符串而不是直接暴露
-    /// `JobSchedulerError`,是因为后者没有附加上下文,不利于日志定位。
-    #[error("Scheduler internal error: {0}")]
+    /// `tokio_cron_scheduler` 后端错误（创建 scheduler、添加 job、启动调度等）。
+    /// `JobSchedulerError` 已实现 `std::error::Error`，可走 `#[from]`。
+    #[error("Scheduler backend error: {0}")]
+    SchedulerBackend(#[from] JobSchedulerError),
+
+    /// 兜底变体：上述类别之外的内部错误，保留 String 描述。
+    #[error("Internal scheduler error: {0}")]
     Internal(String),
 }
 
-/// 把 tokio-cron-scheduler 的错误统一包装成 `SchedulerError::Internal`。
-/// 选择 `From` 而不是 `#[from]` 字段,是因为 `JobSchedulerError` 是 unit
-/// 变体枚举,信息量不足,我们这里附加一个 hint 让日志更有用。
-impl From<JobSchedulerError> for SchedulerError {
-    fn from(err: JobSchedulerError) -> Self {
-        SchedulerError::Internal(format!("{:?}", err))
+impl SchedulerError {
+    /// 构造一个"内部错误"，统一从 String 字面量构造。
+    pub fn internal<S: Into<String>>(msg: S) -> Self {
+        Self::Internal(msg.into())
     }
 }
 
@@ -145,11 +148,23 @@ fn format_cron_field(set: &BTreeSet<u32>) -> String {
 ///   引入歧义。如果未来有强需求,可以再扩展。
 /// - DST 切换日会"丢 1 小时"或"重 1 小时":这是单 cron 表达式表达
 ///   不出 1 年内多个 UTC 时刻的根本限制,会在日志 warn 提示用户。
+/// 把用户时区的 cron 表达式转换为 UTC 等价表达式。
 ///
-/// 错误返回类型换成 `SchedulerError` 而非裸 `String`,这样调用方
-/// (`upsert_task`)能识别"cron 不合法"vs"时区不合法",在 warn 日志里
-/// 给出更精确的信息(也方便未来直接映射到 4xx)。
-fn convert_cron_to_utc(cron_expr: &str, timezone: &str) -> Result<String, SchedulerError> {
+/// 返回类型 `Result<String, SchedulerError>`（PR #543 review CRITICAL #1 修复）：
+/// - 旧实现返回 `Result<String, String>`，让 `upsert_task` 只能 `match` + warn + fallback 到
+///   原 `cron_expr`，结果 `SchedulerError::InvalidTimezone` 在生产代码不可达，
+///   `From<SchedulerError> for AppError` 的 400 映射是死代码。
+/// - 新实现用 typed error，调用方 `?` 直接传播 `InvalidTimezone` / `InvalidCron`，
+///   handler 真的会返回 400。
+///
+/// `todo_id` 透传给 `SchedulerError::InvalidCron { expr, todo_id }`，让响应体
+/// 能告诉调用方"是哪条 todo 的 cron 错了"。`load_from_db` 用 sentinel `-1`
+/// 因为那是从 DB 加载历史数据，没有具体的 user-facing todo_id。
+fn convert_cron_to_utc(
+    cron_expr: &str,
+    timezone: &str,
+    todo_id: i64,
+) -> Result<String, SchedulerError> {
     // 解析时区; 失败时给出可定位的错误,不要 panic。
     let tz: chrono_tz::Tz = timezone
         .parse()
@@ -158,18 +173,21 @@ fn convert_cron_to_utc(cron_expr: &str, timezone: &str) -> Result<String, Schedu
     // 用 `cron` crate 解析,这一步同时校验 cron 语法。
     // 之前用一次性 `from_str(...)?` 吞掉错误再 split 字段,失败时
     // 报错信息不友好。
-    let schedule = cron::Schedule::from_str(cron_expr)
-        .map_err(|_| SchedulerError::InvalidCron(cron_expr.to_string()))?;
+    let schedule = cron::Schedule::from_str(cron_expr).map_err(|_| {
+        SchedulerError::InvalidCron {
+            expr: cron_expr.to_string(),
+            todo_id,
+        }
+    })?;
 
     // 要求 6 字段 (秒 分 时 日 月 周),与 `tokio-cron-scheduler` 一致;
     // 5 字段在 unix cron 里合法但本项目不接受 —— 早 fail 早知道。
     let fields: Vec<&str> = cron_expr.trim().split_whitespace().collect();
     if fields.len() != 6 {
-        // 字段数不对本质上是 cron 表达式不合法,归到 InvalidCron 一类。
-        return Err(SchedulerError::InvalidCron(format!(
-            "Cron expression must have 6 fields (seconds minute hour day-of-month month day-of-week), got {}",
-            fields.len()
-        )));
+        return Err(SchedulerError::InvalidCron {
+            expr: cron_expr.to_string(),
+            todo_id,
+        });
     }
 
     // fields 顺序: 秒 分 时 日 月 周
@@ -197,8 +215,6 @@ fn convert_cron_to_utc(cron_expr: &str, timezone: &str) -> Result<String, Schedu
     let reference = match tz.with_ymd_and_hms(2025, 1, 1, 0, 0, 0) {
         chrono::LocalResult::Single(t) => t,
         _ => {
-            // 构造参考时间失败(理论上 2025-01-01 00:00:00 在任何合法时区都有效,
-            // 但 chrono 的 API 仍然返回 LocalResult,稳妥处理)。
             return Err(SchedulerError::Internal(
                 "Could not build reference datetime in timezone".to_string(),
             ));
@@ -309,11 +325,8 @@ pub struct TodoScheduler {
 }
 
 impl TodoScheduler {
-    /// 构造一个空的 `TodoScheduler`。
-    ///
-    /// 错误来源:底层 `JobScheduler::new()` 失败(资源不足、内部状态异常)。
-    /// 通过 `From<JobSchedulerError> for SchedulerError` 自动转换为
-    /// `SchedulerError::Internal`,不再用 `Box<dyn Error>`。
+    /// 创建 `TodoScheduler` 单例，初始化底层 `JobScheduler`。
+    /// 失败的原因（`JobSchedulerError`）通过 `#[from]` 自动转为 `SchedulerError::SchedulerBackend`。
     pub async fn new(hook_service: Arc<HookService>) -> Result<Self, SchedulerError> {
         let sched = JobScheduler::new().await?;
         Ok(Self {
@@ -323,11 +336,9 @@ impl TodoScheduler {
         })
     }
 
-    /// 从 DB 加载所有启用了 cron 的 todo,把它们注册到调度器。
-    ///
-    /// 错误处理策略:对每个 todo,单个失败(比如 cron 表达式损坏)不会
-    /// 阻断其它 todo —— 我们 warn 一条然后跳过。整体函数只会在
-    /// `get_scheduler_todos` 这一步失败时返回 `SchedulerError::Database`。
+    /// 从 DB 读取所有启用调度的 todo，并注册到 `JobScheduler`。
+    /// 单条 todo 的注册失败（cron 不合法等）只 warn 不中断，**外层返回 Ok**；
+    /// 只有 DB 本身不可达才算失败。
     pub async fn load_from_db(
         &self,
         ctx: &ServiceContext,
@@ -362,16 +373,6 @@ impl TodoScheduler {
         Ok(())
     }
 
-    /// 新建/更新某个 todo 的 cron 调度任务。
-    ///
-    /// 错误类型选择:
-    /// - `InvalidCron` / `InvalidTimezone`:用户输入错误,handler 应该
-    ///   映射成 400。
-    /// - `Database`:内部错误,handler 映射成 500。
-    /// - `Internal`:底层 scheduler / JobBuilder 出问题,500。
-    ///
-    /// 之前的实现里 `Err(format!(...).into())` 把字符串塞进 `Box<dyn Error>`,
-    /// 调用方无法区分原因,只能做"调度失败 → 500"的兜底。
     pub async fn upsert_task(
         &self,
         ctx: &ServiceContext,
@@ -379,8 +380,7 @@ impl TodoScheduler {
         cron_expr: String,
         timezone: Option<String>,
     ) -> Result<uuid::Uuid, SchedulerError> {
-        // Validate cron expression。错误类型从 String 改成
-        // SchedulerError::InvalidCron,handler 可以直接判别返回 400。
+        // Validate cron expression
         if cron::Schedule::from_str(&cron_expr).is_err() {
             warn!(
                 "Invalid cron expression '{}' for todo {}. \
@@ -388,24 +388,22 @@ impl TodoScheduler {
                 Example: '0 */12 * * * *' (every 12 min), '0 0 9 * * *' (daily at 9am).",
                 cron_expr, todo_id
             );
-            return Err(SchedulerError::InvalidCron(format!(
-                "Invalid cron expression '{}' for todo {}. AI must convert natural language to valid cron format.",
-                cron_expr, todo_id
-            )));
+            // 用结构化的 `SchedulerError::InvalidCron { expr, todo_id }` 替代原来的
+            // `format!(...).into()`（后者会丢类型，handler 没法区分"用户输入错"
+            // 和"内部错误"）。这样 `From<SchedulerError> for AppError` 才能把
+            // 它映射为 400 BadRequest。
+            return Err(SchedulerError::InvalidCron {
+                expr: cron_expr,
+                todo_id,
+            });
         }
 
-        // Convert cron expression to UTC if timezone is specified。
-        //
-        // PR #544 review CRITICAL #1 修复: 旧实现用 `match` + warn + fallback
-        // 到原 `cron_expr`,导致 `SchedulerError::InvalidTimezone` 在生产代码
-        // 永远不被构造、handler 的 400 映射是死代码。新实现用 `?` 让 typed
-        // error 直接传播,handler 会返回 400。
-        //
-        // 注: 用户的"错误时区静默 fallback 到 UTC"语义现在变成"错误时区返回
-        // 400 BadRequest"。issue #499 的核心诉求是"用户输入错必须 400",这个
-        // 改动让它真正成立。
+        // Convert cron expression to UTC if timezone is specified.
+        // PR #543 review CRITICAL #1 修复: 旧实现用 `match` + warn + fallback 到原
+        // `cron_expr`，导致 `SchedulerError::InvalidTimezone` 在生产路径上不可达、
+        // handler 的 400 映射成死代码。新实现用 `?` 让 typed error 直接传播。
         let cron_expr_utc = if let Some(ref tz) = timezone {
-            let utc_expr = convert_cron_to_utc(&cron_expr, tz)?;
+            let utc_expr = convert_cron_to_utc(&cron_expr, tz, todo_id)?;
             if utc_expr != cron_expr {
                 info!(
                     "Converted cron expression from '{}' ({})) to '{}' (UTC) for todo {}",
@@ -429,9 +427,6 @@ impl TodoScheduler {
         let hs_clone = self.hook_service.clone();
 
         info!("Creating job for todo {} with cron: {} (original: {:?})", todo_id, cron_expr_utc, timezone);
-        // `Job::new_async` 返回 `Result<_, JobSchedulerError>`,通过
-        // 上面定义的 `From<JobSchedulerError> for SchedulerError` 自动
-        // 转换成 SchedulerError::Internal,不再 `?` 加 `Box::new(io_err...)`。
         let job = Job::new_async(&cron_expr_utc, move |_uuid, _l| {
             let db = db_clone.clone();
             let registry = registry_clone.clone();
@@ -488,18 +483,25 @@ impl TodoScheduler {
         );
         let sched = self.sched.lock().await;
         info!("Scheduler inited: {}", sched.inited().await);
-        // `sched.add` 的错误通过 `?` 直接走 `From<JobSchedulerError>`。
-        // 原本的实现用 `std::io::Error::other(format!("{:?}", e))` 把错误
-        // 类型换成 io::Error,丢失了 `JobSchedulerError` 的语义信息
-        // (例如 `CantAdd` / `CantInit` 等);现在保留原始语义。
-        let id = sched.add(job).await?;
-        drop(sched);
-        self.job_map.lock().await.insert(todo_id, id);
-        info!(
-            "Added scheduled task {} for todo {} with cron: {}",
-            id, todo_id, cron_expr
-        );
-        Ok(id)
+        match sched.add(job).await {
+            Ok(id) => {
+                drop(sched);
+                self.job_map.lock().await.insert(todo_id, id);
+                info!(
+                    "Added scheduled task {} for todo {} with cron: {}",
+                    id, todo_id, cron_expr
+                );
+                Ok(id)
+            }
+            Err(e) => {
+                // 用结构化 `SchedulerError::SchedulerBackend(e)` 替代原来的
+                // `Box::new(std::io::Error::other(...))`。`e: JobSchedulerError` 已
+                // 实现 `std::error::Error`，可走 `#[from]` 直接 `?`，但这里我们要
+                // 显式带上上下文（todo_id, cron_expr）便于排查，所以手写变体。
+                error!("Failed to add job to scheduler: {:?}", e);
+                Err(SchedulerError::SchedulerBackend(e))
+            }
+        }
     }
 
     pub async fn remove_task_for_todo(&self, todo_id: i64) {
@@ -515,9 +517,7 @@ impl TodoScheduler {
         }
     }
 
-    /// 启动底层 `JobScheduler`。
-    ///
-    /// 错误来源:底层 `sched.start()` 失败(资源竞争、shutdown 等)。
+    /// 启动调度循环。`JobSchedulerError` 通过 `#[from]` 自动转为 `SchedulerError::SchedulerBackend`。
     pub async fn start(&self) -> Result<(), SchedulerError> {
         self.sched.lock().await.start().await?;
         info!("Scheduler started");
@@ -540,7 +540,7 @@ mod convert_cron_to_utc_tests {
     /// Asia/Shanghai 是 UTC+8, 9 点本地 → 1 点 UTC。
     #[test]
     fn test_shanghai_9am_local_becomes_1am_utc() {
-        let utc = convert_cron_to_utc("0 0 9 * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0 0 9 * * *", "Asia/Shanghai", 0).unwrap();
         assert_eq!(utc, "0 0 1 * * *");
     }
 
@@ -549,7 +549,7 @@ mod convert_cron_to_utc_tests {
     /// `chrono_tz` 会按当前 offset 计算,所以 13/14 都有可能)。
     #[test]
     fn test_new_york_9am_local_shifts_to_utc() {
-        let utc = convert_cron_to_utc("0 0 9 * * *", "America/New_York").unwrap();
+        let utc = convert_cron_to_utc("0 0 9 * * *", "America/New_York", 0).unwrap();
         let hour: i32 = utc.split_whitespace().nth(2).unwrap().parse().unwrap();
         // 9 - (-4) = 13 (DST) 或 9 - (-5) = 14 (标准时间)
         assert!(hour == 13 || hour == 14, "got {utc}, hour={hour}");
@@ -562,7 +562,7 @@ mod convert_cron_to_utc_tests {
     /// 会漏掉 UTC 端的 hour wrap。
     #[test]
     fn test_wildcard_hour_passes_through_unchanged() {
-        let utc = convert_cron_to_utc("0 0 * * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0 0 * * * *", "Asia/Shanghai", 0).unwrap();
         // 0-23 等价于 *,枚举后紧凑表示
         assert_eq!(utc, "0 0 0-23 * * *");
     }
@@ -571,7 +571,7 @@ mod convert_cron_to_utc_tests {
     /// 这是工作时间段调度的常见写法。
     #[test]
     fn test_hour_range_is_shifted() {
-        let utc = convert_cron_to_utc("0 0 9-17 * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0 0 9-17 * * *", "Asia/Shanghai", 0).unwrap();
         assert_eq!(utc, "0 0 1-9 * * *");
     }
 
@@ -579,7 +579,7 @@ mod convert_cron_to_utc_tests {
     /// shanghai: 9→1, 12→4, 18→10。
     #[test]
     fn test_hour_list_each_value_shifted() {
-        let utc = convert_cron_to_utc("0 0 9,12,18 * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0 0 9,12,18 * * *", "Asia/Shanghai", 0).unwrap();
         assert_eq!(utc, "0 0 1,4,10 * * *");
     }
 
@@ -588,7 +588,7 @@ mod convert_cron_to_utc_tests {
     #[test]
     fn test_local_late_night_rolls_back_no_wrap() {
         // 23:00 Shanghai = 15:00 UTC (no wrap)
-        let utc = convert_cron_to_utc("0 0 23 * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0 0 23 * * *", "Asia/Shanghai", 0).unwrap();
         assert_eq!(utc, "0 0 15 * * *");
     }
 
@@ -602,7 +602,7 @@ mod convert_cron_to_utc_tests {
     /// 实际跑成 UTC 每 2 小时(差 8 小时),用户感受是"全跑偏"。
     #[test]
     fn test_step_expression_expands_to_utc_equivalent() {
-        let utc = convert_cron_to_utc("0 0 */2 * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0 0 */2 * * *", "Asia/Shanghai", 0).unwrap();
         assert_eq!(utc, "0 0 0-22/2 * * *");
     }
 
@@ -610,7 +610,7 @@ mod convert_cron_to_utc_tests {
     /// 这个 case 验证"显式范围"和"通配符步长"走的是同一条路径。
     #[test]
     fn test_explicit_range_step_matches_wildcard_step() {
-        let utc = convert_cron_to_utc("0 0 0-23/2 * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0 0 0-23/2 * * *", "Asia/Shanghai", 0).unwrap();
         assert_eq!(utc, "0 0 0-22/2 * * *");
     }
 
@@ -620,7 +620,7 @@ mod convert_cron_to_utc_tests {
     /// 14 UTC;13 占多数,应该被选中。
     #[test]
     fn test_dst_single_hour_uses_dominant_offset() {
-        let utc = convert_cron_to_utc("0 0 9 * * *", "America/New_York").unwrap();
+        let utc = convert_cron_to_utc("0 0 9 * * *", "America/New_York", 0).unwrap();
         assert_eq!(utc, "0 0 13 * * *");
     }
 
@@ -629,7 +629,7 @@ mod convert_cron_to_utc_tests {
     /// 出现 5 个月,8 (BST) 出现 7 个月,dominant 是 8。
     #[test]
     fn test_dst_london_uses_dominant_offset() {
-        let utc = convert_cron_to_utc("0 0 9 * * *", "Europe/London").unwrap();
+        let utc = convert_cron_to_utc("0 0 9 * * *", "Europe/London", 0).unwrap();
         assert_eq!(utc, "0 0 8 * * *");
     }
 
@@ -638,7 +638,7 @@ mod convert_cron_to_utc_tests {
     /// 手算"0 - 8 = -8 → 16"。
     #[test]
     fn test_midnight_local_rolls_back_one_day() {
-        let utc = convert_cron_to_utc("0 0 0 * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0 0 0 * * *", "Asia/Shanghai", 0).unwrap();
         assert_eq!(utc, "0 0 16 * * *");
     }
 
@@ -647,7 +647,7 @@ mod convert_cron_to_utc_tests {
     /// 验证非整数小时偏移也能正确处理(之前实现按整小时算会丢 30 分钟)。
     #[test]
     fn test_half_hour_offset_india() {
-        let utc = convert_cron_to_utc("0 30 0 * * *", "Asia/Kolkata").unwrap();
+        let utc = convert_cron_to_utc("0 30 0 * * *", "Asia/Kolkata", 0).unwrap();
         // 30 分钟 + 半小时偏移 = 整数小时偏移的 5.5h,跨日 wrap 后落在 19 UTC
         assert_eq!(utc, "0 0 19 * * *");
     }
@@ -666,7 +666,7 @@ mod convert_cron_to_utc_tests {
     /// "本地每 30 分钟一次"的语义。
     #[test]
     fn test_every_half_hour_shanghai() {
-        let utc = convert_cron_to_utc("0,30 0 * * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0,30 0 * * * *", "Asia/Shanghai", 0).unwrap();
         assert_eq!(utc, "0-30/30 0 0-23 * * *");
     }
 
@@ -674,317 +674,229 @@ mod convert_cron_to_utc_tests {
     /// 验证拒绝路径稳定(避免误把年份字段当 day-of-month 之类的)。
     #[test]
     fn test_seven_field_cron_is_rejected() {
-        let result = convert_cron_to_utc("0 0 9 * * * 2025", "Asia/Shanghai");
+        let result = convert_cron_to_utc("0 0 9 * * * 2025", "Asia/Shanghai", 0);
         assert!(result.is_err(), "7-field cron should be rejected, got {:?}", result);
     }
 
     /// 错误的时区字符串必须报错,不能 panic 也不能"用 UTC 顶上"。
     /// cron 调度一旦悄悄退到 UTC,用户的 9 点就变成 UTC 9 = 17:00 北京,
     /// 这种"静默错误"是定时任务里最难排查的一类。
-    ///
-    /// 升级到 SchedulerError 之后,这里断言错误变体是
-    /// `InvalidTimezone` 而不是 `Internal`,这样 handler 层才能
-    /// 知道应该返回 400 而不是 500。
     #[test]
     fn test_invalid_timezone_returns_error() {
-        let result = convert_cron_to_utc("0 0 9 * * *", "Not/A/Real/Zone");
+        let result = convert_cron_to_utc("0 0 9 * * *", "Not/A/Real/Zone", 0);
         assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(
-            matches!(err, super::SchedulerError::InvalidTimezone(_)),
-            "expected InvalidTimezone, got {err:?}"
-        );
+        assert!(result.unwrap_err().to_string().contains("Invalid timezone"));
     }
 
     /// cron 字段数量不对必须报错(我们要求 6 字段,标准 5 字段 + 秒)。
     /// 5 字段 cron 在 unix 传统里合法, 但 tokio-cron-scheduler 不接受,
     /// 提早在这里拒绝比让 scheduler 内部崩要友好。
-    ///
-    /// 字段数错误被归类到 `InvalidCron` 变体(handler 一样返回 400)。
     #[test]
     fn test_wrong_field_count_returns_error() {
         // 5 fields (missing seconds)
-        let result = convert_cron_to_utc("0 9 * * *", "Asia/Shanghai");
+        let result = convert_cron_to_utc("0 9 * * *", "Asia/Shanghai", 0);
         // cron crate 接受 5 字段,所以这里先 cron-parse-ok 再字段数检查;
         // 任何 Err 都算防御成功(具体文案可能因 cron crate 版本变化)
         assert!(result.is_err(), "5-field cron should be rejected, got {:?}", result);
-        let err = result.unwrap_err();
-        assert!(
-            matches!(err, super::SchedulerError::InvalidCron(_)),
-            "expected InvalidCron, got {err:?}"
-        );
     }
 
     /// cron 字符串本身不合法(cron crate 解析失败)必须报错。
     /// 否则会在调度器里 panic,影响整个 daemon。
     #[test]
     fn test_invalid_cron_expression_returns_error() {
-        let result = convert_cron_to_utc("not a cron string", "Asia/Shanghai");
+        let result = convert_cron_to_utc("not a cron string", "Asia/Shanghai", 0);
         assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(
-            matches!(err, super::SchedulerError::InvalidCron(_)),
-            "expected InvalidCron, got {err:?}"
-        );
+        assert!(result.unwrap_err().to_string().contains("Invalid cron expression"));
     }
 }
 
 #[cfg(test)]
 mod scheduler_error_tests {
-    //! 测试 `SchedulerError` 枚举本身:
-    //! - Display 文本稳定(handler / 日志依赖它)
-    //! - 实现了 `std::error::Error` trait(可以被 `?`、其它 error 链消费)
-    //! - `From<sea_orm::DbErr>` 自动转换(用于 `load_from_db`)
-    //! - `From<JobSchedulerError>` 自动转换(用于 `new` / `upsert_task` / `start`)
+    //! 覆盖 `SchedulerError` 枚举本身（issue #499）：
+    //! - `Display` 输出带原始信息
+    //! - `From<sea_orm::DbErr>` 自动转 `Database` 变体
+    //! - `From<JobSchedulerError>` 自动转 `SchedulerBackend` 变体
+    //! - `From<SchedulerError> for AppError` 把用户输入错映射为 `BadRequest`、其它映射为 `Internal`
     //!
-    //! 这些是 issue #499 的核心契约 —— 替换 Box<dyn Error> 之后,
-    //! 调用方按变体处理,断言错误类型不能漂移。
-
-    use super::SchedulerError;
+    //! 这些测试之前无法在 `Box<dyn Error>` 抽象下做 —— 抽象层把变体抹平了，
+    //! 现在能针对具体变体断言。
+    use super::{convert_cron_to_utc, SchedulerError};
+    use crate::handlers::AppError;
     use sea_orm::DbErr;
-    use tokio_cron_scheduler::JobSchedulerError;
 
-    /// Display 文本:InvalidCron 必须包含原始 cron 表达式,方便定位
-    /// "哪条 cron 被拒"。如果字符串里有 `'` 这种特殊字符,实现不应
-    /// panic 也不应截断。
+    /// `InvalidCron` 的 Display 必须包含原始 cron 字符串、todo id，
+    /// **以及 AI 提示**——PR #543 review HIGH #3 修复。AI agent 调 API
+    /// 时只有这条响应体能看，没有 hint 时 agent 会重试同样的自然语言 cron。
     #[test]
-    fn test_scheduler_error_display_invalid_cron() {
-        let err = SchedulerError::InvalidCron("not a cron".to_string());
-        let msg = format!("{}", err);
-        assert!(msg.contains("Invalid cron expression"));
-        assert!(msg.contains("not a cron"));
-    }
-
-    /// PR #544 review M1 regression guard: 之前的 `#[error("Invalid cron
-    /// expression: {0}")]` 配合构造点 `format!("Invalid cron expression '...'...")`
-    /// 导致 "Invalid cron expression" 出现两次 ("Invalid cron expression:
-    /// Invalid cron expression '0 0 9' ...")。现在 Display 只透传 payload,
-    /// payload 自己负责全部文案,所以 "Invalid cron expression" 只出现一次。
-    #[test]
-    fn test_invalid_cron_display_no_double_prefix() {
-        let err = SchedulerError::InvalidCron(
-            "Invalid cron expression '0 0 9' for todo 42. AI must convert natural language to valid cron format.".to_string()
-        );
-        let msg = format!("{}", err);
-        let count = msg.matches("Invalid cron expression").count();
-        assert_eq!(count, 1, "should appear exactly once, got msg: {msg}");
-        assert!(msg.contains("'0 0 9'"), "should echo expr: {msg}");
-        assert!(msg.contains("42"), "should include todo_id: {msg}");
-        assert!(msg.contains("AI must convert"), "should keep AI hint: {msg}");
-    }
-
-    /// Display 文本:InvalidTimezone 包含时区字符串。
-    #[test]
-    fn test_scheduler_error_display_invalid_timezone() {
-        let err = SchedulerError::InvalidTimezone("Not/A/Real/Zone".to_string());
-        let msg = format!("{}", err);
-        assert!(msg.contains("Invalid timezone"));
-        assert!(msg.contains("Not/A/Real/Zone"));
-    }
-
-    /// Display 文本:Database 透传 sea_orm::DbErr 的消息,而不是
-    /// 替换成 "database error" 之类毫无信息量的字符串。
-    #[test]
-    fn test_scheduler_error_display_database() {
-        let db_err = DbErr::Custom("connection refused".to_string());
-        let err: SchedulerError = db_err.into();
-        let msg = format!("{}", err);
-        assert!(msg.contains("Database error"));
-        assert!(msg.contains("connection refused"));
-    }
-
-    /// Display 文本:Internal 包含 debug 形式的 JobSchedulerError。
-    /// 之前实现 `format!("{:?}", e)` 把 enum 整成 `CantAdd` 这种 enum
-    /// 标签,信息可读;这里保留这一行为。
-    #[test]
-    fn test_scheduler_error_display_internal() {
-        let err = SchedulerError::Internal("CantAdd".to_string());
-        let msg = format!("{}", err);
-        assert!(msg.contains("Scheduler internal error"));
-        assert!(msg.contains("CantAdd"));
-    }
-
-    /// `SchedulerError` 必须实现 `std::error::Error`,这是 `?` 操作符和
-    /// 其它 crate(`anyhow`、`thiserror` 派生)能消费它的前提。如果 trait
-    /// 实现缺失,编译期就会报错(这个断言是冗余的 runtime 兜底)。
-    #[test]
-    fn test_scheduler_error_implements_std_error() {
-        fn assert_error<E: std::error::Error>(_: &E) {}
-        let err = SchedulerError::InvalidCron("x".to_string());
-        assert_error(&err);
-    }
-
-    /// `From<sea_orm::DbErr>` 自动转换:`load_from_db` 用 `?` 一行
-    /// 把 DbErr 吃掉。如果这个 From 缺失,`?` 会编译失败。
-    #[test]
-    fn test_scheduler_error_from_db_err() {
-        let db_err = DbErr::Custom("anyhow".to_string());
-        let err: SchedulerError = db_err.into();
-        assert!(matches!(err, SchedulerError::Database(_)));
-    }
-
-    /// `From<JobSchedulerError>` 自动转换:`new` / `start` / `add` 用 `?`
-    /// 把 JobSchedulerError 吃掉。如果没有这个 From,这些方法里要写
-    /// `.map_err(|e| SchedulerError::Internal(format!("{:?}", e)))?`,
-    /// 既冗长又容易漏。
-    ///
-    /// 这里挑一个 unit 变体做转换,只要编译过就行;`format!("{:?}", ...)`
-    /// 会输出 enum 标签,例如 `CantAdd`。
-    #[test]
-    fn test_scheduler_error_from_job_scheduler_error() {
-        let err: SchedulerError = JobSchedulerError::CantAdd.into();
-        assert!(matches!(err, SchedulerError::Internal(_)));
-        let msg = format!("{}", err);
-        assert!(msg.contains("CantAdd"));
-    }
-
-    /// 7 字段 cron 表达式(被字段数检查拒绝)走 `InvalidCron` 路径,
-    /// 不是 Internal —— 这一点之前在 `test_seven_field_cron_is_rejected`
-    /// 隐含断言,这里再单独覆盖一次,确保未来重构时不会被静默移走。
-    #[test]
-    fn test_seven_field_cron_yields_invalid_cron_variant() {
-        let result = super::convert_cron_to_utc("0 0 9 * * * 2025", "Asia/Shanghai");
-        let err = result.expect_err("7-field cron should be rejected");
+    fn test_invalid_cron_display_includes_ai_hint() {
+        let err = SchedulerError::InvalidCron {
+            expr: "every morning".to_string(),
+            todo_id: 42,
+        };
+        let s = err.to_string();
+        assert!(s.contains("every morning"), "should echo expr, got: {s}");
+        assert!(s.contains("42"), "should include todo_id, got: {s}");
         assert!(
-            matches!(err, SchedulerError::InvalidCron(_)),
-            "expected InvalidCron for 7-field cron, got {err:?}"
+            s.contains("AI must convert natural language"),
+            "should include AI hint for agent retries, got: {s}"
+        );
+        assert!(
+            s.contains("6 fields"),
+            "should explain 6-field requirement, got: {s}"
         );
     }
 
-    /// Property-based tests for `convert_cron_to_utc`.
-    ///
-    /// 不变量设计:
-    /// 1. **错误时区 → 错误**: 任何不在 `chrono_tz` 数据库里的字符串必须报错,
-    ///    不能悄悄退到 UTC(那会让用户的"早上 9 点"实际跑到 UTC 9 = 下午 5 点)。
-    /// 2. **错误字段数 → 错误**: 5 字段、7 字段、空字符串、纯空白都必须 Err。
-    /// 3. **有效输入 → 有效输出**: Ok 时,返回值必须仍是合法 6 字段 cron,
-    ///    且能被 `cron::Schedule::from_str` 解析。
-    /// 4. **UTC 时区是不动点**: `convert_cron_to_utc(expr, "UTC")` 应得到与 expr
-    ///    在语义上等价的 UTC cron(由于 DST 启发式,可能压缩成列表,但仍合法)。
-    ///
-    /// 这些不变量是 issue #514 引入 property-based testing 的回归网。
-    mod convert_cron_to_utc_proptests {
-        use super::convert_cron_to_utc;
-        use proptest::prelude::*;
-        use std::str::FromStr;
-
-        /// 一些已知合法的时区字符串,覆盖整点 / 半小时 / DST 三类。
-        /// 不在这列表里的时区由 `prop_invalid_timezone_strategy` 反向覆盖。
-        fn valid_timezone_strategy() -> BoxedStrategy<String> {
-            prop_oneof![
-                Just("UTC".to_string()),
-                Just("Asia/Shanghai".to_string()),
-                Just("America/New_York".to_string()),
-                Just("Europe/London".to_string()),
-                Just("Asia/Kolkata".to_string()),
-                Just("Asia/Tokyo".to_string()),
-                Just("Australia/Sydney".to_string()),
-            ]
-            .boxed()
-        }
-
-        /// 一组合法 6 字段 cron 表达式 (秒 分 时 日 月 周)。
-        /// 涵盖单值、范围、列表、步长四种基本形态 —— 这是日常最常见的写法。
-        fn valid_cron_strategy() -> BoxedStrategy<String> {
-            prop_oneof![
-                Just("0 0 9 * * *".to_string()),
-                Just("0 0 0 * * *".to_string()),
-                Just("0 30 0 * * *".to_string()),
-                Just("0 0 9,12,18 * * *".to_string()),
-                Just("0 0 9-17 * * *".to_string()),
-                Just("0 0 */2 * * *".to_string()),
-                Just("0 0 0-23/2 * * *".to_string()),
-                Just("0,30 0 * * * *".to_string()),
-                Just("30 0 9 * * *".to_string()),
-                Just("0 15 9 * * MON".to_string()),
-            ]
-            .boxed()
-        }
-
-        /// 一些"看似合法但实际不应被接受"的字符串,覆盖错误时区 / 错误字段数。
-        fn invalid_timezone_strategy() -> BoxedStrategy<String> {
-            prop_oneof![
-                Just("Not/A/Real/Zone".to_string()),
-                Just("".to_string()),
-                Just("asia/shanghai".to_string()), // 时区名是大小写敏感的
-                Just("Shanghai".to_string()),
-                Just("GMT+8".to_string()),          // chrono_tz 不接受这种短格式
-            ]
-            .boxed()
-        }
-
-        /// 错误字段数:5 / 7 / 0 个字段。
-        fn wrong_field_count_strategy() -> BoxedStrategy<String> {
-            prop_oneof![
-                Just("0 0 9 * *".to_string()),       // 5 字段
-                Just("0 0 9 * * * 2025".to_string()), // 7 字段
-                Just("".to_string()),
-                Just("    ".to_string()),
-                Just("0 0 9".to_string()),           // 3 字段
-                Just("0 0 9 * * * * *".to_string()), // 9 字段
-            ]
-            .boxed()
-        }
-
-        proptest! {
-            #![proptest_config(ProptestConfig::with_cases(32))]
-
-            /// 错误时区必须返回 Err,绝不能"按 UTC 顶上"或 panic。
-            #[test]
-            fn invalid_timezone_is_rejected(
-                cron in valid_cron_strategy(),
-                tz in invalid_timezone_strategy(),
-            ) {
-                let result = convert_cron_to_utc(&cron, &tz);
-                prop_assert!(result.is_err(), "expected Err for tz={tz:?}, got {:?}", result);
+    /// `InvalidTimezone` 在生产路径上现在真的可达 (PR #543 review CRITICAL #1
+    /// 修复)：之前 convert_cron_to_utc 返回 Result<String, String>，调用方
+    /// `match` + warn + fallback 到原 cron，SchedulerError::InvalidTimezone
+    /// 永远不构造、handler 400 映射是死代码。现在 convert_cron_to_utc 返回
+    /// Result<String, SchedulerError>，`?` 直接传播。
+    #[test]
+    fn test_convert_cron_to_utc_returns_scheduler_error_directly() {
+        // 之前的实现：返回 Result<String, String>，调用方要 `match`
+        // 现在的实现：返回 Result<String, SchedulerError>，调用方可以 `?`
+        let result = convert_cron_to_utc("0 0 9 * * *", "Not/A/Real/Zone", 7);
+        match result {
+            Err(SchedulerError::InvalidTimezone(tz)) => {
+                assert_eq!(tz, "Not/A/Real/Zone");
             }
-
-            /// 字段数错(5/7/0 等)的输入必须返回 Err。
-            #[test]
-            fn wrong_field_count_is_rejected(
-                cron in wrong_field_count_strategy(),
-                tz in valid_timezone_strategy(),
-            ) {
-                let result = convert_cron_to_utc(&cron, &tz);
-                prop_assert!(result.is_err(), "expected Err for cron={cron:?}, got {:?}", result);
-            }
-
-            /// 有效输入 → 返回的字符串仍是 6 字段,且能被 `cron::Schedule` 解析。
-            /// 这是"输出仍是合法 cron 表达式"的核心契约 —— 否则会把无效
-            /// 表达式塞进 `tokio-cron-scheduler`,导致 daemon 启动失败。
-            #[test]
-            fn valid_input_yields_valid_cron(
-                cron in valid_cron_strategy(),
-                tz in valid_timezone_strategy(),
-            ) {
-                let result = convert_cron_to_utc(&cron, &tz);
-                // 用 prop_assert! 而不是 panic!：proptest 能生成最小反例与回归文件,
-                // panic 会让进程栈展开、proptest 拿不到 counter-example,CI 排查困难。
-                let msg = format!("valid cron {cron:?} in {tz:?} should not error");
-                prop_assert!(result.is_ok(), "{}: {:?}", msg, result);
-                let utc = result.unwrap();
-                let fields: Vec<&str> = utc.split_whitespace().collect();
-                // prop_assert! 宏的 format string 不支持变量捕获,这里先
-                // 用 format! 拼好消息再传给 prop_assert!。
-                let msg = format!("output must have 6 fields, got {utc}");
-                prop_assert_eq!(fields.len(), 6, "{}", msg);
-                // 必须能被 cron crate 解析。
-                let parse_msg = format!("output {utc:?} must be parseable as cron");
-                prop_assert!(
-                    cron::Schedule::from_str(&utc).is_ok(),
-                    "{}",
-                    parse_msg,
-                );
-            }
-
-            /// UTC 时区是不动点:传入 UTC 时区,返回的 cron 必须是 6 字段合法 cron。
-            /// (语义等价性可能因 compact 表达丢失,但形式上必须合法 —— 这一点由
-            /// `valid_input_yields_valid_cron` 覆盖;这里额外验证 UTC 路径不报错。)
-            #[test]
-            fn utc_timezone_never_errors(cron in valid_cron_strategy()) {
-                let result = convert_cron_to_utc(&cron, "UTC");
-                prop_assert!(result.is_ok(), "UTC tz should never error, got {:?}", result);
-            }
+            other => panic!(
+                "expected Err(SchedulerError::InvalidTimezone), got {:?}",
+                other
+            ),
         }
+    }
+
+    /// 同上，cron 字段数错也是 typed error：之前的 `String` 错误现在归并到
+    /// `SchedulerError::InvalidCron { expr, todo_id }`，todo_id 透传给 handler 响应体。
+    #[test]
+    fn test_convert_cron_to_utc_wrong_field_count_returns_invalid_cron() {
+        let result = convert_cron_to_utc("0 9 * * *", "Asia/Shanghai", 99);
+        match result {
+            Err(SchedulerError::InvalidCron { expr, todo_id }) => {
+                assert_eq!(expr, "0 9 * * *");
+                assert_eq!(todo_id, 99, "todo_id should propagate");
+            }
+            other => panic!(
+                "expected Err(SchedulerError::InvalidCron), got {:?}",
+                other
+            ),
+        }
+    }
+
+    /// 否则日志/HTTP 响应里看不出"哪条 todo 的哪条 cron 错了"。
+    #[test]
+    fn test_invalid_cron_display_contains_expr_and_todo_id() {
+        let err = SchedulerError::InvalidCron {
+            expr: "bad cron".to_string(),
+            todo_id: 42,
+        };
+        let s = err.to_string();
+        assert!(s.contains("bad cron"), "display should include expr, got: {s}");
+        assert!(s.contains("42"), "display should include todo_id, got: {s}");
+    }
+
+    /// `InvalidTimezone` 保留原始字符串，handler 需要把时区名回显给用户。
+    #[test]
+    fn test_invalid_timezone_display_contains_input() {
+        let err = SchedulerError::InvalidTimezone("Atlantis/Azores".to_string());
+        let s = err.to_string();
+        assert!(s.contains("Atlantis/Azores"), "got: {s}");
+    }
+
+    /// `From<DbErr>` 自动 `?`：这是把 `get_scheduler_todos` 等 DB 调用
+    /// 链入新错误类型的关键。
+    #[test]
+    fn test_from_db_err_yields_database_variant() {
+        let db_err = DbErr::Custom("test connection refused".to_string());
+        let err: SchedulerError = db_err.into();
+        assert!(
+            matches!(err, SchedulerError::Database(_)),
+            "expected Database variant, got {err:?}"
+        );
+    }
+
+    /// `From<JobSchedulerError>` 自动 `?`：覆盖 `JobScheduler::new()`、
+    /// `sched.add()`、`sched.start()` 三处 `await?`。
+    #[test]
+    fn test_from_job_scheduler_error_yields_backend_variant() {
+        let inner = tokio_cron_scheduler::JobSchedulerError::CantInit;
+        let err: SchedulerError = inner.into();
+        assert!(
+            matches!(err, SchedulerError::SchedulerBackend(_)),
+            "expected SchedulerBackend variant, got {err:?}"
+        );
+    }
+
+    /// `internal()` 工厂是给 caller（main.rs）留的"带说明的内部错误"快捷方式。
+    #[test]
+    fn test_internal_constructor_wraps_string() {
+        let err = SchedulerError::internal("sched down for maintenance");
+        match &err {
+            SchedulerError::Internal(s) => assert_eq!(s, "sched down for maintenance"),
+            _ => panic!("expected Internal, got {err:?}"),
+        }
+    }
+
+    /// 用户输入错 → 400 BadRequest。issue #499 的关键修复点。
+    #[test]
+    fn test_app_error_from_scheduler_error_invalid_cron_maps_to_bad_request() {
+        let err = SchedulerError::InvalidCron {
+            expr: "* * *".to_string(),
+            todo_id: 7,
+        };
+        let app_err: AppError = err.into();
+        match app_err {
+            AppError::BadRequest(msg) => {
+                assert!(msg.contains("* * *"), "msg should echo input, got: {msg}");
+                assert!(msg.contains("7"), "msg should include todo_id, got: {msg}");
+            }
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+    }
+
+    /// 用户输入错（时区）→ 400 BadRequest。
+    #[test]
+    fn test_app_error_from_scheduler_error_invalid_timezone_maps_to_bad_request() {
+        let err = SchedulerError::InvalidTimezone("Mars/Olympus".to_string());
+        let app_err: AppError = err.into();
+        assert!(
+            matches!(app_err, AppError::BadRequest(_)),
+            "expected BadRequest, got {app_err:?}"
+        );
+    }
+
+    /// DB 错误 → 500 Internal。caller 没法直接修复，必须看 server 日志。
+    #[test]
+    fn test_app_error_from_scheduler_error_database_maps_to_internal() {
+        let err: SchedulerError = DbErr::Custom("conn refused".to_string()).into();
+        let app_err: AppError = err.into();
+        assert!(
+            matches!(app_err, AppError::Internal(_)),
+            "expected Internal, got {app_err:?}"
+        );
+    }
+
+    /// scheduler 后端错误 → 500 Internal。
+    #[test]
+    fn test_app_error_from_scheduler_error_backend_maps_to_internal() {
+        let err: SchedulerError =
+            tokio_cron_scheduler::JobSchedulerError::Shutdown.into();
+        let app_err: AppError = err.into();
+        assert!(
+            matches!(app_err, AppError::Internal(_)),
+            "expected Internal, got {app_err:?}"
+        );
+    }
+
+    /// 内部错误 → 500 Internal。
+    #[test]
+    fn test_app_error_from_scheduler_error_internal_maps_to_internal() {
+        let err = SchedulerError::internal("unexpected state");
+        let app_err: AppError = err.into();
+        assert!(
+            matches!(app_err, AppError::Internal(_)),
+            "expected Internal, got {app_err:?}"
+        );
     }
 }
