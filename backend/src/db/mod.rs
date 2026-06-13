@@ -139,6 +139,24 @@ impl Database {
             .map(|_| ())
     }
 
+    /// 与 `exec` 行为一致,但支持绑定参数以避免 SQL 注入。
+    /// 任何需要传入外部数据(version、name、timestamp 等)的 SQL 都应使用本方法,
+    /// 而非在 `exec` 里做 `format!` + 手动引号转义。
+    pub(super) async fn exec_with_params(
+        &self,
+        sql: &str,
+        values: Vec<sea_orm::Value>,
+    ) -> Result<(), sea_orm::DbErr> {
+        self.conn
+            .execute(Statement::from_sql_and_values(
+                DbBackend::Sqlite,
+                sql,
+                values,
+            ))
+            .await
+            .map(|_| ())
+    }
+
     /// 执行返回结果集的 SQL 语句（如 PRAGMA），忽略返回值
     pub(super) async fn query_exec(&self, sql: &str) -> Result<(), sea_orm::DbErr> {
         self.conn
@@ -413,6 +431,26 @@ impl Database {
     async fn init_tables(&self) -> Result<(), sea_orm::DbErr> {
         // 走 schema migration 框架:首次启动跑全部 DDL,之后启动只读一次 schema_version 就跳过
         // (issue #498:旧实现每次启动跑上百条 DDL,即使 IF NOT EXISTS 也要解析+规划+扫描 schema)
+        //
+        // H1 fix: 稳态短路。若 schema 已经是最新版本,说明 DDL 早已应用、
+        // 配套的 data migrations(todos.rating / logs / feishu_fk_cascade)也已在
+        // 上一次首次启动 / 升级时跑完,此时再无条件调一次会浪费 ~10+ SELECT
+        // (其中 6 个是 feishu_fk_cascade 的 needs_fk_migration) + Vec/closure 工作。
+        // 这次启动只需 1 次 SELECT MAX(version) 即可。
+        let max_version = migrations::ALL_MIGRATIONS
+            .last()
+            .map(|m| m.version)
+            .unwrap_or(0);
+        let current = self.current_schema_version().await;
+        if current >= max_version {
+            tracing::debug!(
+                "init_tables: schema at v{} (max {}), skipping migrations + data migrations",
+                current,
+                max_version
+            );
+            return Ok(());
+        }
+
         migrations::run_migrations(self).await?;
 
         // 下面是需要在 DDL 之上做"数据迁移"的工作,各自有幂等性检查,
