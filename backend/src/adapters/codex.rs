@@ -1,34 +1,29 @@
-use std::sync::Arc;
-
-use parking_lot::Mutex;
 use serde_json::Value;
 
-use super::{CodeExecutor, ExecutionUsage, ExecutorType, ParsedLogEntry};
+use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
+use crate::adapters::ExecutionUsage;
 use crate::models::utc_timestamp;
 
+/// Codex executor。
+///
+/// Codex 的 `parse_stderr_line` 与默认实现不同：
+///   - 默认：error 关键字 → "error" log_type；其他 → "stderr"
+///   - Codex：error 关键字 → "stderr" log_type；其他 → "info"
+///
+/// 这种反向分类是历史行为，必须保留 override，不能直接删除该方法。
 pub struct CodexExecutor {
-    path: String,
-    model: Arc<Mutex<Option<String>>>,
-    usage: Arc<Mutex<Option<ExecutionUsage>>>,
+    base: BaseExecutor,
 }
 
 impl CodexExecutor {
     pub fn new(path: String) -> Self {
-        Self {
-            path,
-            model: Arc::new(Mutex::new(None)),
-            usage: Arc::new(Mutex::new(None)),
-        }
+        Self { base: BaseExecutor::new(path) }
     }
 }
 
 impl Clone for CodexExecutor {
     fn clone(&self) -> Self {
-        Self {
-            path: self.path.clone(),
-            model: self.model.clone(),
-            usage: self.usage.clone(),
-        }
+        Self { base: self.base.clone() }
     }
 }
 
@@ -38,7 +33,7 @@ impl CodeExecutor for CodexExecutor {
     }
 
     fn executable_path(&self) -> &str {
-        &self.path
+        &self.base.path
     }
 
     fn command_args(&self, message: &str) -> Vec<String> {
@@ -146,7 +141,7 @@ impl CodeExecutor for CodexExecutor {
             let log_type = if event_type == "turn.completed" {
                 // Try to parse usage from turn.completed (pass full json, not usage_obj)
                 if let Some(usage) = parse_usage(&json) {
-                    *self.usage.lock() = Some(usage.clone());
+                    *self.base.usage.lock() = Some(usage.clone());
                     return Some(ParsedLogEntry {
                         timestamp: utc_timestamp(),
                         log_type: "tokens".to_string(),
@@ -187,12 +182,12 @@ impl CodeExecutor for CodexExecutor {
 
         // Store model if present
         if let Some(model) = first_string(&event, &["model", "model_slug"]) {
-            *self.model.lock() = Some(model);
+            *self.base.model.lock() = Some(model);
         }
 
         // Parse usage if present
         if let Some(usage) = parse_usage(&event) {
-            *self.usage.lock() = Some(usage.clone());
+            *self.base.usage.lock() = Some(usage.clone());
             return Some(ParsedLogEntry {
                 timestamp: utc_timestamp(),
                 log_type: "tokens".to_string(),
@@ -344,11 +339,11 @@ impl CodeExecutor for CodexExecutor {
     }
 
     fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
-        self.usage.lock().clone()
+        self.base.usage.lock().clone()
     }
 
     fn get_model(&self) -> Option<String> {
-        self.model.lock().clone()
+        self.base.model.lock().clone()
     }
 }
 

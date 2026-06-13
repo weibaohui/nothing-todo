@@ -1,23 +1,24 @@
 use std::sync::Arc;
 use parking_lot::Mutex;
 
-use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
 use super::opencode_event::OpencodeAgentEvent;
+use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
+use crate::adapters::ExecutionUsage;
 use crate::models::utc_timestamp;
 
+/// Opencode executor。
+///
+/// `BaseExecutor` 持有 path + model + usage 三件套，
+/// Opencode 额外的 `has_successful_finish` 用于「非零退出码但有 finish 事件就算成功」语义。
 pub struct OpencodeExecutor {
-    path: String,
-    model: Arc<Mutex<Option<String>>>,
-    usage: Arc<Mutex<Option<ExecutionUsage>>>,
+    base: BaseExecutor,
     has_successful_finish: Arc<Mutex<bool>>,
 }
 
 impl OpencodeExecutor {
     pub fn new(path: String) -> Self {
         Self {
-            path,
-            model: Arc::new(Mutex::new(None)),
-            usage: Arc::new(Mutex::new(None)),
+            base: BaseExecutor::new(path),
             has_successful_finish: Arc::new(Mutex::new(false)),
         }
     }
@@ -26,9 +27,7 @@ impl OpencodeExecutor {
 impl Clone for OpencodeExecutor {
     fn clone(&self) -> Self {
         Self {
-            path: self.path.clone(),
-            model: self.model.clone(),
-            usage: self.usage.clone(),
+            base: self.base.clone(),
             has_successful_finish: self.has_successful_finish.clone(),
         }
     }
@@ -40,7 +39,7 @@ impl CodeExecutor for OpencodeExecutor {
     }
 
     fn executable_path(&self) -> &str {
-        &self.path
+        &self.base.path
     }
 
     fn command_args(&self, message: &str) -> Vec<String> {
@@ -91,7 +90,7 @@ impl CodeExecutor for OpencodeExecutor {
         match event.event_type.as_str() {
             "step_start" | "step-start" => {
                 *self.has_successful_finish.lock() = false;
-                *self.usage.lock() = None;
+                *self.base.usage.lock() = None;
                 Some(ParsedLogEntry {
                     timestamp,
                     log_type: "step_start".to_string(),
@@ -160,7 +159,7 @@ impl CodeExecutor for OpencodeExecutor {
                             total_cost_usd: part.cost,
                             duration_ms: None,
                         };
-                        *self.usage.lock() = Some(usage);
+                        *self.base.usage.lock() = Some(usage);
                     }
                 }
                 Some(ParsedLogEntry {
@@ -181,11 +180,11 @@ impl CodeExecutor for OpencodeExecutor {
     }
 
     fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
-        self.usage.lock().clone()
+        self.base.usage.lock().clone()
     }
 
     fn get_model(&self) -> Option<String> {
-        self.model.lock().clone()
+        self.base.model.lock().clone()
     }
 
     fn check_success(&self, exit_code: i32) -> bool {

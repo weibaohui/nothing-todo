@@ -1,12 +1,17 @@
 use std::sync::Arc;
 use parking_lot::Mutex;
 
-use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
+use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
+use crate::adapters::ExecutionUsage;
 use crate::models::{utc_timestamp, TodoItem};
 
+/// Hermes executor。
+///
+/// `BaseExecutor` 持有 path + model + usage 三件套，
+/// Hermes 还有 4 个执行期专用状态：`has_done`、`session_id`、`tool_calls_count`，
+/// 以及一个自定义的 `get_tool_calls_count()` override。
 pub struct HermesExecutor {
-    path: String,
-    usage: Arc<Mutex<Option<ExecutionUsage>>>,
+    base: BaseExecutor,
     has_done: Arc<Mutex<bool>>,
     session_id: Arc<Mutex<Option<String>>>,
     tool_calls_count: Arc<Mutex<u64>>,
@@ -15,8 +20,7 @@ pub struct HermesExecutor {
 impl HermesExecutor {
     pub fn new(path: String) -> Self {
         Self {
-            path,
-            usage: Arc::new(Mutex::new(None)),
+            base: BaseExecutor::new(path),
             has_done: Arc::new(Mutex::new(false)),
             session_id: Arc::new(Mutex::new(None)),
             tool_calls_count: Arc::new(Mutex::new(0)),
@@ -27,8 +31,7 @@ impl HermesExecutor {
 impl Clone for HermesExecutor {
     fn clone(&self) -> Self {
         Self {
-            path: self.path.clone(),
-            usage: self.usage.clone(),
+            base: self.base.clone(),
             has_done: self.has_done.clone(),
             session_id: self.session_id.clone(),
             tool_calls_count: self.tool_calls_count.clone(),
@@ -42,7 +45,7 @@ impl CodeExecutor for HermesExecutor {
     }
 
     fn executable_path(&self) -> &str {
-        &self.path
+        &self.base.path
     }
 
     fn command_args(&self, message: &str) -> Vec<String> {
@@ -217,7 +220,7 @@ impl CodeExecutor for HermesExecutor {
     }
 
     fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
-        self.usage.lock().clone()
+        self.base.usage.lock().clone()
     }
 
     fn get_model(&self) -> Option<String> {
