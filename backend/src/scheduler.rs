@@ -200,6 +200,10 @@ fn convert_cron_to_utc(cron_expr: &str, timezone: &str) -> Result<String, String
         // 让 clippy::expect_used 看得见这是 invariant 而非运行时错误——
         // 之前 `match { Some/None => Err }` 的 None 分支是 dead code，
         // `clippy::unreachable_patterns` lint 提升到 deny 时会 fail CI。
+        // `.expect()` 是基于 type-level invariant 的穷尽性保证,
+        // 不是运行时可达的错误路径——显式标注 `#[allow]` 让
+        // `[lints.clippy] expect_used = "warn"` lint 不会误报。
+        #[allow(clippy::expect_used)]
         let (h, m, s) = distinct
             .iter()
             .max_by_key(|k| utc_time_counts.get(k).copied().unwrap_or(0))
@@ -444,6 +448,12 @@ impl TodoScheduler {
 }
 
 #[cfg(test)]
+// `cargo clippy --all-targets` 会同时 lint test mod。新增的
+// `[lints.clippy] unwrap_used/expect_used = "warn"` 会误伤此处 17 处
+// `.unwrap()` / `.expect()`（test path, panic = fail, 完全合理）。一次性
+// 标注允许,与 lib.rs 文档"测试里使用 unwrap/expect 需加 `#[allow]`"保持一致。
+// 测试 mod 整体允许,避免逐 fn 标注噪声。
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod convert_cron_to_utc_tests {
     //! `convert_cron_to_utc` 是把用户时区的 cron 表达式换成 UTC 的纯函数。
     //! 之所以单独测这个函数:

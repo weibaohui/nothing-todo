@@ -104,24 +104,30 @@ pub async fn handle_daemon_command(action: &DaemonAction) {
 // Shared helpers
 // =============================================================================
 
-/// Get the path of the currently running ntd binary
-/// Uses args()[0] to get the actual command path (handles sudo correctly)
-/// Falls back to current_exe if args[0] is not an absolute path.
+/// Get the path of the currently running ntd binary.
 ///
-/// Falls back to "/usr/local/bin/ntd" when both args[0] is not absolute AND
-/// current_exe() fails (rare; current_exe only fails on platforms without
-/// /proc/self/exe like some BSDs in chroots). This avoids `.expect()` panicking
-/// the process during daemon operations.
+/// Resolution order:
+/// 1. `$NTD_BINARY` env var (covers chroots / BSD without `/proc/self/exe` /
+///    `cargo run` from project root where args[0] is relative).
+/// 2. `args()[0]` if absolute (handles `sudo ntd ...` correctly).
+/// 3. `current_exe()` (Linux / macOS).
+/// 4. Last-resort `/usr/local/bin/ntd` (rare platforms where 1-3 all fail).
+///
+/// On miss the caller prints "Run `make install` first"; the function never
+/// panics on env quirks, never prints a misleading "Using fallback" line.
 fn get_ntd_binary_path() -> PathBuf {
+    if let Ok(path) = std::env::var("NTD_BINARY") {
+        let p = PathBuf::from(path);
+        if !p.as_os_str().is_empty() {
+            return p;
+        }
+    }
     std::env::args()
         .next()
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .unwrap_or_else(|| {
-            std::env::current_exe().unwrap_or_else(|e| {
-                eprintln!("Failed to get current executable path: {}. Using fallback /usr/local/bin/ntd.", e);
-                PathBuf::from("/usr/local/bin/ntd")
-            })
+            std::env::current_exe().unwrap_or_else(|_| PathBuf::from("/usr/local/bin/ntd"))
         })
 }
 
@@ -730,13 +736,15 @@ fn systemd_install(force: bool, system: bool, run_as_user: Option<&str>) {
     }
 
     let binary = if system {
-        let username = run_as_user.map(|s| s.to_string()).unwrap_or_else(|| {
+        // `run_as_user` 通过 `generate_systemd_unit(system, run_as_user)` 写入
+        // unit 文件的 `User=` 字段；user home dir 在这里不需要。之前的
+        // `let _user_home = ...` 是 dead code,且 fallback `/home/{username}`
+        // 在 macOS/Alpine 上是错的——直接删除。
+        let _username = run_as_user.map(|s| s.to_string()).unwrap_or_else(|| {
             std::env::var("SUDO_USER")
                 .or_else(|_| std::env::var("USER"))
                 .unwrap_or_else(|_| "nobody".to_string())
         });
-        let _user_home = get_user_home_dir(&username)
-            .unwrap_or_else(|| PathBuf::from(format!("/home/{username}")));
         get_ntd_binary_path()
     } else {
         get_ntd_binary_path()
@@ -1196,18 +1204,27 @@ fn task_scheduler_install(force: bool) {
         std::process::exit(1);
     }
 
-    // Check if task already exists
-    let query = Command::new("schtasks")
+    // Check if task already exists. schtasks unavailable (Server Core,
+    // sandboxed Windows) → spawn fails with Err — short-circuit with one
+    // clear message instead of falling through and emitting a second
+    // "Failed to run schtasks" error from the /create branch below.
+    match Command::new("schtasks")
         .args(["/query", "/tn", TASK_NAME])
-        .output();
-
-    // 用 match 替代 .is_ok() && .unwrap()：schtasks 不存在的环境（如某些 Server Core）
-    // 会返回 Err，这里走"任务不存在 → 继续安装"分支而不是 panic。
-    if let Ok(q) = query {
-        if q.status.success() && !force {
+        .output()
+    {
+        Ok(q) if q.status.success() && !force => {
             println!("Task already exists: {}", TASK_NAME);
             println!("Use --force to reinstall");
             return;
+        }
+        Ok(_) => {} // not installed, or force flag set → continue to install
+        Err(e) => {
+            eprintln!(
+                "schtasks unavailable on this Windows host ({}). \
+                 Task Scheduler install not possible.",
+                e
+            );
+            std::process::exit(1);
         }
     }
 
