@@ -489,18 +489,36 @@ where
     }
 }
 
-/// 执行 npm 升级并重新部署 daemon 服务。
+/// 执行升级并重新部署 daemon 服务。
 ///
-/// 流程：
-/// 1. 检测 npm 全局目录写权限，不可写时使用 `--prefix=~/.npm-global` 安装到用户目录
-/// 2. 从配置中读取包名（`UpdateConfig.npm_package`），调用 `npm install -g <pkg>@latest` 升级
-/// 3. 升级成功后，将 daemon 重部署步骤（stop → uninstall → install --force → start）
-///    fork 到独立子进程执行，避免 stop 导致当前 handler 进程被终止
+/// 根据配置中的 `update.source` 派发到对应安装方式：
+/// - `npm`: 检测 npm 全局目录写权限 → 调用 `npm install -g <pkg>@latest` → 升级成功后将
+///   daemon 重部署步骤（stop → uninstall → install --force → start）fork 到独立子进程执行
+/// - `manual` / `cargo` / `apt`: 委托给 `UpdateSource::upgrade()`，由用户自行完成安装，
+///   daemon 重部署仅对 npm 方式适用（其他方式不涉及可执行文件替换）
 async fn version_upgrade_handler(
     ResponseDone(redeploy_signal): ResponseDone,
 ) -> impl IntoResponse {
     // 从配置中获取更新源信息（包含包名、安装方式等）
     let source = crate::updater::UpdateSource::from_config();
+
+    // 非 npm 安装方式（manual/cargo/apt）由用户手动升级，
+    // 直接委托给 UpdateSource::upgrade() 处理，不再走 npm 硬编码路径。
+    if !matches!(source.method, crate::updater::InstallMethod::Npm) {
+        match source.upgrade().await {
+            Ok(_) => {
+                return ApiResponse::ok(serde_json::json!({
+                    "upgraded": true,
+                    "restarted": false,
+                    "method": format!("{:?}", source.method),
+                    "message": "升级完成（手动安装方式，无需自动重部署 daemon）"
+                }));
+            }
+            Err(e) => {
+                return ApiResponse::err(1, &format!("upgrade failed: {}", e));
+            }
+        }
+    }
 
     // 检测 npm 全局目录写权限，获取安全的安装 prefix
     let prefix = crate::updater::get_npm_global_prefix();

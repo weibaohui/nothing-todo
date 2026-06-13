@@ -47,7 +47,15 @@ impl UpdateSource {
             "manual" => InstallMethod::Manual,
             "cargo" => InstallMethod::Cargo,
             "apt" => InstallMethod::Apt,
-            _ => InstallMethod::Npm, // 默认 npm
+            unknown => {
+                // 未知的 source 值静默回退为 npm 会掩盖配置错误（例如把 "npm" 写成 "npmm"），
+                // 输出 warn 日志让用户能在日志中发现拼写错误。
+                tracing::warn!(
+                    "未知的 update.source 值 '{}'，回退为默认值 npm。可选值: npm/manual/cargo/apt",
+                    unknown
+                );
+                InstallMethod::Npm
+            }
         };
         let package_name = cfg.update.npm_package.clone();
         Self { method, package_name }
