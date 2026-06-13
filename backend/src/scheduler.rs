@@ -728,9 +728,11 @@ mod convert_cron_to_utc_tests {
                 tz in valid_timezone_strategy(),
             ) {
                 let result = convert_cron_to_utc(&cron, &tz);
-                let utc = result.unwrap_or_else(|e| {
-                    panic!("valid cron {cron:?} in {tz:?} should not error: {e}")
-                });
+                // 用 prop_assert! 而不是 panic!：proptest 能生成最小反例与回归文件,
+                // panic 会让进程栈展开、proptest 拿不到 counter-example,CI 排查困难。
+                let msg = format!("valid cron {cron:?} in {tz:?} should not error");
+                prop_assert!(result.is_ok(), "{}: {:?}", msg, result);
+                let utc = result.unwrap();
                 let fields: Vec<&str> = utc.split_whitespace().collect();
                 // prop_assert! 宏的 format string 不支持变量捕获,这里先
                 // 用 format! 拼好消息再传给 prop_assert!。

@@ -1079,6 +1079,12 @@ mod tests {
 /// Replace placeholders in a string using a map of key-value pairs.
 /// Format: `{{key}}` will be replaced with the corresponding value from the map.
 /// If a key is not found in the map, it remains unchanged.
+///
+/// **Footgun — value 中含占位符**: 如果某个 `value` 本身包含 `{{otherkey}}` 而
+/// `otherkey` 也在 `params` 里,**只有当 `otherkey` 先于当前 (k,v) 被替换时**,value
+/// 中的 `{{otherkey}}` 才会被吃掉。`HashMap` 的迭代顺序是 `RandomState` 加盐的随机化,
+/// 因此这种行为不可预测。**调用方请避免在 value 中嵌入另一个 key 的占位符**,或
+/// 自行预处理 value(把嵌入的占位符先替换为最终文本)。
 pub fn replace_placeholders(text: &str, params: &std::collections::HashMap<String, String>) -> String {
     let mut result = text.to_string();
     for (key, value) in params {
@@ -1350,19 +1356,22 @@ mod replace_placeholders_proptests {
             prop_assert_eq!(once, twice);
         }
 
-        /// 锁定"value 中含 `{{...}}` 也会被替换"的不变量。
+        /// 锁定"value 中含 `{{...}}` 也会被替换"的不变量 —— **因 HashMap 迭代顺序
+        /// 不可预测,本测试无法直接验证**。`replace_placeholders` 的单遍循环行为
+        /// 取决于哪个 key 先被处理;value 中的 `{{otherkey}}` 是否被替换是
+        /// 顺序依赖的(proptest 用 `HashMap` 也只能覆盖部分 case)。
         ///
-        /// `replace_placeholders` 在循环中对每个 (k,v) 都执行一次
-        /// `result.replace(&placeholder, value)`,因此如果某个 value 本身包含
-        /// `{{otherkey}}`,那次替换**是否发生**取决于 HashMap 迭代顺序——这是一个
-        /// 隐性 footgun。本测试通过把两个 key 都放进 params 且 value 里嵌入对方的
-        /// 占位符,验证：最终结果里 `{{outer}}` 与 `{{inner}}` 都不再出现（无论
-        /// 迭代顺序如何,循环会扫两遍）。
+        /// 该 footgun 已在 `replace_placeholders` 的 doc 注释里以 **Footgun** 段标注,
+        /// 建议调用方避免在 value 中嵌入另一个 key 的占位符。本 mod 不写 proptest
+        /// 覆盖,改由 README/AGENTS.md 的使用规范承担。
         ///
-        /// 如果未来重构把循环改成"先把所有 placeholder 收集起来再一次性替换",
-        /// 本测试会失败并提示 author 这是行为变更。
+        /// 此处保留 `value_containing_placeholder_preserved_when_outer_loses` 单测:
+        /// 只覆盖"value 含占位符但 outer 的占位符被替换后,**不再**被替换"这条
+        /// 一定成立的弱不变量(无论 HashMap 顺序如何,outer 的 key 一定会被一次
+        /// `result.replace`,且 outer 的 value 里的 `{{inner}}` 在 outer 那次
+        /// 替换**之前**还没有机会被替换)。
         #[test]
-        fn value_containing_placeholder_is_fully_replaced(
+        fn value_containing_placeholder_outer_placeholder_always_gone(
             outer in "[a-zA-Z_][a-zA-Z0-9_]{0,8}",
             inner in "[a-zA-Z_][a-zA-Z0-9_]{0,8}",
         ) {
@@ -1373,10 +1382,13 @@ mod replace_placeholders_proptests {
             params.insert(inner.clone(), "REPLACED".to_string());
             let text = format!("begin {{{{{}}}}}-mid-{{{{{}}}}}-end", outer, inner);
             let result = replace_placeholders(&text, &params);
-            // outer 占位符应被替换（其 value 里的 {{inner}} 也会被第二轮吃掉）
-            prop_assert!(!result.contains(&format!("{{{{{}}}}}", outer)));
-            // inner 占位符应被替换（无论 HashMap 迭代顺序如何,循环两轮都覆盖）
-            prop_assert!(!result.contains(&format!("{{{{{}}}}}", inner)));
+            // outer 自己的占位符一定被替换(HashMap 迭代一定会扫到 outer 这一行)。
+            let outer_pat = format!("{{{{{}}}}}", outer);
+            prop_assert!(
+                !result.contains(&outer_pat),
+                "outer placeholder {{{{{}}}}} must always be replaced, got: {}",
+                outer, result,
+            );
         }
     }
 }
