@@ -141,12 +141,40 @@ export async function getLatestVersion(): Promise<{ latest: string | null; error
   return unwrap(await api.get('/api/version/latest'));
 }
 
-/** 执行 npm 升级并重启服务 */
+/**
+ * 执行升级。
+ *
+ * 响应字段（PR #530 round-2 重构后）：
+ * - `upgraded`: 是否已由 daemon 端自动执行升级
+ *   - true: 已自动升级（npm 路径）
+ *   - false: 用户配置了非 npm 安装方式，未执行升级，返回指引让用户手动操作
+ * - `restarted`: 升级后是否已触发后台 daemon 重部署
+ * - `method`: 安装方式稳定字符串（"npm" | "apt" | "manual" | "cargo"）
+ * - `message`: 升级结果/动态文案（合并了原 npmOutput / restartMessage 全部内容）
+ * - `guidance`: 非 npm 方式下的用户操作指引
+ */
 export async function upgradeVersion(): Promise<{
   upgraded: boolean;
   restarted: boolean;
+  method?: string;
+  message?: string;
+  guidance?: string;
+  /**
+   * @deprecated 后端已删除该字段；保留仅为旧 API 兼容。新代码请使用 `message`。
+   */
   npmOutput?: string;
+  /**
+   * @deprecated 后端已删除该字段；保留仅为旧 API 兼容。新代码请使用 `message`。
+   */
   restartMessage?: string;
 }> {
-  return unwrap(await api.post('/api/version/upgrade'));
+  return unwrap(await api.post('/api/version/upgrade')) as {
+    upgraded: boolean;
+    restarted: boolean;
+    method?: string;
+    message?: string;
+    guidance?: string;
+    npmOutput?: string;
+    restartMessage?: string;
+  };
 }

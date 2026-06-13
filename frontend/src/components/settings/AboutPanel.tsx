@@ -16,7 +16,25 @@ interface VersionStatus {
 interface UpgradeResult {
   upgraded: boolean;
   restarted: boolean;
+  /**
+   * 安装方式的稳定字符串标识（"npm" | "apt" | "manual" | "cargo"）。
+   * 后端在 PR #530 round-2 重构后统一返回此字段。
+   */
+  method?: string;
+  /** 升级结果/指引文案（合并了原 npmOutput / restartMessage 的全部内容）。 */
+  message?: string;
+  /**
+   * 非 npm 安装方式下，后端直接返回用户操作指引而不执行任何升级。
+   * 与 `message` 区别：guidance 是固定模板，message 是动态文案。
+   */
+  guidance?: string;
+  /**
+   * @deprecated 后端已删除该字段；保留仅为旧 API 兼容。新代码请使用 `message`。
+   */
   npmOutput?: string;
+  /**
+   * @deprecated 后端已删除该字段；保留仅为旧 API 兼容。新代码请使用 `message`。
+   */
   restartMessage?: string;
 }
 
@@ -159,10 +177,14 @@ export function AboutPanel() {
         try {
           const result = await db.upgradeVersion();
           setUpgradeResult(result);
+          // PR #530 round-2: 后端响应格式从 npmOutput/restartMessage 改为 method/message/guidance。
+          // 非 npm 方式（apt/cargo/manual）后端返回 upgraded=false + guidance，让用户手动升级。
           if (result.upgraded && result.restarted) {
             message.success('更新命令已执行，服务正在重启...');
           } else if (result.upgraded && !result.restarted) {
             message.warning('更新完成，但服务重启失败，请手动重启');
+          } else if (!result.upgraded && result.guidance) {
+            message.info(result.message ?? '请按指引手动升级');
           }
           // 重置版本状态，让用户可以重新检查
           setVersionStatus(null);
@@ -170,7 +192,7 @@ export function AboutPanel() {
           setUpgradeResult({
             upgraded: false,
             restarted: false,
-            restartMessage: e instanceof Error ? e.message : '未知错误',
+            message: e instanceof Error ? e.message : '未知错误',
           });
           message.error('更新失败：' + (e instanceof Error ? e.message : '未知错误'));
         } finally {
@@ -229,9 +251,24 @@ export function AboutPanel() {
                       message={
                         <Space direction="vertical" size={4}>
                           <span>更新命令执行成功，服务正在重启</span>
-                          {upgradeResult.npmOutput && (
-                            <code style={{ fontSize: 11, color: 'var(--color-text-secondary)', display: 'block', marginTop: 4 }}>
-                              {upgradeResult.npmOutput}
+                          {upgradeResult.message && (
+                            <code style={{ fontSize: 11, color: 'var(--color-text-secondary)', display: 'block', marginTop: 4, whiteSpace: 'pre-wrap' }}>
+                              {upgradeResult.message}
+                            </code>
+                          )}
+                        </Space>
+                      }
+                      showIcon
+                    />
+                  ) : upgradeResult.upgraded && !upgradeResult.restarted ? (
+                    <Alert
+                      type="warning"
+                      message={
+                        <Space direction="vertical" size={4}>
+                          <span>更新完成，但服务重启失败</span>
+                          {upgradeResult.message && (
+                            <code style={{ fontSize: 11, color: 'var(--color-text-secondary)', display: 'block', marginTop: 4, whiteSpace: 'pre-wrap' }}>
+                              {upgradeResult.message}
                             </code>
                           )}
                         </Space>
@@ -239,18 +276,21 @@ export function AboutPanel() {
                       showIcon
                     />
                   ) : (
+                    // 非 npm 方式：后端直接返回指引文案（PR #530 round-2）
                     <Alert
-                      type="warning"
+                      type="info"
                       message={
                         <Space direction="vertical" size={4}>
-                          <span>更新完成，但服务重启失败</span>
-                          {upgradeResult.npmOutput && (
-                            <code style={{ fontSize: 11, color: 'var(--color-text-secondary)', display: 'block', marginTop: 4 }}>
-                              {upgradeResult.npmOutput}
-                            </code>
+                          <span>
+                            当前安装方式为「{upgradeResult.method ?? 'unknown'}」，daemon 端无法自动升级
+                          </span>
+                          {upgradeResult.guidance && (
+                            <span style={{ fontSize: 12 }}>{upgradeResult.guidance}</span>
                           )}
-                          {upgradeResult.restartMessage && (
-                            <span style={{ fontSize: 12 }}>{upgradeResult.restartMessage}</span>
+                          {upgradeResult.message && (
+                            <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                              {upgradeResult.message}
+                            </span>
                           )}
                         </Space>
                       }

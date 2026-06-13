@@ -118,13 +118,15 @@ async fn main() {
                 return;
             }
 
+            // 探测一次 prefix 复用给 upgrade + find_ntd_binary，避免两次独立
+            // 调用之间 npm 配置变化导致 prefix 漂移（redeploy 跑到错的 ntd）。
+            let prefix = ntd::updater::get_npm_global_prefix();
+
             // 执行升级
-            match source.upgrade().await {
+            match source.upgrade(&prefix).await {
                 Ok(_) => {
                     // 升级成功，查找新安装的 ntd 路径并重部署 daemon
-                    let ntd_cmd = ntd::updater::find_ntd_binary(
-                        &ntd::updater::get_npm_global_prefix()
-                    );
+                    let ntd_cmd = ntd::updater::find_ntd_binary(&prefix);
 
                     println!("Redeploying daemon service...");
                     

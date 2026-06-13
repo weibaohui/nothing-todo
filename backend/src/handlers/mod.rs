@@ -606,9 +606,29 @@ async fn version_upgrade_handler(
         // 将 daemon 重部署的四步操作合并成一条 shell 命令，用 && 连接。
         // stop 失败不阻断（服务可能已停止），但 uninstall/install/start 任一步
         // 失败都会导致整体失败，符合预期。
+        //
+        // 关键安全点：ntd_cmd_clone 来自 `find_ntd_binary(&prefix)`，prefix 又
+        // 来自 `get_npm_global_prefix()`（读取 `npm prefix -g` 输出）。攻击者
+        // 写入 `~/.npmrc` 的 `prefix=/home/u; rm -rf /bin/ntd` 可以注入任意
+        // shell 命令。把 ntd_cmd_clone 用 POSIX 单引号包裹，并把内部单引号替换
+        // 为 `'\''`，即可在 sh 解析阶段将其视作字面字符串。
+        let shell_quote = |s: &str| -> String {
+            let mut out = String::with_capacity(s.len() + 2);
+            out.push('\'');
+            for c in s.chars() {
+                if c == '\'' {
+                    out.push_str("'\\''");
+                } else {
+                    out.push(c);
+                }
+            }
+            out.push('\'');
+            out
+        };
+        let ntd_q = shell_quote(&ntd_cmd_clone);
         let redeploy_script = format!(
             "{} daemon stop && {} daemon uninstall && {} daemon install --force && {} daemon start",
-            ntd_cmd_clone, ntd_cmd_clone, ntd_cmd_clone, ntd_cmd_clone
+            ntd_q, ntd_q, ntd_q, ntd_q
         );
 
         #[cfg(target_os = "linux")]

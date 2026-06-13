@@ -57,7 +57,7 @@ impl InstallMethod {
                 "ntd 未发布到 apt 仓库，请前往 https://github.com/weibaohui/nothing-todo/releases 下载最新二进制"
             }
             Self::Manual => "请前往 https://github.com/weibaohui/nothing-todo/releases 下载最新二进制并替换当前版本",
-            Self::Cargo => "请运行 `cargo install --path .` 或从 GitHub Releases 下载预编译二进制",
+            Self::Cargo => "请从 GitHub Releases 下载预编译二进制；如已安装 Rust 工具链，也可 `cargo install --git https://github.com/weibaohui/nothing-todo` 从源码构建最新版本",
         }
     }
 }
@@ -100,14 +100,15 @@ impl UpdateSource {
     /// 执行升级操作。
     ///
     /// 根据 `InstallMethod` 选择不同的升级路径：
-    /// - `Npm`: 调用 `npm install -g <pkg>@latest`
+    /// - `Npm`: 调用 `npm install -g <pkg>@latest`，prefix 由调用方传入（与
+    ///   后续 `find_ntd_binary(prefix)` 复用同一份探测结果，避免 npm 重启/
+    ///   权限变化导致 prefix 漂移）。
     /// - `Manual`: 打印提示引导用户去 GitHub Releases
     /// - `Cargo`: 打印提示引导用户使用 `cargo install`
     /// - `Apt`: 打印提示引导用户使用 `apt upgrade`
-    pub async fn upgrade(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn upgrade(&self, prefix: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match self.method {
             InstallMethod::Npm => {
-                let prefix = get_npm_global_prefix();
                 let status = std::process::Command::new("npm")
                     .args([
                         "install",
