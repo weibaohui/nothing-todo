@@ -456,6 +456,14 @@ async fn run_server(cli_port: Option<u16>) {
 
     // WebSocket 事件 broadcast channel 容量从配置读取，避免硬编码 100 在高频输出场景下
     // 因 ring buffer 覆盖而丢失 Finished 等关键事件。Config::load 已经做过最小值 clamp。
+    // Safety guard: values > 100_000_000 would request >100GB for ring buffer;
+    // treat as fatal rather than silently OOM.
+    if cfg.broadcast_channel_capacity > 100_000_000 {
+        panic!(
+            "broadcast_channel_capacity {} exceeds hard safety limit (100_000_000); refusing to start",
+            cfg.broadcast_channel_capacity
+        );
+    }
     let (tx, _rx) = broadcast::channel(cfg.broadcast_channel_capacity);
     let task_manager = Arc::new(TaskManager::new());
     let config = Arc::new(tokio::sync::RwLock::new(cfg.clone()));

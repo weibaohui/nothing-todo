@@ -30,7 +30,7 @@ ntd 的核心运行时配置都在这里。改完点「**保存**」→ `PUT /ap
 |------|------|------|--------|
 | `max_concurrent_todos` | `3` | 同时跑的最大 Todo数 | ❌ |
 | `execution_timeout_secs` | `3600` |单个 Todo最长执行时间 | ❌ |
-| `broadcast_channel_capacity` | `10000` |WebSocket `/events` 频道 ring buffer 大小；高频输出执行器(50 msg/s × 200s)的 burst 上限 | ✅（启动时建 channel）|
+| `broadcast_channel_capacity` | `10000` |WebSocket `/events` 频道 ring buffer 大小；高频输出执行器(50 msg/s × 200s)的 burst 上限 | ❌（启动时建 channel）|
 
 >超出 `execution_timeout_secs` 的执行会被强制失败（走 `execution::force_fail_execution_handler`）。
 

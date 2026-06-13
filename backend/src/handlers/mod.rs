@@ -207,12 +207,14 @@ pub async fn events_handler(State(state): State<AppState>, ws: WebSocketUpgrade)
         //
         // 注意 `rx.recv()` 在 channel 容量耗尽时返回 `RecvError::Lagged(n)`:
         // ring buffer 已被覆盖,n 条旧事件丢失(包括可能错过的 Finished 等
-        // 关键事件)。这里选择 **重新订阅** —— `subscribe()` 拿到的 rx 指向
-        // channel 当前 head,自然跳过被覆盖的积压;前端只会看到日志断流
+        // channel 当前 head,自然跳过被覆盖的积压。虽然 receiver 在 Lagged 后
+        // 本身可以继续收新事件（tokio broadcast 语义），但 resubscribe 能从最新
+        // head 开始，完全跳过积压，避免旧日志涌入前端。
         // 不会断开连接。如果不处理 Lagged,原 `while let Ok(...)` 会立刻
         // 退出 → WS 断开 → 前端误判任务仍在执行。
         //
-        // 对比 `services/feishu_push.rs:91-93` 的同模式实现。
+        // 对比 `services/feishu_push.rs:91-93`（warn-only，不重新订阅）；
+        // 这里额外 resubscribe 以跳过 lag 期间的积压事件。
         loop {
             match rx.recv().await {
                 Ok(event) => {
