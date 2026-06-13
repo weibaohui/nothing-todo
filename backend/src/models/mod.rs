@@ -1190,3 +1190,164 @@ mod placeholder_tests {
         assert!(params.get("slash_command").is_none());
     }
 }
+
+/// Property-based tests for `replace_placeholders`.
+///
+/// 不变量设计:
+/// 1. **空参数 → 恒等映射**: 没有占位符可替换时,函数是 no-op。
+/// 2. **已替换消失**: 如果值本身不含 `{{key}}`,那么替换之后输入里所有的
+///    `{{key}}` 都应消失(被替换成 value)。
+/// 3. **未提供的 key 保持原样**: key 不在 params 里的占位符必须保留为
+///    `{{key}}` 形态,不能误吃其它 key 的同名占位符。
+/// 4. **无 `{{}}` 模式 → 不变**: 文本里完全没有占位符语法时,函数是恒等映射。
+///
+/// 这些不变量是 issue #514 引入 property-based testing 的起点;
+/// 后续如果出现新解析器/转义语义,可在此扩展。
+#[cfg(test)]
+mod replace_placeholders_proptests {
+    use super::replace_placeholders;
+    use proptest::prelude::*;
+
+    /// 任意 ASCII 文本,用作待替换的输入。
+    fn text_strategy() -> BoxedStrategy<String> {
+        // 用 `any::<String>()` 太宽,容易产生包含 `{{` `}}` 的字符串,
+        // 与 `{{key}}` 边界冲突。这里只接受不含 `{{` `}}` 的字符串,
+        // 保证测试焦点在"已知占位符的替换行为"。
+        "[^{}]*".boxed()
+    }
+
+    /// 不包含 `{` `}` 的安全值,避免替换后再被下一轮替换误吃。
+    fn safe_value_strategy() -> BoxedStrategy<String> {
+        "[^\\{\\}]*".boxed()
+    }
+
+    /// 简单的 key 名:字母数字下划线短串,匹配实际模板里 `{{name}}`、
+    /// `{{message}}` 等命名风格。
+    fn key_strategy() -> BoxedStrategy<String> {
+        "[a-zA-Z_][a-zA-Z0-9_]{0,16}".boxed()
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        /// 空参数映射:任意文本都应该原样返回。
+        #[test]
+        fn empty_params_is_identity(text in text_strategy()) {
+            let params = std::collections::HashMap::new();
+            let result = replace_placeholders(&text, &params);
+            prop_assert_eq!(result, text);
+        }
+
+        /// 文本里没有 `{{}}` 占位符时,无论 params 是否非空,都应原样返回。
+        /// 反过来,如果替换改变了无占位符的文本,说明解析逻辑出 bug
+        /// (例如误把 `${...}` 当成占位符)。
+        #[test]
+        fn no_placeholder_means_no_change(
+            text in text_strategy(),
+            (k, v) in (key_strategy(), safe_value_strategy()),
+        ) {
+            let mut params = std::collections::HashMap::new();
+            params.insert(k, v);
+            let result = replace_placeholders(&text, &params);
+            prop_assert_eq!(result, text);
+        }
+
+        /// 当所有 key 都"安全"(value 不含占位符语法)时,替换后结果里
+        /// 不应再出现任何 `{{key}}` 模式。换句话说:出现过的占位符必
+        /// 须被吃掉;否则等于模板没生效。
+        #[test]
+        fn all_placeholders_get_replaced(
+            key in key_strategy(),
+            value in safe_value_strategy(),
+            prefix in text_strategy(),
+            suffix in text_strategy(),
+        ) {
+            let mut params = std::collections::HashMap::new();
+            params.insert(key.clone(), value.clone());
+            // 手工拼模板的 `{{` / `}}`,避免 `format!` 在转义上的歧义。
+            // `{{` `}}` 在源码里出现时,format! 解析规则稍不慎就会被
+            // 误解为 positional arg。
+            let open = "{{".to_string();
+            let close = "}}".to_string();
+            let template = format!(
+                "{prefix}{open}{key}{close}{suffix}",
+                key = key,
+                open = open,
+                close = close,
+            );
+            let placeholder_pattern = format!(
+                "{open}{key}{close}",
+                key = key,
+                open = "{{",
+                close = "}}",
+            );
+            let result = replace_placeholders(&template, &params);
+            // 占位符模式必须消失。
+            let msg = format!(
+                "placeholder {open}{key}{close} should be gone, got: {result}",
+                key = key, open = "{{", close = "}}",
+            );
+            prop_assert!(!result.contains(&placeholder_pattern), "{}", msg);
+            // prefix/suffix 应该原样保留。
+            prop_assert!(result.starts_with(&prefix));
+            prop_assert!(result.ends_with(&suffix));
+        }
+
+        /// key 不在 params 里时,占位符必须保留原文。
+        /// 这是替换函数最容易踩的坑:把 `{{user}}` 当成 `{{users}}` 的子串
+        /// 误吃,或者试图"补全"未声明的 key。
+        #[test]
+        fn missing_key_preserves_placeholder(
+            keys in (key_strategy(), key_strategy())
+                .prop_filter("keys must differ", |(d, u)| d != u),
+            declared_value in safe_value_strategy(),
+            prefix in text_strategy(),
+            suffix in text_strategy(),
+        ) {
+            // 策略里直接产生 "declared 和 undeclared" 二元组,避免
+            // proptest 闭包跨策略参数捕获的语法坑 (move closure 写法
+            // 在新版 proptest 里不稳定)。这里解构后取两个 key。
+            let (declared_key, undeclared_key) = keys;
+            let mut params = std::collections::HashMap::new();
+            params.insert(declared_key.clone(), declared_value.clone());
+            // 手工拼接模板的 `{{` / `}}`,避免 `format!` 在占位符
+            // 转义上的歧义 —— 写成 `format!("{{{{ {} }}}}", key)`
+            // 容易被 format 解析为 1 个 positional arg。
+            let open = "{{".to_string();
+            let close = "}}".to_string();
+            let template = format!(
+                "{prefix}{open}{dk}{close}{open}{uk}{close}{suffix}",
+                dk = declared_key,
+                uk = undeclared_key,
+                open = open,
+                close = close,
+            );
+            let declared_pattern = format!("{open}{dk}{close}", dk = declared_key, open = "{{", close = "}}");
+            let undeclared_pattern = format!("{open}{uk}{close}", uk = undeclared_key, open = "{{", close = "}}");
+            let result = replace_placeholders(&template, &params);
+            // 已知 key 的占位符被替换
+            prop_assert!(!result.contains(&declared_pattern));
+            // 未声明 key 的占位符保留
+            let msg = format!("undeclared placeholder {open}{uk}{close} should remain, got: {result}",
+                uk = undeclared_key, open = "{{", close = "}}");
+            prop_assert!(result.contains(&undeclared_pattern), "{}", msg);
+        }
+
+        /// 替换函数必须是幂等的:对同样的输入重复调用,结果相同。
+        /// (这条单独成立没有意义,因为每次调用之间结果相同就是恒等,
+        /// 但组合 `replace(x, p) == replace(replace(x, p), p)` 是对
+        /// "再次扫描替换"类 bug 的强约束。)
+        #[test]
+        fn replacement_is_idempotent(
+            key in key_strategy(),
+            value in safe_value_strategy(),
+            text in text_strategy(),
+        ) {
+            let mut params = std::collections::HashMap::new();
+            params.insert(key, value);
+            let once = replace_placeholders(&text, &params);
+            let twice = replace_placeholders(&once, &params);
+            prop_assert_eq!(once, twice);
+        }
+    }
+}
