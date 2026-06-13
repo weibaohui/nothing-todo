@@ -199,28 +199,8 @@ impl CodeExecutor for CodewhaleExecutor {
         }
     }
 
-    fn parse_stderr_line(&self, line: &str) -> Option<ParsedLogEntry> {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            return None;
-        }
-        Some(ParsedLogEntry {
-            timestamp: utc_timestamp(),
-            log_type: if trimmed.to_lowercase().contains("error") {
-                "error".to_string()
-            } else {
-                "stderr".to_string()
-            },
-            content: trimmed.to_string(),
-            usage: None,
-            tool_name: None,
-            tool_input_json: None,
-        })
-    }
-
-    fn check_success(&self, exit_code: i32) -> bool {
-        exit_code == 0
-    }
+    // parse_stderr_line / check_success 走 CodeExecutor 默认实现（委托给 BaseExecutor），
+    // 与本文件以前的 in-class 实现完全等价。去掉重复 override 是 PR #536 的核心目标。
 
     fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
         // CodeWhale streams text as small chunks (individual characters or words).

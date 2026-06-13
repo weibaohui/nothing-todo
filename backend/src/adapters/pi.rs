@@ -299,9 +299,8 @@ impl CodeExecutor for PiExecutor {
         })
     }
 
-    fn check_success(&self, exit_code: i32) -> bool {
-        exit_code == 0
-    }
+    // check_success 走 CodeExecutor 默认实现（委托给 BaseExecutor::default_check_success），
+    // 与原 `exit_code == 0` 实现完全等价。去掉重复 override 是 PR #536 的核心目标。
 
     fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
         // 收集所有 assistant 类型的文本
