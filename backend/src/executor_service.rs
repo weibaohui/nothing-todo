@@ -1233,6 +1233,11 @@ async fn run_auto_review_inner(
     // 5) 标记 pending
     let _ = db.set_record_last_review_status(record_id, "pending").await;
     let _ = db.set_record_last_reviewed_at(record_id).await;
+    let _ = tx.send(crate::handlers::ExecEvent::ReviewStatusChanged {
+        record_id,
+        todo_id,
+        review_status: "pending".to_string(),
+    });
 
     // 6) 同步执行评审实例
     let request = RunTodoExecutionRequest {
@@ -1294,6 +1299,11 @@ async fn run_auto_review_inner(
     }
     let _ = db.link_review_to_source(review_record_id, record_id, review_status_str).await;
     let _ = db.set_record_last_review_status(record_id, review_status_str).await;
+    let _ = tx.send(crate::handlers::ExecEvent::ReviewStatusChanged {
+        record_id,
+        todo_id,
+        review_status: review_status_str.to_string(),
+    });
 
     tracing::info!(
         "auto-review done: original_todo=#{} record=#{} review_todo=#{} review_record=#{} status={} rating={:?}",
