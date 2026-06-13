@@ -164,6 +164,13 @@ impl Database {
     /// 幂等性：每次启动都先读 `schema_version`，已记录的版本号会被跳过。
     /// 失败行为：迁移返回 `Err` 会立即冒泡，使 daemon 启动失败——比原来的 `.ok()`
     /// 默默吞掉错误更安全（issue #498 修复点之一）。
+    ///
+    /// **已知限制 (follow-up)**: `m.up` 与 `record_migration` 当前不在同一个事务里,
+    /// 二者各自走连接池分配的不同连接。如果 `m.up` 成功提交 DDL、`record_migration`
+    /// 失败(如 disk full / lock / acquire_timeout),schema 已迁移但 `schema_version`
+    /// 没有对应行,下次启动会重跑 `m.up`。对 V1-V4 现有迁移而言重跑是幂等的(都基于
+    /// `CREATE ... IF NOT EXISTS` 或预检查),但新加迁移时需要在 `Migration::up` 内部
+    /// 保证幂等性,否则需要重构 trait 接受 `DatabaseTransaction` 参数。
     async fn run_migrations(&self) -> Result<(), sea_orm::DbErr> {
         self.ensure_schema_version_table().await?;
         let applied = migration::read_applied_versions(self).await?;

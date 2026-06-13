@@ -1085,11 +1085,12 @@ async fn migrate_todo_rating_to_execution_records(db: &Database) -> Result<(), s
         }
     }
 
-    // 移除旧列
-    if let Err(e) = db.exec("ALTER TABLE todos DROP COLUMN rating").await {
-        tracing::warn!("Failed to DROP COLUMN todos.rating: {}", e);
-        return Ok(()); // 不阻塞启动，下次启动再重试
-    }
+    // 移除旧列。注意：必须把错误冒泡给 runner —— 旧实现 `if let Err ... return Ok(())`
+    // 会被 runner 记录为「已应用」，但其实数据已迁移、列未删，schema 处于不一致状态。
+    // 用 `?` 让 daemon 启动失败，下次启动时 `run_migrations` 会跳过已迁移的数据行
+    // （`SELECT ... WHERE rating IS NOT NULL` 找不到记录，但 `todos.rating` 列还在，
+    // 这时 v2 的 INSERT 会再次执行、空跑），最终 DROP COLUMN 也会再次尝试。
+    db.exec("ALTER TABLE todos DROP COLUMN rating").await?;
 
     tracing::info!(
         "Migrated {} todo ratings to execution_records, dropped todos.rating",
@@ -1163,13 +1164,19 @@ async fn migrate_logs_to_execution_logs(db: &Database) -> Result<(), sea_orm::Db
     }
 
     // 有任意记录迁移失败则不删除旧列，保留数据等待下次重试
+    // 注意：必须返回 Err 让 runner 不要把本次标记为已应用 —— 旧实现 `return Ok(())`
+    // 会让 schema_version 记录 v3 已应用，下次启动跳过，但 `logs` 列仍存在、数据不完整。
     if failed > 0 {
         tracing::warn!(
-            "Logs migration incomplete: {} succeeded, {} failed. Keeping old logs column for retry.",
+            "Logs migration incomplete: {} succeeded, {} failed. Will retry next start.",
             migrated,
             failed
         );
-        return Ok(());
+        return Err(sea_orm::DbErr::Custom(format!(
+            "V3 logs migration partial: {}/{} failed",
+            failed,
+            migrated + failed
+        )));
     }
 
     db.exec("ALTER TABLE execution_records DROP COLUMN logs").await?;
@@ -1209,6 +1216,11 @@ impl Migration for V4FeishuFkCascade {
 ///
 /// 接受 `&impl ConnectionTrait` 而非 `&Database`，这样可以被 `DatabaseConnection`
 /// 或 `DatabaseTransaction` 共同使用 — V4 迁移需要把整组 rebuild 放在一个事务里。
+///
+/// 使用 `PRAGMA foreign_key_list(table)` 精确解析外键元组，**避免**在 `sqlite_master.sql`
+/// 文本上做 `contains("ON DELETE CASCADE")` 子串匹配 —— 后者会把
+/// `CHECK (col != 'ON DELETE CASCADE')`、注释、视图 DDL 等字符串误判为已迁移，
+/// 且无法区分「多个外键中只有一个缺 CASCADE」的情况。
 async fn needs_fk_migration<C: ConnectionTrait>(
     conn: &C,
     table: &str,
@@ -1217,12 +1229,28 @@ async fn needs_fk_migration<C: ConnectionTrait>(
     let result = conn
         .query_one(Statement::from_string(DbBackend::Sqlite, sql))
         .await?;
-    if let Some(row) = result {
-        let ddl: String = row.try_get_by("sql")?;
-        // 如果 DDL 中包含 ON DELETE CASCADE，说明已经是新 schema
-        return Ok(!ddl.contains("ON DELETE CASCADE"));
+    if result.is_none() {
+        // 表不存在，CREATE TABLE IF NOT EXISTS 会创建正确的 schema
+        return Ok(false);
     }
-    // 表不存在，CREATE TABLE IF NOT EXISTS 会创建正确的 schema
+    // 解析 foreign_key_list：每行对应一个 FK 列定义。
+    // 至少有一个 FK 的 `on_delete` 不是 CASCADE，就视为需要迁移。
+    let fk_sql = format!("PRAGMA foreign_key_list('{}')", table);
+    let fk_rows = conn
+        .query_all(Statement::from_string(DbBackend::Sqlite, fk_sql))
+        .await?;
+    if fk_rows.is_empty() {
+        // 表上没有外键，无需迁移
+        return Ok(false);
+    }
+    for row in fk_rows {
+        // foreign_key_list 列：id, seq, table, from, to, on_update, on_delete, match
+        let on_delete: String = row.try_get_by("on_delete")?;
+        if on_delete != "CASCADE" {
+            return Ok(true);
+        }
+    }
+    // 全部 FK 都是 CASCADE，已经是新 schema
     Ok(false)
 }
 
