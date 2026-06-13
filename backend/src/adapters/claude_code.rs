@@ -1,24 +1,27 @@
-use std::sync::Arc;
-use parking_lot::Mutex;
-
-use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
+use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
 use super::claude_protocol::{ClaudeMessage, ClaudeContentBlock};
+use crate::adapters::ExecutionUsage;
 use crate::models::utc_timestamp;
 
+/// ClaudeCode executor。
+///
+/// 使用 `BaseExecutor` 持有 path + model。
+/// `usage` 字段虽然未被本 executor 直接使用（claude_code 的 usage 走
+/// `super::get_usage_from_logs` 从 result 事件提取），但 BaseExecutor 仍然保留这个
+/// `Arc<Mutex<Option<ExecutionUsage>>>` 字段，方便与其他 executor 行为保持一致。
 pub struct ClaudeCodeExecutor {
-    path: String,
-    model: Arc<Mutex<Option<String>>>,
+    base: BaseExecutor,
 }
 
 impl ClaudeCodeExecutor {
     pub fn new(path: String) -> Self {
-        Self { path, model: Arc::new(Mutex::new(None)) }
+        Self { base: BaseExecutor::new(path) }
     }
 }
 
 impl Clone for ClaudeCodeExecutor {
     fn clone(&self) -> Self {
-        Self { path: self.path.clone(), model: self.model.clone() }
+        Self { base: self.base.clone() }
     }
 }
 
@@ -28,7 +31,7 @@ impl CodeExecutor for ClaudeCodeExecutor {
     }
 
     fn executable_path(&self) -> &str {
-        &self.path
+        &self.base.path
     }
 
     fn command_args(&self, message: &str) -> Vec<String> {
@@ -77,7 +80,7 @@ impl CodeExecutor for ClaudeCodeExecutor {
                 ClaudeMessage::System { subtype, session_id, model } => {
                     // Store model if found
                     if let Some(m) = model {
-                        *self.model.lock() = Some(m.clone());
+                        *self.base.model.lock() = Some(m.clone());
                     }
                     Some(ParsedLogEntry {
                         timestamp: utc_timestamp(),
@@ -226,7 +229,7 @@ impl CodeExecutor for ClaudeCodeExecutor {
     }
 
     fn get_model(&self) -> Option<String> {
-        self.model.lock().clone()
+        self.base.model.lock().clone()
     }
 }
 

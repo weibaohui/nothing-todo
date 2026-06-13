@@ -1,24 +1,24 @@
-use std::sync::Arc;
-use parking_lot::Mutex;
-
-use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
 use super::mobilecoder_event::MobilecoderAgentEvent;
+use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
+use crate::adapters::ExecutionUsage;
 use crate::models::utc_timestamp;
 
+/// MobileCoder executor。
+///
+/// MobileCoder 不使用 model 字段，但保留在 `BaseExecutor` 中以保持接口一致。
 pub struct MobilecoderExecutor {
-    path: String,
-    usage: Arc<Mutex<Option<ExecutionUsage>>>,
+    base: BaseExecutor,
 }
 
 impl MobilecoderExecutor {
     pub fn new(path: String) -> Self {
-        Self { path, usage: Arc::new(Mutex::new(None)) }
+        Self { base: BaseExecutor::new(path) }
     }
 }
 
 impl Clone for MobilecoderExecutor {
     fn clone(&self) -> Self {
-        Self { path: self.path.clone(), usage: self.usage.clone() }
+        Self { base: self.base.clone() }
     }
 }
 
@@ -28,7 +28,7 @@ impl CodeExecutor for MobilecoderExecutor {
     }
 
     fn executable_path(&self) -> &str {
-        &self.path
+        &self.base.path
     }
 
     fn command_args(&self, message: &str) -> Vec<String> {
@@ -94,7 +94,7 @@ impl CodeExecutor for MobilecoderExecutor {
 
         match event.event_type.as_str() {
             "step_start" => {
-                *self.usage.lock() = None;
+                *self.base.usage.lock() = None;
                 Some(ParsedLogEntry {
                     timestamp,
                     log_type: "step_start".to_string(),
@@ -164,7 +164,7 @@ impl CodeExecutor for MobilecoderExecutor {
                             total_cost_usd: part.cost,
                             duration_ms: None,
                         };
-                        *self.usage.lock() = Some(usage);
+                        *self.base.usage.lock() = Some(usage);
                     }
                 }
                 Some(ParsedLogEntry {
@@ -185,7 +185,7 @@ impl CodeExecutor for MobilecoderExecutor {
     }
 
     fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
-        self.usage.lock().clone()
+        self.base.usage.lock().clone()
     }
 
     fn get_model(&self) -> Option<String> {

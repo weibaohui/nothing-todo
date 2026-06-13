@@ -11,41 +11,27 @@
 //!   {"type":"metadata","meta":{"model":"deepseek-v4-pro","input_tokens":25182,"output_tokens":34,"session_id":"...","status":"completed"}}
 //!   {"type":"done"}
 
-use std::sync::Arc;
-
-use parking_lot::Mutex;
 use serde_json::Value;
 
-use super::{CodeExecutor, ExecutionUsage, ExecutorType, ParsedLogEntry};
+use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
+use crate::adapters::ExecutionUsage;
 use crate::models::utc_timestamp;
 
 /// Codewhale executor implementation.
 pub struct CodewhaleExecutor {
-    /// Path to the codewhale binary.
-    path: String,
-    /// Stored model name (extracted from metadata event).
-    model: Arc<Mutex<Option<String>>>,
-    /// Stored usage info (extracted from metadata event).
-    usage: Arc<Mutex<Option<ExecutionUsage>>>,
+    /// 共享状态：path + model + usage。
+    base: BaseExecutor,
 }
 
 impl CodewhaleExecutor {
     pub fn new(path: String) -> Self {
-        Self {
-            path,
-            model: Arc::new(Mutex::new(None)),
-            usage: Arc::new(Mutex::new(None)),
-        }
+        Self { base: BaseExecutor::new(path) }
     }
 }
 
 impl Clone for CodewhaleExecutor {
     fn clone(&self) -> Self {
-        Self {
-            path: self.path.clone(),
-            model: self.model.clone(),
-            usage: self.usage.clone(),
-        }
+        Self { base: self.base.clone() }
     }
 }
 
@@ -55,7 +41,7 @@ impl CodeExecutor for CodewhaleExecutor {
     }
 
     fn executable_path(&self) -> &str {
-        &self.path
+        &self.base.path
     }
 
     /// Build command args for a fresh execution (no session).
@@ -173,7 +159,7 @@ impl CodeExecutor for CodewhaleExecutor {
 
                 // Extract and store model
                 if let Some(model) = meta.get("model").and_then(Value::as_str) {
-                    *self.model.lock() = Some(model.to_string());
+                    *self.base.model.lock() = Some(model.to_string());
                 }
 
                 // Extract and store usage
@@ -189,7 +175,7 @@ impl CodeExecutor for CodewhaleExecutor {
                         total_cost_usd: None,
                         duration_ms: None,
                     };
-                    *self.usage.lock() = Some(usage);
+                    *self.base.usage.lock() = Some(usage);
                 }
 
                 let status = meta.get("status").and_then(Value::as_str).unwrap_or("completed");
@@ -200,7 +186,7 @@ impl CodeExecutor for CodewhaleExecutor {
                         "Tokens: input={}, output={}, status={}",
                         input_tokens, output_tokens, status
                     ),
-                    usage: self.usage.lock().clone(),
+                    usage: self.base.usage.lock().clone(),
                     tool_name: None,
                     tool_input_json: None,
                 })
@@ -278,11 +264,11 @@ impl CodeExecutor for CodewhaleExecutor {
     }
 
     fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
-        self.usage.lock().clone()
+        self.base.usage.lock().clone()
     }
 
     fn get_model(&self) -> Option<String> {
-        self.model.lock().clone()
+        self.base.model.lock().clone()
     }
 }
 

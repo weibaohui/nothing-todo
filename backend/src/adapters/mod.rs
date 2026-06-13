@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -185,6 +186,90 @@ pub fn get_usage_from_logs(logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
     logs.iter().rev().find(|l| l.log_type == "result")?.usage.clone()
 }
 
+/// 共享的执行器基础状态：path + 可选 model + 可选 usage。
+///
+/// `BaseExecutor` 解决 Issue #504 提到的 10 个 executor 适配器高度重复的问题。
+/// 每个具体 executor 之前都要复制粘贴：
+/// - `path: String` 字段
+/// - `model: Arc<Mutex<Option<String>>>` 字段（部分）
+/// - `usage: Arc<Mutex<Option<ExecutionUsage>>>` 字段（部分）
+/// - `impl Clone { ... }` 块
+/// - `fn executable_path(&self) -> &str { &self.path }`
+/// - `fn parse_stderr_line(...)` 默认实现（基于 "error" 关键字判定 log_type）
+/// - `fn check_success(...)` 默认实现（exit_code == 0）
+/// - `fn get_usage(...)` / `fn get_model(...)` 默认从内部 state 拷贝
+///
+/// 通过将这三个字段与默认行为集中到 `BaseExecutor`，
+/// 具体 executor 只需用 `base: BaseExecutor` 组合，并显式 override 差异部分。
+///
+/// ## 组合 vs 继承
+/// Rust 没有继承，使用结构体组合（struct composition）：
+/// ```ignore
+/// pub struct CodewhaleExecutor {
+///     base: BaseExecutor,
+/// }
+/// ```
+/// 当 executor 需要额外状态（如 `has_successful_finish`、`has_done`、`session_id`）时，
+/// 保留自己的额外字段，并通过 `self.base.xxx()` 委托给 base。
+#[derive(Clone)]
+pub struct BaseExecutor {
+    /// 可执行文件路径（构造时确定，执行期不变）
+    pub path: String,
+    /// 提取自 metadata/result 事件的模型名称，部分 executor 不使用
+    pub model: Arc<Mutex<Option<String>>>,
+    /// 累计的 token 用量，部分 executor 不使用
+    pub usage: Arc<Mutex<Option<ExecutionUsage>>>,
+}
+
+impl BaseExecutor {
+    /// 构造时初始化三个字段，path 由调用方提供，model/usage 默认为 None。
+    pub fn new(path: String) -> Self {
+        Self {
+            path,
+            model: Arc::new(Mutex::new(None)),
+            usage: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// 在构造时直接注入已知的 model（可选的便捷构造方式）。
+    /// 主要用于执行期前已经从配置中拿到模型名的场景。
+    pub fn with_model(self, model: String) -> Self {
+        *self.model.lock() = Some(model);
+        self
+    }
+
+    /// 默认 stderr 解析：根据是否包含 "error" 决定 log_type。
+    ///
+    /// 之所以是关键字匹配而不是 JSON 解析：
+    /// stderr 通常是非结构化输出（普通日志/警告/错误），
+    /// 解析成本高且收益低，简单的 "error" 关键字足以让前端区分错误与提示。
+    /// 整行去 trim 后写入 content，保证可读性。
+    pub fn default_parse_stderr_line(line: &str) -> Option<ParsedLogEntry> {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        Some(ParsedLogEntry {
+            timestamp: crate::models::utc_timestamp(),
+            log_type: if trimmed.to_lowercase().contains("error") {
+                "error".to_string()
+            } else {
+                "stderr".to_string()
+            },
+            content: trimmed.to_string(),
+            usage: None,
+            tool_name: None,
+            tool_input_json: None,
+        })
+    }
+
+    /// 默认的退出码判定：0 即成功。
+    /// 覆盖此方法的 executor（mimo、codex）需要表达「非零但仍成功」的语义。
+    pub fn default_check_success(exit_code: i32) -> bool {
+        exit_code == 0
+    }
+}
+
 pub mod mobilecoder;
 pub mod mobilecoder_event;
 pub mod claude_protocol;
@@ -234,13 +319,20 @@ pub trait CodeExecutor: Send + Sync {
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry>;
 
     /// 解析 stderr 行，返回解析后的日志条目。返回 None 表示作为普通 stderr 处理。
-    fn parse_stderr_line(&self, _line: &str) -> Option<ParsedLogEntry> {
-        None
+    ///
+    /// 默认实现委托给 `BaseExecutor::default_parse_stderr_line`，
+    /// 任何持有 `BaseExecutor` 的具体 executor 都可以直接复用此默认行为，
+    /// 不再需要逐个文件重写。
+    fn parse_stderr_line(&self, line: &str) -> Option<ParsedLogEntry> {
+        BaseExecutor::default_parse_stderr_line(line)
     }
 
     /// 是否解析成功（检查退出码）
+    ///
+    /// 默认实现委托给 `BaseExecutor::default_check_success`。
+    /// 仅当需要「非零退出码也算成功」的特殊语义时才覆盖。
     fn check_success(&self, exit_code: i32) -> bool {
-        exit_code == 0
+        BaseExecutor::default_check_success(exit_code)
     }
 
     /// 从日志列表中提取最终结果
@@ -516,5 +608,171 @@ mod tests {
         let exec = MockExecutor;
         let logs = vec![ParsedLogEntry::new("info", "start")];
         assert_eq!(exec.get_final_result(&logs), None);
+    }
+
+    // ====================== BaseExecutor 单元测试 ======================
+    //
+    // BaseExecutor 解决 Issue #504 描述的「10 个 executor 适配器高度重复」问题。
+    // 这些测试覆盖 BaseExecutor 自身以及它与 CodeExecutor trait 的集成。
+
+    #[test]
+    fn test_base_executor_new_initializes_fields() {
+        let base = BaseExecutor::new("/usr/local/bin/claude".to_string());
+        assert_eq!(base.path, "/usr/local/bin/claude");
+        // model/usage 默认为 None
+        assert!(base.model.lock().is_none());
+        assert!(base.usage.lock().is_none());
+    }
+
+    #[test]
+    fn test_base_executor_with_model() {
+        let base = BaseExecutor::new("claude".to_string()).with_model("claude-3-5-sonnet".to_string());
+        assert_eq!(base.model.lock().clone(), Some("claude-3-5-sonnet".to_string()));
+    }
+
+    #[test]
+    fn test_base_executor_clone_shares_arc_state() {
+        // Clone 应当 clone Arc 引用，让克隆体共享内部状态；
+        // 这是原 impl Clone 行为的关键不变量，refactor 不能破坏。
+        let base = BaseExecutor::new("claude".to_string());
+        let cloned = base.clone();
+        *base.model.lock() = Some("gpt-4".to_string());
+        *base.usage.lock() = Some(ExecutionUsage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_input_tokens: None,
+            cache_creation_input_tokens: None,
+            total_cost_usd: None,
+            duration_ms: None,
+        });
+        // 克隆体能读到原始 base 写入的状态
+        assert_eq!(cloned.model.lock().clone(), Some("gpt-4".to_string()));
+        assert_eq!(cloned.usage.lock().as_ref().unwrap().input_tokens, 100);
+    }
+
+    #[test]
+    fn test_base_executor_default_parse_stderr_line_empty() {
+        // 空行（trim 后）应返回 None，前端不会渲染空白行
+        assert!(BaseExecutor::default_parse_stderr_line("").is_none());
+        assert!(BaseExecutor::default_parse_stderr_line("   ").is_none());
+    }
+
+    #[test]
+    fn test_base_executor_default_parse_stderr_line_error_keyword() {
+        let entry = BaseExecutor::default_parse_stderr_line("ERROR: something failed").unwrap();
+        // "error" 关键字命中，log_type 为 "error"，content 保留 trim 后的原文
+        assert_eq!(entry.log_type, "error");
+        assert_eq!(entry.content, "ERROR: something failed");
+    }
+
+    #[test]
+    fn test_base_executor_default_parse_stderr_line_error_keyword_case_insensitive() {
+        // 大小写不敏感是 .to_lowercase().contains("error") 的设计目标
+        let entry = BaseExecutor::default_parse_stderr_line("Error: failed").unwrap();
+        assert_eq!(entry.log_type, "error");
+    }
+
+    #[test]
+    fn test_base_executor_default_parse_stderr_line_info_keyword() {
+        // 非 error 行 → "stderr"（保留为通用 stderr 流，前端用「stderr」图标渲染）
+        let entry = BaseExecutor::default_parse_stderr_line("Just some info").unwrap();
+        assert_eq!(entry.log_type, "stderr");
+        assert_eq!(entry.content, "Just some info");
+    }
+
+    #[test]
+    fn test_base_executor_default_parse_stderr_line_trims_whitespace() {
+        // 前后空白应被 trim 掉，避免前端显示时的多余边距
+        let entry = BaseExecutor::default_parse_stderr_line("  hello  ").unwrap();
+        assert_eq!(entry.content, "hello");
+    }
+
+    #[test]
+    fn test_base_executor_default_check_success_zero_is_success() {
+        assert!(BaseExecutor::default_check_success(0));
+    }
+
+    #[test]
+    fn test_base_executor_default_check_success_non_zero_is_failure() {
+        // 非零退出码默认视为失败
+        assert!(!BaseExecutor::default_check_success(1));
+        assert!(!BaseExecutor::default_check_success(127));
+        assert!(!BaseExecutor::default_check_success(-1));
+    }
+
+    /// 一个最小化的 executor：直接 wrap BaseExecutor，
+    /// 用来验证「组合后 BaseExecutor 提供的字段能正确暴露给 trait 方法」。
+    struct BaseWrapExecutor {
+        base: BaseExecutor,
+    }
+
+    impl BaseWrapExecutor {
+        fn new(path: String) -> Self {
+            Self { base: BaseExecutor::new(path) }
+        }
+    }
+
+    impl Clone for BaseWrapExecutor {
+        fn clone(&self) -> Self {
+            Self { base: self.base.clone() }
+        }
+    }
+
+    #[async_trait]
+    impl CodeExecutor for BaseWrapExecutor {
+        fn executor_type(&self) -> ExecutorType { ExecutorType::Claudecode }
+        fn executable_path(&self) -> &str { &self.base.path }
+        fn command_args(&self, _message: &str) -> Vec<String> { vec![] }
+        fn parse_output_line(&self, _line: &str) -> Option<ParsedLogEntry> { None }
+        // 委托给 BaseExecutor 的默认行为
+        fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
+            self.base.usage.lock().clone()
+        }
+        fn get_model(&self) -> Option<String> {
+            self.base.model.lock().clone()
+        }
+    }
+
+    #[test]
+    fn test_base_wrap_executor_executable_path_uses_base() {
+        let exec = BaseWrapExecutor::new("/opt/claude".to_string());
+        assert_eq!(exec.executable_path(), "/opt/claude");
+    }
+
+    #[test]
+    fn test_base_wrap_executor_default_check_success_via_trait() {
+        // 默认的 trait check_success 应该走 BaseExecutor::default_check_success
+        let exec = BaseWrapExecutor::new("claude".to_string());
+        assert!(exec.check_success(0));
+        assert!(!exec.check_success(1));
+    }
+
+    #[test]
+    fn test_base_wrap_executor_default_parse_stderr_via_trait() {
+        // trait 默认的 parse_stderr_line 应该走 BaseExecutor::default_parse_stderr_line
+        let exec = BaseWrapExecutor::new("claude".to_string());
+        let entry = exec.parse_stderr_line("ERROR: bad").unwrap();
+        assert_eq!(entry.log_type, "error");
+        assert_eq!(entry.content, "ERROR: bad");
+    }
+
+    #[test]
+    fn test_base_wrap_executor_get_usage_and_model_through_base() {
+        let exec = BaseWrapExecutor::new("claude".to_string());
+        // 写入 base 的共享状态
+        *exec.base.model.lock() = Some("claude-3-5-sonnet".to_string());
+        *exec.base.usage.lock() = Some(ExecutionUsage {
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_input_tokens: None,
+            cache_creation_input_tokens: None,
+            total_cost_usd: None,
+            duration_ms: None,
+        });
+        // 通过 trait 方法读出
+        assert_eq!(exec.get_model(), Some("claude-3-5-sonnet".to_string()));
+        let usage = exec.get_usage(&[]).unwrap();
+        assert_eq!(usage.input_tokens, 10);
+        assert_eq!(usage.output_tokens, 20);
     }
 }

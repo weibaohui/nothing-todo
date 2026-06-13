@@ -20,15 +20,18 @@
 use std::sync::Arc;
 use parking_lot::Mutex;
 
-use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
 use super::mimo_event::MimoEvent;
+use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
+use crate::adapters::ExecutionUsage;
 use crate::models::utc_timestamp;
 
+/// MiMo executor。
+///
+/// `BaseExecutor` 持有 path + model + usage 三件套，
+/// MiMo 还有自己额外的 `has_successful_finish` 状态用于「非零退出码但有 step_finish 就算成功」的语义。
 pub struct MimoExecutor {
-    /// 可执行文件路径
-    path: String,
-    /// 累计 usage（从 step_finish 事件中提取），跨 `parse_output_line` 调用和 `get_usage` 共享
-    usage: Arc<Mutex<Option<ExecutionUsage>>>,
+    /// 共享基础状态
+    base: BaseExecutor,
     /// 标记是否成功完成（MiMo 可能返回非零退出码但执行成功），
     /// 由 step_finish 写入，由 check_success 读取
     has_successful_finish: Arc<Mutex<bool>>,
@@ -37,9 +40,17 @@ pub struct MimoExecutor {
 impl MimoExecutor {
     pub fn new(path: String) -> Self {
         Self {
-            path,
-            usage: Arc::new(Mutex::new(None)),
+            base: BaseExecutor::new(path),
             has_successful_finish: Arc::new(Mutex::new(false)),
+        }
+    }
+}
+
+impl Clone for MimoExecutor {
+    fn clone(&self) -> Self {
+        Self {
+            base: self.base.clone(),
+            has_successful_finish: self.has_successful_finish.clone(),
         }
     }
 }
@@ -50,7 +61,7 @@ impl CodeExecutor for MimoExecutor {
     }
 
     fn executable_path(&self) -> &str {
-        &self.path
+        &self.base.path
     }
 
     /// 基本命令参数：单次执行，使用 JSON 格式输出。
@@ -117,7 +128,7 @@ impl CodeExecutor for MimoExecutor {
                 // 每个 step 重置状态：清除上一步的 usage 和完成标记，
                 // 因为 usage 是累计值，必须从新一轮 step 开始重新计算
                 *self.has_successful_finish.lock() = false;
-                *self.usage.lock() = None;
+                *self.base.usage.lock() = None;
                 Some(ParsedLogEntry {
                     timestamp,
                     log_type: "step_start".to_string(),
@@ -205,7 +216,7 @@ impl CodeExecutor for MimoExecutor {
                             total_cost_usd: part.cost,
                             duration_ms: None,
                         };
-                        *self.usage.lock() = Some(usage);
+                        *self.base.usage.lock() = Some(usage);
                     }
                 }
 
@@ -238,7 +249,7 @@ impl CodeExecutor for MimoExecutor {
     }
 
     fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
-        self.usage.lock().clone()
+        self.base.usage.lock().clone()
     }
 
     fn get_model(&self) -> Option<String> {

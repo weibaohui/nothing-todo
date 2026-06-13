@@ -1,29 +1,25 @@
-use std::sync::Arc;
-use parking_lot::Mutex;
-
-use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
+use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
 use crate::models::utc_timestamp;
 
+/// Kimi executor。
+///
+/// 内部使用 `BaseExecutor` 持有共享状态（path + model + usage），
+/// Kimi 自身不维护额外的执行期状态，因此 `BaseExecutor` 的所有字段默认即可。
 pub struct KimiExecutor {
-    path: String,
-    usage: Arc<Mutex<Option<ExecutionUsage>>>,
+    base: BaseExecutor,
 }
 
 impl KimiExecutor {
     pub fn new(path: String) -> Self {
-        Self {
-            path,
-            usage: Arc::new(Mutex::new(None)),
-        }
+        Self { base: BaseExecutor::new(path) }
     }
 }
 
+// `BaseExecutor` 已经 `#[derive(Clone)]`，
+// 通过结构体组合自动获得 Clone 能力，无需手写 impl Clone。
 impl Clone for KimiExecutor {
     fn clone(&self) -> Self {
-        Self {
-            path: self.path.clone(),
-            usage: self.usage.clone(),
-        }
+        Self { base: self.base.clone() }
     }
 }
 
@@ -33,7 +29,7 @@ impl CodeExecutor for KimiExecutor {
     }
 
     fn executable_path(&self) -> &str {
-        &self.path
+        &self.base.path
     }
 
     fn command_args(&self, message: &str) -> Vec<String> {
@@ -206,8 +202,8 @@ impl CodeExecutor for KimiExecutor {
         }
     }
 
-    fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
-        self.usage.lock().clone()
+    fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<crate::adapters::ExecutionUsage> {
+        self.base.usage.lock().clone()
     }
 
     fn get_model(&self) -> Option<String> {
