@@ -338,6 +338,15 @@ impl Config {
         }
     }
 
+    /// 把 `path` 规范化为单条绝对路径字符串。
+    ///
+    /// 规则：
+    /// - 以 `~` 开头 → 展开为 `<home>/<rest>`。**任意数量的前导 `~` 等价于单个 `~`**（POSIX shell
+    ///   风格）：例如 `~~/foo`、`~~~/foo` 都会展开为 `<home>/foo`。这是由
+    ///   `trim_start_matches('~')` 一次性剥离全部前导 `~` 实现的，是已锁定的不变量
+    ///   （proptest `tilde_path_expands_to_home` 覆盖了 `0..3` 个额外 `~`）。
+    /// - 非空、非绝对路径、含分隔符 → 视为相对于 home 的路径，`./` 前缀会被剥离。
+    /// - 其它情况（绝对路径、空字符串）原样返回。
     fn normalize_single_path(path: &str) -> String {
         if path.starts_with('~') {
             if let Some(home) = dirs::home_dir() {
@@ -607,5 +616,130 @@ mod tests {
         };
         cfg.clamp_broadcast_channel_capacity();
         assert_eq!(cfg.broadcast_channel_capacity, MIN_BROADCAST_CHANNEL_CAPACITY);
+    }
+
+    /// Property-based tests for `normalize_single_path`.
+    ///
+    /// 不变量设计:
+    /// 1. **空串 → 空串**: 不读 home,不 panic。
+    /// 2. **绝对路径 → 原样返回**: 这是该函数最关键的契约,
+    ///    否则把 `/usr/bin/claude` 错误地重写到 home 下就坏了。
+    /// 3. **裸命令(不含 separator)→ 原样返回**: `claude`、`mobilecoder`
+    ///    这类依赖 `$PATH` 查找的可执行名必须透传。
+    /// 4. **幂等**: 对绝对路径结果再次调用应不变;对展开后的结果也应不变。
+    /// 5. **`~/...` 必含 home 前缀**: 一旦做了 `~` 展开,结果必须以 home 开头。
+    ///
+    /// 这些不变量是 issue #514 引入 property-based testing 的回归网。
+    /// 之前 `normalize_single_path` 出现过 `~` 不展开、相对路径 `..` 误处理等 bug,
+    /// property test 能在 fuzz 时主动覆盖这类场景。
+    mod normalize_single_path_proptests {
+        use super::super::Config;
+        use proptest::prelude::*;
+        use std::path::PathBuf;
+
+        /// 平台无关的"绝对路径"生成器 —— 用 `/` 串起来保证跨平台
+        /// (Linux/macOS 都是 `/`,Windows 测试通常用 WSL/Unix shell)。
+        fn absolute_path_strategy() -> BoxedStrategy<String> {
+            // 多个目录段,首段固定 `/`,后续 ASCII 标识符。
+            // `proptest::collection::vec(...)` 本身就是一个 Strategy,
+            // 不要再加外层 tuple 包装,否则 `segs.join` 会找不到方法。
+            proptest::collection::vec("[a-zA-Z0-9_]{1,8}", 1..4)
+                .prop_map(|segs: Vec<String>| format!("/{}", segs.join("/")))
+                .boxed()
+        }
+
+        /// 不含 `/` 的"裸命令"生成器(可能含 `.exe` 后缀,模拟 Windows 命令名)。
+        fn bare_command_strategy() -> BoxedStrategy<String> {
+            "[a-zA-Z][a-zA-Z0-9_-]{0,12}(\\.[a-zA-Z0-9]{1,4})?".boxed()
+        }
+
+        /// 相对路径(含 separator,但不带 `/` 开头,也不带 `~` 前缀)。
+        /// 至少要 2 段才能保证路径包含 `/` 分隔符 —— 1 段的"裸命令"
+        /// 不应该走"展开为绝对路径"分支,所以这里强制 ≥2 段。
+        fn relative_path_strategy() -> BoxedStrategy<String> {
+            proptest::collection::vec("[a-zA-Z0-9_.]{1,8}", 2..4)
+                .prop_map(|segs| segs.join("/"))
+                .boxed()
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(64))]
+
+            /// 空串必须返回空串。
+            /// 不允许触发 home dir 查询或 panic。
+            #[test]
+            fn empty_path_is_identity(_dummy in 0..1i32) {
+                prop_assert_eq!(Config::normalize_single_path(""), "");
+            }
+
+            /// 绝对路径必须原样返回 —— 任何展开 home / 改写路径的尝试都是 bug。
+            #[test]
+            fn absolute_path_unchanged(path in absolute_path_strategy()) {
+                let result = Config::normalize_single_path(&path);
+                prop_assert_eq!(result, path);
+            }
+
+            /// 裸命令(不含 `/`)必须原样返回 —— 否则会破坏依赖 $PATH 的执行器查找。
+            #[test]
+            fn bare_command_unchanged(cmd in bare_command_strategy()) {
+                let result = Config::normalize_single_path(&cmd);
+                prop_assert_eq!(result, cmd);
+            }
+
+            /// `~/foo` 类输入只要 home dir 可用,结果必须以 home 开头。
+            /// 如果不在容器里 /home 缺失,跳过断言 (see `dirs::home_dir` docs)。
+            #[test]
+            fn tilde_path_expands_to_home(
+                tail in relative_path_strategy(),
+                extra_tildes in 0..3usize,
+            ) {
+                if dirs::home_dir().is_none() {
+                    // 没有 home dir 时函数原样返回输入,这是兜底分支。
+                    return Ok(());
+                }
+                let home = dirs::home_dir().unwrap();
+                let prefix = "~".repeat(1 + extra_tildes);
+                let input = format!("{prefix}/{tail}");
+                let result = Config::normalize_single_path(&input);
+                // 结果必须是绝对路径,以 home 开头。
+                prop_assert!(
+                    PathBuf::from(&result).is_absolute(),
+                    "tilde expansion must produce absolute path, got {result}",
+                );
+                prop_assert!(
+                    result.starts_with(home.to_string_lossy().as_ref()),
+                    "tilde expansion must start with home dir, got {result}",
+                );
+            }
+
+            /// 相对路径(含 separator)展开后必须以 home 开头,且为绝对路径。
+            #[test]
+            fn relative_path_prepends_home(path in relative_path_strategy()) {
+                if dirs::home_dir().is_none() {
+                    return Ok(());
+                }
+                let home = dirs::home_dir().unwrap();
+                // 跳过 `./` 前缀的 case,只验证"裸相对路径"。
+                prop_assume!(!path.starts_with("./"));
+                let result = Config::normalize_single_path(&path);
+                prop_assert!(
+                    PathBuf::from(&result).is_absolute(),
+                    "relative path should become absolute, got {result}",
+                );
+                prop_assert!(
+                    result.starts_with(home.to_string_lossy().as_ref()),
+                    "relative path should be prefixed by home, got {result}",
+                );
+            }
+
+            /// 幂等: 一次 normalize 之后的输出再次 normalize 必须不变。
+            /// (对所有路径,无论是否被改写;这是行为可预测性的核心)。
+            #[test]
+            fn normalize_is_idempotent(input in "\\PC*") {
+                let once = Config::normalize_single_path(&input);
+                let twice = Config::normalize_single_path(&once);
+                prop_assert_eq!(once, twice);
+            }
+        }
     }
 }

@@ -55,6 +55,10 @@ http-body-util = "0.1"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
+# Property-based testing: 对纯函数 (replace_placeholders / normalize_single_path /
+# convert_cron_to_utc) 自动生成输入,验证不变量 (idempotency / round-trip / format)。
+# 比手写单元测试覆盖更多边界。issue #514 引入。
+proptest = "1"
 
 [build-dependencies]
 vergen-gitcl = "1"
