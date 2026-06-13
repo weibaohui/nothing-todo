@@ -33,7 +33,7 @@ cargo test --tests
 CI 上的强制检查：
 
 ```bash
-cargo fmt --all -- --check        # 风格（rustfmt.toml）
+cargo fmt --all -- --check        # 风格（默认 rustfmt 配置；见下方「代码风格」节）
 cargo clippy --all-targets -- -D warnings  # lint（见下方）
 cargo test --all-targets          # 全量测试
 cargo deny check                  # 依赖治理（可选但推荐）

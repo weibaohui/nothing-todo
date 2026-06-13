@@ -142,6 +142,10 @@ pub fn require_root_or_exit(_action: &str) {
 
 #[cfg(test)]
 #[cfg(unix)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+// 测试代码允许使用 expect/unwrap/panic：单测里"调用失败立刻 panic"是惯用模式,
+// 与生产代码的 `?`/match 路径是两条独立路径。`clippy::expect_used = "warn"` 仍会
+// 触发这条警告,但属于预期。
 mod unix_tests {
     use super::*;
     use std::net::{TcpListener, TcpStream};
@@ -173,8 +177,9 @@ mod unix_tests {
     }
 
     /// 关闭 listener 之后再调用，fd 应当变 EBADF。
-    /// 注意：Linux 下 fd 号码可能被其他资源复用；这里用一个
-    /// 显然不会被分配的极大值（u32::MAX）确保触发 EBADF。
+    /// 注意：Linux 下 fd 号码可能被其他资源复用；这里用
+    /// `libc::c_int::MAX`（约 2.1×10⁹）超出 OPEN_MAX，确保触发 EBADF。
+    /// （原注释写"u32::MAX"与代码 `libc::c_int::MAX` 不一致；此处对齐。）
     #[test]
     fn set_socket_reuseaddr_on_invalid_far_above_rlimit_returns_err() {
         // libc::c_int 在多数平台是 32-bit；用一个明显超出 OPEN_MAX 的值。
@@ -197,6 +202,7 @@ mod unix_tests {
 
 #[cfg(test)]
 #[cfg(target_os = "macos")]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod macos_tests {
     use super::*;
 
@@ -211,6 +217,7 @@ mod macos_tests {
 
 #[cfg(test)]
 #[cfg(target_os = "linux")]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod linux_tests {
     use super::*;
 

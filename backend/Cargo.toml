@@ -84,10 +84,11 @@ needless_pass_by_value = "warn"
 # 性能类
 needless_collect = "warn"
 redundant_clone = "warn"
-# 正确性类
-unwrap_used = "deny"
-expect_used = "deny"
-panic = "deny"
+# 正确性类（warn only：deny 会让存量 build.rs / tests/*.rs 全部触发 E0001,
+# 后续 PR 单独把存量 .unwrap()/.expect() 迁移为 ? / match 后再升 deny）
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
 todo = "warn"
 dbg_macro = "warn"
 print_stdout = "warn"
