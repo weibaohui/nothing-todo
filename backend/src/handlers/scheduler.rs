@@ -4,6 +4,7 @@ use axum::{
 
 use crate::handlers::{ApiJson, AppError, AppState};
 use crate::models::{ApiResponse, Todo, UpdateSchedulerRequest};
+use crate::scheduler::SchedulerError;
 use crate::service_context::ServiceContext;
 
 #[axum::debug_handler]
@@ -37,15 +38,19 @@ pub async fn update_scheduler(
                 task_manager: state.task_manager.clone(),
                 config: state.config.clone(),
             };
-            // issue #499：`upsert_task` 现在返回 `SchedulerError`，`?` 通过
+            // issue #499：`upsert_task` 返回 `SchedulerError`，`?` 通过
             // `From<SchedulerError> for AppError` 自动映射：
             // - `InvalidCron` / `InvalidTimezone` → 400 BadRequest
             // - 其它 → 500 Internal
-            // 之前的版本是手写 `match` + `format!`，错误细节会丢。
             //
-            // PR #543 review HIGH #2 修复：用 `inspect_err` 在 `?` 之前补一行
-            // `tracing::error!` 让 5xx 也能在 server-side 日志带上 todo_id / cron 上下文
-            // （之前是 handler 完整丢 logging,只有 main.rs 的 generic AppError 日志）。
+            // PR #543 review HIGH #2 修复: 按 variant 分级日志
+            // - 4xx (InvalidCron / InvalidTimezone) → `warn!` (用户输入错,
+            //   AI agent 配错 cron 重试 50 次不应污染 error-level alert)
+            // - 5xx (Database / Internal / SchedulerBackend) → `error!`
+            //   (server-side 故障,运维需告警)
+            //
+            // 注: 不能用 `tracing::event!(level, ...)` 因为 level 必须是 const
+            // token;这里是 runtime 派生的 variant 分类,所以走 `match`。
             state
                 .scheduler
                 .upsert_task(
@@ -55,11 +60,21 @@ pub async fn update_scheduler(
                     scheduler_timezone.clone(),
                 )
                 .await
-                .inspect_err(|e| {
-                    tracing::error!(
-                        "Failed to upsert scheduled task for todo {} (cron='{}', tz={:?}): {}",
-                        id, config, scheduler_timezone, e
-                    );
+                .inspect_err(|e| match e {
+                    SchedulerError::InvalidCron { .. } | SchedulerError::InvalidTimezone(_) => {
+                        tracing::warn!(
+                            "Scheduler input rejected for todo {} (cron='{}', tz={:?}): {}",
+                            id, config, scheduler_timezone, e
+                        );
+                    }
+                    SchedulerError::Database(_)
+                    | SchedulerError::Internal(_)
+                    | SchedulerError::SchedulerBackend(_) => {
+                        tracing::error!(
+                            "Scheduler backend failure for todo {} (cron='{}', tz={:?}): {}",
+                            id, config, scheduler_timezone, e
+                        );
+                    }
                 })?;
             state
                 .db

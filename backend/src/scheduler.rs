@@ -158,8 +158,9 @@ fn format_cron_field(set: &BTreeSet<u32>) -> String {
 ///   handler 真的会返回 400。
 ///
 /// `todo_id` 透传给 `SchedulerError::InvalidCron { expr, todo_id }`，让响应体
-/// 能告诉调用方"是哪条 todo 的 cron 错了"。`load_from_db` 用 sentinel `-1`
-/// 因为那是从 DB 加载历史数据，没有具体的 user-facing todo_id。
+/// 能告诉调用方"是哪条 todo 的 cron 错了"。`load_from_db` 不调用此函数
+/// (它直接调用 `cron::Schedule::from_str` + `JobScheduler::add` —— 加载阶段
+/// 失败会让整条 todo 跳过而不是污染其他 todo，不需要 typed error)。
 fn convert_cron_to_utc(
     cron_expr: &str,
     timezone: &str,
@@ -380,28 +381,21 @@ impl TodoScheduler {
         cron_expr: String,
         timezone: Option<String>,
     ) -> Result<uuid::Uuid, SchedulerError> {
-        // Validate cron expression
-        if cron::Schedule::from_str(&cron_expr).is_err() {
-            warn!(
-                "Invalid cron expression '{}' for todo {}. \
-                AI must convert natural language to valid cron format with 6 fields (seconds + 5 standard). \
-                Example: '0 */12 * * * *' (every 12 min), '0 0 9 * * *' (daily at 9am).",
-                cron_expr, todo_id
-            );
-            // 用结构化的 `SchedulerError::InvalidCron { expr, todo_id }` 替代原来的
-            // `format!(...).into()`（后者会丢类型，handler 没法区分"用户输入错"
-            // 和"内部错误"）。这样 `From<SchedulerError> for AppError` 才能把
-            // 它映射为 400 BadRequest。
-            return Err(SchedulerError::InvalidCron {
-                expr: cron_expr,
-                todo_id,
-            });
-        }
+        // 先停掉旧 schedule。这样如果后续 validation 失败 (InvalidCron /
+        // InvalidTimezone)，handler 返回 400 时 JobScheduler 里已经没有
+        // 旧 cron 在跑——DB / scheduler 状态一致。
+        // （PR #543 review MEDIUM #4 修复：之前旧 schedule 在 Err 后仍在跑）
+        self.remove_task_for_todo(todo_id).await;
 
         // Convert cron expression to UTC if timezone is specified.
         // PR #543 review CRITICAL #1 修复: 旧实现用 `match` + warn + fallback 到原
         // `cron_expr`，导致 `SchedulerError::InvalidTimezone` 在生产路径上不可达、
         // handler 的 400 映射成死代码。新实现用 `?` 让 typed error 直接传播。
+        //
+        // PR #543 review HIGH #3 修复：删除上面原本的 `if is_err() { warn; return Err }`
+        // 冗余块——`convert_cron_to_utc` 内部已经 `cron::Schedule::from_str(...).map_err
+        // (InvalidCron)?`，同一表达式被解析两次是浪费；现在 typed error 在一处构造。
+        // 日志分级移到 handler（见 handlers/scheduler.rs 的 match variant 分级）。
         let cron_expr_utc = if let Some(ref tz) = timezone {
             let utc_expr = convert_cron_to_utc(&cron_expr, tz, todo_id)?;
             if utc_expr != cron_expr {
@@ -414,8 +408,6 @@ impl TodoScheduler {
         } else {
             cron_expr.clone()
         };
-
-        self.remove_task_for_todo(todo_id).await;
 
         let db_clone = ctx.db.clone();
         let registry_clone = ctx.executor_registry.clone();
@@ -498,7 +490,14 @@ impl TodoScheduler {
                 // `Box::new(std::io::Error::other(...))`。`e: JobSchedulerError` 已
                 // 实现 `std::error::Error`，可走 `#[from]` 直接 `?`，但这里我们要
                 // 显式带上上下文（todo_id, cron_expr）便于排查，所以手写变体。
-                error!("Failed to add job to scheduler: {:?}", e);
+                //
+                // PR #543 review MEDIUM #8 修复: 用 Display `{}` 替代 Debug `{:?}`，
+                // 与 handler 的 structured Display 风格统一。JobSchedulerError 实现了
+                // Display（看 tokio-cron-scheduler 源码），格式为可读的错误描述。
+                error!(
+                    "Failed to add job to scheduler for todo {} (cron='{}'): {}",
+                    todo_id, cron_expr, e
+                );
                 Err(SchedulerError::SchedulerBackend(e))
             }
         }
