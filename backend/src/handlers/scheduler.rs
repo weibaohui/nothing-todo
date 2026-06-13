@@ -42,6 +42,10 @@ pub async fn update_scheduler(
             // - `InvalidCron` / `InvalidTimezone` → 400 BadRequest
             // - 其它 → 500 Internal
             // 之前的版本是手写 `match` + `format!`，错误细节会丢。
+            //
+            // PR #543 review HIGH #2 修复：用 `inspect_err` 在 `?` 之前补一行
+            // `tracing::error!` 让 5xx 也能在 server-side 日志带上 todo_id / cron 上下文
+            // （之前是 handler 完整丢 logging,只有 main.rs 的 generic AppError 日志）。
             state
                 .scheduler
                 .upsert_task(
@@ -50,7 +54,13 @@ pub async fn update_scheduler(
                     config.clone(),
                     scheduler_timezone.clone(),
                 )
-                .await?;
+                .await
+                .inspect_err(|e| {
+                    tracing::error!(
+                        "Failed to upsert scheduled task for todo {} (cron='{}', tz={:?}): {}",
+                        id, config, scheduler_timezone, e
+                    );
+                })?;
             state
                 .db
                 .update_todo_scheduler(crate::db::SchedulerUpdate { id, enabled: req.scheduler_enabled, config: req.scheduler_config.as_deref(), timezone: scheduler_timezone.as_deref() })

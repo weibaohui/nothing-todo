@@ -25,7 +25,16 @@ use crate::service_context::ServiceContext;
 pub enum SchedulerError {
     /// 用户传入的 cron 表达式无法被 `cron` crate 解析，或字段数不为 6。
     /// handler 层应映射为 HTTP 400（用户输入错误），而不是 500。
-    #[error("Invalid cron expression '{expr}' for todo {todo_id}")]
+    ///
+    /// Display 文案保留「AI must convert natural language」提示，因为
+    /// 这是 HTTP 400 响应体里 AI agent 唯一能看到的信息（无 hint 时
+    /// agent 会重复尝试自然语言 cron）。PR #543 review HIGH #3 的修复点。
+    #[error(
+        "Invalid cron expression '{expr}' for todo {todo_id}. \
+         AI must convert natural language to valid cron format with 6 fields \
+         (seconds + 5 standard). \
+         Example: '0 */12 * * * *' (every 12 min), '0 0 9 * * *' (daily at 9am)."
+    )]
     InvalidCron { expr: String, todo_id: i64 },
 
     /// 用户传入的时区字符串无法被 `chrono_tz::Tz` 解析。
@@ -139,26 +148,46 @@ fn format_cron_field(set: &BTreeSet<u32>) -> String {
 ///   引入歧义。如果未来有强需求,可以再扩展。
 /// - DST 切换日会"丢 1 小时"或"重 1 小时":这是单 cron 表达式表达
 ///   不出 1 年内多个 UTC 时刻的根本限制,会在日志 warn 提示用户。
-fn convert_cron_to_utc(cron_expr: &str, timezone: &str) -> Result<String, String> {
+/// 把用户时区的 cron 表达式转换为 UTC 等价表达式。
+///
+/// 返回类型 `Result<String, SchedulerError>`（PR #543 review CRITICAL #1 修复）：
+/// - 旧实现返回 `Result<String, String>`，让 `upsert_task` 只能 `match` + warn + fallback 到
+///   原 `cron_expr`，结果 `SchedulerError::InvalidTimezone` 在生产代码不可达，
+///   `From<SchedulerError> for AppError` 的 400 映射是死代码。
+/// - 新实现用 typed error，调用方 `?` 直接传播 `InvalidTimezone` / `InvalidCron`，
+///   handler 真的会返回 400。
+///
+/// `todo_id` 透传给 `SchedulerError::InvalidCron { expr, todo_id }`，让响应体
+/// 能告诉调用方"是哪条 todo 的 cron 错了"。`load_from_db` 用 sentinel `-1`
+/// 因为那是从 DB 加载历史数据，没有具体的 user-facing todo_id。
+fn convert_cron_to_utc(
+    cron_expr: &str,
+    timezone: &str,
+    todo_id: i64,
+) -> Result<String, SchedulerError> {
     // 解析时区; 失败时给出可定位的错误,不要 panic。
     let tz: chrono_tz::Tz = timezone
         .parse()
-        .map_err(|_| format!("Invalid timezone: {}", timezone))?;
+        .map_err(|_| SchedulerError::InvalidTimezone(timezone.to_string()))?;
 
     // 用 `cron` crate 解析,这一步同时校验 cron 语法。
     // 之前用一次性 `from_str(...)?` 吞掉错误再 split 字段,失败时
     // 报错信息不友好。
-    let schedule = cron::Schedule::from_str(cron_expr)
-        .map_err(|_| format!("Invalid cron expression: {}", cron_expr))?;
+    let schedule = cron::Schedule::from_str(cron_expr).map_err(|_| {
+        SchedulerError::InvalidCron {
+            expr: cron_expr.to_string(),
+            todo_id,
+        }
+    })?;
 
     // 要求 6 字段 (秒 分 时 日 月 周),与 `tokio-cron-scheduler` 一致;
     // 5 字段在 unix cron 里合法但本项目不接受 —— 早 fail 早知道。
     let fields: Vec<&str> = cron_expr.trim().split_whitespace().collect();
     if fields.len() != 6 {
-        return Err(format!(
-            "Cron expression must have 6 fields (seconds minute hour day-of-month month day-of-week), got {}",
-            fields.len()
-        ));
+        return Err(SchedulerError::InvalidCron {
+            expr: cron_expr.to_string(),
+            todo_id,
+        });
     }
 
     // fields 顺序: 秒 分 时 日 月 周
@@ -185,11 +214,19 @@ fn convert_cron_to_utc(cron_expr: &str, timezone: &str) -> Result<String, String
     // 用固定时间而非 `Utc::now()` 是为了测试稳定 + 不依赖系统时间。
     let reference = match tz.with_ymd_and_hms(2025, 1, 1, 0, 0, 0) {
         chrono::LocalResult::Single(t) => t,
-        _ => return Err("Could not build reference datetime in timezone".to_string()),
+        _ => {
+            return Err(SchedulerError::Internal(
+                "Could not build reference datetime in timezone".to_string(),
+            ));
+        }
     };
     let end = match tz.with_ymd_and_hms(2026, 1, 1, 0, 0, 0) {
         chrono::LocalResult::Single(t) => t,
-        _ => return Err("Could not build end datetime in timezone".to_string()),
+        _ => {
+            return Err(SchedulerError::Internal(
+                "Could not build end datetime in timezone".to_string(),
+            ));
+        }
     };
 
     // 收集所有 UTC 时刻 (h, m, s),用 HashMap 计数。
@@ -361,26 +398,19 @@ impl TodoScheduler {
             });
         }
 
-        // Convert cron expression to UTC if timezone is specified
+        // Convert cron expression to UTC if timezone is specified.
+        // PR #543 review CRITICAL #1 修复: 旧实现用 `match` + warn + fallback 到原
+        // `cron_expr`，导致 `SchedulerError::InvalidTimezone` 在生产路径上不可达、
+        // handler 的 400 映射成死代码。新实现用 `?` 让 typed error 直接传播。
         let cron_expr_utc = if let Some(ref tz) = timezone {
-            match convert_cron_to_utc(&cron_expr, tz) {
-                Ok(utc_expr) => {
-                    if utc_expr != cron_expr {
-                        info!(
-                            "Converted cron expression from '{}' ({})) to '{}' (UTC) for todo {}",
-                            cron_expr, tz, utc_expr, todo_id
-                        );
-                    }
-                    utc_expr
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed to convert cron expression '{}' to timezone {}: {}. Using original.",
-                        cron_expr, tz, e
-                    );
-                    cron_expr.clone()
-                }
+            let utc_expr = convert_cron_to_utc(&cron_expr, tz, todo_id)?;
+            if utc_expr != cron_expr {
+                info!(
+                    "Converted cron expression from '{}' ({})) to '{}' (UTC) for todo {}",
+                    cron_expr, tz, utc_expr, todo_id
+                );
             }
+            utc_expr
         } else {
             cron_expr.clone()
         };
@@ -510,7 +540,7 @@ mod convert_cron_to_utc_tests {
     /// Asia/Shanghai 是 UTC+8, 9 点本地 → 1 点 UTC。
     #[test]
     fn test_shanghai_9am_local_becomes_1am_utc() {
-        let utc = convert_cron_to_utc("0 0 9 * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0 0 9 * * *", "Asia/Shanghai", 0).unwrap();
         assert_eq!(utc, "0 0 1 * * *");
     }
 
@@ -519,7 +549,7 @@ mod convert_cron_to_utc_tests {
     /// `chrono_tz` 会按当前 offset 计算,所以 13/14 都有可能)。
     #[test]
     fn test_new_york_9am_local_shifts_to_utc() {
-        let utc = convert_cron_to_utc("0 0 9 * * *", "America/New_York").unwrap();
+        let utc = convert_cron_to_utc("0 0 9 * * *", "America/New_York", 0).unwrap();
         let hour: i32 = utc.split_whitespace().nth(2).unwrap().parse().unwrap();
         // 9 - (-4) = 13 (DST) 或 9 - (-5) = 14 (标准时间)
         assert!(hour == 13 || hour == 14, "got {utc}, hour={hour}");
@@ -532,7 +562,7 @@ mod convert_cron_to_utc_tests {
     /// 会漏掉 UTC 端的 hour wrap。
     #[test]
     fn test_wildcard_hour_passes_through_unchanged() {
-        let utc = convert_cron_to_utc("0 0 * * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0 0 * * * *", "Asia/Shanghai", 0).unwrap();
         // 0-23 等价于 *,枚举后紧凑表示
         assert_eq!(utc, "0 0 0-23 * * *");
     }
@@ -541,7 +571,7 @@ mod convert_cron_to_utc_tests {
     /// 这是工作时间段调度的常见写法。
     #[test]
     fn test_hour_range_is_shifted() {
-        let utc = convert_cron_to_utc("0 0 9-17 * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0 0 9-17 * * *", "Asia/Shanghai", 0).unwrap();
         assert_eq!(utc, "0 0 1-9 * * *");
     }
 
@@ -549,7 +579,7 @@ mod convert_cron_to_utc_tests {
     /// shanghai: 9→1, 12→4, 18→10。
     #[test]
     fn test_hour_list_each_value_shifted() {
-        let utc = convert_cron_to_utc("0 0 9,12,18 * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0 0 9,12,18 * * *", "Asia/Shanghai", 0).unwrap();
         assert_eq!(utc, "0 0 1,4,10 * * *");
     }
 
@@ -558,7 +588,7 @@ mod convert_cron_to_utc_tests {
     #[test]
     fn test_local_late_night_rolls_back_no_wrap() {
         // 23:00 Shanghai = 15:00 UTC (no wrap)
-        let utc = convert_cron_to_utc("0 0 23 * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0 0 23 * * *", "Asia/Shanghai", 0).unwrap();
         assert_eq!(utc, "0 0 15 * * *");
     }
 
@@ -572,7 +602,7 @@ mod convert_cron_to_utc_tests {
     /// 实际跑成 UTC 每 2 小时(差 8 小时),用户感受是"全跑偏"。
     #[test]
     fn test_step_expression_expands_to_utc_equivalent() {
-        let utc = convert_cron_to_utc("0 0 */2 * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0 0 */2 * * *", "Asia/Shanghai", 0).unwrap();
         assert_eq!(utc, "0 0 0-22/2 * * *");
     }
 
@@ -580,7 +610,7 @@ mod convert_cron_to_utc_tests {
     /// 这个 case 验证"显式范围"和"通配符步长"走的是同一条路径。
     #[test]
     fn test_explicit_range_step_matches_wildcard_step() {
-        let utc = convert_cron_to_utc("0 0 0-23/2 * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0 0 0-23/2 * * *", "Asia/Shanghai", 0).unwrap();
         assert_eq!(utc, "0 0 0-22/2 * * *");
     }
 
@@ -590,7 +620,7 @@ mod convert_cron_to_utc_tests {
     /// 14 UTC;13 占多数,应该被选中。
     #[test]
     fn test_dst_single_hour_uses_dominant_offset() {
-        let utc = convert_cron_to_utc("0 0 9 * * *", "America/New_York").unwrap();
+        let utc = convert_cron_to_utc("0 0 9 * * *", "America/New_York", 0).unwrap();
         assert_eq!(utc, "0 0 13 * * *");
     }
 
@@ -599,7 +629,7 @@ mod convert_cron_to_utc_tests {
     /// 出现 5 个月,8 (BST) 出现 7 个月,dominant 是 8。
     #[test]
     fn test_dst_london_uses_dominant_offset() {
-        let utc = convert_cron_to_utc("0 0 9 * * *", "Europe/London").unwrap();
+        let utc = convert_cron_to_utc("0 0 9 * * *", "Europe/London", 0).unwrap();
         assert_eq!(utc, "0 0 8 * * *");
     }
 
@@ -608,7 +638,7 @@ mod convert_cron_to_utc_tests {
     /// 手算"0 - 8 = -8 → 16"。
     #[test]
     fn test_midnight_local_rolls_back_one_day() {
-        let utc = convert_cron_to_utc("0 0 0 * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0 0 0 * * *", "Asia/Shanghai", 0).unwrap();
         assert_eq!(utc, "0 0 16 * * *");
     }
 
@@ -617,7 +647,7 @@ mod convert_cron_to_utc_tests {
     /// 验证非整数小时偏移也能正确处理(之前实现按整小时算会丢 30 分钟)。
     #[test]
     fn test_half_hour_offset_india() {
-        let utc = convert_cron_to_utc("0 30 0 * * *", "Asia/Kolkata").unwrap();
+        let utc = convert_cron_to_utc("0 30 0 * * *", "Asia/Kolkata", 0).unwrap();
         // 30 分钟 + 半小时偏移 = 整数小时偏移的 5.5h,跨日 wrap 后落在 19 UTC
         assert_eq!(utc, "0 0 19 * * *");
     }
@@ -636,7 +666,7 @@ mod convert_cron_to_utc_tests {
     /// "本地每 30 分钟一次"的语义。
     #[test]
     fn test_every_half_hour_shanghai() {
-        let utc = convert_cron_to_utc("0,30 0 * * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0,30 0 * * * *", "Asia/Shanghai", 0).unwrap();
         assert_eq!(utc, "0-30/30 0 0-23 * * *");
     }
 
@@ -644,7 +674,7 @@ mod convert_cron_to_utc_tests {
     /// 验证拒绝路径稳定(避免误把年份字段当 day-of-month 之类的)。
     #[test]
     fn test_seven_field_cron_is_rejected() {
-        let result = convert_cron_to_utc("0 0 9 * * * 2025", "Asia/Shanghai");
+        let result = convert_cron_to_utc("0 0 9 * * * 2025", "Asia/Shanghai", 0);
         assert!(result.is_err(), "7-field cron should be rejected, got {:?}", result);
     }
 
@@ -653,9 +683,9 @@ mod convert_cron_to_utc_tests {
     /// 这种"静默错误"是定时任务里最难排查的一类。
     #[test]
     fn test_invalid_timezone_returns_error() {
-        let result = convert_cron_to_utc("0 0 9 * * *", "Not/A/Real/Zone");
+        let result = convert_cron_to_utc("0 0 9 * * *", "Not/A/Real/Zone", 0);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid timezone"));
+        assert!(result.unwrap_err().to_string().contains("Invalid timezone"));
     }
 
     /// cron 字段数量不对必须报错(我们要求 6 字段,标准 5 字段 + 秒)。
@@ -664,7 +694,7 @@ mod convert_cron_to_utc_tests {
     #[test]
     fn test_wrong_field_count_returns_error() {
         // 5 fields (missing seconds)
-        let result = convert_cron_to_utc("0 9 * * *", "Asia/Shanghai");
+        let result = convert_cron_to_utc("0 9 * * *", "Asia/Shanghai", 0);
         // cron crate 接受 5 字段,所以这里先 cron-parse-ok 再字段数检查;
         // 任何 Err 都算防御成功(具体文案可能因 cron crate 版本变化)
         assert!(result.is_err(), "5-field cron should be rejected, got {:?}", result);
@@ -674,9 +704,9 @@ mod convert_cron_to_utc_tests {
     /// 否则会在调度器里 panic,影响整个 daemon。
     #[test]
     fn test_invalid_cron_expression_returns_error() {
-        let result = convert_cron_to_utc("not a cron string", "Asia/Shanghai");
+        let result = convert_cron_to_utc("not a cron string", "Asia/Shanghai", 0);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid cron expression"));
+        assert!(result.unwrap_err().to_string().contains("Invalid cron expression"));
     }
 }
 
@@ -690,11 +720,70 @@ mod scheduler_error_tests {
     //!
     //! 这些测试之前无法在 `Box<dyn Error>` 抽象下做 —— 抽象层把变体抹平了，
     //! 现在能针对具体变体断言。
-    use super::SchedulerError;
+    use super::{convert_cron_to_utc, SchedulerError};
     use crate::handlers::AppError;
     use sea_orm::DbErr;
 
-    /// `InvalidCron` 的 Display 必须包含原始 cron 字符串和 todo id，
+    /// `InvalidCron` 的 Display 必须包含原始 cron 字符串、todo id，
+    /// **以及 AI 提示**——PR #543 review HIGH #3 修复。AI agent 调 API
+    /// 时只有这条响应体能看，没有 hint 时 agent 会重试同样的自然语言 cron。
+    #[test]
+    fn test_invalid_cron_display_includes_ai_hint() {
+        let err = SchedulerError::InvalidCron {
+            expr: "every morning".to_string(),
+            todo_id: 42,
+        };
+        let s = err.to_string();
+        assert!(s.contains("every morning"), "should echo expr, got: {s}");
+        assert!(s.contains("42"), "should include todo_id, got: {s}");
+        assert!(
+            s.contains("AI must convert natural language"),
+            "should include AI hint for agent retries, got: {s}"
+        );
+        assert!(
+            s.contains("6 fields"),
+            "should explain 6-field requirement, got: {s}"
+        );
+    }
+
+    /// `InvalidTimezone` 在生产路径上现在真的可达 (PR #543 review CRITICAL #1
+    /// 修复)：之前 convert_cron_to_utc 返回 Result<String, String>，调用方
+    /// `match` + warn + fallback 到原 cron，SchedulerError::InvalidTimezone
+    /// 永远不构造、handler 400 映射是死代码。现在 convert_cron_to_utc 返回
+    /// Result<String, SchedulerError>，`?` 直接传播。
+    #[test]
+    fn test_convert_cron_to_utc_returns_scheduler_error_directly() {
+        // 之前的实现：返回 Result<String, String>，调用方要 `match`
+        // 现在的实现：返回 Result<String, SchedulerError>，调用方可以 `?`
+        let result = convert_cron_to_utc("0 0 9 * * *", "Not/A/Real/Zone", 7);
+        match result {
+            Err(SchedulerError::InvalidTimezone(tz)) => {
+                assert_eq!(tz, "Not/A/Real/Zone");
+            }
+            other => panic!(
+                "expected Err(SchedulerError::InvalidTimezone), got {:?}",
+                other
+            ),
+        }
+    }
+
+    /// 同上，cron 字段数错也是 typed error：之前的 `String` 错误现在归并到
+    /// `SchedulerError::InvalidCron { expr, todo_id }`，todo_id 透传给 handler 响应体。
+    #[test]
+    fn test_convert_cron_to_utc_wrong_field_count_returns_invalid_cron() {
+        let result = convert_cron_to_utc("0 9 * * *", "Asia/Shanghai", 99);
+        match result {
+            Err(SchedulerError::InvalidCron { expr, todo_id }) => {
+                assert_eq!(expr, "0 9 * * *");
+                assert_eq!(todo_id, 99, "todo_id should propagate");
+            }
+            other => panic!(
+                "expected Err(SchedulerError::InvalidCron), got {:?}",
+                other
+            ),
+        }
+    }
+
     /// 否则日志/HTTP 响应里看不出"哪条 todo 的哪条 cron 错了"。
     #[test]
     fn test_invalid_cron_display_contains_expr_and_todo_id() {

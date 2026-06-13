@@ -13,7 +13,9 @@ use ntd::{
     config::Config,
     db::Database,
     handlers::create_app,
+    hooks::HookService,
     scheduler::TodoScheduler,
+    service_context::ServiceContext,
     task_manager::TaskManager,
 };
 
@@ -27,7 +29,15 @@ async fn create_test_app() -> axum::Router {
     let task_manager = Arc::new(TaskManager::new());
 
     let config = Arc::new(tokio::sync::RwLock::new(Config::default()));
-    let scheduler = Arc::new(TodoScheduler::new().await.unwrap());
+    let tmp_ctx = ServiceContext {
+        db: db.clone(),
+        executor_registry: executor_registry.clone(),
+        tx: tx.clone(),
+        task_manager: task_manager.clone(),
+        config: config.clone(),
+    };
+    let hook_service = Arc::new(HookService::new(tmp_ctx));
+    let scheduler = Arc::new(TodoScheduler::new(hook_service).await.unwrap());
     let ctx = ntd::service_context::ServiceContext {
         db: db.clone(),
         executor_registry: executor_registry.clone(),
