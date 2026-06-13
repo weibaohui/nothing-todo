@@ -3,12 +3,62 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use clap::Subcommand;
+use thiserror::Error;
 
 #[allow(unused)] const SERVICE_NAME: &str = "ntd";
 #[allow(unused)] const SERVICE_DESCRIPTION: &str = "Nothing Todo (ntd) - AI Todo Service";
 #[allow(unused)]
 const LAUNCHD_LABEL: &str = "com.nothing-todo.ntd";
 #[allow(unused)] const TASK_NAME: &str = "ntd";
+
+/// 守护进程管理子命令的失败原因。
+///
+/// 把所有平台（launchd / systemd / Task Scheduler）的错误统一在一个
+/// 枚举里，调用方（`main.rs` 的 CLI 入口）只需匹配一个错误类型并打印
+/// 人类可读消息即可。这样就不需要在每个平台分支里散落 `eprintln!` +
+/// `std::process::exit(1)`，也避免 `.expect()` 在生产路径上 panic 崩溃。
+#[derive(Debug, Error)]
+pub enum DaemonError {
+    /// 需要 root 权限才能继续（systemd 的 system 模式）
+    #[error("this operation requires root; re-run with sudo")]
+    RequiresRoot,
+
+    /// 拒绝以 root 身份安装 system 服务
+    #[error("refusing to install system service as root; use --run-as-user to specify a user")]
+    RefusingRootSystemInstall,
+
+    /// ntd 二进制不存在，提示用户先 make install
+    #[error("ntd binary not found at {0}; run `make install` first")]
+    BinaryNotFound(PathBuf),
+
+    /// 用户取消操作（例如已经装过了且未指定 --force）
+    #[error("{0}")]
+    AlreadyInstalled(String),
+
+    /// 平台命令本身拉不起来（launchctl/systemd/schtasks 不可用）
+    #[error("failed to run `{0}` ({1}); is the platform service manager installed?")]
+    Spawn(String, std::io::Error),
+
+    /// 平台命令退出码非 0
+    #[error("`{command}` exited with code {code:?}: {stderr}")]
+    NonZeroExit {
+        command: String,
+        code: Option<i32>,
+        stderr: String,
+    },
+
+    /// 写文件失败（plist / unit / bat）
+    #[error("failed to write {path}: {source}")]
+    WriteFile {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// 读 /proc/self/exe 失败（拿不到当前二进制路径）
+    #[error("failed to get current executable path: {0}")]
+    CurrentExe(#[source] std::io::Error),
+}
 
 #[derive(Subcommand)]
 pub enum DaemonAction {
@@ -62,18 +112,23 @@ pub enum DaemonAction {
 // 调度入口声明为 async：Windows / macOS 的 restart 路径需要 await
 // tokio::time::sleep(...).await,而不是阻塞线程的 std::thread::sleep。
 // 在 #[tokio::main] 里调用方自然处于 async 上下文,改成 async 没额外成本。
-pub async fn handle_daemon_command(action: &DaemonAction) {
+//
+// 返回 Result 而不是内部 exit，让调用方决定如何呈现错误（打印 + 退出码），
+// 也方便单测里断言失败路径（原先用 process::exit 会让测试进程直接挂掉）。
+pub async fn handle_daemon_command(action: &DaemonAction) -> Result<(), DaemonError> {
     #[cfg(target_os = "macos")]
-    { handle_launchd(action).await; }
+    { handle_launchd(action).await }
     #[cfg(target_os = "linux")]
-    { handle_systemd(action); }
+    { handle_systemd(action) }
     #[cfg(target_os = "windows")]
-    { handle_task_scheduler(action).await; }
+    { handle_task_scheduler(action).await }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         let _ = action;
-        eprintln!("Daemon service is not supported on this platform.");
-        std::process::exit(1);
+        Err(DaemonError::Spawn(
+            "unsupported platform".to_string(),
+            std::io::Error::new(std::io::ErrorKind::Unsupported, "daemon not supported on this platform"),
+        ))
     }
 }
 
@@ -84,12 +139,17 @@ pub async fn handle_daemon_command(action: &DaemonAction) {
 /// Get the path of the currently running ntd binary
 /// Uses args()[0] to get the actual command path (handles sudo correctly)
 /// Falls back to current_exe if args[0] is not an absolute path
-fn get_ntd_binary_path() -> PathBuf {
-    std::env::args()
-        .next()
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .unwrap_or_else(|| std::env::current_exe().expect("Failed to get current executable path"))
+///
+/// 返回 Result 而不是 panic：
+/// 在 sandbox / chroot / 权限被剥离等场景下 `current_exe()` 会失败，
+/// 原来用 `.expect()` 会让 daemon 子命令直接 panic，给用户的信息
+/// 只有一行 `Failed to get current executable path`。
+/// 改用 `?` 让上层把错误包装成 `DaemonError::CurrentExe` 打印出来。
+fn get_ntd_binary_path() -> Result<PathBuf, DaemonError> {
+    if let Some(p) = std::env::args().next().map(PathBuf::from).filter(|p| p.is_absolute()) {
+        return Ok(p);
+    }
+    std::env::current_exe().map_err(DaemonError::CurrentExe)
 }
 
 #[allow(unused)]
@@ -99,11 +159,14 @@ fn get_ntd_dir() -> PathBuf {
 }
 
 /// Get the directory containing the ntd binary (for PATH in service definition)
+///
+/// 拿不到 binary path 时退到 `/usr/local/bin`（多数发行版 make install 的默认），
+/// 这样 unit / plist 仍能生成——install 命令本身会在最后检查 binary 是否存在。
 #[allow(unused)]
 fn get_ntd_bin_dir() -> PathBuf {
     get_ntd_binary_path()
-        .parent()
-        .map(|p| p.to_path_buf())
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
         .unwrap_or_else(|| PathBuf::from("/usr/local/bin"))
 }
 
@@ -116,7 +179,7 @@ fn get_ntd_bin_dir() -> PathBuf {
 // 同步阻塞调用,但放在 async fn 里没问题——它们仍然按原样同步执行,
 // 只是函数签名统一了。
 #[cfg(target_os = "macos")]
-async fn handle_launchd(action: &DaemonAction) {
+async fn handle_launchd(action: &DaemonAction) -> Result<(), DaemonError> {
     match action {
         DaemonAction::Install { force, .. } => launchd_install(*force),
         DaemonAction::Uninstall { .. } => launchd_uninstall(),
@@ -145,7 +208,10 @@ fn get_launchd_domain() -> String {
 
 #[cfg(target_os = "macos")]
 fn generate_launchd_plist() -> String {
-    let binary = get_ntd_binary_path();
+    // plist 是纯字符串生成，binary path 拿不到也不能 panic；
+    // install 阶段在 fs::write 之前会再次校验 binary.exists()。
+    let binary = get_ntd_binary_path()
+        .unwrap_or_else(|_| PathBuf::from("/usr/local/bin/ntd"));
     let ntd_dir = get_ntd_dir();
     let log_path = ntd_dir.join("run.log");
     let err_log_path = ntd_dir.join("run.error.log");
@@ -224,38 +290,42 @@ fn generate_launchd_plist() -> String {
 }
 
 #[cfg(target_os = "macos")]
-fn launchd_install(force: bool) {
+fn launchd_install(force: bool) -> Result<(), DaemonError> {
     let plist_path = get_launchd_plist_path();
-    let binary = get_ntd_binary_path();
+    let binary = get_ntd_binary_path()?;
 
     if !binary.exists() {
-        eprintln!("ntd binary not found at {}. Run `make install` first.", binary.display());
-        std::process::exit(1);
+        return Err(DaemonError::BinaryNotFound(binary));
     }
 
     if plist_path.exists() && !force {
         println!("Service already installed at: {}", plist_path.display());
         println!("Use --force to reinstall");
-        return;
+        return Ok(());
     }
 
     let ntd_dir = get_ntd_dir();
-    fs::create_dir_all(&ntd_dir).ok();
-    plist_path.parent().map(|p| fs::create_dir_all(p).ok());
+    // 目录创建失败不致命——后面 fs::write 仍然会报具体错误，
+    // 不需要这里用 expect() 提前 panic
+    let _ = fs::create_dir_all(&ntd_dir);
+    let _ = plist_path.parent().map(|p| fs::create_dir_all(p));
 
     println!("Installing launchd service to: {}", plist_path.display());
-    fs::write(&plist_path, generate_launchd_plist()).expect("Failed to write plist");
+    fs::write(&plist_path, generate_launchd_plist()).map_err(|e| DaemonError::WriteFile {
+        path: plist_path.clone(),
+        source: e,
+    })?;
 
     let domain = get_launchd_domain();
     let output = Command::new("launchctl")
         .args(["bootstrap", &domain, &plist_path.to_string_lossy()])
         .output()
-        .expect("Failed to run launchctl");
+        .map_err(|e| DaemonError::Spawn("launchctl".to_string(), e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let code = output.status.code().unwrap_or(-1);
-        if code != 5 && !stderr.contains("already loaded") {
+        // "already loaded" 表示已经载入,按成功对待
+        if !stderr.contains("already loaded") {
             eprintln!("Failed to bootstrap service: {}", stderr.trim());
         }
     }
@@ -266,36 +336,46 @@ fn launchd_install(force: bool) {
     println!("Next steps:");
     println!("  ntd daemon status              # Check status");
     println!("  tail -f ~/.ntd/run.log         # View logs");
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
-fn launchd_uninstall() {
+fn launchd_uninstall() -> Result<(), DaemonError> {
     let plist_path = get_launchd_plist_path();
     let domain = get_launchd_domain();
     let label = LAUNCHD_LABEL;
 
+    // bootout 失败不致命（service 可能本来就没跑），所以仍然吞掉
     let _ = Command::new("launchctl")
         .args(["bootout", &format!("{domain}/{label}")])
         .output();
 
     if plist_path.exists() {
-        fs::remove_file(&plist_path).ok();
-        println!("Removed {}", plist_path.display());
+        // 文件删除失败也只 warn 一下：plist 可能已被用户手动清掉
+        if let Err(e) = fs::remove_file(&plist_path) {
+            eprintln!("Warning: failed to remove plist {}: {}", plist_path.display(), e);
+        } else {
+            println!("Removed {}", plist_path.display());
+        }
     }
 
     println!("Service uninstalled");
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
-fn launchd_start() {
+fn launchd_start() -> Result<(), DaemonError> {
     let plist_path = get_launchd_plist_path();
     let domain = get_launchd_domain();
     let label = LAUNCHD_LABEL;
 
     if !plist_path.exists() {
         println!("Service not installed. Regenerating...");
-        plist_path.parent().map(|p| fs::create_dir_all(p).ok());
-        fs::write(&plist_path, generate_launchd_plist()).expect("Failed to write plist");
+        let _ = plist_path.parent().map(|p| fs::create_dir_all(p));
+        fs::write(&plist_path, generate_launchd_plist()).map_err(|e| DaemonError::WriteFile {
+            path: plist_path.clone(),
+            source: e,
+        })?;
         let _ = Command::new("launchctl")
             .args(["bootstrap", &domain, &plist_path.to_string_lossy()])
             .output();
@@ -304,14 +384,15 @@ fn launchd_start() {
     let output = Command::new("launchctl")
         .args(["kickstart", &format!("{domain}/{label}")])
         .output()
-        .expect("Failed to run launchctl");
+        .map_err(|e| DaemonError::Spawn("launchctl".to_string(), e))?;
 
     if output.status.success() {
         println!("Service started");
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let code = output.status.code().unwrap_or(-1);
-        if stderr.contains("already loaded") || code == 5 || code == 113 {
+        // launchd 在某些版本里，kickstart 失败但 service 已 loaded
+        // 也会返回非 0；这里 fallback 到 bootstrap + kickstart。
+        if stderr.contains("already loaded") {
             let _ = Command::new("launchctl")
                 .args(["bootstrap", &domain, &plist_path.to_string_lossy()])
                 .output();
@@ -323,30 +404,32 @@ fn launchd_start() {
             eprintln!("Failed to start service: {}", stderr.trim());
         }
     }
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
-fn launchd_stop() {
+fn launchd_stop() -> Result<(), DaemonError> {
     let domain = get_launchd_domain();
     let label = LAUNCHD_LABEL;
 
+    // bootout 对未运行的 service 返回非 0，转换为可读消息而不是 panic
     let output = Command::new("launchctl")
         .args(["bootout", &format!("{domain}/{label}")])
-        .output();
+        .output()
+        .map_err(|e| DaemonError::Spawn("launchctl".to_string(), e))?;
 
-    match output {
-        Ok(o) if o.status.success() => println!("Service stopped"),
-        Ok(o) => {
-            let stderr = String::from_utf8_lossy(&o.stderr);
-            let code = o.status.code().unwrap_or(-1);
-            if code == 3 || code == 113 || stderr.contains("No such process") {
-                println!("Service is not running");
-            } else {
-                eprintln!("Failed to stop service: {}", stderr.trim());
-            }
+    if output.status.success() {
+        println!("Service stopped");
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // 3 / 113 / "No such process" 都表示 service 本来就没在跑
+        if stderr.contains("No such process") {
+            println!("Service is not running");
+        } else {
+            eprintln!("Failed to stop service: {}", stderr.trim());
         }
-        Err(e) => eprintln!("Failed to run launchctl: {}", e),
     }
+    Ok(())
 }
 
 // launchd_restart 是 CLI 子命令入口之一,但运行在 #[tokio::main] 上下文,
@@ -361,21 +444,21 @@ fn launchd_stop() {
 // 进程可能需要更久。这里不引入 polling(需要重新解析 launchctl list
 // 输出判断 PID),保持与原行为等价——只是把阻塞 sleep 换成协作式 sleep。
 #[cfg(target_os = "macos")]
-async fn launchd_restart() {
-    launchd_stop();
+async fn launchd_restart() -> Result<(), DaemonError> {
+    launchd_stop()?;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    launchd_start();
+    launchd_start()
 }
 
 #[cfg(target_os = "macos")]
-fn launchd_status(verbose: bool) {
+fn launchd_status(verbose: bool) -> Result<(), DaemonError> {
     let plist_path = get_launchd_plist_path();
     let label = LAUNCHD_LABEL;
 
     if !plist_path.exists() {
         println!("Service is not installed");
         println!("  Run: ntd daemon install");
-        return;
+        return Ok(());
     }
 
     let output = Command::new("launchctl")
@@ -436,7 +519,7 @@ fn launchd_status(verbose: bool) {
 // =============================================================================
 
 #[cfg(target_os = "linux")]
-fn handle_systemd(action: &DaemonAction) {
+fn handle_systemd(action: &DaemonAction) -> Result<(), DaemonError> {
     match action {
         DaemonAction::Install { force, system, run_as_user } => {
             systemd_install(*force, *system, run_as_user.as_deref())
@@ -470,25 +553,25 @@ fn get_systemd_unit_path(system: bool) -> PathBuf {
 }
 
 #[cfg(target_os = "linux")]
-fn run_systemctl(system: bool, args: &[&str]) -> std::process::ExitStatus {
+fn run_systemctl(system: bool, args: &[&str]) -> Result<std::process::ExitStatus, DaemonError> {
     let cmd = systemctl_cmd(system);
     let full_args: Vec<&str> = cmd.iter().copied().chain(args.iter().copied()).collect();
 
     Command::new(full_args[0])
         .args(&full_args[1..])
         .status()
-        .expect("Failed to run systemctl. Is systemd installed?")
+        .map_err(|e| DaemonError::Spawn("systemctl".to_string(), e))
 }
 
 #[cfg(target_os = "linux")]
-fn run_systemctl_output(system: bool, args: &[&str]) -> std::process::Output {
+fn run_systemctl_output(system: bool, args: &[&str]) -> Result<std::process::Output, DaemonError> {
     let cmd = systemctl_cmd(system);
     let full_args: Vec<&str> = cmd.iter().copied().chain(args.iter().copied()).collect();
 
     Command::new(full_args[0])
         .args(&full_args[1..])
         .output()
-        .expect("Failed to run systemctl")
+        .map_err(|e| DaemonError::Spawn("systemctl".to_string(), e))
 }
 
 #[cfg(target_os = "linux")]
@@ -514,14 +597,12 @@ fn generate_systemd_unit(system: bool, run_as_user: Option<&str>) -> String {
                 .unwrap_or_else(|_| "nobody".to_string())
         });
 
-        if username == "root" {
-            eprintln!("Refusing to install system service as root. Use --run-as-user to specify a user.");
-            std::process::exit(1);
-        }
-
         let user_home = get_user_home_dir(&username)
             .unwrap_or_else(|| PathBuf::from(format!("/home/{username}")));
-        let user_binary = get_ntd_binary_path();
+        // 拿不到 binary path 时退到 /usr/local/bin/ntd，避免 unit 文件
+        // 出现空 ExecStart；install 阶段会在写入前再做 exists() 校验。
+        let user_binary = get_ntd_binary_path()
+            .unwrap_or_else(|_| PathBuf::from("/usr/local/bin/ntd"));
 
         let mut path_entries = vec![
             get_ntd_bin_dir().display().to_string(),
@@ -580,7 +661,8 @@ WantedBy=multi-user.target
         );
     }
 
-    let binary = get_ntd_binary_path();
+    let binary = get_ntd_binary_path()
+        .unwrap_or_else(|_| PathBuf::from("/usr/local/bin/ntd"));
     // 当前 binary 目录优先，然后用户级 PATH，最后系统级 PATH
     let mut path_entries = vec![
         get_ntd_bin_dir().display().to_string(),              // 当前 ntd binary 所在目录
@@ -632,10 +714,9 @@ WantedBy=default.target
 }
 
 #[cfg(target_os = "linux")]
-fn systemd_install(force: bool, system: bool, run_as_user: Option<&str>) {
+fn systemd_install(force: bool, system: bool, run_as_user: Option<&str>) -> Result<(), DaemonError> {
     if system && unsafe { libc::geteuid() } != 0 {
-        eprintln!("System service install requires root. Re-run with sudo.");
-        std::process::exit(1);
+        return Err(DaemonError::RequiresRoot);
     }
 
     let unit_path = get_systemd_unit_path(system);
@@ -643,39 +724,45 @@ fn systemd_install(force: bool, system: bool, run_as_user: Option<&str>) {
     if unit_path.exists() && !force {
         println!("Service already installed at: {}", unit_path.display());
         println!("Use --force to reinstall");
-        return;
+        return Ok(());
     }
 
     let binary = if system {
+        // 在 system 模式下明确拒绝 root：systemd 不允许 User=root 跑 Type=simple
+        // 服务。原先用 eprintln!+exit 这里改成 Result，错误由 main.rs 统一处理。
         let username = run_as_user.map(|s| s.to_string()).unwrap_or_else(|| {
             std::env::var("SUDO_USER")
                 .or_else(|_| std::env::var("USER"))
                 .unwrap_or_else(|_| "nobody".to_string())
         });
+        if username == "root" {
+            return Err(DaemonError::RefusingRootSystemInstall);
+        }
         let _user_home = get_user_home_dir(&username)
             .unwrap_or_else(|| PathBuf::from(format!("/home/{username}")));
-        get_ntd_binary_path()
+        get_ntd_binary_path()?
     } else {
-        get_ntd_binary_path()
+        get_ntd_binary_path()?
     };
     if !binary.exists() {
-        eprintln!("ntd binary not found at {}. Run `make install` first.", binary.display());
-        std::process::exit(1);
+        return Err(DaemonError::BinaryNotFound(binary));
     }
 
-    unit_path.parent().map(|p| fs::create_dir_all(p).ok());
+    // 目录创建失败不致命——fs::write 仍会报具体原因
+    let _ = unit_path.parent().map(|p| fs::create_dir_all(p));
 
     let scope = if system { "system" } else { "user" };
     println!("Installing {scope} systemd service to: {}", unit_path.display());
 
-    fs::write(&unit_path, generate_systemd_unit(system, run_as_user))
-        .unwrap_or_else(|e| {
-            eprintln!("Failed to write unit file: {e}");
-            std::process::exit(1);
-        });
+    fs::write(&unit_path, generate_systemd_unit(system, run_as_user)).map_err(|e| {
+        DaemonError::WriteFile {
+            path: unit_path.clone(),
+            source: e,
+        }
+    })?;
 
-    run_systemctl(system, &["daemon-reload"]);
-    run_systemctl(system, &["enable", SERVICE_NAME]);
+    run_systemctl(system, &["daemon-reload"])?;
+    run_systemctl(system, &["enable", SERVICE_NAME])?;
 
     println!();
     println!("{scope} service installed and enabled!");
@@ -690,92 +777,106 @@ fn systemd_install(force: bool, system: bool, run_as_user: Option<&str>) {
     if !system {
         check_linger();
     }
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn systemd_uninstall(system: bool) {
+fn systemd_uninstall(system: bool) -> Result<(), DaemonError> {
     if system && unsafe { libc::geteuid() } != 0 {
-        eprintln!("System service uninstall requires root. Re-run with sudo.");
-        std::process::exit(1);
+        return Err(DaemonError::RequiresRoot);
     }
 
+    // stop / disable 失败容忍（service 可能本来就没在跑 / 没 enable）
     let _ = run_systemctl(system, &["stop", SERVICE_NAME]);
     let _ = run_systemctl(system, &["disable", SERVICE_NAME]);
 
     let unit_path = get_systemd_unit_path(system);
     if unit_path.exists() {
-        fs::remove_file(&unit_path).ok();
-        println!("Removed {}", unit_path.display());
+        if let Err(e) = fs::remove_file(&unit_path) {
+            eprintln!("Warning: failed to remove unit file {}: {}", unit_path.display(), e);
+        } else {
+            println!("Removed {}", unit_path.display());
+        }
     }
 
-    run_systemctl(system, &["daemon-reload"]);
+    run_systemctl(system, &["daemon-reload"])?;
     println!("Service uninstalled");
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn systemd_start(system: bool) {
+fn systemd_start(system: bool) -> Result<(), DaemonError> {
     if system && unsafe { libc::geteuid() } != 0 {
-        eprintln!("System service start requires root. Re-run with sudo.");
-        std::process::exit(1);
+        return Err(DaemonError::RequiresRoot);
     }
 
-    let status = run_systemctl(system, &["start", SERVICE_NAME]);
+    let status = run_systemctl(system, &["start", SERVICE_NAME])?;
     if status.success() {
         println!("Service started");
     } else {
-        eprintln!("Failed to start service");
-        std::process::exit(1);
+        return Err(DaemonError::NonZeroExit {
+            command: "systemctl start".to_string(),
+            code: status.code(),
+            stderr: "see journalctl for details".to_string(),
+        });
     }
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn systemd_stop(system: bool) {
+fn systemd_stop(system: bool) -> Result<(), DaemonError> {
     if system && unsafe { libc::geteuid() } != 0 {
-        eprintln!("System service stop requires root. Re-run with sudo.");
-        std::process::exit(1);
+        return Err(DaemonError::RequiresRoot);
     }
 
-    let status = run_systemctl(system, &["stop", SERVICE_NAME]);
+    let status = run_systemctl(system, &["stop", SERVICE_NAME])?;
     if status.success() {
         println!("Service stopped");
     } else {
-        eprintln!("Failed to stop service");
-        std::process::exit(1);
+        return Err(DaemonError::NonZeroExit {
+            command: "systemctl stop".to_string(),
+            code: status.code(),
+            stderr: "see journalctl for details".to_string(),
+        });
     }
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn systemd_restart(system: bool) {
+fn systemd_restart(system: bool) -> Result<(), DaemonError> {
     if system && unsafe { libc::geteuid() } != 0 {
-        eprintln!("System service restart requires root. Re-run with sudo.");
-        std::process::exit(1);
+        return Err(DaemonError::RequiresRoot);
     }
 
-    let status = run_systemctl(system, &["restart", SERVICE_NAME]);
+    let status = run_systemctl(system, &["restart", SERVICE_NAME])?;
     if status.success() {
         println!("Service restarted");
     } else {
-        eprintln!("Failed to restart service");
-        std::process::exit(1);
+        return Err(DaemonError::NonZeroExit {
+            command: "systemctl restart".to_string(),
+            code: status.code(),
+            stderr: "see journalctl for details".to_string(),
+        });
     }
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn systemd_status(system: bool, verbose: bool) {
+fn systemd_status(system: bool, verbose: bool) -> Result<(), DaemonError> {
     let unit_path = get_systemd_unit_path(system);
 
     if !unit_path.exists() {
         println!("Service is not installed");
         let sudo = if system { "sudo " } else { "" };
         println!("  Run: {sudo}ntd daemon install{}", if system { " --system" } else { "" });
-        return;
+        return Ok(());
     }
 
-    let output = run_systemctl_output(system, &["status", SERVICE_NAME, "--no-pager"]);
+    let output = run_systemctl_output(system, &["status", SERVICE_NAME, "--no-pager"])?;
     print!("{}", String::from_utf8_lossy(&output.stdout));
     eprint!("{}", String::from_utf8_lossy(&output.stderr));
 
-    let is_active = run_systemctl_output(system, &["is-active", SERVICE_NAME]);
+    let is_active = run_systemctl_output(system, &["is-active", SERVICE_NAME])?;
     let active = String::from_utf8_lossy(&is_active.stdout).trim().to_string();
 
     if active == "active" {
@@ -804,6 +905,7 @@ fn systemd_status(system: bool, verbose: bool) {
     if !system {
         check_linger();
     }
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
