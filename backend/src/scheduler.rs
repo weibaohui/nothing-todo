@@ -620,4 +620,141 @@ mod convert_cron_to_utc_tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid cron expression"));
     }
+
+    /// Property-based tests for `convert_cron_to_utc`.
+    ///
+    /// 不变量设计:
+    /// 1. **错误时区 → 错误**: 任何不在 `chrono_tz` 数据库里的字符串必须报错,
+    ///    不能悄悄退到 UTC(那会让用户的"早上 9 点"实际跑到 UTC 9 = 下午 5 点)。
+    /// 2. **错误字段数 → 错误**: 5 字段、7 字段、空字符串、纯空白都必须 Err。
+    /// 3. **有效输入 → 有效输出**: Ok 时,返回值必须仍是合法 6 字段 cron,
+    ///    且能被 `cron::Schedule::from_str` 解析。
+    /// 4. **UTC 时区是不动点**: `convert_cron_to_utc(expr, "UTC")` 应得到与 expr
+    ///    在语义上等价的 UTC cron(由于 DST 启发式,可能压缩成列表,但仍合法)。
+    ///
+    /// 这些不变量是 issue #514 引入 property-based testing 的回归网。
+    mod convert_cron_to_utc_proptests {
+        use super::convert_cron_to_utc;
+        use proptest::prelude::*;
+        use std::str::FromStr;
+
+        /// 一些已知合法的时区字符串,覆盖整点 / 半小时 / DST 三类。
+        /// 不在这列表里的时区由 `prop_invalid_timezone_strategy` 反向覆盖。
+        fn valid_timezone_strategy() -> BoxedStrategy<String> {
+            prop_oneof![
+                Just("UTC".to_string()),
+                Just("Asia/Shanghai".to_string()),
+                Just("America/New_York".to_string()),
+                Just("Europe/London".to_string()),
+                Just("Asia/Kolkata".to_string()),
+                Just("Asia/Tokyo".to_string()),
+                Just("Australia/Sydney".to_string()),
+            ]
+            .boxed()
+        }
+
+        /// 一组合法 6 字段 cron 表达式 (秒 分 时 日 月 周)。
+        /// 涵盖单值、范围、列表、步长四种基本形态 —— 这是日常最常见的写法。
+        fn valid_cron_strategy() -> BoxedStrategy<String> {
+            prop_oneof![
+                Just("0 0 9 * * *".to_string()),
+                Just("0 0 0 * * *".to_string()),
+                Just("0 30 0 * * *".to_string()),
+                Just("0 0 9,12,18 * * *".to_string()),
+                Just("0 0 9-17 * * *".to_string()),
+                Just("0 0 */2 * * *".to_string()),
+                Just("0 0 0-23/2 * * *".to_string()),
+                Just("0,30 0 * * * *".to_string()),
+                Just("30 0 9 * * *".to_string()),
+                Just("0 15 9 * * MON".to_string()),
+            ]
+            .boxed()
+        }
+
+        /// 一些"看似合法但实际不应被接受"的字符串,覆盖错误时区 / 错误字段数。
+        fn invalid_timezone_strategy() -> BoxedStrategy<String> {
+            prop_oneof![
+                Just("Not/A/Real/Zone".to_string()),
+                Just("".to_string()),
+                Just("asia/shanghai".to_string()), // 时区名是大小写敏感的
+                Just("Shanghai".to_string()),
+                Just("GMT+8".to_string()),          // chrono_tz 不接受这种短格式
+            ]
+            .boxed()
+        }
+
+        /// 错误字段数:5 / 7 / 0 个字段。
+        fn wrong_field_count_strategy() -> BoxedStrategy<String> {
+            prop_oneof![
+                Just("0 0 9 * *".to_string()),       // 5 字段
+                Just("0 0 9 * * * 2025".to_string()), // 7 字段
+                Just("".to_string()),
+                Just("    ".to_string()),
+                Just("0 0 9".to_string()),           // 3 字段
+                Just("0 0 9 * * * * *".to_string()), // 9 字段
+            ]
+            .boxed()
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(32))]
+
+            /// 错误时区必须返回 Err,绝不能"按 UTC 顶上"或 panic。
+            #[test]
+            fn invalid_timezone_is_rejected(
+                cron in valid_cron_strategy(),
+                tz in invalid_timezone_strategy(),
+            ) {
+                let result = convert_cron_to_utc(&cron, &tz);
+                prop_assert!(result.is_err(), "expected Err for tz={tz:?}, got {:?}", result);
+            }
+
+            /// 字段数错(5/7/0 等)的输入必须返回 Err。
+            #[test]
+            fn wrong_field_count_is_rejected(
+                cron in wrong_field_count_strategy(),
+                tz in valid_timezone_strategy(),
+            ) {
+                let result = convert_cron_to_utc(&cron, &tz);
+                prop_assert!(result.is_err(), "expected Err for cron={cron:?}, got {:?}", result);
+            }
+
+            /// 有效输入 → 返回的字符串仍是 6 字段,且能被 `cron::Schedule` 解析。
+            /// 这是"输出仍是合法 cron 表达式"的核心契约 —— 否则会把无效
+            /// 表达式塞进 `tokio-cron-scheduler`,导致 daemon 启动失败。
+            #[test]
+            fn valid_input_yields_valid_cron(
+                cron in valid_cron_strategy(),
+                tz in valid_timezone_strategy(),
+            ) {
+                let result = convert_cron_to_utc(&cron, &tz);
+                // 用 prop_assert! 而不是 panic!：proptest 能生成最小反例与回归文件,
+                // panic 会让进程栈展开、proptest 拿不到 counter-example,CI 排查困难。
+                let msg = format!("valid cron {cron:?} in {tz:?} should not error");
+                prop_assert!(result.is_ok(), "{}: {:?}", msg, result);
+                let utc = result.unwrap();
+                let fields: Vec<&str> = utc.split_whitespace().collect();
+                // prop_assert! 宏的 format string 不支持变量捕获,这里先
+                // 用 format! 拼好消息再传给 prop_assert!。
+                let msg = format!("output must have 6 fields, got {utc}");
+                prop_assert_eq!(fields.len(), 6, "{}", msg);
+                // 必须能被 cron crate 解析。
+                let parse_msg = format!("output {utc:?} must be parseable as cron");
+                prop_assert!(
+                    cron::Schedule::from_str(&utc).is_ok(),
+                    "{}",
+                    parse_msg,
+                );
+            }
+
+            /// UTC 时区是不动点:传入 UTC 时区,返回的 cron 必须是 6 字段合法 cron。
+            /// (语义等价性可能因 compact 表达丢失,但形式上必须合法 —— 这一点由
+            /// `valid_input_yields_valid_cron` 覆盖;这里额外验证 UTC 路径不报错。)
+            #[test]
+            fn utc_timezone_never_errors(cron in valid_cron_strategy()) {
+                let result = convert_cron_to_utc(&cron, "UTC");
+                prop_assert!(result.is_ok(), "UTC tz should never error, got {:?}", result);
+            }
+        }
+    }
 }
