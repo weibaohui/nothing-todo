@@ -97,6 +97,9 @@ print_stderr = "warn"
 # unsafe_code 在 lib.rs 顶部 #![deny(unsafe_code)]，sys.rs 中 #![allow(unsafe_code)] 例外。
 # 这里再额外加一行 package 级，确保 build script 与 integration test 也不会冒出裸 unsafe。
 unsafe_code = "deny"
-unsafe_op_in_unsafe_fn = "warn"
+# `unsafe_op_in_unsafe_fn` 在 Rust 1.82 稳定（issue #125626），与本 crate 的
+# `rust-version = "1.75"` 不兼容：旧 toolchain 会把它当作 unknown lint 报 warning。
+# 升级 MSRV 时再启用此项。
+# unsafe_op_in_unsafe_fn = "warn"
 missing_debug_implementations = "warn"
 missing_docs = "warn"
