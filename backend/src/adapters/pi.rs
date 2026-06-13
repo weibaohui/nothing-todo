@@ -5,13 +5,18 @@
 use std::sync::Arc;
 use parking_lot::Mutex;
 
-use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
 use super::pi_event::PiEvent;
+use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
+use crate::adapters::ExecutionUsage;
 use crate::models::utc_timestamp;
 
+/// pi 执行器
+///
+/// `BaseExecutor` 持有 path + model + usage，
+/// pi 还维护一个独立的 `session_id` 字段，因为它的 session id 来源
+/// 与 `BaseExecutor::model` 等其他字段的生命周期不一致。
 pub struct PiExecutor {
-    path: String,
-    model: Arc<Mutex<Option<String>>>,
+    base: BaseExecutor,
     /// 从 session 事件中提取的 session id
     session_id: Arc<Mutex<Option<String>>>,
 }
@@ -19,8 +24,7 @@ pub struct PiExecutor {
 impl PiExecutor {
     pub fn new(path: String) -> Self {
         Self {
-            path,
-            model: Arc::new(Mutex::new(None)),
+            base: BaseExecutor::new(path),
             session_id: Arc::new(Mutex::new(None)),
         }
     }
@@ -29,8 +33,7 @@ impl PiExecutor {
 impl Clone for PiExecutor {
     fn clone(&self) -> Self {
         Self {
-            path: self.path.clone(),
-            model: self.model.clone(),
+            base: self.base.clone(),
             session_id: self.session_id.clone(),
         }
     }
@@ -42,7 +45,7 @@ impl CodeExecutor for PiExecutor {
     }
 
     fn executable_path(&self) -> &str {
-        &self.path
+        &self.base.path
     }
 
     fn command_args(&self, message: &str) -> Vec<String> {
@@ -127,7 +130,7 @@ impl CodeExecutor for PiExecutor {
                             // 但仍需提取 model 信息
                             if let Some(model) = &msg.model {
                                 if !model.is_empty() {
-                                    *self.model.lock() = Some(model.clone());
+                                    *self.base.model.lock() = Some(model.clone());
                                 }
                             }
                             return None;
@@ -164,13 +167,13 @@ impl CodeExecutor for PiExecutor {
                         // 提取 model 信息
                         if let Some(model) = &ame.model {
                             if !model.is_empty() {
-                                *self.model.lock() = Some(model.clone());
+                                *self.base.model.lock() = Some(model.clone());
                             }
                         }
                         if let Some(partial) = &ame.partial {
                             if let Some(model) = &partial.model {
                                 if !model.is_empty() {
-                                    *self.model.lock() = Some(model.clone());
+                                    *self.base.model.lock() = Some(model.clone());
                                 }
                             }
                         }
@@ -296,9 +299,8 @@ impl CodeExecutor for PiExecutor {
         })
     }
 
-    fn check_success(&self, exit_code: i32) -> bool {
-        exit_code == 0
-    }
+    // check_success 走 CodeExecutor 默认实现（委托给 BaseExecutor::default_check_success），
+    // 与原 `exit_code == 0` 实现完全等价。去掉重复 override 是 PR #536 的核心目标。
 
     fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
         // 收集所有 assistant 类型的文本
@@ -325,7 +327,7 @@ impl CodeExecutor for PiExecutor {
     }
 
     fn get_model(&self) -> Option<String> {
-        self.model.lock().clone()
+        self.base.model.lock().clone()
     }
 }
 

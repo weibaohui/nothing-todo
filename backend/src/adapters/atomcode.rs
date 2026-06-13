@@ -1,20 +1,24 @@
 use std::sync::Arc;
 use parking_lot::Mutex;
 
-use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
+use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
+use crate::adapters::ExecutionUsage;
 use crate::models::utc_timestamp;
 
+/// AtomCode executor。
+///
+/// `BaseExecutor` 持有 path + model + usage，
+/// 额外保留 `has_done` 状态字段用于在 stderr 中检测到 "done" 事件。
 pub struct AtomcodeExecutor {
-    path: String,
-    usage: Arc<Mutex<Option<ExecutionUsage>>>,
+    base: BaseExecutor,
+    /// 标记是否已收到 done 事件，用于 stderr 流处理
     has_done: Arc<Mutex<bool>>,
 }
 
 impl AtomcodeExecutor {
     pub fn new(path: String) -> Self {
         Self {
-            path,
-            usage: Arc::new(Mutex::new(None)),
+            base: BaseExecutor::new(path),
             has_done: Arc::new(Mutex::new(false)),
         }
     }
@@ -23,8 +27,7 @@ impl AtomcodeExecutor {
 impl Clone for AtomcodeExecutor {
     fn clone(&self) -> Self {
         Self {
-            path: self.path.clone(),
-            usage: self.usage.clone(),
+            base: self.base.clone(),
             has_done: self.has_done.clone(),
         }
     }
@@ -36,7 +39,7 @@ impl CodeExecutor for AtomcodeExecutor {
     }
 
     fn executable_path(&self) -> &str {
-        &self.path
+        &self.base.path
     }
 
     fn command_args(&self, message: &str) -> Vec<String> {
@@ -86,7 +89,7 @@ impl CodeExecutor for AtomcodeExecutor {
                 }
             }
 
-            let mut usage_guard = self.usage.lock();
+            let mut usage_guard = self.base.usage.lock();
             if let Some(ref mut usage) = *usage_guard {
                 usage.input_tokens = prompt_tokens;
                 usage.output_tokens = completion_tokens;
@@ -137,7 +140,7 @@ impl CodeExecutor for AtomcodeExecutor {
                 }
             }
 
-            let mut usage_guard = self.usage.lock();
+            let mut usage_guard = self.base.usage.lock();
             if let Some(ref mut usage) = *usage_guard {
                 usage.duration_ms = duration_ms;
             } else if total_tokens > 0 {
@@ -206,7 +209,7 @@ impl CodeExecutor for AtomcodeExecutor {
     }
 
     fn get_usage(&self, _logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {
-        self.usage.lock().clone()
+        self.base.usage.lock().clone()
     }
 
     fn get_model(&self) -> Option<String> {

@@ -1,24 +1,24 @@
-use std::sync::Arc;
-use parking_lot::Mutex;
-
-use super::{CodeExecutor, ExecutorType, ParsedLogEntry, ExecutionUsage};
+use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
 use super::claude_protocol::{ClaudeMessage, ClaudeContentBlock};
+use crate::adapters::ExecutionUsage;
 use crate::models::utc_timestamp;
 
+/// Codebuddy executor。
+///
+/// 与 ClaudeCode 结构对称（path + model），统一通过 `BaseExecutor` 共享状态。
 pub struct CodebuddyExecutor {
-    path: String,
-    model: Arc<Mutex<Option<String>>>,
+    base: BaseExecutor,
 }
 
 impl CodebuddyExecutor {
     pub fn new(path: String) -> Self {
-        Self { path, model: Arc::new(Mutex::new(None)) }
+        Self { base: BaseExecutor::new(path) }
     }
 }
 
 impl Clone for CodebuddyExecutor {
     fn clone(&self) -> Self {
-        Self { path: self.path.clone(), model: self.model.clone() }
+        Self { base: self.base.clone() }
     }
 }
 
@@ -28,7 +28,7 @@ impl CodeExecutor for CodebuddyExecutor {
     }
 
     fn executable_path(&self) -> &str {
-        &self.path
+        &self.base.path
     }
 
     fn command_args(&self, message: &str) -> Vec<String> {
@@ -50,7 +50,7 @@ impl CodeExecutor for CodebuddyExecutor {
             return match msg {
                 ClaudeMessage::System { subtype, session_id, model } => {
                     if let Some(m) = model {
-                        *self.model.lock() = Some(m.clone());
+                        *self.base.model.lock() = Some(m.clone());
                     }
                     Some(ParsedLogEntry {
                         timestamp: utc_timestamp(),
@@ -168,7 +168,7 @@ impl CodeExecutor for CodebuddyExecutor {
     }
 
     fn get_model(&self) -> Option<String> {
-        self.model.lock().clone()
+        self.base.model.lock().clone()
     }
 }
 
