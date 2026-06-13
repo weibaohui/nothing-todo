@@ -1365,7 +1365,7 @@ mod replace_placeholders_proptests {
         /// 建议调用方避免在 value 中嵌入另一个 key 的占位符。本 mod 不写 proptest
         /// 覆盖,改由 README/AGENTS.md 的使用规范承担。
         ///
-        /// 此处保留 `value_containing_placeholder_preserved_when_outer_loses` 单测:
+        /// 此处保留 `value_containing_placeholder_outer_placeholder_always_gone` 单测:
         /// 只覆盖"value 含占位符但 outer 的占位符被替换后,**不再**被替换"这条
         /// 一定成立的弱不变量(无论 HashMap 顺序如何,outer 的 key 一定会被一次
         /// `result.replace`,且 outer 的 value 里的 `{{inner}}` 在 outer 那次
@@ -1386,8 +1386,8 @@ mod replace_placeholders_proptests {
             let outer_pat = format!("{{{{{}}}}}", outer);
             prop_assert!(
                 !result.contains(&outer_pat),
-                "outer placeholder {{{{{}}}}} must always be replaced, got: {}",
-                outer, result,
+                "outer placeholder {{{{outer}}}} must always be replaced, got: {}",
+                result,
             );
         }
     }
