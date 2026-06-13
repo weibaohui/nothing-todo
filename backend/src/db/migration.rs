@@ -699,9 +699,15 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
         .await?;
 
     // Migration: add session_dir column if missing (existing databases)
-    let _ = db
-        .exec("ALTER TABLE executors ADD COLUMN session_dir TEXT NOT NULL DEFAULT ''")
-        .await; // 旧库可能没有此列；首次执行成功时这里不会报错，因为 SQLite 在 ADD COLUMN 重复列时会失败但被忽略
+    // 旧库可能没有此列；首次执行成功时这里不会报错，因为 SQLite 在 ADD COLUMN 重复列时会失败但被忽略
+    db.exec("ALTER TABLE executors ADD COLUMN session_dir TEXT NOT NULL DEFAULT ''")
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(
+                "migration v1: ALTER TABLE executors ADD COLUMN session_dir: {} (column likely already exists)",
+                e
+            );
+        });
 
     // ---- project_directories ----
     db.exec(
@@ -1200,10 +1206,15 @@ impl Migration for V4FeishuFkCascade {
 }
 
 /// 检查表的外键是否缺少 ON DELETE CASCADE（返回 true 表示需要迁移）
-async fn needs_fk_migration(db: &Database, table: &str) -> Result<bool, sea_orm::DbErr> {
+///
+/// 接受 `&impl ConnectionTrait` 而非 `&Database`，这样可以被 `DatabaseConnection`
+/// 或 `DatabaseTransaction` 共同使用 — V4 迁移需要把整组 rebuild 放在一个事务里。
+async fn needs_fk_migration<C: ConnectionTrait>(
+    conn: &C,
+    table: &str,
+) -> Result<bool, sea_orm::DbErr> {
     let sql = format!("SELECT sql FROM sqlite_master WHERE type='table' AND name='{}'", table);
-    let result = db
-        .conn
+    let result = conn
         .query_one(Statement::from_string(DbBackend::Sqlite, sql))
         .await?;
     if let Some(row) = result {
@@ -1215,10 +1226,24 @@ async fn needs_fk_migration(db: &Database, table: &str) -> Result<bool, sea_orm:
     Ok(false)
 }
 
+/// 在指定连接上执行 raw SQL（包成 Result<(), DbErr>）。
+///
+/// 之所以不直接调用 `Database::exec` — 它的实现是 `&self.conn.execute(...)`，
+/// 走的是连接池（max_connections=10）。在事务里必须把每个 DDL 钉在同一条连接上，
+/// 否则 BEGIN/ALTER/COMMIT 会落在 3 条不同连接上，事务根本不原子。
+async fn exec_on_conn<C: ConnectionTrait>(conn: &C, sql: &str) -> Result<(), sea_orm::DbErr> {
+    conn.execute(Statement::from_string(DbBackend::Sqlite, sql.to_string()))
+        .await
+        .map(|_| ())
+}
+
 /// 重建表以添加 ON DELETE CASCADE 外键约束
 /// SQLite 标准迁移流程：新建→复制→删除→重命名
-async fn rebuild_table_with_cascade(
-    db: &Database,
+///
+/// 所有 DDL 必须在调用方传入的同一条连接上执行（通常是事务），否则 PRAGMA 与
+/// ALTER 之间会因连接池切换而失去原子性。
+async fn rebuild_table_with_cascade<C: ConnectionTrait>(
+    conn: &C,
     table: &str,
     columns: &str,
 ) -> Result<(), sea_orm::DbErr> {
@@ -1226,18 +1251,16 @@ async fn rebuild_table_with_cascade(
     tracing::info!("Rebuilding table {} to add ON DELETE CASCADE...", table);
 
     // 暂时关闭外键检查以避免重建过程中的约束冲突
-    db.exec("PRAGMA foreign_keys = OFF").await?;
+    exec_on_conn(conn, "PRAGMA foreign_keys = OFF").await?;
 
     // 清理上次中断可能残留的临时表
-    db.exec(&format!("DROP TABLE IF EXISTS {}", tmp)).await?;
+    exec_on_conn(conn, &format!("DROP TABLE IF EXISTS {}", tmp)).await?;
 
     // 创建新表
-    db.exec(&format!("CREATE TABLE IF NOT EXISTS {} ({})", tmp, columns))
-        .await?;
+    exec_on_conn(conn, &format!("CREATE TABLE IF NOT EXISTS {} ({})", tmp, columns)).await?;
 
     // 获取旧表列名列表，用于安全的数据复制
-    let col_rows = db
-        .conn
+    let col_rows = conn
         .query_all(Statement::from_string(
             DbBackend::Sqlite,
             format!("PRAGMA table_info('{}')", table),
@@ -1250,24 +1273,29 @@ async fn rebuild_table_with_cascade(
     let cols_str = col_names.join(", ");
 
     // 复制数据
-    db.exec(&format!(
-        "INSERT INTO {} ({}) SELECT {} FROM {}",
-        tmp, cols_str, cols_str, table
-    ))
+    exec_on_conn(
+        conn,
+        &format!(
+            "INSERT INTO {} ({}) SELECT {} FROM {}",
+            tmp, cols_str, cols_str, table
+        ),
+    )
     .await?;
 
     // 删除旧表
-    db.exec(&format!("DROP TABLE {}", table)).await?;
+    exec_on_conn(conn, &format!("DROP TABLE {}", table)).await?;
 
     // 重命名新表
-    db.exec(&format!("ALTER TABLE {} RENAME TO {}", tmp, table)).await?;
+    exec_on_conn(conn, &format!("ALTER TABLE {} RENAME TO {}", tmp, table)).await?;
 
     // 恢复外键检查
-    db.exec("PRAGMA foreign_keys = ON").await?;
+    exec_on_conn(conn, "PRAGMA foreign_keys = ON").await?;
     Ok(())
 }
 
 async fn migrate_feishu_fk_cascade(db: &Database) -> Result<(), sea_orm::DbErr> {
+    use sea_orm::TransactionTrait;
+
     // 收集需要迁移的表
     let tables_to_migrate = [
         ("feishu_homes", "id INTEGER PRIMARY KEY AUTOINCREMENT, bot_id INTEGER NOT NULL, user_open_id TEXT NOT NULL, chat_id TEXT, receive_id TEXT NOT NULL, receive_id_type TEXT NOT NULL, created_at TEXT, updated_at TEXT, FOREIGN KEY (bot_id) REFERENCES agent_bots(id) ON DELETE CASCADE, UNIQUE(bot_id, user_open_id)"),
@@ -1278,9 +1306,10 @@ async fn migrate_feishu_fk_cascade(db: &Database) -> Result<(), sea_orm::DbErr> 
         ("feishu_group_whitelist", "id INTEGER PRIMARY KEY AUTOINCREMENT, bot_id INTEGER NOT NULL, sender_open_id TEXT NOT NULL, sender_name TEXT, created_at TEXT, FOREIGN KEY (bot_id) REFERENCES agent_bots(id) ON DELETE CASCADE, UNIQUE(bot_id, sender_open_id)"),
     ];
 
+    // 探测阶段：先在主连接上确定是否真要迁移（避免无谓地开事务）
     let mut needs_any = false;
     for (table, _ddl) in &tables_to_migrate {
-        if needs_fk_migration(db, table).await? {
+        if needs_fk_migration(&db.conn, table).await? {
             needs_any = true;
             break;
         }
@@ -1290,21 +1319,33 @@ async fn migrate_feishu_fk_cascade(db: &Database) -> Result<(), sea_orm::DbErr> 
     }
 
     tracing::info!("Migrating feishu tables to add ON DELETE CASCADE...");
-    db.exec("BEGIN").await?;
+
+    // 关键：必须把整组 rebuild 包在一条连接的事务里。
+    // 旧实现用 raw `BEGIN` / `COMMIT` 是错的 — `Database::exec` 走的是 sqlx 连接池
+    // （max_connections=10，PR #497 调整后），每次 execute 都可能拿到不同的连接，
+    // BEGIN/ALTER/COMMIT 落在 3 条不同连接上 → 事务完全失去原子性。
+    // 用 `conn.begin()` 把整组 DDL 钉在同一条连接上，任一步失败都能回滚。
+    let txn = db.conn.begin().await?;
 
     for (table, ddl) in &tables_to_migrate {
-        if needs_fk_migration(db, table).await? {
-            rebuild_table_with_cascade(db, table, ddl).await?;
+        if needs_fk_migration(&txn, table).await? {
+            rebuild_table_with_cascade(&txn, table, ddl).await?;
         }
     }
 
     // 重建索引
-    db.exec("CREATE INDEX IF NOT EXISTS idx_feishu_messages_chat_id ON feishu_messages(chat_id)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_feishu_messages_created_at ON feishu_messages(created_at)")
-        .await?;
+    exec_on_conn(
+        &txn,
+        "CREATE INDEX IF NOT EXISTS idx_feishu_messages_chat_id ON feishu_messages(chat_id)",
+    )
+    .await?;
+    exec_on_conn(
+        &txn,
+        "CREATE INDEX IF NOT EXISTS idx_feishu_messages_created_at ON feishu_messages(created_at)",
+    )
+    .await?;
 
-    db.exec("COMMIT").await?;
+    txn.commit().await?;
 
     tracing::info!("Feishu FK cascade migration completed.");
     Ok(())
