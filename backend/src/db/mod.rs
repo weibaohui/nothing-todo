@@ -1638,6 +1638,19 @@ mod tests {
         dt.with_nanosecond(0).unwrap()
     }
 
+    /// 生成 N 天前的 UTC 时间戳字符串（与 webhook.rs 的 retention cutoff 格式一致）。
+    ///
+    /// 提取这个 helper 是因为 `test_cleanup_old_webhook_records` 之前在两处
+    /// 重复了 `Utc::now().checked_sub_signed(Duration::days(N)).unwrap().format(...).to_string()`。
+    /// 集中到这里方便对照 retention cutoff 的格式变更（避免两边漂移）。
+    fn utc_days_ago(n: i64) -> String {
+        Utc::now()
+            .checked_sub_signed(chrono::Duration::days(n))
+            .expect("test date arithmetic should not overflow")
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string()
+    }
+
     #[tokio::test]
     async fn test_todo_created_at_is_utc() {
         let db = setup_db().await;
@@ -2426,7 +2439,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_seed_default_executors_preserves_user_disabled() {
+    async fn test_seed_default_executors_skips_when_table_nonempty() {
+        // Renamed from `test_seed_default_executors_preserves_user_disabled`:
+        // `seed_default_executors` 在 count > 0 时早返回（executor_config.rs:122-124），
+        // 所以第二个调用是 no-op，根本不会触达 "re-enable user-disabled" 的逻辑分支。
+        // 真正想断言的是：第二次 seed 不会重新启用任何行。
         let db = setup_db().await;
         db.seed_default_executors().await.unwrap();
 
@@ -2435,25 +2452,67 @@ mod tests {
             .await
             .unwrap();
 
-        // Re-seed should not re-enable it (table not empty, so seed is no-op)
+        // Re-seed is a no-op because table is non-empty (early-return guard).
         db.seed_default_executors().await.unwrap();
         let exec = db.get_executor_by_name("claudecode").await.unwrap().unwrap();
         assert!(!exec.enabled, "seed should not re-enable a user-disabled executor");
     }
 
     #[tokio::test]
-    async fn test_sync_new_executors_adds_missing() {
+    async fn test_sync_new_executors_no_duplicates_when_all_exist() {
+        // Renamed from `test_sync_new_executors_adds_missing`：原测试只覆盖了
+        // "全部已存在 → 不重复插入" 分支，"adds missing" 那条真正有价值的
+        // 分支（缺失时插入）反而没被测到。
+        // 配套的 `test_sync_new_executors_inserts_missing`（下方）补上真正的插入分支。
         let db = setup_db().await;
-
-        // Manually remove one executor from DB to simulate "missing" scenario
         db.seed_default_executors().await.unwrap();
-        // We can't easily delete without a delete_executor method, so instead:
-        // Insert a fake executor directly, then sync will not add it again
-        // Actually, let's verify that sync doesn't add duplicates when all exist
+
         let count_before = db.get_executors().await.unwrap().len();
         db.sync_new_executors().await.unwrap();
         let count_after = db.get_executors().await.unwrap().len();
         assert_eq!(count_before, count_after, "sync should not add duplicates when all executors exist");
+    }
+
+    #[tokio::test]
+    async fn test_sync_new_executors_inserts_missing() {
+        // 补上原测试缺失的"插入缺失项"分支：
+        // seed 全部 EXECUTORS → 手动 DELETE 一行 → sync 应补回这一行。
+        // 用 raw SQL DELETE 是因为 executor_config.rs 当前没有公开 delete_executor API。
+        let db = setup_db().await;
+        db.seed_default_executors().await.unwrap();
+
+        // 用 raw SQL 删除一个 executor 模拟 "missing" 状态
+        db.conn
+            .execute(Statement::from_sql_and_values(
+                DbBackend::Sqlite,
+                "DELETE FROM executors WHERE name = 'claudecode'",
+                [],
+            ))
+            .await
+            .unwrap();
+        let count_after_delete = db.get_executors().await.unwrap().len();
+        let count_before_sync = db.get_executors().await.unwrap().len();
+        assert_eq!(
+            count_after_delete, count_before_sync,
+            "DELETE should not double-count"
+        );
+
+        // sync 应补回被删除的 executor
+        db.sync_new_executors().await.unwrap();
+        let count_after = db.get_executors().await.unwrap().len();
+        let restored = db
+            .get_executor_by_name("claudecode")
+            .await
+            .unwrap();
+        assert!(
+            restored.is_some(),
+            "sync should have re-inserted the deleted 'claudecode' executor"
+        );
+        assert_eq!(
+            count_after,
+            count_before_sync + 1,
+            "sync should have added exactly one missing executor"
+        );
     }
 
     #[tokio::test]
@@ -2506,11 +2565,7 @@ mod tests {
         let db = setup_db().await;
 
         // Insert an "old" webhook record (created_at = 31 days ago)
-        let old_date = chrono::Utc::now()
-            .checked_sub_signed(chrono::Duration::days(31))
-            .unwrap()
-            .format("%Y-%m-%dT%H:%M:%SZ")
-            .to_string();
+        let old_date = utc_days_ago(31);
         db.conn
             .execute(Statement::from_sql_and_values(
                 DbBackend::Sqlite,
@@ -2521,11 +2576,7 @@ mod tests {
             .unwrap();
 
         // Insert a "recent" record (1 day ago)
-        let recent_date = chrono::Utc::now()
-            .checked_sub_signed(chrono::Duration::days(1))
-            .unwrap()
-            .format("%Y-%m-%dT%H:%M:%SZ")
-            .to_string();
+        let recent_date = utc_days_ago(1);
         db.conn
             .execute(Statement::from_sql_and_values(
                 DbBackend::Sqlite,
