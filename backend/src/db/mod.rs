@@ -10,7 +10,7 @@ use std::time::Duration;
 use sea_orm::{
     ActiveModelBehavior, ActiveModelTrait, ColumnTrait, ConnectOptions, ConnectionTrait,
     Database as SeaDatabase, DatabaseConnection, DbBackend, EntityTrait, IntoActiveModel,
-    Order, QueryFilter, QueryOrder, QuerySelect, Statement,
+    Order, QueryFilter, QueryOrder, QuerySelect, SqlxSqliteConnector, Statement,
 };
 
 pub mod entity;
@@ -65,19 +65,41 @@ impl Database {
             format!("sqlite://{}?mode=rwc", path)
         };
 
-        let mut opt = ConnectOptions::new(url);
-        opt.max_connections(10)
-            .min_connections(1)
-            .connect_timeout(Duration::from_secs(5))
-            .sqlx_logging(false);
+        // 构建 sqlx 原生 pool_options，应用 after_connect hook：
+        // 每次建立新连接时执行 PRAGMA，确保 max_connections=10 时所有连接都正确初始化。
+        // （修复了旧代码只对主连接执行 PRAGMA、其他 9 条连接缺失的回归问题）
+        //
+        // 关于 max/min 连接数的设计取舍：
+        // - SQLite 启用 WAL 后允许「1 个 writer + N 个 reader」并发，pool size=1 会把所有数据库
+        //   I/O 串行化，浪费 WAL 的并发能力。Issue #497 已把上限从 1 提到 10。
+        // - max=10 既覆盖了默认 max_concurrent_todos=3 的写入争用，又给 reader（WebSocket 广播、
+        //   hook 触发、健康检查等）留出充足槽位；继续调大对单文件 SQLite 收益有限。
+        // - min=2 让 daemon 启动后立即有两条温连接就绪，避免首批并发请求都要冷启。
+        let sqlite_opts: sqlx::sqlite::SqliteConnectOptions = url
+            .parse()
+            .expect("invalid sqlite connection url");
 
-        let conn = SeaDatabase::connect(opt).await?;
+        let mut pool_opts = sqlx::sqlite::SqlitePoolOptions::new();
+        pool_opts = pool_opts.max_connections(10);
+        pool_opts = pool_opts.min_connections(2);
+        pool_opts = pool_opts.acquire_timeout(Duration::from_secs(5));
+        pool_opts = pool_opts.after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("PRAGMA busy_timeout = 5000").execute(&mut *conn).await?;
+                sqlx::query("PRAGMA foreign_keys = ON").execute(&mut *conn).await?;
+                sqlx::query("PRAGMA synchronous = NORMAL").execute(&mut *conn).await?;
+                Ok(())
+            })
+        });
+
+        let pool = pool_opts.connect_with(sqlite_opts).await
+            .map_err(|e| match e {
+                sqlx::Error::PoolTimedOut => sea_orm::DbErr::ConnectionAcquire(sea_orm::ConnAcquireErr::Timeout),
+                sqlx::Error::PoolClosed => sea_orm::DbErr::ConnectionAcquire(sea_orm::ConnAcquireErr::ConnectionClosed),
+                other => sea_orm::DbErr::Conn(sea_orm::RuntimeErr::SqlxError(other)),
+            })?;
+        let conn = SqlxSqliteConnector::from_sqlx_sqlite_pool(pool);
         let db = Self { conn };
-
-        // Optimize SQLite for concurrent read / write performance
-        db.exec("PRAGMA busy_timeout = 5000").await?;
-        // Enable foreign key enforcement (SQLite default is OFF; CASCADE depends on this)
-        db.exec("PRAGMA foreign_keys = ON").await?;
         // Enable WAL mode and verify it took effect
         match db.conn
             .query_one(Statement::from_string(DbBackend::Sqlite, "PRAGMA journal_mode = WAL".to_string()))
@@ -1588,7 +1610,9 @@ mod tests {
 
     async fn create_test_execution_record(db: &Database, todo_id: i64, command: &str) -> i64 {
         db.create_execution_record(NewExecutionRecord {
-            // `NewExecutionRecord.todo_id` is now `i64` (was `Option<i64>`); pass directly.
+            // `NewExecutionRecord.todo_id` 在一次重构里从 `Option<i64>` 收紧到
+            // `i64` (db/execution.rs:12),这里忘了改,所以 `cargo test` 早就
+            // 编不过。issue #502 的 PR 顺手把它对齐。
             todo_id,
             command,
             executor: "claudecode",

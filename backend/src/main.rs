@@ -229,7 +229,10 @@ async fn main() {
             return;
         }
         Some(Commands::Daemon { action }) => {
-            daemon::handle_daemon_command(action);
+            // daemon::handle_daemon_command 已声明为 async,以便内部 restart
+            // 路径可以 await tokio::time::sleep,避免 std::thread::sleep 阻塞
+            // tokio worker。
+            daemon::handle_daemon_command(action).await;
             return;
         }
         Some(Commands::Skill { action: SkillAction::Install { force, executor } }) => {

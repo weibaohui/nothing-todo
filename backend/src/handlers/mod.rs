@@ -261,46 +261,26 @@ pub async fn static_handler(Path(path): axum::extract::Path<String>) -> Response
 
     match Assets::get(&full_path) {
         Some(content) => {
-            let mime = if path.ends_with(".js") {
-                "application/javascript"
-            } else if path.ends_with(".css") {
-                "text/css"
-            } else if path.ends_with(".html") {
-                "text/html"
-            } else if path.ends_with(".woff2") {
-                "font/woff2"
-            } else if path.ends_with(".woff") {
-                "font/woff"
-            } else if path.ends_with(".ttf") {
-                "font/ttf"
-            } else if path.ends_with(".eot") {
-                "application/vnd.ms-fontobject"
-            } else if path.ends_with(".svg") {
-                "image/svg+xml"
-            } else if path.ends_with(".png") {
-                "image/png"
-            } else if path.ends_with(".jpg") || path.ends_with(".jpeg") {
-                "image/jpeg"
-            } else if path.ends_with(".ico") {
-                "image/x-icon"
-            } else if path.ends_with(".json") {
-                "application/json"
-            } else if path.ends_with(".webp") {
-                "image/webp"
-            } else {
-                "application/octet-stream"
+            // 提取纯函数推断逻辑，方便在不依赖 `Assets` 嵌入资源的前提下做单元测试。
+            let mime_str = guess_mime(path);
+            let cache_control = cache_control_for(path, mime_str);
+            // mime_guess 返回的是 `&'static str`（编译期常量），但仍校验其合法性，
+            // 防止未来 mime_guess 引入非 ASCII 字符等导致 `HeaderValue` 构造失败。
+            let mime_value = match header::HeaderValue::from_str(mime_str) {
+                Ok(v) => v,
+                Err(_) => {
+                    tracing::warn!(
+                        "invalid mime derived for {}: {}; fallback to octet-stream",
+                        path,
+                        mime_str
+                    );
+                    header::HeaderValue::from_static("application/octet-stream")
+                }
             };
-            // Vite hashed assets (e.g. index-AbCd1234.js) get immutable cache
-            let cache_control = if path.contains('-')
-                && matches!(mime, "application/javascript" | "text/css" | "font/woff2" | "font/woff" | "font/ttf")
-            {
-                "public, max-age=31536000, immutable"
-            } else {
-                "no-cache"
-            };
+            let cache_value = header::HeaderValue::from_static(cache_control);
             ([
-                (header::CONTENT_TYPE, mime),
-                (header::CACHE_CONTROL, cache_control),
+                (header::CONTENT_TYPE, mime_value),
+                (header::CACHE_CONTROL, cache_value),
             ], content.data.to_vec()).into_response()
         }
         None => match Assets::get("index.html") {
@@ -310,6 +290,92 @@ pub async fn static_handler(Path(path): axum::extract::Path<String>) -> Response
             None => (StatusCode::NOT_FOUND, "Not found").into_response(),
         },
     }
+}
+
+/// 根据文件路径推断 MIME 类型。
+///
+/// 之前用 if-else 链手写判断，缺点是：
+/// 1. 维护成本高，新增类型必须改代码；
+/// 2. 覆盖不全（缺 .wasm/.mjs/.map/.mp4/.webm 等）；
+/// 3. 大小写敏感（`.JS` 会落到 octet-stream）。
+///
+/// 这里使用 `mime_guess` crate 推断。`from_path` 内部对扩展名做小写化处理，
+/// 解决了大小写问题；库本身覆盖范围广（含 wasm/mjs/map/mp4/webm 等）。
+/// 匹配不到时降级为 `application/octet-stream`。
+///
+/// 返回 `&'static str` 直接借用 mime_guess 内部维护的字符串常量，避免分配。
+fn guess_mime(path: &str) -> &'static str {
+    mime_guess::from_path(path)
+        .first_raw()
+        .unwrap_or("application/octet-stream")
+}
+
+/// 根据路径与 MIME 返回合适的 `Cache-Control` 头。
+///
+/// Vite 构建产物对带 hash 的资源（形如 `index-AbCd1234.js`）使用不可变长缓存：
+/// 内容变更时文件名改变，URL 变化会绕过浏览器缓存。
+/// 早期实现 `path.contains('-')` 过于宽松：`foo-bar.js` 这种巧合命名也会被缓存 1 年。
+/// 这里要求文件名最后一段 `-` 之后存在 6 位及以上的字母数字 hash，
+/// 且扩展名属于可哈希资源类型，才下发 `immutable`，否则保守地使用 `no-cache`。
+fn cache_control_for(path: &str, mime: &str) -> &'static str {
+    if is_vite_hashed_asset(path) && is_cacheable_mime(mime) {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    }
+}
+
+/// 是否是 Vite 风格的带 hash 资源名（`<name>-<hash>.<ext>`）。
+///
+/// 仅做启发式判断：要求 `base-hash.ext` 中 hash 段为 6 位及以上 ASCII 字母数字。
+/// 形如 `index-3aB12cD4.js` 会被认为带 hash；`foo-bar.js`（hash 仅 3 位）会落空。
+fn is_vite_hashed_asset(path: &str) -> bool {
+    // 拆分扩展名；无扩展名则直接判定为否
+    let Some((base, ext)) = path.rsplit_once('.') else {
+        return false;
+    };
+    // 仅考虑 Vite 实际会 hash 的资源类型，避免对任意二进制/JSON 等下发 immutable
+    if !is_vite_hashed_extension(ext) {
+        return false;
+    }
+    // 取最后一个 `-` 后的段作为 hash
+    let Some((_name, hash)) = base.rsplit_once('-') else {
+        return false;
+    };
+    // 至少 6 位且全部为 ASCII 字母数字，避免巧合命名误判
+    hash.len() >= 6 && hash.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+/// Vite 在生产构建中会带 hash 的扩展名集合。
+/// 维护一个明确列表，而不是“任何带 `.` 的文件”，减少误判空间。
+fn is_vite_hashed_extension(ext: &str) -> bool {
+    matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "js" | "mjs" | "css" | "woff" | "woff2" | "ttf" | "eot" | "svg" | "png" | "jpg"
+            | "jpeg" | "gif" | "webp" | "ico" | "json" | "map" | "wasm"
+    )
+}
+
+/// 该 MIME 是否适合下发 immutable 长缓存。
+///
+/// 仅放行 JS/CSS/字体类；其他 MIME（图片/JSON 等）虽然 Vite 也会 hash，
+/// 但作为业务可独立更新的资源，下发 `immutable` 需要更严格的资产 manifest 配合，
+/// 暂保持 no-cache，避免缓存策略与运维预期不一致。
+///
+/// MIME 值以 `mime_guess` 实际输出为准（见 `guess_mime` 测试）。
+/// 同时保留 `application/javascript` / `font/woff` 兼容旧链路/外部调用方。
+fn is_cacheable_mime(mime: &str) -> bool {
+    matches!(
+        mime,
+        "text/javascript"
+            | "application/javascript"
+            | "text/css"
+            | "font/woff2"
+            | "font/woff"
+            | "application/font-woff"
+            | "font/ttf"
+            | "application/vnd.ms-fontobject"
+    )
 }
 
 #[derive(serde::Serialize)]
@@ -820,4 +886,199 @@ pub fn create_app(
         )
         .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+#[cfg(test)]
+mod static_handler_tests {
+    //! 覆盖 `static_handler` 内联的纯函数：
+    //! 1. `guess_mime`：基于 mime_guess 的 MIME 推断
+    //! 2. `is_vite_hashed_asset` / `is_vite_hashed_extension`：Vite hash 启发式判断
+    //! 3. `is_cacheable_mime`：可下发 immutable 长缓存的 MIME 白名单
+    //! 4. `cache_control_for`：综合前两个决定 `Cache-Control` 头
+    //!
+    //! 这些函数被 `static_handler` 使用，提取为纯函数的目的就是
+    //! 不依赖 `Assets` 嵌入资源也能在单元测试里完整覆盖。
+
+    use super::{cache_control_for, guess_mime, is_cacheable_mime, is_vite_hashed_asset, is_vite_hashed_extension};
+
+    // === guess_mime ===
+
+    #[test]
+    fn guess_mime_recognises_common_static_types() {
+        // mime_guess 的返回值与旧 if-else 链的差异（差异均在浏览器/CDN 接受范围内）：
+        //   .js   ：旧 `application/javascript` → 新 `text/javascript`（RFC 9239 当代标准）
+        //   .woff ：旧 `font/woff`              → 新 `application/font-woff`
+        // 这里以 mime_guess 实际输出为准。
+        assert_eq!(guess_mime("foo.js"), "text/javascript");
+        assert_eq!(guess_mime("foo.css"), "text/css");
+        assert_eq!(guess_mime("index.html"), "text/html");
+        assert_eq!(guess_mime("foo.woff2"), "font/woff2");
+        assert_eq!(guess_mime("foo.woff"), "application/font-woff");
+        assert_eq!(guess_mime("foo.ttf"), "font/ttf");
+        assert_eq!(guess_mime("foo.eot"), "application/vnd.ms-fontobject");
+        assert_eq!(guess_mime("foo.svg"), "image/svg+xml");
+        assert_eq!(guess_mime("foo.png"), "image/png");
+        assert_eq!(guess_mime("foo.jpg"), "image/jpeg");
+        assert_eq!(guess_mime("foo.jpeg"), "image/jpeg");
+        assert_eq!(guess_mime("foo.ico"), "image/x-icon");
+        assert_eq!(guess_mime("foo.json"), "application/json");
+        assert_eq!(guess_mime("foo.webp"), "image/webp");
+    }
+
+    #[test]
+    fn guess_mime_handles_extension_case_insensitively() {
+        // 早期实现的痛点：`.JS` / `.CSS` 大小写会被错误地归为 octet-stream
+        assert_eq!(guess_mime("foo.JS"), "text/javascript");
+        assert_eq!(guess_mime("foo.CSS"), "text/css");
+        assert_eq!(guess_mime("foo.PnG"), "image/png");
+    }
+
+    #[test]
+    fn guess_mime_covers_types_missed_by_old_chain() {
+        // issue 508 列举的「覆盖不全」类型，mime_guess 应能识别
+        assert_eq!(guess_mime("foo.wasm"), "application/wasm");
+        assert_eq!(guess_mime("foo.mjs"), "application/javascript");
+        assert_eq!(guess_mime("foo.mp4"), "video/mp4");
+        assert_eq!(guess_mime("foo.webm"), "video/webm");
+    }
+
+    #[test]
+    fn guess_mime_falls_back_to_octet_stream_for_unknown_types() {
+        // 无扩展名 / 未知扩展名都应回退到 octet-stream，而不是 panic
+        assert_eq!(guess_mime("Makefile"), "application/octet-stream");
+        assert_eq!(guess_mime("foo.unknownext"), "application/octet-stream");
+    }
+
+    #[test]
+    fn guess_mime_handles_vite_hashed_paths() {
+        // 真实场景：Vite 产物形如 `index-AbCd1234.js`，推断时基于扩展名
+        assert_eq!(guess_mime("index-AbCd1234.js"), "text/javascript");
+        assert_eq!(guess_mime("assets/index-3aB12cD4.css"), "text/css");
+    }
+
+    // === is_vite_hashed_extension ===
+
+    #[test]
+    fn is_vite_hashed_extension_matches_expected_set() {
+        // Vite 在生产构建中实际会 hash 的扩展名
+        for ext in [
+            "js", "mjs", "css", "woff", "woff2", "ttf", "eot", "svg", "png", "jpg", "jpeg", "gif",
+            "webp", "ico", "json", "map", "wasm",
+        ] {
+            assert!(is_vite_hashed_extension(ext), "expected true for .{}", ext);
+        }
+        // 不在白名单：避免对 txt、pdf 等下发 immutable
+        for ext in ["txt", "pdf", "zip", "unknown", "exe"] {
+            assert!(!is_vite_hashed_extension(ext), "expected false for .{}", ext);
+        }
+    }
+
+    #[test]
+    fn is_vite_hashed_extension_is_case_insensitive() {
+        // 真实场景：偶尔会有 `.JS` / `.PNG` 大写命名
+        assert!(is_vite_hashed_extension("JS"));
+        assert!(is_vite_hashed_extension("PnG"));
+    }
+
+    // === is_vite_hashed_asset ===
+
+    #[test]
+    fn is_vite_hashed_asset_detects_typical_vite_hashes() {
+        // Vite 默认 hash 为 8 位字母数字（[a-zA-Z0-9]）；这里至少 6 位即可
+        assert!(is_vite_hashed_asset("index-AbCd1234.js"));
+        assert!(is_vite_hashed_asset("assets/index-3aB12cD4.css"));
+        assert!(is_vite_hashed_asset("chunk-ABCDef12.mjs"));
+    }
+
+    #[test]
+    fn is_vite_hashed_asset_rejects_non_hashed_names() {
+        // 没有 `-`：不可能是 Vite 产物
+        assert!(!is_vite_hashed_asset("index.html"));
+        assert!(!is_vite_hashed_asset("style.css"));
+    }
+
+    #[test]
+    fn is_vite_hashed_asset_rejects_short_hashes() {
+        // 早期实现 `path.contains('-')` 的问题：`foo-bar.js` 也会被误判为带 hash
+        // 修复后要求 hash 段至少 6 位
+        assert!(!is_vite_hashed_asset("foo-bar.js"));
+        assert!(!is_vite_hashed_asset("foo-abcde.css"));
+        assert!(is_vite_hashed_asset("foo-abcdef.js"));
+    }
+
+    #[test]
+    fn is_vite_hashed_asset_rejects_non_alphanumeric_hash() {
+        // 包含特殊字符的「hash」不算（如 `foo-bar-baz.js` 中 hash 是 `bar-baz`）
+        assert!(!is_vite_hashed_asset("foo-bar-baz.js"));
+        // 只有字母数字才认
+        assert!(is_vite_hashed_asset("foo-123abc456.js"));
+    }
+
+    #[test]
+    fn is_vite_hashed_asset_rejects_non_hashed_extensions() {
+        // 扩展名不在白名单，即使文件名带 hash 也不下发 immutable
+        assert!(!is_vite_hashed_asset("doc-AbCd1234.txt"));
+        assert!(!is_vite_hashed_asset("data-AbCd1234.zip"));
+    }
+
+    // === is_cacheable_mime ===
+
+    #[test]
+    fn is_cacheable_mime_allows_js_css_and_fonts() {
+        // 这些是 Vite hash 后真正可以下发 immutable 的资源
+        // 同时覆盖 mime_guess 实际输出（text/javascript、application/font-woff）
+        // 与旧 if-else 链用过的别名（application/javascript、font/woff）
+        assert!(is_cacheable_mime("text/javascript"));
+        assert!(is_cacheable_mime("application/javascript"));
+        assert!(is_cacheable_mime("text/css"));
+        assert!(is_cacheable_mime("font/woff2"));
+        assert!(is_cacheable_mime("font/woff"));
+        assert!(is_cacheable_mime("application/font-woff"));
+        assert!(is_cacheable_mime("font/ttf"));
+        assert!(is_cacheable_mime("application/vnd.ms-fontobject"));
+    }
+
+    #[test]
+    fn is_cacheable_mime_rejects_image_and_json() {
+        // 图片/JSON 等业务可独立更新的资源暂保持 no-cache
+        assert!(!is_cacheable_mime("image/png"));
+        assert!(!is_cacheable_mime("image/svg+xml"));
+        assert!(!is_cacheable_mime("application/json"));
+        assert!(!is_cacheable_mime("video/mp4"));
+    }
+
+    // === cache_control_for ===
+
+    #[test]
+    fn cache_control_for_vite_hashed_js_gets_immutable() {
+        // mime 参数取自 guess_mime 的实际输出
+        assert_eq!(
+            cache_control_for("index-AbCd1234.js", "text/javascript"),
+            "public, max-age=31536000, immutable"
+        );
+        assert_eq!(
+            cache_control_for("assets/style-3aB12cD4.css", "text/css"),
+            "public, max-age=31536000, immutable"
+        );
+        // 同时验证 woff 在 mime_guess 新输出下也能命中 immutable
+        assert_eq!(
+            cache_control_for("font-AbCd1234.woff", "application/font-woff"),
+            "public, max-age=31536000, immutable"
+        );
+    }
+
+    #[test]
+    fn cache_control_for_non_hashed_path_is_no_cache() {
+        // 早期 `path.contains('-')` 命中 `foo-bar.js` 的情况应被纠正
+        assert_eq!(cache_control_for("foo-bar.js", "text/javascript"), "no-cache");
+        assert_eq!(cache_control_for("index.html", "text/html"), "no-cache");
+        assert_eq!(cache_control_for("style.css", "text/css"), "no-cache");
+    }
+
+    #[test]
+    fn cache_control_for_hashed_image_stays_no_cache() {
+        // 即使 Vite 也可能 hash 图片，policy 上 image 不下发 immutable
+        assert_eq!(cache_control_for("logo-AbCd1234.png", "image/png"), "no-cache");
+        assert_eq!(cache_control_for("hero-AbCd1234.svg", "image/svg+xml"), "no-cache");
+    }
 }

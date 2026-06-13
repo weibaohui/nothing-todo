@@ -59,13 +59,16 @@ pub enum DaemonAction {
     },
 }
 
-pub fn handle_daemon_command(action: &DaemonAction) {
+// 调度入口声明为 async：Windows / macOS 的 restart 路径需要 await
+// tokio::time::sleep(...).await,而不是阻塞线程的 std::thread::sleep。
+// 在 #[tokio::main] 里调用方自然处于 async 上下文,改成 async 没额外成本。
+pub async fn handle_daemon_command(action: &DaemonAction) {
     #[cfg(target_os = "macos")]
-    { handle_launchd(action); }
+    { handle_launchd(action).await; }
     #[cfg(target_os = "linux")]
     { handle_systemd(action); }
     #[cfg(target_os = "windows")]
-    { handle_task_scheduler(action); }
+    { handle_task_scheduler(action).await; }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         let _ = action;
@@ -108,14 +111,18 @@ fn get_ntd_bin_dir() -> PathBuf {
 // macOS: launchd
 // =============================================================================
 
+// handle_launchd 声明为 async 是为了内部 Restart 分支可以 .await
+// launchd_restart();其他分支(start/stop/install/uninstall/status)都是
+// 同步阻塞调用,但放在 async fn 里没问题——它们仍然按原样同步执行,
+// 只是函数签名统一了。
 #[cfg(target_os = "macos")]
-fn handle_launchd(action: &DaemonAction) {
+async fn handle_launchd(action: &DaemonAction) {
     match action {
         DaemonAction::Install { force, .. } => launchd_install(*force),
         DaemonAction::Uninstall { .. } => launchd_uninstall(),
         DaemonAction::Start { .. } => launchd_start(),
         DaemonAction::Stop { .. } => launchd_stop(),
-        DaemonAction::Restart { .. } => launchd_restart(),
+        DaemonAction::Restart { .. } => launchd_restart().await,
         DaemonAction::Status { verbose, .. } => launchd_status(*verbose),
     }
 }
@@ -342,10 +349,21 @@ fn launchd_stop() {
     }
 }
 
+// launchd_restart 是 CLI 子命令入口之一,但运行在 #[tokio::main] 上下文,
+// 所以可以声明为 async 并 await tokio 的 sleep。
+//
+// 原实现用 std::thread::sleep(500ms):在异步 runtime 上线程 sleep 会
+// 阻塞当前 OS 线程,如果 runtime worker 池被填满,其它请求会被卡住。
+// 改用 tokio::time::sleep().await 让出 worker,既不阻塞 runtime,
+// 也保留了"等 stop 真正生效再 start"的语义。
+//
+// 500ms 是经验值:launchd bootout 通常在数十 ms 内完成,但慢盘/僵尸
+// 进程可能需要更久。这里不引入 polling(需要重新解析 launchctl list
+// 输出判断 PID),保持与原行为等价——只是把阻塞 sleep 换成协作式 sleep。
 #[cfg(target_os = "macos")]
-fn launchd_restart() {
+async fn launchd_restart() {
     launchd_stop();
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     launchd_start();
 }
 
@@ -1072,14 +1090,16 @@ impl std::error::Error for RedeployError {}
 // Windows: Task Scheduler
 // =============================================================================
 
+// handle_task_scheduler 声明为 async 是为了内部 Restart 分支可以 .await
+// task_scheduler_restart();其他分支保持同步,函数签名统一而已。
 #[cfg(target_os = "windows")]
-fn handle_task_scheduler(action: &DaemonAction) {
+async fn handle_task_scheduler(action: &DaemonAction) {
     match action {
         DaemonAction::Install { force, .. } => task_scheduler_install(*force),
         DaemonAction::Uninstall { .. } => task_scheduler_uninstall(),
         DaemonAction::Start { .. } => task_scheduler_start(),
         DaemonAction::Stop { .. } => task_scheduler_stop(),
-        DaemonAction::Restart { .. } => task_scheduler_restart(),
+        DaemonAction::Restart { .. } => task_scheduler_restart().await,
         DaemonAction::Status { verbose, .. } => task_scheduler_status(*verbose),
     }
 }
@@ -1232,10 +1252,21 @@ fn task_scheduler_stop() {
     }
 }
 
+// Windows Task Scheduler restart:stop → 等 → start。
+//
+// 原实现 std::thread::sleep(2s) 在 tokio runtime 上同样会阻塞当前
+// OS 线程;改用 tokio::time::sleep().await 让出 worker。
+//
+// 时长:第一次提交缩到 500ms 对齐 launchd 路径,但收到 review 反馈
+// 在慢盘/慢 VM/AV 扫描下可能 race(schtasks /end 长尾可达数百 ms,
+// start 早于 stop 完全生效会撞上 "Service is already running" 分支)。
+// 这里改用 1s 作为折中:既比原 2s 显著缩短(用户感受的 CLI 等待),
+// 又保留足够冗余覆盖慢主机的长尾场景。比 launchd 的 500ms 更保守,
+// 因为 schtasks /end → start 的串行依赖比 launchd bootout 更紧。
 #[cfg(target_os = "windows")]
-fn task_scheduler_restart() {
+async fn task_scheduler_restart() {
     task_scheduler_stop();
-    std::thread::sleep(std::time::Duration::from_secs(2));
+    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     task_scheduler_start();
 }
 
