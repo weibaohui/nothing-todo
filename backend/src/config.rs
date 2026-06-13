@@ -30,6 +30,9 @@ pub const MAX_EXECUTION_TIMEOUT_SECS: u64 = 604800;
 pub const DEFAULT_BROADCAST_CHANNEL_CAPACITY: usize = 10000;
 /// WebSocket broadcast channel 最小容量。低于此值视为配置错误，自动抬升以避免退化到丢消息。
 pub const MIN_BROADCAST_CHANNEL_CAPACITY: usize = 100;
+/// WebSocket broadcast channel 软上限。超过此值时记录 warn 但不强制截断，
+/// 保留运维人员根据实际负载调大的自主权。约 1M events × <1KB ≈ 1GB ceiling。
+pub const SOFT_MAX_BROADCAST_CHANNEL_CAPACITY: usize = 1_000_000;
 
 /// Top-level configuration, persisted to `~/.ntd/config.yaml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -303,14 +306,20 @@ impl Config {
         }
     }
 
-    /// 把 broadcast_channel_capacity 抬升到最小值 `MIN_BROADCAST_CHANNEL_CAPACITY`。
+    /// 把 broadcast_channel_capacity 抬升到最小值 `MIN_BROADCAST_CHANNEL_CAPACITY`；
+    /// 超过 `SOFT_MAX_BROADCAST_CHANNEL_CAPACITY` 时发出 warn 但不截断。
     ///
     /// **为什么需要**：YAML 直接编辑可绕过 HTTP 校验把 capacity 写成 0/1/50 等无意义值，
     /// 这种配置等同于「关闭事件流」，会让慢消费者立刻丢失 Finished 等关键事件。
     /// 这里强制把任意小于阈值的值抬升到 `MIN_BROADCAST_CHANNEL_CAPACITY`，保持行为可观察。
     ///
-    /// **为什么不在这里设置上限**：broadcast 是 ring buffer，capacity 与每条事件大小相关，
-    /// 但每条 ExecEvent 序列化后通常 < 1KB，100000 条也只占约 100MB，运维需要时可自行调大。
+    /// **为什么是软上限**：broadcast 是 ring buffer，capacity 与每条事件大小相关，
+    /// 每条 ExecEvent 序列化后通常 < 1KB，100000 条也只占约 100MB。
+    /// `SOFT_MAX_BROADCAST_CHANNEL_CAPACITY`(1_000_000) 约对应 1-4GB 内存，
+    /// 超过此值记录 warn 提示，但不强制截断，保留运维人员的自主权。
+    ///
+    /// **调用场景**：YAML/默认值加载路径（真 clamp）和 HTTP `update_config` 路径
+    /// （HTTP 路径已显式 reject < MIN，此处为冗余防御）。
     pub fn clamp_broadcast_channel_capacity(&mut self) {
         if self.broadcast_channel_capacity < MIN_BROADCAST_CHANNEL_CAPACITY {
             tracing::warn!(
@@ -319,6 +328,13 @@ impl Config {
                 MIN_BROADCAST_CHANNEL_CAPACITY
             );
             self.broadcast_channel_capacity = MIN_BROADCAST_CHANNEL_CAPACITY;
+        }
+        if self.broadcast_channel_capacity > SOFT_MAX_BROADCAST_CHANNEL_CAPACITY {
+            tracing::warn!(
+                "broadcast_channel_capacity {} exceeds soft limit {}; this may allocate significant memory",
+                self.broadcast_channel_capacity,
+                SOFT_MAX_BROADCAST_CHANNEL_CAPACITY
+            );
         }
     }
 

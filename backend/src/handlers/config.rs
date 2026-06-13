@@ -83,7 +83,7 @@ pub async fn update_config(
 
     cfg.normalize_paths();
     cfg.clamp_execution_timeout_secs();
-    cfg.clamp_broadcast_channel_capacity();
+
 
     let cfg_clone = cfg.clone();
     tokio::task::spawn_blocking(move || cfg_clone.save())
