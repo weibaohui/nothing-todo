@@ -434,9 +434,9 @@ async fn version_latest_handler() -> impl IntoResponse {
 /// 目的：issue #513 要求的「trace_id 关联」。
 /// - 入站请求如果已经带了 `X-Request-Id` 头，沿用（让上游网关/前端可以打通链路）；
 /// - 否则生成一个 UUIDv4 写到 extensions，再回写到响应头，方便客户端日志和服务端对账。
-/// - 同时通过 `tracing::Span::current().record(...)` 把 method/uri/request_id 三个字段
-///   写入当前正在生效的 tower-http TraceLayer span，这样无论是 TraceLayer 的 on_request / on_response
-///   事件，还是 handler 内部 `tracing::info!` 输出的日志，都自动带 request_id 字段。
+/// - 这里用 `tracing::debug!` 直接附带结构化字段写入当前活跃 span（TraceLayer 默认 span
+///   没有声明可记录字段，所以 `Span::current().record(...)` 在默认 span 上会静默失败，
+///   这里直接用 debug! 输出，确保 request_id 一定进日志）。
 ///
 /// 注意：本中间件必须**先于** TraceLayer 注册（axum layer 栈是「后注册先生效」，
 /// 所以要在 .layer(TraceLayer) 之前 .layer(from_fn(propagate_request_id))）。
@@ -448,10 +448,10 @@ pub async fn propagate_request_id(mut req: Request, next: Next) -> Response {
     // 也方便后面的中间件/TraceLayer 进一步关联。
     req.extensions_mut().insert(RequestId(request_id.clone()));
 
-    // 记录到当前活跃 span（TraceLayer 默认的 span name 是 "request"，
-    // 但它没有声明可记录的字段，所以 record 调用对默认 span 静默失败；
-    // 这里用 tracing::info! 直接附带结构化字段，确保日志里能看到 request_id）。
-    tracing::info!(
+    // 用 debug 级别：production 默认 RUST_LOG=info 时这条日志不会刷屏；
+    // 排查链路时设 RUST_LOG=ntd::handlers=debug 即可激活，且本中间件作用于全部
+    // HTTP 路由（含静态资源），用 info 会让每个静态资源请求都写一条日志。
+    tracing::debug!(
         request_id = %request_id,
         method = %req.method(),
         uri = %req.uri(),
@@ -951,9 +951,13 @@ pub fn create_app(
                     .filter_map(|o| o.parse::<axum::http::HeaderValue>().ok())
                     .collect();
 
+                // `expose_headers`: 让浏览器能读到 `x-request-id` 响应头,配合
+                // `propagate_request_id` 中间件写回的 request_id,前端日志可以贴到
+                // 工单/与上游网关对账。生产环境若不走浏览器可忽略。
                 let cors = CorsLayer::new()
                     .allow_methods(methods)
-                    .allow_headers(headers);
+                    .allow_headers(headers)
+                    .expose_headers([http::HeaderName::from_static("x-request-id")]);
 
                 if origins.is_empty() {
                     // No explicit origins = same-origin only (no allow_origin sent)
