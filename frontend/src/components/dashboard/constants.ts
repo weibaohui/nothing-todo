@@ -6,12 +6,9 @@ export const TIME_RANGE_OPTIONS: { label: string; value: number | 'custom' }[] =
   { label: '自定义', value: 'custom' },
 ];
 
-export const STATUS_COLORS: Record<string, string> = {
-  pending: '#94a3b8',
-  running: '#3b82f6',
-  completed: '#22c55e',
-  failed: '#ef4444',
-};
+// 注意：旧的 STATUS_COLORS 已移除；统一从 '@/constants' 引入，避免双源定义
+// 导致 Dashboard 任务状态分布饼图与其他组件出现两套配色。
+// 见 PR #561 评审 CRITICAL #1 / #2。
 
 const EMPTY_STATE_QUOTES = [
   '心若如镜，来者皆照，去者不留。',

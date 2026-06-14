@@ -20,19 +20,30 @@ use crate::services::usage_stats::UsageStatsService;
 /// 数据库备份压缩级别 (0-9, 9 为最强压缩)
 const BACKUP_COMPRESSION_LEVEL: Option<i64> = Some(9);
 
-/// 检查文件名是否安全（不包含路径分隔符或目录遍历序列）。
+/// 检查文件名是否安全（不包含路径分隔符、目录遍历序列或控制字符）。
 ///
-/// 用于防止路径遍历攻击：用户传入的文件名如果包含 `/`、`\` 或 `..`，
+/// 用于防止路径遍历攻击：用户传入的文件名如果包含 `/`、`\`、`..`，
 /// 可能导致操作目标目录之外的文件。
+/// 同时拦截 NUL（`\0`）：POSIX 文件系统拒绝文件名包含 NUL（Rust 路径库会 panic），
+/// Windows 也拒绝；其他控制字符（`\n` `\r` `\t` 等）虽然在大多数文件系统上能写入，
+/// 但会带来日志注入、shell 转义等次生风险。
 fn is_safe_filename(name: &str) -> bool {
-    !name.contains('/') && !name.contains('\\') && !name.contains("..")
+    if name.is_empty() || name.contains('/') || name.contains('\\') || name.contains("..") {
+        return false;
+    }
+    // 仅允许可打印 ASCII + 常见 Unicode 字符；任何控制字符（含 \0）直接拒绝。
+    name.chars()
+        .all(|c| !c.is_control() && (c.is_ascii_graphic() || c == ' ' || !c.is_ascii()))
 }
 
 /// 清理旧的 ZIP 备份文件，只保留最近 `keep` 个。
 ///
 /// 通用函数，适用于数据库备份、Todo 备份、Skill 备份等所有 ZIP 备份目录。
-/// 按文件创建时间倒序排列，删除超过 `keep` 数量的旧文件。
-/// 文件创建时间不可用时（某些文件系统不支持），视为最旧文件优先删除。
+/// 按文件时间倒序排列，删除超过 `keep` 数量的旧文件。
+/// 时间读取采用 created() → modified() 的二级 fallback：
+/// - macOS、exFAT 等部分文件系统不支持 created()，会返回 Err；
+/// - modified() 几乎所有文件系统都支持，作为兜底；
+/// - 都拿不到时间时（极端情况：被外部删了）才退回 UNIX_EPOCH 视为最旧。
 fn cleanup_old_zip_backups(dir: &PathBuf, keep: usize) {
     if !dir.exists() {
         return;
@@ -52,17 +63,17 @@ fn cleanup_old_zip_backups(dir: &PathBuf, keep: usize) {
         return;
     }
 
-    // 按创建时间倒序排列；
-    // 创建时间不可用的文件（某些文件系统不支持 created()）使用 UNIX_EPOCH，
-    // 确保它们排在最前面（最旧），优先被删除。
+    // 取得文件的最佳可用时间：created 优先（更符合「备份创建时间」语义），
+    // 不可用时回退到 modified，最后兜底 UNIX_EPOCH。
+    let file_time = |p: &PathBuf| -> std::time::SystemTime {
+        std::fs::metadata(p)
+            .and_then(|m| m.created().or_else(|_| m.modified()))
+            .unwrap_or(std::time::UNIX_EPOCH)
+    };
+    // 按时间倒序排列；时间相同的文件用 path 作为 tie-breaker，保证排序稳定可预测。
     files.sort_by(|a, b| {
-        let a_time = std::fs::metadata(a)
-            .and_then(|m| m.created())
-            .unwrap_or(std::time::UNIX_EPOCH);
-        let b_time = std::fs::metadata(b)
-            .and_then(|m| m.created())
-            .unwrap_or(std::time::UNIX_EPOCH);
-        b_time.cmp(&a_time)
+        let ord = file_time(b).cmp(&file_time(a));
+        ord.then_with(|| a.cmp(b))
     });
 
     for old_file in files.iter().skip(keep) {

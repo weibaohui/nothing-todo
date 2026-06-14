@@ -17,13 +17,18 @@ export const MAX_EXECUTION_TIMEOUT_MINUTES = 10080;
 // =============================================================================
 
 /** Todo 执行状态颜色 */
+// `completed` 与 `success` 指向同一颜色：历史 API/前端组件有两套命名约定
+// （后端 status 字段为 'success'，前端 DashboardStats.completed_todos 用 'completed'），
+// 这里并列两个键以保持两边调用方都能直接拿到颜色，避免再次出现双源 STATUS_COLORS。
 export const STATUS_COLORS = {
   /** 待执行 (pending) */
   pending: '#06b6d4',
   /** 执行中 (running) */
   running: '#f59e0b',
-  /** 已完成 (completed/success) */
+  /** 已完成 (success) — 后端 status 字段名 */
   success: '#22c55e',
+  /** 已完成 (completed) — 前端 DashboardStats 字段名（与 success 同色） */
+  completed: '#22c55e',
   /** 失败 (failed/error) */
   failed: '#ef4444',
   /** 定时任务 (cron/scheduled) */

@@ -124,10 +124,16 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
 
   useEffect(() => {
     if (open) {
-      // 通过单个 RESET_FORM action 原子性地重置所有表单状态
+      // 通过单个 RESET_FORM action 原子性地重置所有表单状态。
+      // deps 用 todo?.id 而不是 todo 本身：
+      // 父组件保存 Todo 后会重拉 todos 列表，selectedTodo 会拿到新对象引用
+      // （即使 todo 数据本身没变），如果 deps 用 todo，这个 effect 会再次触发
+      // RESET_FORM，把用户在抽屉里编辑到一半的字段静默重置回 todo 当前保存的值。
+      // 用 id 当 key 之后，只有真正切换到不同的 todo 才会重置。
       dispatch({ type: 'RESET_FORM', todo });
     }
-  }, [open, todo]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, todo?.id]);
 
   const handleSkillClick = useCallback((skill: SkillMeta) => {
     insertTextAtCursor(`/${skill.name}`);

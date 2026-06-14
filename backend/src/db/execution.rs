@@ -556,7 +556,14 @@ impl Database {
             heatmap_filter,
         };
 
-        // 并行执行独立的查询，提高性能
+        // 并行执行独立的查询，提高性能。
+        // 关于 &self.conn 的并发安全性：
+        // self.conn 是 sea_orm::DatabaseConnection（PR #477 后底层是 sqlx Pool，
+        // max_connections=10），传递 &self.conn 给每个 fetch_* 函数，
+        // fetch_* 内部调用 query_all() 时会从池中 acquire() 不同连接。
+        // 多个 future 在 tokio::try_join! 中交错执行时，pool 调度确保
+        // 同一连接不会被两个查询同时占用，因此这里真正能做到并行查询。
+        // 不用担心"单连接顺序 await"——那是裸 &ConnectionTrait 直拿单一连接的情况。
         let (
             (total_todos, pending_todos, running_todos, completed_todos, failed_todos, scheduled_todos),
             (total_executions, success_executions, failed_executions, total_input_tokens, total_output_tokens, total_cache_read_tokens, total_cache_creation_tokens, total_cost, total_duration, duration_count),
