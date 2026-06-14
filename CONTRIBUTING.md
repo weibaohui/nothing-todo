@@ -10,7 +10,7 @@
 - **OS**: macOS / Linux。Windows 下后端可以编译运行，但 daemon 子命令走 stub 分支。
 - **构建工具**:
   - `cargo` 自带。
-  - 可选：`cargo-clippy`、`cargo-deny`、`cargo-watch`、`vergen-gitcl`（构建期依赖）。
+  - 可选：`cargo-clippy`、`cargo-deny`、`vergen-gitcl`（构建期依赖）。
 
 ## 本地启动流程
 
