@@ -11,10 +11,24 @@
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "warn"
-# 误报（例如内部 fork 引起的重复）可以按 crate + id 显式忽略：
-# ignore = [
-#   "RUSTSEC-2024-0001",
-# ]
+# 已审计的安全漏洞。sea-orm 已升级至 1.0.1（0.12→1.x）。
+# sqlx 仍为 0.7（sea-orm 1.x 内部绑定），0.8 需等 sea-orm 升级内部依赖。
+#
+# - RUSTSEC-2024-0363: sqlx<0.8 二进制协议误解析。SQLite 后端不受影响。
+# - RUSTSEC-2026-0098/0099/0104: rustls-webpki v0.101 漏洞（sqlx 链路）。
+# - RUSTSEC-2023-0071: rsa 0.9 时序侧信道。本服务不涉及 RSA 密钥操作。
+ignore = [
+    "RUSTSEC-2024-0363",
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+    "RUSTSEC-2026-0104",
+    "RUSTSEC-2023-0071",
+    # 已停止维护的传递依赖
+    "RUSTSEC-2024-0436", # paste
+    "RUSTSEC-2024-0370", # proc-macro-error
+    "RUSTSEC-2026-0173", # proc-macro-error2
+    "RUSTSEC-2025-0134", # rustls-pemfile
+]
 
 # 2. License 限制：只允许明确列出的 license；其余必须显式 allow。
 [licenses]
