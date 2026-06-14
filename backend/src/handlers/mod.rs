@@ -608,16 +608,32 @@ where
     }
 }
 
-/// 执行 npm 升级并重新部署 daemon 服务。
+/// 执行 npm 升级并采用分离式自更新方案重新部署 daemon 服务。
 ///
-/// 流程：
-/// 1. 检测 npm 全局目录写权限，不可写时使用 `--prefix=~/.npm-global` 安装到用户目录
-/// 2. 调用 `npm install -g @weibaohui/nothing-todo@latest` 升级
-/// 3. 升级成功后，将 daemon 重部署步骤（stop → uninstall → install --force → start）
-///    fork 到独立子进程执行，避免 stop 导致当前 handler 进程被终止
-async fn version_upgrade_handler(
-    ResponseDone(redeploy_signal): ResponseDone,
-) -> impl IntoResponse {
+/// # 核心问题
+/// `ntd daemon stop` 会杀掉当前 daemon 进程（即本 handler 所在进程），
+/// 后续的 `install --force` 和 `start` 无法在当前进程中继续执行。
+///
+/// # 分离式自更新方案 (issue #569)
+/// 1. 执行 `npm install -g @weibaohui/nothing-todo@latest` 升级 npm 包
+/// 2. 写 `/tmp/ntd.update` 标记，用于 systemd 检测到退出时不自动重启旧版本
+/// 3. fork 独立子进程：`sh -c "(sleep 3; ntd daemon install --force; ntd daemon start; rm -f /tmp/ntd.update) &"`
+///    - sleep 3：等主进程完全退出，释放端口
+///    - install --force：用新 binary 重新安装服务配置
+///    - start：启动新版本服务
+///    - rm -f /tmp/ntd.update：清理标记
+/// 4. 主进程立即 `exit(0)`，让出端口和资源给新版本
+///
+/// # 前端配合
+/// 由于主进程 exit(0) 后 TCP 连接断开，前端会收到 fetch 错误。
+/// 前端在 catch 到错误后，延迟 5s 自动 `location.reload()` 刷新页面。
+///
+/// # 安全防线 (issue #476 CRITICAL #1)
+/// `npm prefix -g` 返回的 prefix 来自用户 `~/.npmrc`，可被污染成
+/// `/foo;rm -rf /;` 之类的攻击载荷。安全校验链路：
+/// 1. `is_safe_ntd_path` 白名单校验：仅允许 `[A-Za-z0-9/_.-]`，且必须是绝对路径
+/// 2. `shell_quote_single` 单引号包裹：禁止所有 shell expansion
+async fn version_upgrade_handler() -> impl IntoResponse {
     // 检测 npm 全局目录写权限，获取安全的安装 prefix
     let prefix = crate::npm_utils::get_npm_global_prefix();
 
@@ -632,121 +648,107 @@ async fn version_upgrade_handler(
         ])
         .output();
 
-    let npm_stdout;
-    let npm_stderr;
-    let npm_success;
-
     match &npm_result {
         Ok(out) => {
-            npm_stdout = String::from_utf8_lossy(&out.stdout).to_string();
-            npm_stderr = String::from_utf8_lossy(&out.stderr).to_string();
-            npm_success = out.status.success();
-            tracing::info!("npm upgrade stdout: {}, stderr: {}", npm_stdout, npm_stderr);
+            tracing::info!(
+                "npm upgrade stdout: {}, stderr: {}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
         }
         Err(e) => {
-            npm_stdout = String::new();
-            npm_stderr = e.to_string();
-            npm_success = false;
             tracing::error!("Failed to run npm: {}", e);
+            // 显式指定类型参数，因为 err 返回 ApiResponse<T>（T 无法从 err 签名推断）。
+            // 这里用 serde_json::Value 作为 T，与 handler 的返回类型 impl IntoResponse 兼容。
+            let err_resp: ApiResponse<serde_json::Value> = ApiResponse::err(1, &format!("npm upgrade failed: {}", e));
+            return err_resp;
         }
     }
 
-    if !npm_success {
-        let err_msg = if npm_stderr.is_empty() {
-            "npm upgrade failed".to_string()
-        } else {
-            format!("npm upgrade failed: {}", npm_stderr)
-        };
-        return ApiResponse::err(1, &err_msg);
+    // npm 升级失败时返回错误信息
+    if let Ok(out) = &npm_result {
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let err_msg = if stderr.is_empty() {
+                "npm upgrade failed".to_string()
+            } else {
+                format!("npm upgrade failed: {}", stderr.trim())
+            };
+            // 显式指定类型参数，与 handler 返回类型保持一致
+        let err_resp: ApiResponse<serde_json::Value> = ApiResponse::err(1, &err_msg);
+        return err_resp;
+        }
     }
 
     // npm 升级成功，查找新安装的 ntd 可执行文件路径
     let ntd_cmd = crate::npm_utils::find_ntd_binary(&prefix);
 
-    // 关键：先返回响应给前端，再 fork 子进程执行 daemon 重部署。
-    // 因为 stop 会终止当前 daemon 进程（即本 handler 所在进程），
-    // 如果在当前进程中顺序执行 stop→uninstall→install→start，
-    // stop 后后续步骤可能无法执行完成。
-    //
-    // 真正的 cgroup 脱离逻辑在 `daemon::spawn_detached_redeploy` 里实现：
-    // 用 `systemd-run --scope` 把 redeploy 脚本放到独立 transient scope，
-    // 避免 ntd.service stop 时 cgroup 清理把脚本一起杀掉。
-    // macOS (launchd) 不走 systemd，直接 sh -c 即可。
-    let ntd_cmd_clone = ntd_cmd.clone();
-    std::thread::spawn(move || {
-        // 等到响应 body 真正被 axum 准备送出(stop daemon 会杀掉
-        // 当前进程,如果不等人可能响应就丢了)。
-        // 信号由 `track_response_done` 中间件在 `next.run` 返回时触发,
-        // 比"固定 sleep 1 秒"更精确,也消除了 magic number。
-        // blocking_recv 因为我们在 std::thread 里,不是 tokio runtime。
-        let _ = redeploy_signal.blocking_recv();
-
-        // 将 daemon 重部署的四步操作合并成一条 shell 命令。
-        //
-        // **安全说明 (issue #476 反复复发的 CRITICAL #1)**：
-        // `npm prefix -g` 返回的 prefix 来自用户 `~/.npmrc`,可被污染成
-        // `/foo;rm -rf /;` 之类的攻击载荷。直接把 ntd_cmd 嵌入 shell 脚本
-        // 会被 shell 解析成多 token,触发 RCE。
-        //
-        // 三道防线:
-        // 1. `is_safe_ntd_path` 白名单校验:仅允许 `[A-Za-z0-9/_.-]`,且必须
-        //    是绝对路径。失败直接 return,不构造脚本。
-        // 2. `shell_quote_single` 单引号包裹:即使校验漏过危险字符,单引号
-        //    也禁止所有 shell expansion。
-        // 3. stop 与后续步骤用 `;` 分隔(不是 `&&`):`ntd daemon stop` 失败
-        //    (服务已停等) 不阻断 uninstall/install/start,符合 "stop 失败不阻断"
-        //    的原始承诺。后续步骤之间仍然用 `&&`,任一失败立刻终止,符合预期。
-        if !crate::daemon::common::is_safe_ntd_path(&ntd_cmd_clone) {
-            tracing::error!(
-                "Refusing redeploy: ntd path {:?} contains characters outside [A-Za-z0-9/_.-] \
-                 or is not absolute. Likely a poisoned npm prefix.",
-                ntd_cmd_clone,
-            );
-            return;
-        }
-        let quoted = crate::daemon::common::shell_quote_single(&ntd_cmd_clone);
-        let redeploy_script = format!(
-            "{quoted} daemon stop; {quoted} daemon uninstall && {quoted} daemon install --force && {quoted} daemon start",
-            quoted = quoted,
+    // **安全校验**：检查 ntd 路径是否可安全嵌入 shell 脚本，
+    // 防止 prefix 被 ~/.npmrc 污染成攻击载荷 (issue #476)
+    if !crate::daemon::common::is_safe_ntd_path(&ntd_cmd) {
+        tracing::error!(
+            "Refusing self-update: ntd path {:?} contains characters outside [A-Za-z0-9/_.-] \
+             or is not absolute. Likely a poisoned npm prefix.",
+            ntd_cmd,
         );
+        // 显式指定类型参数，与 handler 返回类型保持一致
+        let err_resp: ApiResponse<serde_json::Value> = ApiResponse::err(1, "无法更新：ntd 路径包含非法字符（可能 npm prefix 被污染）");
+        return err_resp;
+    }
 
-        #[cfg(target_os = "linux")]
-        {
-            // 委托给 daemon 模块,它会:
-            // 1) 探测当前 install mode (system / user)
-            // 2) 用 systemd-run --scope 把 sh 拉到独立 cgroup
-            // 3) stdio 重定向到 /dev/null + 日志文件,失败可查
-            match crate::daemon::spawn_detached_redeploy(&redeploy_script) {
-                Ok(()) => tracing::info!("Daemon redeploy dispatched via systemd-run"),
-                Err(e) => tracing::error!("Daemon redeploy dispatch failed: {e}"),
-            }
-        }
+    // 写 /tmp/ntd.update 标记文件，用于 Restart=always 场景：
+    // 主进程 exit(0) 后 systemd 检测到标记存在则不自动重启旧版本，
+    // 等待子进程完成 install --force + start 后清理标记。
+    // 更新失败排查：标记残留 = 流程中断，可定位卡在哪一步。
+    std::fs::write("/tmp/ntd.update", "").ok();
 
-        #[cfg(not(target_os = "linux"))]
-        {
-            // macOS/Windows: launchd/Task Scheduler 不使用 cgroup,
-            // sh -c 子进程会被 reparent 到 PID 1,daemon stop 不会牵连。
-            // 保留原行为,不做 cgroup 隔离。
-            let result = std::process::Command::new("sh")
-                .args(["-c", &redeploy_script])
-                .stdin(std::process::Stdio::null())
-                .status();
+    // 用单引号包裹 ntd 路径。调用方已通过 is_safe_ntd_path 校验，
+    // 没有单引号/反斜杠等危险字符。单引号在 bash 里禁用所有 expansion。
+    let quoted = crate::daemon::common::shell_quote_single(&ntd_cmd);
 
-            match &result {
-                Ok(s) if s.success() => tracing::info!("Daemon redeployed successfully"),
-                Ok(s) => tracing::error!("Daemon redeploy failed with exit code {}", s),
-                Err(e) => tracing::error!("Daemon redeploy exec error: {}", e),
-            }
-        }
-    });
+    // fork 独立子进程：用 sh -c 启动后台 shell，
+    // `(...) &` 语法让子进程在后台运行并脱离当前 shell 的 wait 链，
+    // 主进程 exit(0) 后子进程不会收到 SIGHUP。
+    //
+    // 步骤：
+    // 1. sleep 3.0s：等主进程完全退出 + OS 释放 socket fd，避免端口冲突
+    // 2. install --force：用新 binary 重新注册服务
+    // 3. start：启动新版本服务
+    // 4. rm -f：清理更新标记
+    //
+    // 使用 `;` 而非 `&&`：即使某步失败也继续后续步骤，保证标记被清理。
+    #[cfg(unix)]
+    std::process::Command::new("sh")
+        .args(["-c", &format!(
+            "(sleep 3.0; {quoted} daemon install --force; {quoted} daemon start; rm -f /tmp/ntd.update) &",
+            quoted = quoted,
+        )])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok();
 
-    // 立即返回成功响应，daemon 重部署在后台子线程中执行
-    ApiResponse::ok(serde_json::json!({
-        "upgraded": true,
-        "restarted": true,
-        "npmOutput": npm_stdout,
-        "restartMessage": "npm 升级成功，正在后台重新部署服务，请稍后刷新页面"
-    }))
+    // Windows 用 cmd /C 加 CREATE_NO_WINDOW 隐藏黑窗
+    #[cfg(windows)]
+    std::process::Command::new("cmd")
+        .args(["/C", &format!(
+            "timeout /t 3 /nobreak >nul && {quoted} daemon install --force && {quoted} daemon start && del %TEMP%\\ntd.update",
+            quoted = quoted,
+        )])
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .spawn()
+        .ok();
+
+    // 记录即将退出，便于运维查日志确认升级过程
+    tracing::info!(
+        "Self-update: npm upgraded, forked child process, now exiting main process. ntd path: {}",
+        ntd_cmd,
+    );
+
+    // 主进程立即退出，让出端口和资源给新版本服务。
+    // 子进程在 sleep 3s 后开始执行 install --force + start。
+    std::process::exit(0);
 }
 
 // Build router

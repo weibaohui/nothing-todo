@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Spin, Card, Empty, Space, Typography, Button, Alert, Modal, message } from 'antd';
+import { Spin, Card, Empty, Space, Typography, Button, Alert, Modal } from 'antd';
 import { ExclamationCircleFilled, ReloadOutlined, CloudDownloadOutlined } from '@ant-design/icons';
 import * as db from '@/utils/database';
 import { ShareCard } from '@/components/ShareCard';
@@ -13,19 +13,20 @@ interface VersionStatus {
   error?: string;
 }
 
-interface UpgradeResult {
-  upgraded: boolean;
-  restarted: boolean;
-  npmOutput?: string;
-  restartMessage?: string;
-}
+// 分离式自更新方案 (issue #569) 不再需要 UpgradeResult 类型，
+// 后端 exit(0) 后前端通过自动刷新访问新版本服务。
 
+// 分离式自更新方案 (issue #569)：升级时后端会执行 std::process::exit(0)，
+// 导致前端 fetch 连接断开。前端 catch 到错误后，等待 5s 让子进程完成
+// install --force + start，然后自动刷新页面以访问新版本服务。
+const UPGRADE_RELOAD_DELAY_MS = 5000;
+
+// 分离式自更新方案 (issue #569)：后端升级后主进程 exit(0)，
+// 子进程在后台 sleep 3s 后执行 install --force + start。
+// 因此前端看到的步骤简化为两步，弹窗描述更贴近用户感知。
 const UPGRADE_STEPS = [
   { step: '步骤 1', label: '升级 npm 包', code: 'npm install -g @weibaohui/nothing-todo@latest' },
-  { step: '步骤 2', label: '停止服务', code: 'ntd daemon stop' },
-  { step: '步骤 3', label: '卸载旧服务配置', code: 'ntd daemon uninstall' },
-  { step: '步骤 4', label: '安装新服务配置', code: 'ntd daemon install' },
-  { step: '步骤 5', label: '启动新版本服务', code: 'ntd daemon start' },
+  { step: '步骤 2', label: '自动重新部署服务', code: 'ntd daemon install --force && ntd daemon start' },
 ];
 
 /**
@@ -37,7 +38,7 @@ function renderUpgradeConfirmContent() {
       <div className="update-confirm-modal__hero">
         <div className="update-confirm-modal__eyebrow">桌面端一键更新</div>
         <div className="update-confirm-modal__hero-text">
-          将执行以下命令完成更新，并在结束后自动重启服务。
+          将执行以下操作完成更新：升级 npm 包后自动重新部署服务。
         </div>
       </div>
 
@@ -56,7 +57,7 @@ function renderUpgradeConfirmContent() {
       </div>
 
       <Paragraph className="update-confirm-modal__note" type="secondary">
-        更新完成后服务将自动重启，请稍后刷新页面。
+        升级过程中页面会自动刷新，请耐心等待。
       </Paragraph>
     </div>
   );
@@ -68,7 +69,8 @@ export function AboutPanel() {
   const [versionStatus, setVersionStatus] = useState<VersionStatus | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
-  const [upgradeResult, setUpgradeResult] = useState<UpgradeResult | null>(null);
+  // upgradeResult 相关状态已移除（分离式自更新方案，后端 exit(0) 后无法返回响应）。
+  // 升级结果由定时刷新自动处理。
 
   useEffect(() => {
     setVersionLoading(true);
@@ -105,7 +107,7 @@ export function AboutPanel() {
   const checkForUpdate = async () => {
     if (!versionInfo) return;
     setCheckingUpdate(true);
-    setUpgradeResult(null); // 清除之前的升级结果
+    // 分离式自更新方案：不再清除旧的升级结果（已移除 upgradeResult 状态）
     try {
       const result = await db.getLatestVersion();
       if (result.latest) {
@@ -135,7 +137,15 @@ export function AboutPanel() {
     }
   };
 
-  // 执行一键更新
+  // 执行一键更新（分离式自更新方案，issue #569）。
+  // 后端升级流程：
+  // 1. npm install -g 升级 npm 包
+  // 2. 写 /tmp/ntd.update 标记
+  // 3. fork 子进程 sleep 3s → install --force → start → rm 标记
+  // 4. 主进程 exit(0) 让出端口
+  //
+  // 前端感知：API 调用成功（返回响应）或断开连接（后端 exit(0) 导致 TCP 重置）。
+  // 无论哪种结果，都在 UPGRADE_RELOAD_DELAY_MS 后自动刷新页面。
   const handleUpgrade = async () => {
     if (!versionStatus?.latest) return;
 
@@ -156,26 +166,24 @@ export function AboutPanel() {
       cancelText: '取消',
       onOk: async () => {
         setUpgrading(true);
+        // 不论成功或失败（后端 exit(0) 会导致网络错误），
+        // 都在 UPGRADE_RELOAD_DELAY_MS 后自动刷新页面。
+        // 不保存 timer 引用：页面即将刷新，无需清除。
+        setTimeout(() => {
+          window.location.reload();
+        }, UPGRADE_RELOAD_DELAY_MS);
+
         try {
-          const result = await db.upgradeVersion();
-          setUpgradeResult(result);
-          if (result.upgraded && result.restarted) {
-            message.success('更新命令已执行，服务正在重启...');
-          } else if (result.upgraded && !result.restarted) {
-            message.warning('更新完成，但服务重启失败，请手动重启');
-          }
-          // 重置版本状态，让用户可以重新检查
-          setVersionStatus(null);
-        } catch (e) {
-          setUpgradeResult({
-            upgraded: false,
-            restarted: false,
-            restartMessage: e instanceof Error ? e.message : '未知错误',
-          });
-          message.error('更新失败：' + (e instanceof Error ? e.message : '未知错误'));
-        } finally {
-          setUpgrading(false);
+          // 执行升级。可能收到正常响应，也可能因后端 exit(0) 收到网络错误。
+          // 超时后仍然触发 catch（fetch 默认超时行为），
+          // 但延迟刷新由上面的 setTimeout 兜底。
+          await db.upgradeVersion();
+        } catch (_e) {
+          // 后端 exit(0) 导致 fetch 连接断开是预期行为，
+          // 不展示错误提示，静默等待定时器刷新。
         }
+        // 注意：此处不设置 setUpgrading(false)，
+        // 因为页面即将刷新，没必要做这个 UI 更新。
       },
     });
   };
@@ -210,7 +218,7 @@ export function AboutPanel() {
                         <Space direction="vertical" size={4}>
                           <span>发现新版本：<strong>{versionStatus.latest}</strong></span>
                           <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-                            当前版本：{versionStatus.current}
+                            当前版本：{versionInfo.version}
                           </span>
                         </Space>
                       }
@@ -220,43 +228,14 @@ export function AboutPanel() {
                 </div>
               )}
 
-              {/* 升级结果展示 */}
-              {upgradeResult && (
+              {/* 升级进行中提示 */}
+              {upgrading && (
                 <div style={{ marginBottom: 12 }}>
-                  {upgradeResult.upgraded && upgradeResult.restarted ? (
-                    <Alert
-                      type="success"
-                      message={
-                        <Space direction="vertical" size={4}>
-                          <span>更新命令执行成功，服务正在重启</span>
-                          {upgradeResult.npmOutput && (
-                            <code style={{ fontSize: 11, color: 'var(--color-text-secondary)', display: 'block', marginTop: 4 }}>
-                              {upgradeResult.npmOutput}
-                            </code>
-                          )}
-                        </Space>
-                      }
-                      showIcon
-                    />
-                  ) : (
-                    <Alert
-                      type="warning"
-                      message={
-                        <Space direction="vertical" size={4}>
-                          <span>更新完成，但服务重启失败</span>
-                          {upgradeResult.npmOutput && (
-                            <code style={{ fontSize: 11, color: 'var(--color-text-secondary)', display: 'block', marginTop: 4 }}>
-                              {upgradeResult.npmOutput}
-                            </code>
-                          )}
-                          {upgradeResult.restartMessage && (
-                            <span style={{ fontSize: 12 }}>{upgradeResult.restartMessage}</span>
-                          )}
-                        </Space>
-                      }
-                      showIcon
-                    />
-                  )}
+                  <Alert
+                    type="info"
+                    message="正在升级 npm 包并重启服务，页面将在新服务启动后自动刷新。"
+                    showIcon
+                  />
                 </div>
               )}
 
