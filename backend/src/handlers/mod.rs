@@ -561,7 +561,7 @@ fn ntd_update_marker_cleanup_path() -> String {
 /// * `ntd_cmd` - ntd 可执行文件路径
 /// * `marker_cleanup_path` - 标记文件清理路径
 /// * `log_path` - 子进程 stdout/stderr 重定向的目标日志路径
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(not(windows))]
 fn spawn_redeploy_sh_fallback(ntd_cmd: &str, marker_cleanup_path: &str, log_path: &str) {
     // 用单引号包裹 ntd 路径。调用方已通过 is_safe_ntd_path 校验，
     // 没有单引号/反斜杠等危险字符。单引号在 bash 里禁用所有 expansion。
