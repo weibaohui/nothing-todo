@@ -46,10 +46,12 @@ fn install(force: bool) {
         .output();
 
     // query 成功 + 非 force 时按"已存在"退出，避免覆盖用户的自定义配置
-    if query.is_ok() && query.unwrap().status.success() && !force {
-        println!("Task already exists: {}", TASK_NAME);
-        println!("Use --force to reinstall");
-        return;
+    if let Ok(result) = query {
+        if result.status.success() && !force {
+            println!("Task already exists: {}", TASK_NAME);
+            println!("Use --force to reinstall");
+            return;
+        }
     }
 
     // force 模式：先删除旧 task 再重建，确保新 unit 生效
