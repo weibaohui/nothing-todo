@@ -1028,7 +1028,20 @@ pub async fn sync_skill(
         .ok_or_else(|| AppError::BadRequest(format!("Unknown source executor: {}", req.source_executor)))?;
 
     // 统一 containment 校验
-    let skill_dir = resolve_skill_path_under(&source_dir, &req.skill_name)?;
+    // 404（NotFound）在这里对用户不友好，转化为带上下文的 BadRequest
+    let skill_dir = resolve_skill_path_under(&source_dir, &req.skill_name)
+        .map_err(|e| {
+            if matches!(e, AppError::NotFound) {
+                AppError::BadRequest(format!(
+                    "Skill '{}' not found in executor '{}' (directory: {})",
+                    req.skill_name,
+                    req.source_executor,
+                    source_dir.display()
+                ))
+            } else {
+                e
+            }
+        })?;
 
     let mut synced = Vec::new();
     let mut errors = Vec::new();
@@ -1114,7 +1127,7 @@ pub async fn sync_skill(
     }
 
     if synced.is_empty() && !errors.is_empty() {
-        return Err(AppError::Internal(errors.join("; ")));
+        return Err(AppError::BadRequest(errors.join("; ")));
     }
 
     let mut msg = format!("Synced '{}' (flattened) to: {}", req.skill_name, synced.join(", "));
