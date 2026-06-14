@@ -83,8 +83,8 @@ impl PiExecutor {
         if parts.is_empty() {
             None
         } else {
-            // 用空格连接多个 text block，避免 "Hello" + "World" → "HelloWorld"
-            Some(parts.join(" "))
+            // 用空串连接多个 text block（避免在 code fence 边界插入多余空格，块间空白由模型负责）。
+            Some(parts.join(""))
         }
     }
 
