@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 # 最低支持 Rust 版本。CI 矩阵与 CONTRIBUTING.md 均以此为准；
 # 升级时务必确认依赖未引入更高 MSRV。
-rust-version = "1.75"
+rust-version = "1.81"
 license = "MIT"
 
 [dependencies]
@@ -14,9 +14,6 @@ rust-embed = "8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
-sea-orm = { version = "0.12", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros", "with-chrono", "with-json"] }
-sqlx = { version = "0.7", default-features = false, features = ["sqlite", "runtime-tokio-rustls"] }
-libsqlite3-sys = { version = "0.27", features = ["bundled"] }
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
@@ -48,6 +45,8 @@ rusqlite = { version = "0.30", features = ["bundled"] }
 # MIME 类型推断库：根据文件扩展名返回标准 MIME，避免手写 if-else 漏覆盖、大小写敏感等问题。
 # 选用 2.x，与既有 `mime` 生态（http::HeaderValue）兼容。
 mime_guess = "2"
+sea-orm = { version = "1", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros", "with-chrono", "with-json"] }
+sqlx = { version = "0.7", default-features = false, features = ["sqlite", "runtime-tokio-rustls"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
