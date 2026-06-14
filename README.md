@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/weibaohui/nothing-todo/actions/workflows/rust.yml/badge.svg)](https://github.com/weibaohui/nothing-todo/actions)
 [![npm](https://img.shields.io/npm/v/@weibaohui/nothing-todo.svg)](https://www.npmjs.com/package/@weibaohui/nothing-todo)
-[![License](https://img.shields.io/badge/License-Polyform-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **ntd** (Nothing Todo) 是一个 AI 驱动的 Todo 任务管理应用。它将传统的待办事项管理与多 AI 执行器深度集成，让你的任务不仅能被记录，还能被自动执行。
 
@@ -226,7 +226,7 @@ ntd 支持多种 AI CLI 工具，选择你已有的或最喜欢的即可：
 
 ## 许可证
 
-[Polyform](LICENSE)
+📄 本项目采用 [MIT 许可证](LICENSE) 开源。
 
 ---
 
