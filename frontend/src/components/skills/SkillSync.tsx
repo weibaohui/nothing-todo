@@ -44,7 +44,9 @@ export function SkillSync() {
       setSyncResult(result);
       message.success('同步完成');
     } catch (err: any) {
-      message.error('同步失败: ' + (err?.message || String(err)));
+      const errMsg = err?.message || String(err);
+      setSyncResult('❌ 同步失败: ' + errMsg);
+      message.error('同步失败');
     } finally {
       setSyncing(false);
     }
@@ -155,7 +157,7 @@ export function SkillSync() {
           {syncResult && (
             <Alert
               message={syncResult}
-              type="success"
+              type={syncResult.includes('❌') ? 'error' : syncResult.includes('Error') || syncResult.includes('Errors') ? 'warning' : 'success'}
               showIcon
             />
           )}
