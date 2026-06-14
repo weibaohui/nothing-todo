@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, useReducer } from 'react';
 import { Drawer, Input, Button, App, AutoComplete, Divider, Switch, Modal, Form, Empty, Space } from 'antd';
 import { FolderOutlined, PlusOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import * as db from '@/utils/database';
 import type { ProjectDirectory } from '@/utils/database';
-import type { TodoHookItem } from '@/utils/database/hooks';
+
 import type { Todo, ExecutorConfig, ExecutorOption, SkillMeta, ExecutorSkills, TodoTemplate } from '@/types';
 import { EXECUTORS, executorConfigToOption, getExecutorColor } from '@/types';
 import { TagCheckCardGroup } from './TagCheckCard';
@@ -14,6 +14,11 @@ import { SchedulerSection } from './todo-drawer/SchedulerSection';
 import { TemplateModal } from './todo-drawer/TemplateModal';
 import { TodoHooksEditor } from './todo-detail/TodoHooksEditor';
 import { useApp } from '@/hooks/useApp';
+import {
+  todoFormReducer,
+  initialFormState,
+  type TodoFormState,
+} from './todo-drawer/reducer';
 
 interface TodoDrawerProps {
   open: boolean;
@@ -27,52 +32,54 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
   const { message } = App.useApp();
   const isEditMode = todo !== null;
 
-  const [title, setTitle] = useState('');
-  const [prompt, setPrompt] = useState('');
-  const [selectedTags, setSelectedTags] = useState<number[]>([]);
-  const [executor, setExecutor] = useState<string>('claudecode');
-  // workspace 存的是路径；与 ProjectDirectory.path 对应，确保值可以直接命中已配置的目录
-  const [workspace, setWorkspace] = useState<string>('');
-  const [worktreeEnabled, setWorktreeEnabled] = useState(false);
+  // 使用 useReducer 替代多个 useState，集中管理表单状态
+  const [formState, dispatch] = useReducer(todoFormReducer, initialFormState);
+
+  // UI 相关的状态（不属于表单数据）
   const [executorOptions, setExecutorOptions] = useState<ExecutorOption[]>(EXECUTORS);
   const [projectDirectories, setProjectDirectories] = useState<ProjectDirectory[]>([]);
   const [allExecutorSkills, setAllExecutorSkills] = useState<ExecutorSkills[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skillsExpanded, setSkillsExpanded] = useState(false);
   const [skillSearchText, setSkillSearchText] = useState('');
-  const [schedulerEnabled, setSchedulerEnabled] = useState(false);
-  const [schedulerConfig, setSchedulerConfig] = useState<string>('');
-  const [hooks, setHooks] = useState<TodoHookItem[]>([]);
-  const [acceptanceCriteria, setAcceptanceCriteria] = useState('');
-  const [autoReviewEnabled, setAutoReviewEnabled] = useState(true);
   const [loading, setLoading] = useState(false);
-  // 快速新增项目目录的弹窗：与抽屉同级，关闭抽屉时一起清理
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [quickAddForm] = Form.useForm<{ name: string; path: string }>();
   const [quickAddSubmitting, setQuickAddSubmitting] = useState(false);
   const editorRef = useRef<any>(null);
   const { state: appState } = useApp();
 
+  // 从 formState 中解构出常用的字段
+  const {
+    title, prompt, selectedTags, executor, workspace, worktreeEnabled,
+    schedulerEnabled, schedulerConfig, hooks, acceptanceCriteria, autoReviewEnabled,
+  } = formState;
+
+  // 设置单个字段的快捷函数
+  const setField = useCallback(<K extends keyof TodoFormState>(
+    field: K,
+    value: TodoFormState[K],
+  ) => {
+    dispatch({ type: 'SET_FIELD', field, value });
+  }, []);
+
   const insertTextAtCursor = useCallback((text: string) => {
     const editor = editorRef.current;
     if (!editor || !editor.textarea) {
-      setPrompt(prev => {
-        if (!prev) return text;
-        return prev + (prev.endsWith('\n') ? '' : '\n') + text;
-      });
+      setField('prompt', formState.prompt
+        ? formState.prompt + (formState.prompt.endsWith('\n') ? '' : '\n') + text
+        : text);
       return;
     }
     const textarea = editor.textarea as HTMLTextAreaElement;
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
-    setPrompt(prev => {
-      return prev.substring(0, start) + text + prev.substring(end);
-    });
+    setField('prompt', formState.prompt.substring(0, start) + text + formState.prompt.substring(end));
     setTimeout(() => {
       textarea.selectionStart = textarea.selectionEnd = start + text.length;
       textarea.focus();
     }, 0);
-  }, []);
+  }, [formState.prompt, setField]);
 
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [templates, setTemplates] = useState<TodoTemplate[]>([]);
@@ -106,31 +113,8 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
 
   useEffect(() => {
     if (open) {
-      if (todo) {
-        setTitle(todo.title || '');
-        setPrompt(todo.prompt || '');
-        setSelectedTags((todo as any).tag_ids || []);
-        setExecutor(todo.executor || 'claudecode');
-        setWorkspace(todo.workspace || '');
-        setWorktreeEnabled(todo.worktree_enabled || false);
-        setSchedulerEnabled(todo.scheduler_enabled || false);
-        setSchedulerConfig(todo.scheduler_config || '');
-        setHooks(todo.hooks ?? []);
-        setAcceptanceCriteria(todo.acceptance_criteria ?? '');
-        setAutoReviewEnabled(todo.auto_review_enabled ?? true);
-      } else {
-        setTitle('');
-        setPrompt('');
-        setSelectedTags([]);
-        setExecutor('claudecode');
-        setWorkspace('');
-        setWorktreeEnabled(false);
-        setSchedulerEnabled(false);
-        setSchedulerConfig('');
-        setHooks([]);
-        setAcceptanceCriteria('');
-        setAutoReviewEnabled(true);
-      }
+      // 通过单个 RESET_FORM action 原子性地重置所有表单状态
+      dispatch({ type: 'RESET_FORM', todo });
     }
   }, [open, todo]);
 
@@ -153,8 +137,8 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
 
   const handleSelectTemplate = useCallback((template: TodoTemplate) => {
     if (!prompt.trim()) {
-      setTitle(template.title);
-      setPrompt(template.prompt || '');
+      setField('title', template.title);
+      setField('prompt', template.prompt || '');
       message.success('已应用模板');
     } else {
       if (template.prompt) {
@@ -165,7 +149,7 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
       }
     }
     setTemplateModalOpen(false);
-  }, [prompt, insertTextAtCursor, message]);
+  }, [formState.prompt, insertTextAtCursor, message]);
 
   // 快速新增项目目录：
   // 用户在工作目录区域点"+"即可补一个项目，无需跳到设置页。
@@ -192,7 +176,7 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
         [...prev.filter(d => d.id !== dir.id), dir].sort((a, b) => a.path.localeCompare(b.path)) // 去重+按路径排序
       );
       // 保存后立即把新目录选中并写入工作目录，减少二次操作
-      setWorkspace(dir.path); // 自动选中新目录，减少用户二次操作
+      setField('workspace', dir.path); // 自动选中新目录，减少用户二次操作
       setQuickAddOpen(false); // 关闭弹窗
       message.success(`已添加项目"${dir.name}"`);
       // 通知其他组件（如 TodoList 分组视图）项目目录已更新
@@ -300,20 +284,20 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border-light)' }}>
           <Input
             value={title}
-            onChange={e => setTitle(e.target.value)}
+            onChange={e => setField('title', e.target.value)}
             placeholder="任务标题"
             style={{ fontSize: 16, fontWeight: 600, padding: '8px 12px' }}
           />
         </div>
 
         <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
-          <ExecutorPicker executor={executor} executorOptions={executorOptions} onChange={setExecutor} />
+          <ExecutorPicker executor={executor} executorOptions={executorOptions} onChange={(v) => setField('executor', v)} />
 
           <Divider style={{ margin: '8px 0 16px' }} />
 
           <PromptEditor
             value={prompt}
-            onChange={setPrompt}
+            onChange={(v) => setField('prompt', v)}
             editorRef={editorRef}
             onOpenTemplate={handleOpenTemplate}
             onInsertText={insertTextAtCursor}
@@ -338,7 +322,7 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
                 <TagCheckCardGroup
                   tags={tags}
                   value={selectedTags[0] || null}
-                  onChange={(val) => setSelectedTags(val ? [val as number] : [])}
+                  onChange={(val) => setField('selectedTags', val ? [val as number] : [])}
                 />
               </div>
             </>
@@ -384,7 +368,7 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
               <Space.Compact style={{ width: '100%' }}>
                 <AutoComplete
                   value={workspace}
-                  onChange={(value) => setWorkspace(value)}
+                  onChange={(value) => setField('workspace', value)}
                   options={workspaceOptions}
                   placeholder="选择项目目录或手动输入路径"
                   style={{ flex: 1 }}
@@ -406,7 +390,7 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
             <div style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>Git Worktree</div>
-                <Switch checked={worktreeEnabled} onChange={(checked) => setWorktreeEnabled(checked)} />
+                <Switch checked={worktreeEnabled} onChange={(checked) => setField('worktreeEnabled', checked)} />
               </div>
             </div>
           )}
@@ -416,8 +400,8 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
           <SchedulerSection
             enabled={schedulerEnabled}
             config={schedulerConfig}
-            onEnabledChange={setSchedulerEnabled}
-            onConfigChange={setSchedulerConfig}
+            onEnabledChange={(v) => setField('schedulerEnabled', v)}
+            onConfigChange={(v) => setField('schedulerConfig', v)}
             existingConfig={todo?.scheduler_config}
           />
 
@@ -428,7 +412,7 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
             <div style={{ marginBottom: 8, fontWeight: 600, fontSize: 14 }}>验收标准</div>
             <Input.TextArea
               value={acceptanceCriteria}
-              onChange={e => setAcceptanceCriteria(e.target.value)}
+              onChange={e => setField('acceptanceCriteria', e.target.value)}
               placeholder="描述完成该任务需要满足的条件..."
               rows={3}
               style={{ resize: 'vertical' }}
@@ -450,7 +434,7 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
                 </div>
                 <Switch
                   checked={autoReviewEnabled}
-                  onChange={setAutoReviewEnabled}
+                  onChange={(v) => setField('autoReviewEnabled', v)}
                   checkedChildren="开启"
                   unCheckedChildren="关闭"
                 />
@@ -465,7 +449,7 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved }: TodoDrawerPro
             todos={appState.todos}
             ownerId={todo?.id ?? null}
             hooks={hooks}
-            onChange={setHooks}
+            onChange={(v) => setField('hooks', v)}
             disabled={loading}
           />
         </div>
