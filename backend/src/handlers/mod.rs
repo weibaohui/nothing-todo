@@ -15,6 +15,9 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, oneshot};
 use uuid::Uuid;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use crate::service_context::ServiceContext;
 use crate::adapters::ExecutorRegistry;
 use crate::Assets;
