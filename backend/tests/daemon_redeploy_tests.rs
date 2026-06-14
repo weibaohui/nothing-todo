@@ -97,4 +97,106 @@ mod build_redeploy_spec_tests {
             assert_eq!(count, 1, "{flag} appeared {count} times in {:?}", spec.args);
         }
     }
+
+    /// 验证 build_redeploy_spec 的 args 布局稳定，以便
+    /// spawn_detached_redeploy_nonblocking 在 --collect 后插入 --no-block。
+    /// 如果布局（如 --collect 位置）变了，nonblocking 的插入逻辑会失效。
+    #[test]
+    fn test_redeploy_spec_layout_collect_position() {
+        // 确认 --collect 在 args 中的位置是稳定的（第三个位置，0-indexed）。
+        // This is important for spawn_detached_redeploy_nonblocking which inserts
+        // --no-block right after --collect.
+        let spec = build_redeploy_spec(DaemonInstallMode::User, "true");
+        // args 布局: [--user, --scope, --collect, --property=..., ...]
+        assert_eq!(
+            spec.args[2], "--collect",
+            "Expected --collect at index 2, got {:?}",
+            spec.args
+        );
+    }
+
+    #[test]
+    fn test_redeploy_spec_system_layout_collect_position() {
+        // System 模式下 args 布局: [--scope, --collect, --property=..., ...]
+        let spec = build_redeploy_spec(DaemonInstallMode::System, "true");
+        assert_eq!(
+            spec.args[1], "--collect",
+            "Expected --collect at index 1 for System mode, got {:?}",
+            spec.args
+        );
+    }
+}
+
+/// 验证 spawn_detached_redeploy_nonblocking 的 --no-block 参数插入逻辑。
+///
+/// 由于 spawn_detached_redeploy_nonblocking 会实际尝试打开日志文件/启动进程，
+/// 不适合在单测中直接调用。这里通过检查 build_redeploy_spec 的参数布局来间接验证。
+/// 实际 nonblocking 的插入逻辑在 redeploy.rs 中：
+/// ```rust,ignore
+/// let collect_idx = spec.args.iter().position(|a| a == "--collect");
+/// if let Some(idx) = collect_idx {
+///     spec.args.insert(idx + 1, "--no-block");
+/// }
+/// ```
+/// 本测试确保 --collect 的位置是我们预期的那样，从而 indirect 验证插入点正确。
+#[cfg(test)]
+#[cfg(target_os = "linux")]
+mod nonblocking_spec_tests {
+    use ntd::daemon::build_redeploy_spec;
+    use ntd::daemon::DaemonInstallMode;
+
+    /// 模拟 spawn_detached_redeploy_nonblocking 的 args 构造逻辑，
+    /// 验证 --no-block 被插入到正确位置。
+    fn build_nonblocking_spec(ntd_cmd: &str) -> Vec<String> {
+        let script = format!(
+            "sleep 3; {} daemon install --force; {} daemon start; rm -f /tmp/ntd.update",
+            ntd_cmd, ntd_cmd
+        );
+        let mut spec = build_redeploy_spec(DaemonInstallMode::User, &script);
+        let collect_idx = spec.args.iter().position(|a| a == "--collect");
+        if let Some(idx) = collect_idx {
+            spec.args.insert(idx + 1, "--no-block".to_string());
+        }
+        spec.args
+    }
+
+    #[test]
+    fn test_nonblocking_inserts_no_block_after_collect() {
+        let args = build_nonblocking_spec("/usr/bin/ntd");
+        // args 布局: [--user, --scope, --collect, --no-block, --property=..., /bin/sh, -c, <script>]
+        let collect_idx = args.iter().position(|a| a == "--collect").unwrap();
+        assert_eq!(
+            args[collect_idx + 1], "--no-block",
+            "--no-block must be inserted immediately after --collect, got {:?}",
+            args
+        );
+
+        // Verify --no-block appears exactly once
+        let count = args.iter().filter(|a| a.as_str() == "--no-block").count();
+        assert_eq!(count, 1, "--no-block must appear exactly once, args: {:?}", args);
+    }
+
+    #[test]
+    fn test_nonblocking_preserves_all_other_args() {
+        let args = build_nonblocking_spec("/usr/local/bin/ntd");
+        // Must contain all the standard flags
+        assert!(args.contains(&"--scope".to_string()), "Missing --scope");
+        assert!(args.contains(&"--collect".to_string()), "Missing --collect");
+        assert!(args.contains(&"--no-block".to_string()), "Missing --no-block");
+        assert!(args.contains(&"/bin/sh".to_string()), "Missing /bin/sh");
+        assert!(args.contains(&"-c".to_string()), "Missing -c");
+
+        // Verify the script is the last arg
+        let expected_script = "sleep 3; /usr/local/bin/ntd daemon install --force; /usr/local/bin/ntd daemon start; rm -f /tmp/ntd.update";
+        assert_eq!(args.last().unwrap(), expected_script);
+    }
+
+    #[test]
+    fn test_nonblocking_no_duplicate_flags() {
+        let args = build_nonblocking_spec("/usr/bin/ntd");
+        for flag in ["--scope", "--collect", "--no-block"] {
+            let count = args.iter().filter(|a| a.as_str() == flag).count();
+            assert_eq!(count, 1, "{flag} appeared {count} times in {:?}", args);
+        }
+    }
 }

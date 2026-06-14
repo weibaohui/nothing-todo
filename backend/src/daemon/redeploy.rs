@@ -133,11 +133,14 @@ pub fn redeploy_log_path() -> std::path::PathBuf {
         .join("upgrade-redeploy.log")
 }
 
-/// 真正启动 detached redeploy。
+/// 真正启动 detached redeploy（阻塞版本，适合 CLI 使用）。
 ///
 /// - `script`：stop && uninstall && install --force && start 的 shell 片段
 /// - 返回：Ok(()) 表示 systemd-run 至少拉起了 sh（脚本本身的成败要看日志）
 /// - Err：探测/启动/IO 失败，带具体原因
+///
+/// 会等待 systemd-run 命令完成（即 systemd-run 启动 scope 后返回）。
+/// 对于 HTTP handler 场景需使用 [`spawn_detached_redeploy_nonblocking`]。
 ///
 /// **stdio 处理**：
 /// - stdin 重定向到 /dev/null：防止 sh 等 tty 输入
@@ -187,6 +190,77 @@ pub fn spawn_detached_redeploy(script: &str) -> Result<(), RedeployError> {
         Err(e) => {
             let msg = format!(
                 "failed to spawn systemd-run: {e}; log: {}",
+                log_path.display()
+            );
+            tracing::error!("{msg}");
+            Err(RedeployError::Spawn { source: e, log: log_path })
+        }
+    }
+}
+
+/// 非阻塞版 spawn_detached_redeploy，适合 HTTP handler 使用。
+///
+/// 与 [`spawn_detached_redeploy`] 的区别：
+/// - 使用 `.spawn()` 而非 `.status()`，不等待 systemd-run 完成
+/// - 在 systemd-run args 中追加 `--no-block`，让 systemd-run 启动 scope 后立即返回
+/// - 仅检查 systemd-run 能否成功启动（spawn 成功即视为成功），
+///   不等待命令执行完毕
+///
+/// 返回值含义：
+/// - `Ok(())`：systemd-run 进程已成功派生（scope 已提交给 systemd）
+/// - `Err(...)`：连 systemd-run 都启动失败（systemd 不可用 / PATH 找不到等）
+pub fn spawn_detached_redeploy_nonblocking(script: &str) -> Result<(), RedeployError> {
+    let mode = detect_install_mode();
+    let log_path = redeploy_log_path();
+    if let Some(parent) = log_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    // 非阻塞版需要追加 --no-block，让 systemd-run 立即返回
+    // 因此不能直接复用 build_redeploy_spec，需要额外加一个参数
+    let mut spec = build_redeploy_spec(mode, script);
+    // 在 --collect 之后、sh 之前插入 --no-block。
+    // build_redeploy_spec 的 args 布局是：
+    //   [--user?] --scope --collect --property=... --property=... /bin/sh -c <script>
+    // --no-block 放在 --collect 之后、--property=Description 之前（任意位置均可，
+    // 只要不在 sh -c 后面即可）。这里插在 args 的 --collect 之后。
+    let collect_idx = spec.args.iter().position(|a| a == "--collect");
+    if let Some(idx) = collect_idx {
+        spec.args.insert(idx + 1, "--no-block".to_string());
+    } else {
+        // build_redeploy_spec 一定会加 --collect，但防御性兜底
+        spec.args.insert(2, "--no-block".to_string());
+    }
+
+    let log_file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| RedeployError::LogOpen {
+            path: log_path.clone(),
+            source: e,
+        })?;
+
+    let mut cmd = Command::new(&spec.program);
+    cmd.args(&spec.args);
+    cmd.stdin(std::process::Stdio::null());
+    if let Ok(f) = log_file.try_clone() {
+        cmd.stdout(f);
+    }
+    cmd.stderr(log_file);
+
+    // 使用 .spawn() 非阻塞启动，不等待 systemd-run 返回
+    match cmd.spawn() {
+        Ok(_) => {
+            tracing::info!(
+                "Non-blocking redeploy spawned via systemd-run (--no-block). script: {}",
+                script
+            );
+            Ok(())
+        }
+        Err(e) => {
+            let msg = format!(
+                "failed to spawn systemd-run (non-blocking): {e}; log: {}",
                 log_path.display()
             );
             tracing::error!("{msg}");

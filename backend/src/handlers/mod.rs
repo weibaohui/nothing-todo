@@ -551,6 +551,35 @@ fn ntd_update_marker_cleanup_path() -> String {
     }
 }
 
+/// sh -c 回退方案：在非 Linux 平台或 systemd-run 不可用时使用。
+///
+/// 使用 `(...) &` 语法让子进程在后台运行并脱离当前 shell 的 wait 链，
+/// 主进程 exit(0) 后子进程不会收到 SIGHUP，会被 reparent 到 init 进程。
+/// 输出重定向到 /tmp/ntd-upgrade.log 方便排查。
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn spawn_redeploy_sh_fallback(ntd_cmd: &str, marker_cleanup_path: &str) {
+    // 用单引号包裹 ntd 路径。调用方已通过 is_safe_ntd_path 校验，
+    // 没有单引号/反斜杠等危险字符。单引号在 bash 里禁用所有 expansion。
+    let quoted = crate::daemon::common::shell_quote_single(ntd_cmd);
+
+    // stdin 设为 null 防止子进程意外读取父进程 stdin。
+    // stdout/stderr 在 shell 命令内部已通过 `>> /tmp/ntd-upgrade.log 2>&1`
+    // 重定向到日志文件，此处 .stdout/.stderr 设置被 shell 内部重定向覆盖。
+    //
+    // 使用 `;` 而非 `&&`：即使某步失败也继续后续步骤，保证标记被清理。
+    std::process::Command::new("sh")
+        .args(["-c", &format!(
+            "(sleep 3; {quoted} daemon install --force; {quoted} daemon start; rm -f {marker}) >> /tmp/ntd-upgrade.log 2>&1 &",
+            quoted = quoted,
+            marker = marker_cleanup_path,
+        )])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok();
+}
+
 /// 执行 npm 升级并采用分离式自更新方案重新部署 daemon 服务。
 ///
 /// # 核心问题
@@ -659,53 +688,72 @@ async fn version_upgrade_handler() -> impl IntoResponse {
     // 与子进程里的清理路径保持一致。
     std::fs::write(ntd_update_marker_path(), "").ok();
 
-    // 用单引号包裹 ntd 路径。调用方已通过 is_safe_ntd_path 校验，
-    // 没有单引号/反斜杠等危险字符。单引号在 bash 里禁用所有 expansion。
-    let quoted = crate::daemon::common::shell_quote_single(&ntd_cmd);
-
     // 子进程清理标记文件时的路径，与 ntd_update_marker_path() 保持一致。
     let marker_cleanup_path = ntd_update_marker_cleanup_path();
 
-    // fork 独立子进程：用 sh -c 启动后台 shell，
-    // `(...) &` 语法让子进程在后台运行并脱离当前 shell 的 wait 链，
-    // 主进程 exit(0) 后子进程不会收到 SIGHUP，会被 reparent 到 init 进程。
+    // 分离式自更新方案 (issue #569)：fork 独立子进程在后台完成 install + start。
     //
-    // 步骤：
-    // 1. sleep 3s：等主进程完全退出 + OS 释放 socket fd，避免端口冲突。
-    //    使用整数 `3` 而非 `3.0`：macOS 和 Alpine/busybox 的 sleep
-    //    不支持浮点数参数，整型兼容所有平台。
-    // 2. install --force：用新 binary 重新注册服务
-    // 3. start：启动新版本服务
-    // 4. rm -f：清理更新标记
-    //
-    // 使用 `;` 而非 `&&`：即使某步失败也继续后续步骤，保证标记被清理。
-    #[cfg(unix)]
-    std::process::Command::new("sh")
-        .args(["-c", &format!(
-            "(sleep 3; {quoted} daemon install --force; {quoted} daemon start; rm -f {marker}) >> /tmp/ntd-upgrade.log 2>&1 &",
-            quoted = quoted,
-            marker = marker_cleanup_path,
-        )])
-        // stdin 设为 null 防止子进程意外读取父进程 stdin。
-        // stdout/stderr 在 shell 命令内部已通过 `>> /tmp/ntd-upgrade.log 2>&1`
-        // 重定向到日志文件，此处 .stdout/.stderr 设置被 shell 内部重定向覆盖。
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .ok();
+    // 不同平台采用不同策略：
+    // - Linux（systemd）：使用 systemd-run --scope --no-block 把脚本放在独立 cgroup，
+    //   即使主进程 exit(0) 后 systemd 清理 ntd.service 的 cgroup 也不会杀掉子进程。
+    // - macOS / 其他 Unix：使用 sh -c "(...) &" 语法让子进程脱离 shell wait 链，
+    //   主进程 exit 后子进程被 reparent 到 init 进程。
+    // - Windows：使用 cmd /C + CREATE_NO_WINDOW 隐藏黑窗。
+    #[cfg(target_os = "linux")]
+    {
+        // Linux 上使用 systemd-run --scope --no-block，
+        // 将 redeploy 脚本放入独立 cgroup，防止被 systemd 的 KillMode=mixed 牵连。
+        // 详见 backend/src/daemon/redeploy.rs 模块注释。
+        //
+        // 步骤：
+        // 1. sleep 3s：等主进程完全退出 + OS 释放 socket fd，避免端口冲突。
+        // 2. install --force：用新 binary 重新注册服务
+        // 3. start：启动新版本服务
+        // 4. rm -f：清理更新标记
+        let script = format!(
+            "sleep 3; {} daemon install --force; {} daemon start; rm -f {}",
+            ntd_cmd,
+            ntd_cmd,
+            marker_cleanup_path,
+        );
+        match crate::daemon::spawn_detached_redeploy_nonblocking(&script) {
+            Ok(()) => {
+                tracing::info!(
+                    "Self-update (Linux): systemd-run redeploy spawned. ntd path: {}",
+                    ntd_cmd,
+                );
+            }
+            Err(e) => {
+                // systemd-run 启动失败（可能是 Docker / WSL 没有 systemd），降级到 sh -c。
+                // 这样在无 systemd 的容器环境也能工作。
+                tracing::warn!(
+                    "Self-update: systemd-run failed ({}), falling back to sh -c",
+                    e,
+                );
+                spawn_redeploy_sh_fallback(&ntd_cmd, &marker_cleanup_path);
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        // macOS 或其他 Unix 使用 sh -c 方案，因为 launchd 不会按 cgroup 杀进程。
+        spawn_redeploy_sh_fallback(&ntd_cmd, &marker_cleanup_path);
+    }
 
     // Windows 用 cmd /C 加 CREATE_NO_WINDOW 隐藏黑窗
     #[cfg(windows)]
-    std::process::Command::new("cmd")
-        .args(["/C", &format!(
-            "timeout /t 3 /nobreak >nul && {quoted} daemon install --force && {quoted} daemon start && del /f /q {marker}",
-            quoted = quoted,
-            marker = marker_cleanup_path,
-        )])
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW
-        .spawn()
-        .ok();
+    {
+        let quoted = crate::daemon::common::shell_quote_single(&ntd_cmd);
+        std::process::Command::new("cmd")
+            .args(["/C", &format!(
+                "timeout /t 3 /nobreak >nul && {quoted} daemon install --force && {quoted} daemon start && del /f /q {marker}",
+                quoted = quoted,
+                marker = marker_cleanup_path,
+            )])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .spawn()
+            .ok();
+    }
 
     // 记录 fork 成功，便于运维查日志确认升级进程已启动
     tracing::info!(
@@ -716,8 +764,8 @@ async fn version_upgrade_handler() -> impl IntoResponse {
     // 先返回成功响应给前端，让 Axum 完成 HTTP 响应的发送。
     // 然后通过 spawn 后台任务延迟 500ms 后 exit(0)，
     // 给当前 in-flight 响应足够时间写回客户端。
-    // 子进程（sleep 3s 后 install --force + start）通过 `(...) &`
-    // 已脱离当前 shell wait 链，主进程 exit 后子进程正常工作。
+    // 子进程已通过 systemd-run --scope（Linux）或 `(...) &`（其他 Unix）
+    // 脱离当前进程树，主进程 exit 后子进程正常工作。
     //
     // 异步 handler 返回响应与 spawn 后台任务：
     // Axum 在 handler 返回后完成响应 body 的写入和 flush，
