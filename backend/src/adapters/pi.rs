@@ -52,7 +52,7 @@ impl PiExecutor {
     }
 
     /// 判断缓冲文本是否到达自然边界，可以刷出。
-    /// 条件：以句子结束标点结尾、包含换行符，或超过阈值长度。
+    /// 条件：以句子结束标点结尾，或超过阈值长度。
     fn is_text_boundary(buf: &str) -> bool {
         // 以句子结束标点结尾
         buf.ends_with('.')
@@ -61,9 +61,6 @@ impl PiExecutor {
             || buf.ends_with('。')
             || buf.ends_with('！')
             || buf.ends_with('？')
-            || buf.ends_with('\n')
-            // 包含换行符
-            || buf.contains('\n')
             // 超过 200 字符强制刷出
             || buf.len() > 200
     }
@@ -222,11 +219,12 @@ impl CodeExecutor for PiExecutor {
                         match ame.event_type.as_deref() {
                             Some("text_delta") => {
                                 // text_delta 是实际回复的增量内容——缓冲合并，不立即发出
+                                // 去掉 delta 中的所有换行，避免 pi 输出中的换行导致碎片化
                                 if let Some(delta) = &ame.delta {
-                                    let trimmed = delta.trim_end();
-                                    if !trimmed.is_empty() {
+                                    let cleaned = delta.replace('\n', "").trim_end().to_string();
+                                    if !cleaned.is_empty() {
                                         let mut buf = self.pending_text.lock();
-                                        buf.push_str(trimmed);
+                                        buf.push_str(&cleaned);
                                         // 在自然边界处刷出：标点符号或足够长的文本
                                         if Self::is_text_boundary(&buf) {
                                             let content = std::mem::take(&mut *buf);
