@@ -52,7 +52,12 @@ pub enum DaemonInstallMode {
 pub fn detect_install_mode() -> DaemonInstallMode {
     // 先尝试通过 systemctl 探测 system 实例
     if let Ok(out) = Command::new("systemctl")
-        .args(["show", SERVICE_NAME, "--property=FragmentPath", "--property=LoadState"])
+        .args([
+            "show",
+            SERVICE_NAME,
+            "--property=FragmentPath",
+            "--property=LoadState",
+        ])
         .output()
     {
         let stdout = String::from_utf8_lossy(&out.stdout);
@@ -100,17 +105,48 @@ pub struct RedeployCommandSpec {
 }
 
 pub fn build_redeploy_spec(mode: DaemonInstallMode, script: &str) -> RedeployCommandSpec {
-    // User 模式必须加 --user 才能连到用户的 systemd 实例；
-    // System 模式和 Unknown 模式都不加，这样即使探测失败回退也能跑
-    // （Unknown 时连不上 ntd.service 的实例，但 redeploy 脚本里用的是
-    //  ntd 自己的 stop/uninstall/install 逻辑，会重新匹配实际模式）。
+    build_redeploy_spec_inner(mode, script, false)
+}
+
+/// 构造 nonblocking 版本的 redeploy spec（追加 `--no-block`）。
+///
+/// 与 [`build_redeploy_spec`] 的唯一区别是在 `--collect` 后插入 `--no-block`，
+/// 让 systemd-run 启动 scope 后立即返回而不等待脚本完成。
+/// 提取为公有函数，便于单测和 `spawn_detached_redeploy_nonblocking` 共同使用。
+pub fn build_redeploy_spec_nonblocking(
+    mode: DaemonInstallMode,
+    script: &str,
+) -> RedeployCommandSpec {
+    build_redeploy_spec_inner(mode, script, true)
+}
+
+/// build_redeploy_spec 的内部实现，通过 `nonblocking` 控制是否追加 `--no-block`。
+///
+/// 设计理由：
+/// - `--no-block` 作为纯数据参数集成到 spec 构造中，而非事后在 args Vec 中查找插入，
+///   消除了未来重构 args 顺序时插入点偏移的风险。
+/// - nonblocking 和非 nonblocking 版本共享同一份参数构造核心逻辑，确保一致性。
+/// - User 模式必须加 --user 才能连到用户的 systemd 实例；
+///   System 模式和 Unknown 模式都不加，这样即使探测失败回退也能跑
+///   （Unknown 时连不上 ntd.service 的实例，但 redeploy 脚本里用的是
+///    ntd 自己的 stop/uninstall/install 逻辑，会重新匹配实际模式）。
+fn build_redeploy_spec_inner(
+    mode: DaemonInstallMode,
+    script: &str,
+    nonblocking: bool,
+) -> RedeployCommandSpec {
     let mut args: Vec<String> = Vec::new();
     if mode == DaemonInstallMode::User {
         args.push("--user".to_string());
     }
+    args.push("--scope".to_string());
+    args.push("--collect".to_string());
+    // nonblocking 模式下在 --collect 之后插入 --no-block，
+    // 让 systemd-run 启动 scope 后立即返回，不等脚本执行完毕。
+    if nonblocking {
+        args.push("--no-block".to_string());
+    }
     args.extend([
-        "--scope".to_string(),
-        "--collect".to_string(),
         "--property=Description=ntd upgrade redeploy".to_string(),
         // 即使 scope 内被 kill，也只杀 systemd-run 自身，不杀 sh 链
         "--property=KillMode=process".to_string(),
@@ -133,11 +169,14 @@ pub fn redeploy_log_path() -> std::path::PathBuf {
         .join("upgrade-redeploy.log")
 }
 
-/// 真正启动 detached redeploy。
+/// 真正启动 detached redeploy（阻塞版本，适合 CLI 使用）。
 ///
 /// - `script`：stop && uninstall && install --force && start 的 shell 片段
 /// - 返回：Ok(()) 表示 systemd-run 至少拉起了 sh（脚本本身的成败要看日志）
 /// - Err：探测/启动/IO 失败，带具体原因
+///
+/// 会等待 systemd-run 命令完成（即 systemd-run 启动 scope 后返回）。
+/// 对于 HTTP handler 场景需使用 [`spawn_detached_redeploy_nonblocking`]。
 ///
 /// **stdio 处理**：
 /// - stdin 重定向到 /dev/null：防止 sh 等 tty 输入
@@ -182,7 +221,10 @@ pub fn spawn_detached_redeploy(script: &str) -> Result<(), RedeployError> {
                 log_path.display()
             );
             tracing::error!("{msg}");
-            Err(RedeployError::NonZeroExit { code: s.code(), log: log_path })
+            Err(RedeployError::NonZeroExit {
+                code: s.code(),
+                log: log_path,
+            })
         }
         Err(e) => {
             let msg = format!(
@@ -190,7 +232,73 @@ pub fn spawn_detached_redeploy(script: &str) -> Result<(), RedeployError> {
                 log_path.display()
             );
             tracing::error!("{msg}");
-            Err(RedeployError::Spawn { source: e, log: log_path })
+            Err(RedeployError::Spawn {
+                source: e,
+                log: log_path,
+            })
+        }
+    }
+}
+
+/// 非阻塞版 spawn_detached_redeploy，适合 HTTP handler 使用。
+///
+/// 与 [`spawn_detached_redeploy`] 的区别：
+/// - 使用 `.spawn()` 而非 `.status()`，不等待 systemd-run 完成
+/// - 在 systemd-run args 中追加 `--no-block`，让 systemd-run 启动 scope 后立即返回
+/// - 仅检查 systemd-run 能否成功启动（spawn 成功即视为成功），
+///   不等待命令执行完毕
+///
+/// 返回值含义：
+/// - `Ok(())`：systemd-run 进程已成功派生（scope 已提交给 systemd）
+/// - `Err(...)`：连 systemd-run 都启动失败（systemd 不可用 / PATH 找不到等）
+pub fn spawn_detached_redeploy_nonblocking(script: &str) -> Result<(), RedeployError> {
+    let mode = detect_install_mode();
+    let log_path = redeploy_log_path();
+    if let Some(parent) = log_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    // 非阻塞版：使用 build_redeploy_spec_nonblocking 直接构造带 --no-block 的 spec。
+    // --no-block 作为参数集成到 spec 构造中，无需事后在 args Vec 中查找插入，
+    // 消除了未来重构 args 顺序时插入点偏移的风险。
+    let spec = build_redeploy_spec_nonblocking(mode, script);
+
+    let log_file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| RedeployError::LogOpen {
+            path: log_path.clone(),
+            source: e,
+        })?;
+
+    let mut cmd = Command::new(&spec.program);
+    cmd.args(&spec.args);
+    cmd.stdin(std::process::Stdio::null());
+    if let Ok(f) = log_file.try_clone() {
+        cmd.stdout(f);
+    }
+    cmd.stderr(log_file);
+
+    // 使用 .spawn() 非阻塞启动，不等待 systemd-run 返回
+    match cmd.spawn() {
+        Ok(_) => {
+            tracing::info!(
+                "Non-blocking redeploy spawned via systemd-run (--no-block). script: {}",
+                script
+            );
+            Ok(())
+        }
+        Err(e) => {
+            let msg = format!(
+                "failed to spawn systemd-run (non-blocking): {e}; log: {}",
+                log_path.display()
+            );
+            tracing::error!("{msg}");
+            Err(RedeployError::Spawn {
+                source: e,
+                log: log_path,
+            })
         }
     }
 }
@@ -203,10 +311,7 @@ pub enum RedeployError {
         source: std::io::Error,
     },
     /// systemd-run 启动了但脚本退出码非 0
-    NonZeroExit {
-        code: Option<i32>,
-        log: PathBuf,
-    },
+    NonZeroExit { code: Option<i32>, log: PathBuf },
     /// 连 systemd-run 都拉不起来（没装 systemd / PATH 里找不到）
     Spawn {
         source: std::io::Error,
@@ -218,7 +323,12 @@ impl std::fmt::Display for RedeployError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RedeployError::LogOpen { path, source } => {
-                write!(f, "failed to open redeploy log {}: {}", path.display(), source)
+                write!(
+                    f,
+                    "failed to open redeploy log {}: {}",
+                    path.display(),
+                    source
+                )
             }
             RedeployError::NonZeroExit { code, log } => {
                 write!(
