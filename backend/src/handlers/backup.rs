@@ -248,7 +248,7 @@ pub async fn trigger_local_backup(
     .map_err(|e| AppError::Internal(format!("Failed to create zip backup: {}", e)))?;
 
     // 清理旧备份（按数据库分目录清理）
-    cleanup_old_db_backups(&dir, max_files);
+    cleanup_old_zip_backups(&dir, max_files);
 
     Ok(ApiResponse::ok(format!("备份成功: {}", backup_path.display())))
 }
@@ -590,7 +590,7 @@ pub fn perform_database_backup(db_path: &str, max_files: usize) -> Result<String
     zip.finish()
         .map_err(|e| format!("Failed to finish zip: {}", e))?;
 
-    cleanup_old_db_backups(&dir, max_files);
+    cleanup_old_zip_backups(&dir, max_files);
 
     Ok(format!("Auto backup: {}", backup_path.display()))
 }
@@ -623,7 +623,15 @@ pub async fn cleanup_old_logs(db: &Database, days: usize) -> Result<u64, String>
     Ok(changes)
 }
 
-fn cleanup_old_db_backups(dir: &PathBuf, keep: usize) {
+/// 通用 zip 备份清理：按创建时间倒序保留最近 `keep` 个 .zip 文件，其余删除。
+///
+/// 取代原先 db / todo / skill 三处完全相同的 `cleanup_old_*_backups` 实现：
+/// 三个场景（数据库目录、Todo 目录、Skill 目录）共享同一份清理语义，
+/// 原本的逐文件复制导致任何 bug 修复都得在三处同步，DRY 违反且容易遗漏。
+///
+/// 使用文件元数据中的创建时间排序；若创建时间不可用（如部分文件系统），
+/// 比较两侧都会得到 None，stable 排序退化为原顺序，行为与原先一致。
+fn cleanup_old_zip_backups(dir: &PathBuf, keep: usize) {
     if !dir.exists() {
         return;
     }
@@ -820,7 +828,7 @@ pub async fn trigger_todo_backup(
     .map_err(|e| AppError::Internal(format!("Failed to create zip: {}", e)))?;
 
     // 清理旧备份
-    cleanup_old_todo_backups(&dir, max_files);
+    cleanup_old_zip_backups(&dir, max_files);
 
     Ok(ApiResponse::ok(format!("备份成功: {}", backup_path_display)))
 }
@@ -989,41 +997,11 @@ async fn perform_todo_backup_async(db: &std::sync::Arc<crate::db::Database>, max
     // Cleanup old backups
     let dir_for_cleanup = dir.clone();
     tokio::task::spawn_blocking(move || {
-        cleanup_old_todo_backups(&dir_for_cleanup, max_files);
+        cleanup_old_zip_backups(&dir_for_cleanup, max_files);
     }).await
     .map_err(|e| format!("Task join error: {}", e))?;
 
     Ok(format!("Auto Todo backup: {}", backup_path_for_display))
-}
-
-fn cleanup_old_todo_backups(dir: &PathBuf, keep: usize) {
-    if !dir.exists() {
-        return;
-    }
-    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
-        .ok()
-        .map(|entries| {
-            entries
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|ext| ext == "zip"))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    if files.len() <= keep {
-        return;
-    }
-
-    files.sort_by(|a, b| {
-        let a_time = std::fs::metadata(a).and_then(|m| m.created()).ok();
-        let b_time = std::fs::metadata(b).and_then(|m| m.created()).ok();
-        b_time.cmp(&a_time)
-    });
-
-    for old_file in files.iter().skip(keep) {
-        std::fs::remove_file(old_file).ok();
-    }
 }
 
 // ============ 日志清理 ============
@@ -1343,7 +1321,7 @@ pub async fn trigger_skill_backup(
     .map_err(|e| AppError::Internal(format!("Failed to create zip: {}", e)))?;
 
     // 清理旧备份
-    cleanup_old_skill_backups(&dir, max_files);
+    cleanup_old_zip_backups(&dir, max_files);
 
     Ok(ApiResponse::ok(format!("备份成功: {} ({} 个文件)", backup_path_display, copied_count)))
 }
@@ -1483,36 +1461,6 @@ pub async fn download_skill_backup_file(
 }
 
 /// 清理旧 Skill 备份
-fn cleanup_old_skill_backups(dir: &PathBuf, keep: usize) {
-    if !dir.exists() {
-        return;
-    }
-    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
-        .ok()
-        .map(|entries| {
-            entries
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|ext| ext == "zip"))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    if files.len() <= keep {
-        return;
-    }
-
-    files.sort_by(|a, b| {
-        let a_time = std::fs::metadata(a).and_then(|m| m.created()).ok();
-        let b_time = std::fs::metadata(b).and_then(|m| m.created()).ok();
-        b_time.cmp(&a_time)
-    });
-
-    for old_file in files.iter().skip(keep) {
-        std::fs::remove_file(old_file).ok();
-    }
-}
-
 /// Start Skill auto backup scheduler
 pub fn start_skill_auto_backup(
     config: std::sync::Arc<std::sync::RwLock<crate::config::Config>>,
@@ -1729,9 +1677,106 @@ async fn perform_skill_backup_async(max_files: usize) -> Result<String, String> 
     // 清理旧备份
     let dir_for_cleanup = dir.clone();
     tokio::task::spawn_blocking(move || {
-        cleanup_old_skill_backups(&dir_for_cleanup, max_files);
+        cleanup_old_zip_backups(&dir_for_cleanup, max_files);
     }).await
     .map_err(|e| format!("Task join error: {}", e))?;
 
     Ok(format!("Auto Skill backup: {}", backup_path_for_display))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::thread;
+    use std::time::Duration;
+
+    /// 创建一个空 zip 文件并返回路径；空 zip 是合法格式，避免 `is_zip` 类型检查失败。
+    fn make_empty_zip(dir: &std::path::Path, name: &str) -> PathBuf {
+        let path = dir.join(name);
+        let file = fs::File::create(&path).unwrap();
+        let zip = zip::ZipWriter::new(file);
+        zip.finish().unwrap();
+        path
+    }
+
+    /// 验证 `keep >= 总数` 时不会删除任何文件（保留语义不变）。
+    #[test]
+    fn cleanup_old_zip_backups_keeps_all_when_count_le_keep() {
+        // 临时目录隔离，测试结束自动回收
+        let dir = std::env::temp_dir().join(format!(
+            "ntd-backup-test-keep-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // 仅创建 2 个 zip，keep=5 ⇒ 保留全部
+        make_empty_zip(&dir, "a.zip");
+        make_empty_zip(&dir, "b.zip");
+
+        cleanup_old_zip_backups(&dir, 5);
+
+        // 不应有任何文件被删除
+        let remaining: Vec<_> = fs::read_dir(&dir).unwrap().flatten().collect();
+        assert_eq!(remaining.len(), 2, "keep 大于总数时应保留全部文件");
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 验证目录不存在时安全 no-op，不 panic。
+    #[test]
+    fn cleanup_old_zip_backups_noop_when_dir_missing() {
+        let dir = std::env::temp_dir().join(format!(
+            "ntd-backup-test-missing-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        // 确保目录不存在
+        let _ = fs::remove_dir_all(&dir);
+        assert!(!dir.exists());
+
+        // 不存在的目录应当直接返回，不能 panic
+        cleanup_old_zip_backups(&dir, 3);
+    }
+
+    /// 验证非 zip 文件不会被清理函数当作备份删除。
+    #[test]
+    fn cleanup_old_zip_backups_ignores_non_zip_files() {
+        let dir = std::env::temp_dir().join(format!(
+            "ntd-backup-test-mix-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // 2 个 zip + 2 个非 zip，keep=1 ⇒ 只保留最新 zip，删除其余 zip，不动其它
+        make_empty_zip(&dir, "old.zip");
+        make_empty_zip(&dir, "newer.zip");
+        fs::write(dir.join("readme.txt"), "hi").unwrap();
+        fs::write(dir.join("data.json"), "{}").unwrap();
+
+        // 让两个 zip 的 created 时间有可分辨的差异
+        thread::sleep(Duration::from_millis(50));
+        make_empty_zip(&dir, "newest.zip");
+
+        cleanup_old_zip_backups(&dir, 1);
+
+        let names: Vec<String> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+
+        // 非 zip 文件不应被删除
+        assert!(names.iter().any(|n| n == "readme.txt"));
+        assert!(names.iter().any(|n| n == "data.json"));
+        // zip 数量应被裁剪到 keep=1
+        let zip_count = names.iter().filter(|n| n.ends_with(".zip")).count();
+        assert_eq!(zip_count, 1, "zip 数量应等于 keep=1");
+
+        fs::remove_dir_all(&dir).ok();
+    }
 }
