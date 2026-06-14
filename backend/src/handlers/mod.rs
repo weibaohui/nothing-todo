@@ -625,11 +625,14 @@ where
 ///    - install --force：用新 binary 重新安装服务配置
 ///    - start：启动新版本服务
 ///    - rm -f /tmp/ntd.update：清理标记
-/// 4. 主进程立即 `exit(0)`，让出端口和资源给新版本
+/// 4. 先返回 HTTP 响应给前端，再 spawn 后台任务延迟 500ms 后 `exit(0)`，
+///    让出端口和资源给新版本。响应先返回确保前端看到成功响应，
+///    避免 exit(0) 时连接被突然中断。
 ///
 /// # 前端配合
-/// 由于主进程 exit(0) 后 TCP 连接断开，前端会收到 fetch 错误。
-/// 前端在 catch 到错误后，延迟 5s 自动 `location.reload()` 刷新页面。
+/// 前端首先收到 HTTP 成功响应（code=0），然后 5s 后自动 `location.reload()`
+/// 刷新页面以访问新版本服务。即使后端 exit(0) 导致 TCP 断开，
+/// 5s 定时器也会兜底刷新。
 ///
 /// # 安全防线 (issue #476 CRITICAL #1)
 /// `npm prefix -g` 返回的 prefix 来自用户 `~/.npmrc`，可被污染成
@@ -714,7 +717,9 @@ async fn version_upgrade_handler() -> impl IntoResponse {
     // 主进程 exit(0) 后子进程不会收到 SIGHUP。
     //
     // 步骤：
-    // 1. sleep 3.0s：等主进程完全退出 + OS 释放 socket fd，避免端口冲突
+    // 1. sleep 3s：等主进程完全退出 + OS 释放 socket fd，避免端口冲突。
+    //    使用整数 `3` 而非 `3.0`：macOS 和 Alpine/busybox 的 sleep
+    //    不支持浮点数参数，整型兼容所有平台。
     // 2. install --force：用新 binary 重新注册服务
     // 3. start：启动新版本服务
     // 4. rm -f：清理更新标记
@@ -723,7 +728,7 @@ async fn version_upgrade_handler() -> impl IntoResponse {
     #[cfg(unix)]
     std::process::Command::new("sh")
         .args(["-c", &format!(
-            "(sleep 3.0; {quoted} daemon install --force; {quoted} daemon start; rm -f /tmp/ntd.update) &",
+            "(sleep 3; {quoted} daemon install --force; {quoted} daemon start; rm -f /tmp/ntd.update) >> /tmp/ntd-upgrade.log 2>&1 &",
             quoted = quoted,
         )])
         .stdin(std::process::Stdio::null())
@@ -736,22 +741,46 @@ async fn version_upgrade_handler() -> impl IntoResponse {
     #[cfg(windows)]
     std::process::Command::new("cmd")
         .args(["/C", &format!(
-            "timeout /t 3 /nobreak >nul && {quoted} daemon install --force && {quoted} daemon start && del %TEMP%\\ntd.update",
+            "timeout /t 3 /nobreak >nul && {quoted} daemon install --force && {quoted} daemon start && del /f /q %TEMP%\\ntd.update",
             quoted = quoted,
         )])
         .creation_flags(0x08000000) // CREATE_NO_WINDOW
         .spawn()
         .ok();
 
-    // 记录即将退出，便于运维查日志确认升级过程
+    // 记录 fork 成功，便于运维查日志确认升级进程已启动
     tracing::info!(
-        "Self-update: npm upgraded, forked child process, now exiting main process. ntd path: {}",
+        "Self-update: npm upgraded, forked child process. ntd path: {}",
         ntd_cmd,
     );
 
-    // 主进程立即退出，让出端口和资源给新版本服务。
-    // 子进程在 sleep 3s 后开始执行 install --force + start。
-    std::process::exit(0);
+    // 先返回成功响应给前端，让 Axum 完成 HTTP 响应的发送。
+    // 然后通过 spawn 后台任务延迟 500ms 后 exit(0)，
+    // 给当前 in-flight 响应足够时间写回客户端。
+    // 子进程（sleep 3s 后 install --force + start）通过 `(...) &`
+    // 已脱离当前 shell wait 链，主进程 exit 后子进程正常工作。
+    //
+    // 异步 handler 返回响应与 spawn 后台任务：
+    // Axum 在 handler 返回后完成响应 body 的写入和 flush，
+    // 500ms 窗口足够绝大多数情况。若极端情况下响应未发完，
+    // exit(0) 会导致 TCP RST，但前端已有 5s 自动刷新兜底。
+    //
+    // 为什么不用 tokio::signal / with_graceful_shutdown：
+    // 当前 main.rs 使用 axum::serve(listener, app).await 无 graceful
+    // shutdown 信号通路。引入完整 shutdown 架构超出本 PR 范围，
+    // 短期用 spawn + exit(0) 平衡正确性与改动量。
+    let response = ApiResponse::ok(serde_json::json!({
+        "status": "upgrade_started",
+        "message": "升级流程已启动，服务即将重启",
+    }));
+    tokio::spawn(async move {
+        // 给当前 HTTP 响应足够时间完成发送
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        // 记录日志后退出，便于运维确认升级流程正常
+        tracing::info!("Self-update: main process exiting after response sent");
+        std::process::exit(0);
+    });
+    return response;
 }
 
 // Build router

@@ -14,11 +14,12 @@ interface VersionStatus {
 }
 
 // 分离式自更新方案 (issue #569) 不再需要 UpgradeResult 类型，
-// 后端 exit(0) 后前端通过自动刷新访问新版本服务。
+// 后端先返回成功响应，再 exit(0) 后前端通过自动刷新访问新版本服务。
 
-// 分离式自更新方案 (issue #569)：升级时后端会执行 std::process::exit(0)，
-// 导致前端 fetch 连接断开。前端 catch 到错误后，等待 5s 让子进程完成
-// install --force + start，然后自动刷新页面以访问新版本服务。
+// 分离式自更新方案 (issue #569)：升级时后端会先返回 HTTP 成功响应，
+// 然后 spawn 后台任务延迟 500ms 后 exit(0)。前端主要依赖成功响应，
+// 5s 后自动刷新页面访问新版本服务。极端情况 exit(0) 过早导致 TCP 断开，
+// catch 兜底后仍由 5s 定时器刷新。
 const UPGRADE_RELOAD_DELAY_MS = 5000;
 
 // 分离式自更新方案 (issue #569)：后端升级后主进程 exit(0)，
@@ -142,10 +143,10 @@ export function AboutPanel() {
   // 1. npm install -g 升级 npm 包
   // 2. 写 /tmp/ntd.update 标记
   // 3. fork 子进程 sleep 3s → install --force → start → rm 标记
-  // 4. 主进程 exit(0) 让出端口
+  // 4. 返回成功响应给前端，然后 spawn 后台任务 500ms 后 exit(0) 让出端口
   //
-  // 前端感知：API 调用成功（返回响应）或断开连接（后端 exit(0) 导致 TCP 重置）。
-  // 无论哪种结果，都在 UPGRADE_RELOAD_DELAY_MS 后自动刷新页面。
+  // 前端感知：正常情况收到 API 成功响应（code=0），极端情况 exit(0) 过早
+  // 导致 TCP 重置触发 catch。无论哪种结果，都在 UPGRADE_RELOAD_DELAY_MS 后自动刷新页面。
   const handleUpgrade = async () => {
     if (!versionStatus?.latest) return;
 
@@ -166,20 +167,21 @@ export function AboutPanel() {
       cancelText: '取消',
       onOk: async () => {
         setUpgrading(true);
-        // 不论成功或失败（后端 exit(0) 会导致网络错误），
-        // 都在 UPGRADE_RELOAD_DELAY_MS 后自动刷新页面。
+        // 后端会先返回成功响应再 exit(0)，因此正常情况 catch 不会触发。
+        // 极端情况 exit(0) 过早导致 TCP RST 时 catch 兜底。
+        // 都在 UPGRADE_RELOAD_DELAY_MS 后自动刷新页面访问新版本。
         // 不保存 timer 引用：页面即将刷新，无需清除。
         setTimeout(() => {
           window.location.reload();
         }, UPGRADE_RELOAD_DELAY_MS);
 
         try {
-          // 执行升级。可能收到正常响应，也可能因后端 exit(0) 收到网络错误。
-          // 超时后仍然触发 catch（fetch 默认超时行为），
-          // 但延迟刷新由上面的 setTimeout 兜底。
+          // 执行升级。通常收到正常响应（后端先返回再 exit），
+          // 极端情况 exit(0) 过早导致网络错误时触发 catch。
+          // 延迟刷新由上面的 setTimeout 统一兜底。
           await db.upgradeVersion();
         } catch (_e) {
-          // 后端 exit(0) 导致 fetch 连接断开是预期行为，
+          // exit(0) 过早导致 TCP RST 是极端情况，
           // 不展示错误提示，静默等待定时器刷新。
         }
         // 注意：此处不设置 setUpgrading(false)，
