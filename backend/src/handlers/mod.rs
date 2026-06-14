@@ -1,6 +1,6 @@
 use axum::{
     Router,
-    extract::{FromRequest, FromRequestParts, Path, Request, State, WebSocketUpgrade},
+    extract::{FromRequest, Path, Request, State, WebSocketUpgrade},
     http::{self, Method, StatusCode, header},
     middleware::Next,
     response::{Html, IntoResponse, Response},
@@ -12,7 +12,7 @@ use tower_http::trace::TraceLayer;
 use axum::extract::DefaultBodyLimit;
 use serde::Serialize;
 use std::sync::Arc;
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::broadcast;
 use uuid::Uuid;
 
 #[cfg(windows)]
@@ -530,84 +530,24 @@ fn cors_expose_headers() -> [http::HeaderName; 1] {
 #[derive(Debug, Clone)]
 pub struct RequestId(pub String);
 
-/// 给 handler 一个"响应 body 即将被写出"的信号点。
-///
-/// **用法**:
-/// - 在 handler 里加 extractor `ResponseDone`,在 std::thread 里
-///   `rx.blocking_recv()` 等信号
-/// - 适用场景: handler 同步返回了响应,但仍要起后台线程做"会杀当前进程"的事
-///   (典型如 `ntd daemon stop`)。如果不等响应真正落到 wire 就 stop,
-///   客户端会看到连接重置,而不是预期的 JSON
-///
-/// **精度说明**:
-/// `drop(tx)` 发生在 `next.run(req).await` 返回时 —— 此时 `Response` 对象
-/// 已构造完,但 body 还在内存里,接下来由 axum runtime 异步 flush 到 socket。
-/// 从 drop(tx) 到数据真正送达对端,延迟是 µs 级别,远小于
-/// `ntd daemon stop` 进程退出 + OS 清理 socket fd 的时间窗口,实际不会丢响应。
-///
-/// **为什么不进一步精确到"body 字节落到 wire"**:
-/// 那样需要包装 response body 实现 `axum::body::MessageBody`,
-/// 在 `poll_frame` 返回 `Ready` 时发信号,代码量 +50 行。
-/// 当前精度对 `daemon stop` 这种秒级操作已经足够,真要"绝对精确"再加。
-///
-/// **对其它路由的开销**:
-/// 每次请求多一对 oneshot channel (零分配原语 + 一个 wait queue),
-/// 没有 receiver 端订阅就直接 drop,基本可忽略。
-pub async fn track_response_done(mut req: Request, next: Next) -> Response {
-    let (tx, rx) = oneshot::channel();
-    // 包装成 `Arc<Mutex<Option<Receiver<()>>>>` 才能塞进 extensions:
-    // - axum 和 http 两边的 Extensions::insert 都要求 T: Clone
-    // - oneshot::Receiver 是单消费者,本身不可能 Clone
-    // - Arc<Mutex<Option<_>>> 是 Clone + Send + Sync,Option 让 handler
-    //   端能 .take() 把 receiver 拿走
-    let signal: ResponseSignal = Arc::new(std::sync::Mutex::new(Some(rx)));
-    req.extensions_mut().insert(signal);
-    let resp = next.run(req).await;
-    // response 拿出来了,axum 接下来会异步把 body 写到 socket。
-    // 在这个点 drop tx,后台线程的 blocking_recv 立刻返回,
-    // 继续往下做会杀掉当前进程的工作。
-    drop(tx);
-    resp
+
+
+/// 返回 ntd.update 标记文件的路径（Unix 版）。
+fn ntd_update_marker_path() -> String {
+    "/tmp/ntd.update".to_string()
 }
 
-/// `track_response_done` 中间件塞进 extensions 的信号句柄。
-/// 内部用 Mutex 保护 oneshot::Receiver(后者不是 Sync,
-/// 必须在 Mutex 里才能跨线程共享)。
-pub type ResponseSignal = Arc<std::sync::Mutex<Option<oneshot::Receiver<()>>>>;
-
-/// 自定义 extractor: 从 request extensions 拿走中间件塞进来的 oneshot receiver。
-///
-/// 之所以不走 `Extension<oneshot::Receiver<()>>`,是因为 `Extension<T>`
-/// 要求 `T: Clone + Send + Sync`,而 `oneshot::Receiver` 是单消费者的,
-/// 不可能 Clone。我们包一层 `Arc<Mutex<Option<_>>>` 满足 Clone bound,
-/// 在 extractor 里 `.take()` 把 receiver 拿走。
-pub struct ResponseDone(pub oneshot::Receiver<()>);
-
-impl<S> FromRequestParts<S> for ResponseDone
-where
-    S: Send + Sync,
-{
-    type Rejection = std::convert::Infallible;
-
-    async fn from_request_parts(
-        parts: &mut http::request::Parts,
-        _state: &S,
-    ) -> Result<Self, Self::Rejection> {
-        // 这三个 .expect() 都是 invariant 守卫：middleware 没装、mutex 中毒、
-        // extractor 被消费两次都属于开发期 bug，panic 反而是合理的反馈。
-        // 用 #[allow] 让未来新增的 unwrap_used/expect_used clippy lint 不误伤。
-        #[allow(clippy::expect_used)]
-        let signal = parts
-            .extensions
-            .remove::<ResponseSignal>()
-            .expect("track_response_done middleware must be installed before any handler that uses ResponseDone");
-        #[allow(clippy::expect_used)]
-        let rx = signal
-            .lock()
-            .expect("ResponseSignal mutex poisoned")
-            .take()
-            .expect("ResponseDone extractor can only be used once per request");
-        Ok(ResponseDone(rx))
+/// 返回子进程清理标记文件时使用的路径表达式。
+/// Unix 用 `/tmp/ntd.update`，Windows 用 `%TEMP%\\ntd.update`，
+/// 与 `ntd_update_marker_path()` 写入的路径保持一致。
+fn ntd_update_marker_cleanup_path() -> String {
+    #[cfg(unix)]
+    {
+        "/tmp/ntd.update".to_string()
+    }
+    #[cfg(windows)]
+    {
+        "%TEMP%\\ntd.update".to_string()
     }
 }
 
@@ -619,12 +559,13 @@ where
 ///
 /// # 分离式自更新方案 (issue #569)
 /// 1. 执行 `npm install -g @weibaohui/nothing-todo@latest` 升级 npm 包
-/// 2. 写 `/tmp/ntd.update` 标记，用于 systemd 检测到退出时不自动重启旧版本
+/// 2. 写标记文件（Unix: `/tmp/ntd.update`，Windows: `%TEMP%\\ntd.update`），
+///    用于 systemd 检测到退出时不自动重启旧版本
 /// 3. fork 独立子进程：`sh -c "(sleep 3; ntd daemon install --force; ntd daemon start; rm -f /tmp/ntd.update) &"`
 ///    - sleep 3：等主进程完全退出，释放端口
 ///    - install --force：用新 binary 重新安装服务配置
 ///    - start：启动新版本服务
-///    - rm -f /tmp/ntd.update：清理标记
+///    - rm -f：清理标记
 /// 4. 先返回 HTTP 响应给前端，再 spawn 后台任务延迟 500ms 后 `exit(0)`，
 ///    让出端口和资源给新版本。响应先返回确保前端看到成功响应，
 ///    避免 exit(0) 时连接被突然中断。
@@ -691,30 +632,43 @@ async fn version_upgrade_handler() -> impl IntoResponse {
 
     // **安全校验**：检查 ntd 路径是否可安全嵌入 shell 脚本，
     // 防止 prefix 被 ~/.npmrc 污染成攻击载荷 (issue #476)
+    // 注意：find_ntd_binary 最终 fallback 返回裸字符串 "ntd"（依赖 PATH 查找），
+    // 它会被 is_safe_ntd_path 拒绝（不是绝对路径），此时给出明确的错误提示。
+    if ntd_cmd == "ntd" {
+        tracing::error!(
+            "Self-update: ntd binary not found at {{prefix}}/bin/ntd or current exe path"
+        );
+        let err_resp: ApiResponse<serde_json::Value> = ApiResponse::err(1, "无法更新：未找到 ntd 可执行文件路径");
+        return err_resp;
+    }
     if !crate::daemon::common::is_safe_ntd_path(&ntd_cmd) {
         tracing::error!(
             "Refusing self-update: ntd path {:?} contains characters outside [A-Za-z0-9/_.-] \
              or is not absolute. Likely a poisoned npm prefix.",
             ntd_cmd,
         );
-        // 显式指定类型参数，与 handler 返回类型保持一致
         let err_resp: ApiResponse<serde_json::Value> = ApiResponse::err(1, "无法更新：ntd 路径包含非法字符（可能 npm prefix 被污染）");
         return err_resp;
     }
 
-    // 写 /tmp/ntd.update 标记文件，用于 Restart=always 场景：
+    // 写标记文件，用于 Restart=always 场景：
     // 主进程 exit(0) 后 systemd 检测到标记存在则不自动重启旧版本，
     // 等待子进程完成 install --force + start 后清理标记。
     // 更新失败排查：标记残留 = 流程中断，可定位卡在哪一步。
-    std::fs::write("/tmp/ntd.update", "").ok();
+    // Unix 用 /tmp/ntd.update, Windows 用 %TEMP%\\ntd.update，
+    // 与子进程里的清理路径保持一致。
+    std::fs::write(ntd_update_marker_path(), "").ok();
 
     // 用单引号包裹 ntd 路径。调用方已通过 is_safe_ntd_path 校验，
     // 没有单引号/反斜杠等危险字符。单引号在 bash 里禁用所有 expansion。
     let quoted = crate::daemon::common::shell_quote_single(&ntd_cmd);
 
+    // 子进程清理标记文件时的路径，与 ntd_update_marker_path() 保持一致。
+    let marker_cleanup_path = ntd_update_marker_cleanup_path();
+
     // fork 独立子进程：用 sh -c 启动后台 shell，
     // `(...) &` 语法让子进程在后台运行并脱离当前 shell 的 wait 链，
-    // 主进程 exit(0) 后子进程不会收到 SIGHUP。
+    // 主进程 exit(0) 后子进程不会收到 SIGHUP，会被 reparent 到 init 进程。
     //
     // 步骤：
     // 1. sleep 3s：等主进程完全退出 + OS 释放 socket fd，避免端口冲突。
@@ -728,9 +682,13 @@ async fn version_upgrade_handler() -> impl IntoResponse {
     #[cfg(unix)]
     std::process::Command::new("sh")
         .args(["-c", &format!(
-            "(sleep 3; {quoted} daemon install --force; {quoted} daemon start; rm -f /tmp/ntd.update) >> /tmp/ntd-upgrade.log 2>&1 &",
+            "(sleep 3; {quoted} daemon install --force; {quoted} daemon start; rm -f {marker}) >> /tmp/ntd-upgrade.log 2>&1 &",
             quoted = quoted,
+            marker = marker_cleanup_path,
         )])
+        // stdin 设为 null 防止子进程意外读取父进程 stdin。
+        // stdout/stderr 在 shell 命令内部已通过 `>> /tmp/ntd-upgrade.log 2>&1`
+        // 重定向到日志文件，此处 .stdout/.stderr 设置被 shell 内部重定向覆盖。
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -741,8 +699,9 @@ async fn version_upgrade_handler() -> impl IntoResponse {
     #[cfg(windows)]
     std::process::Command::new("cmd")
         .args(["/C", &format!(
-            "timeout /t 3 /nobreak >nul && {quoted} daemon install --force && {quoted} daemon start && del /f /q %TEMP%\\ntd.update",
+            "timeout /t 3 /nobreak >nul && {quoted} daemon install --force && {quoted} daemon start && del /f /q {marker}",
             quoted = quoted,
+            marker = marker_cleanup_path,
         )])
         .creation_flags(0x08000000) // CREATE_NO_WINDOW
         .spawn()
@@ -1023,10 +982,7 @@ pub fn create_app(
         .route("/api/cloud/sync/push", post(sync::cloud_sync_push))
         .route("/api/cloud/sync/pull", post(sync::cloud_sync_pull))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
-        // 给 handler 一个"响应 body 即将送出"的信号点,用于
-        // "返回响应后还要做会杀当前进程的事"的场景(典型如版本升级)。
-        // 注释见 `track_response_done` 定义。
-        .layer(axum::middleware::from_fn(track_response_done))
+
         .layer(CompressionLayer::new())
         .layer(
             if crate::config::Config::is_dev_mode() {
