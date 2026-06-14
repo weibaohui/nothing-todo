@@ -342,7 +342,7 @@ async fn merge_cloud_todos_to_local(
             _ => {
                 // 未知策略：当作 skip 处理
                 if !local_by_title.contains_key(&key) {
-                    let new_id = db.create_todo(title, &item.prompt).await.map_err(|e| e.to_string())?;
+                    let _new_id = db.create_todo(title, &item.prompt).await.map_err(|e| e.to_string())?;
                     affected += 1;
                 }
             }

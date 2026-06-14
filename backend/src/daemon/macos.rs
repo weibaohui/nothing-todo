@@ -12,8 +12,6 @@
 //!   进程可能需要更久。这里不引入 polling（需要重新解析 launchctl list
 //!   输出判断 PID），保持与原行为等价 —— 只是把阻塞 sleep 换成协作式 sleep。
 
-#![allow(unsafe_code)] // daemon/macos.rs uses libc FFI which requires unsafe blocks
-
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -40,13 +38,8 @@ fn plist_path() -> PathBuf {
     home.join("Library").join("LaunchAgents").join(format!("{LAUNCHD_LABEL}.plist"))
 }
 
-fn current_uid() -> u32 {
-    // getuid 不会失败（无 errno），unsafe 只用于跨 FFI 边界
-    unsafe { libc::getuid() }
-}
-
 fn launchd_domain() -> String {
-    format!("gui/{}", current_uid())
+    format!("gui/{}", crate::sys::current_uid())
 }
 
 fn generate_plist() -> String {

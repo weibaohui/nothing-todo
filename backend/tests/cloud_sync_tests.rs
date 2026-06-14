@@ -60,7 +60,7 @@ async fn spawn_mock_cloud() -> String {
     format!("http://{}", addr)
 }
 
-async fn build_test_app() -> (axum::Router, Arc<tokio::sync::RwLock<Config>>) {
+async fn build_test_app() -> (axum::Router, Arc<std::sync::RwLock<Config>>) {
     let db = Arc::new(Database::new(":memory:").await.unwrap());
     let executor_registry = Arc::new(ExecutorRegistry::new());
     executor_registry
@@ -69,7 +69,7 @@ async fn build_test_app() -> (axum::Router, Arc<tokio::sync::RwLock<Config>>) {
     let (tx, _rx) = broadcast::channel(100);
     let task_manager = Arc::new(TaskManager::new());
 
-    let config = Arc::new(tokio::sync::RwLock::new(Config::default()));
+    let config = Arc::new(std::sync::RwLock::new(Config::default()));
     let tmp_ctx = ServiceContext {
         db: db.clone(),
         executor_registry: executor_registry.clone(),
@@ -78,7 +78,7 @@ async fn build_test_app() -> (axum::Router, Arc<tokio::sync::RwLock<Config>>) {
         config: config.clone(),
     };
     let hook_service = Arc::new(HookService::new(tmp_ctx));
-    let scheduler = Arc::new(TodoScheduler::new(hook_service).await.unwrap());
+    let scheduler = Arc::new(TodoScheduler::new(hook_service.clone()).await.unwrap());
     let ctx = ServiceContext {
         db: db.clone(),
         executor_registry: executor_registry.clone(),
@@ -88,7 +88,7 @@ async fn build_test_app() -> (axum::Router, Arc<tokio::sync::RwLock<Config>>) {
     };
     scheduler.load_from_db(&ctx).await.unwrap();
     scheduler.start().await.unwrap();
-    (create_app(ctx, scheduler), config)
+    (create_app(ctx, scheduler, hook_service), config)
 }
 
 async fn read_json(response: axum::response::Response) -> serde_json::Value {
@@ -105,7 +105,7 @@ async fn cloud_sync_push_does_not_deadlock_with_config_write() {
     let cloud_url = spawn_mock_cloud().await;
 
     {
-        let mut cfg = config.write().await;
+        let mut cfg = config.write().unwrap();
         cfg.cloud_sync = CloudSyncConfig {
             server_url: cloud_url,
             sync_token: Some("ntd_test_token".to_string()),
@@ -134,7 +134,7 @@ async fn cloud_sync_push_does_not_deadlock_with_config_write() {
     assert_eq!(data["direction"], "push");
 
     // 成功 push 之后，last_sync_at 应被写回 config。
-    let cfg = config.read().await;
+    let cfg = config.read().unwrap();
     assert!(
         cfg.cloud_sync.last_sync_at.is_some(),
         "成功 push 之后 last_sync_at 必须被更新"
@@ -149,7 +149,7 @@ async fn cloud_sync_pull_does_not_deadlock_with_config_write() {
     // pull 调的是 GET /api/v1/sync/pull，mock 对所有请求都回 success: true。
     let cloud_url = spawn_mock_cloud().await;
     {
-        let mut cfg = config.write().await;
+        let mut cfg = config.write().unwrap();
         cfg.cloud_sync = CloudSyncConfig {
             server_url: cloud_url,
             sync_token: Some("ntd_test_token".to_string()),
@@ -182,7 +182,7 @@ async fn cloud_sync_pull_does_not_deadlock_with_config_write() {
 async fn cloud_sync_push_missing_token_returns_bad_request() {
     let (app, config) = build_test_app().await;
     {
-        let mut cfg = config.write().await;
+        let mut cfg = config.write().unwrap();
         cfg.cloud_sync = CloudSyncConfig {
             server_url: "http://127.0.0.1:1".to_string(),
             sync_token: None, // 关键：没配 token

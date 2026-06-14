@@ -104,7 +104,7 @@ mod todo_id_query_tests {
     fn test_todo_id_query_default() {
         let json = r#"{"todo_id": 123}"#;
         let query: TodoIdQuery = serde_json::from_str(json).unwrap();
-        assert_eq!(query.todo_id, 123);
+        assert_eq!(query.todo_id, Some(123));
         assert_eq!(query.page, None);
         assert_eq!(query.limit, None);
     }
@@ -113,7 +113,7 @@ mod todo_id_query_tests {
     fn test_todo_id_query_with_pagination() {
         let json = r#"{"todo_id": 123, "page": 2, "limit": 50}"#;
         let query: TodoIdQuery = serde_json::from_str(json).unwrap();
-        assert_eq!(query.todo_id, 123);
+        assert_eq!(query.todo_id, Some(123));
         assert_eq!(query.page, Some(2));
         assert_eq!(query.limit, Some(50));
     }

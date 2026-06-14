@@ -6,6 +6,7 @@
 //! 写错 —— 这正是 PR #482 修的 cgroup-detach 修复的关键。
 
 #[cfg(test)]
+#[cfg(target_os = "linux")]
 mod build_redeploy_spec_tests {
     use ntd::daemon::{build_redeploy_spec, DaemonInstallMode, RedeployCommandSpec};
 

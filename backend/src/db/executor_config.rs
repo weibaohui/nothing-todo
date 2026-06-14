@@ -166,6 +166,7 @@ impl Database {
         let existing_names: Vec<&str> = existing.iter().map(|m| m.name.as_str()).collect();
         let now = crate::models::utc_timestamp();
 
+        // 增：代码里有但 DB 里没有的 executor → 插入
         for exec in EXECUTORS {
             if !existing_names.contains(&exec.name) {
                 let am = executors::ActiveModel {
@@ -182,6 +183,22 @@ impl Database {
                 tracing::info!("Added new executor '{}' to database", exec.name);
             }
         }
+
+        // 删：DB 里有但代码里没有的 enabled executor → 自动禁用
+        let code_names: Vec<&str> = EXECUTORS.iter().map(|e| e.name).collect();
+        for model in &existing {
+            if model.enabled && !code_names.contains(&model.name.as_str()) {
+                let mut am: executors::ActiveModel = model.clone().into();
+                am.enabled = ActiveValue::Set(false);
+                am.updated_at = ActiveValue::Set(Some(now.clone()));
+                am.update(&self.conn).await?;
+                tracing::info!(
+                    "Disabled removed executor '{}' (no longer supported)",
+                    model.name
+                );
+            }
+        }
+
         Ok(())
     }
 }

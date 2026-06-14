@@ -195,7 +195,7 @@ fn convert_cron_to_utc(
     // 比手算偏移更准。day_of_month/month/day_of_week 保持原值,见函数 doc。
     let _seconds = fields[0];
     let _minutes = fields[1];
-    let hours = fields[2];
+    let _hours = fields[2];
     let day_of_month = fields[3];
     let month = fields[4];
     let day_of_week = fields[5];
@@ -927,7 +927,7 @@ mod scheduler_error_tests {
     #[test]
     fn test_multi_hour_list_uses_union_path() {
         // 9 点和 12 点不是 DST pair（hour diff=3），应走 union 路径。
-        let utc = convert_cron_to_utc("0 0 9,12 * * *", "Asia/Shanghai").unwrap();
+        let utc = convert_cron_to_utc("0 0 9,12 * * *", "Asia/Shanghai", 0).unwrap();
         // Shanghai: 9 → 1, 12 → 4 (both UTC)
         assert!(
             utc.contains("1") && utc.contains("4"),
@@ -941,13 +941,13 @@ mod scheduler_error_tests {
     #[test]
     fn test_invalid_input_returns_descriptive_error() {
         // 输入垃圾字符串，错误信息应包含具体内容而不是"panic"。
-        let result = convert_cron_to_utc("!!!bad!!!", "Asia/Shanghai");
+        let result = convert_cron_to_utc("!!!bad!!!", "Asia/Shanghai", 0);
         let err = result.unwrap_err();
         // 错误消息必须非空且包含解析失败的描述，方便运维定位。
-        assert!(!err.is_empty(), "error message should not be empty");
+        assert!(!err.to_string().is_empty(), "error message should not be empty");
         // 不应该有 "panic" 字样——证明我们没走到 panic 路径。
         assert!(
-            !err.to_lowercase().contains("panic"),
+            !err.to_string().to_lowercase().contains("panic"),
             "error should be returned via Result, not panic. got: {err}"
         );
     }

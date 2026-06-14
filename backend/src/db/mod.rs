@@ -8,9 +8,9 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use sea_orm::{
-    ActiveModelBehavior, ActiveModelTrait, ColumnTrait, ConnectOptions, ConnectionTrait,
-    Database as SeaDatabase, DatabaseConnection, DbBackend, EntityTrait, IntoActiveModel,
-    Order, QueryFilter, QueryOrder, QuerySelect, SqlxSqliteConnector, Statement,
+    ActiveModelBehavior, ActiveModelTrait, ColumnTrait, ConnectionTrait,
+    DatabaseConnection, DbBackend, EntityTrait, IntoActiveModel,
+    Order, QueryFilter, QueryOrder, SqlxSqliteConnector, Statement,
 };
 
 pub mod entity;

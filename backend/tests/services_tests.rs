@@ -370,6 +370,7 @@ mod feishu_push_service_tests {
                 ))
             }
             ExecEvent::Sync { .. } => None,
+            ExecEvent::ReviewStatusChanged { .. } => None,
         }
     }
 

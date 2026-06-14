@@ -259,7 +259,7 @@ pub async fn delete_todo(
     Path(id): Path<i64>,
 ) -> Result<ApiResponse<()>, AppError> {
     // Get todo info before deletion for hooks
-    let todo_opt = state.db.get_todo(id).await?;
+    state.db.get_todo(id).await?;
 
     // 先清理调度器任务（如果有）
     state.scheduler.remove_task_for_todo(id).await;

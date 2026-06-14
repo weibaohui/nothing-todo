@@ -121,5 +121,8 @@ unsafe_code = "deny"
 # `rust-version = "1.75"` 不兼容：旧 toolchain 会把它当作 unknown lint 报 warning。
 # 升级 MSRV 时再启用此项。
 # unsafe_op_in_unsafe_fn = "warn"
-missing_debug_implementations = "warn"
-missing_docs = "warn"
+#
+# missing_debug_implementations / missing_docs 当前产生 2000+ 条警告，
+# 统一降为 allow；新增模块/结构体时逐步补齐 Debug 和文档。
+missing_debug_implementations = "allow"
+missing_docs = "allow"
