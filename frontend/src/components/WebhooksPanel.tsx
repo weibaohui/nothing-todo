@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+// 统一从 antd 导入所有需要的组件，包括 Tabs、Empty（用于空状态占位）和 Tooltip（用于复制 URL 提示）
 import {
   Table,
   Card,
@@ -14,11 +15,8 @@ import {
   Tag,
   Descriptions,
   Tooltip,
-} from 'antd';
-import { copyToClipboard } from '@/utils/clipboard';
   Tabs,
   Empty,
-  Tooltip,
 } from 'antd';
 import {
   PlusOutlined,
@@ -33,6 +31,7 @@ import * as db from '@/utils/database';
 import type { Webhook, WebhookRecord } from '@/utils/database';
 import type { Todo } from '@/types';
 import { useIsMobile } from '@/hooks/useIsMobile';
+// 使用统一的剪贴板工具函数，兼容 HTTP 和 HTTPS 环境
 import { copyToClipboard } from '@/utils/clipboard';
 
 interface WebhooksPanelProps {
