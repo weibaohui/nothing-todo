@@ -156,7 +156,9 @@ export const ToolCallLogStrategy: LogParserStrategy = {
     try {
       const toolData = JSON.parse(log.content);
       ctx.currentToolName = toolData.name || toolData.tool || '工具调用';
-      ctx.currentToolInput = toolData.input
+      // 使用严格的 null/undefined 检查而非 truthy 判断，
+      // 避免将合法的假值（0、false、""）误判为缺失输入而丢弃。
+      ctx.currentToolInput = toolData.input != null
         ? JSON.stringify(toolData.input, null, 2)
         : log.content;
     } catch {
@@ -173,6 +175,9 @@ export const ToolCallLogStrategy: LogParserStrategy = {
 export const ToolResultLogStrategy: LogParserStrategy = {
   canHandle: (log) => log.type === 'tool_result',
   parse: (log, ctx) => {
+    // 在推送 tool_result 消息之前先 flush thinking，
+    // 避免 thinking 内容被推迟到 tool_result 之后，造成消息顺序错乱。
+    ctx.flushThinking(log.timestamp);
     if (ctx.isCollectingTool && (ctx.currentToolName || ctx.currentToolInput)) {
       // 合并到累积的 tool 消息
       ctx.messages.push({
@@ -280,7 +285,8 @@ export function parseLogsWithStrategies(
   }
 
   // 结束解析，清理剩余状态
-  ctx.finalize();
+  // 传入最后一条日志的时间戳，确保 finalize 推送的剩余消息时间顺序一致。
+  ctx.finalize(logs.length > 0 ? logs[logs.length - 1].timestamp : undefined);
 
   return ctx.messages;
 }
