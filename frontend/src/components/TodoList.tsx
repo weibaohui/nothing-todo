@@ -545,7 +545,11 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
             <Empty
               description={
                 <div style={{ color: 'var(--color-text-tertiary)', fontSize: 14 }}>
-                  {selectedTagId ? '该标签下暂无任务' : '暂无任务'}
+                  {searchKeyword 
+                    ? `未找到匹配 "${searchKeyword}" 的任务`
+                    : selectedTagId 
+                      ? '该标签下暂无任务' 
+                      : '暂无任务'}
                   <br />
                   <span style={{ fontSize: 13, marginTop: 4, display: 'inline-block' }}>
                     点击右上角新建按钮创建第一个任务
