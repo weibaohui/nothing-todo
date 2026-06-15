@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Spin, Card, Empty, Space, Typography, Button, Alert, Modal } from 'antd';
-import { ExclamationCircleFilled, ReloadOutlined, CloudDownloadOutlined } from '@ant-design/icons';
+import { Spin, Card, Empty, Space, Typography, Button, Alert, Modal, Collapse, message } from 'antd';
+import { ExclamationCircleFilled, ReloadOutlined, CloudDownloadOutlined, CopyOutlined, CodeOutlined } from '@ant-design/icons';
 import * as db from '@/utils/database';
 import { ShareCard } from '@/components/ShareCard';
 
@@ -29,6 +29,19 @@ const UPGRADE_STEPS = [
   { step: '步骤 1', label: '升级 npm 包', code: 'npm install -g @weibaohui/nothing-todo@latest' },
   { step: '步骤 2', label: '自动重新部署服务', code: 'ntd daemon install --force && ntd daemon start' },
 ];
+
+// 手动升级使用的命令列表（与一键升级步骤一致，但命令更通用）。
+// 用于展示给用户复制到 AI Coding 工具中手动执行。
+// 与 UPGRADE_STEPS 的区别：步骤 2 使用 uninstall + install + restart
+// 便于用户在终端中独立执行，不依赖后端 fork 子进程的自动流程。
+const MANUAL_UPGRADE_STEPS = [
+  { label: '1. 升级 npm 包', code: 'npm install -g @weibaohui/nothing-todo@latest' },
+  { label: '2. 重新注册并重启服务', code: 'ntd daemon uninstall && ntd daemon install && ntd daemon restart' },
+];
+
+// 将手动升级的全部命令合并为一段脚本，方便用户一次性复制给 AI 工具。
+// 使用 && 串联：前一步失败则停止，避免部分执行导致状态不一致。
+const MANUAL_UPGRADE_SCRIPT = MANUAL_UPGRADE_STEPS.map(s => s.code).join(' && ');
 
 /**
  * 渲染更新确认弹窗的内容区域。
@@ -241,7 +254,7 @@ export function AboutPanel() {
                 </div>
               )}
 
-              <Space>
+              <Space wrap>
                 <Button
                   icon={<ReloadOutlined />}
                   onClick={checkForUpdate}
@@ -262,6 +275,118 @@ export function AboutPanel() {
                   </Button>
                 )}
               </Space>
+
+              {/* 手动升级折叠面板（Issue #581）：在版本检查有结果后展示，
+                  供无法通过一键升级完成更新的用户（如 Docker 部署、无 systemd 环境），
+                  将命令复制到 Claude / Pi 等 AI Coding 工具中手动执行。 */}
+              {versionStatus && (
+                <div style={{ marginTop: 16 }}>
+                  <Collapse
+                    ghost
+                    size="small"
+                    items={[
+                      {
+                        key: 'manual-upgrade',
+                        label: (
+                          <Space size={4}>
+                            <CodeOutlined />
+                            <span>手动升级（复制命令到 AI 工具中执行）</span>
+                          </Space>
+                        ),
+                        children: (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            {/* 提示文案：说明手动升级的适用场景，引导用户复制命令 */}
+                            <Alert
+                              type="info"
+                              message={
+                                <Typography.Text style={{ fontSize: 13, lineHeight: 1.6 }}>
+                                  如果一键更新不适用于您的环境（例如 Docker 部署），请将以下命令复制并粘贴到{' '}
+                                  <Typography.Text code style={{ fontSize: 13 }}>Claude Code</Typography.Text>
+                                  {' '}、{' '}
+                                  <Typography.Text code style={{ fontSize: 13 }}>Pi</Typography.Text>
+                                  {' '}或其他 AI Coding 工具中执行。
+                                  命令将依次执行 npm 包升级和服务重启。
+                                </Typography.Text>
+                              }
+                              showIcon
+                              style={{ marginBottom: 4 }}
+                            />
+
+                            {/* 逐条展示手动升级命令，每条附带独立的复制按钮，
+                                让用户可以选择只复制某一步的命令。 */}
+                            {MANUAL_UPGRADE_STEPS.map((step) => (
+                              <div
+                                key={step.label}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 8,
+                                }}
+                              >
+                                <Typography.Text
+                                  style={{
+                                    minWidth: 160,
+                                    fontSize: 13,
+                                    color: 'var(--color-text-secondary)',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {step.label}
+                                </Typography.Text>
+                                <code
+                                  style={{
+                                    flex: 1,
+                                    background: 'var(--color-bg-elevated)',
+                                    padding: '8px 12px',
+                                    borderRadius: 6,
+                                    fontFamily: 'monospace',
+                                    fontSize: 13,
+                                    lineHeight: 1.5,
+                                    overflowX: 'auto',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {step.code}
+                                </code>
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  icon={<CopyOutlined />}
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(step.code);
+                                    message.success(`已复制：${step.label}`);
+                                  }}
+                                />
+                              </div>
+                            ))}
+
+                            {/* 分隔线 + 一键复制全部命令的按钮 */}
+                            <div
+                              style={{
+                                borderTop: '1px solid var(--color-border-light)',
+                                paddingTop: 8,
+                                display: 'flex',
+                                justifyContent: 'flex-end',
+                              }}
+                            >
+                              <Button
+                                size="small"
+                                icon={<CopyOutlined />}
+                                onClick={() => {
+                                  navigator.clipboard.writeText(MANUAL_UPGRADE_SCRIPT);
+                                  message.success('已复制全部升级命令');
+                                }}
+                              >
+                                复制全部命令
+                              </Button>
+                            </div>
+                          </div>
+                        ),
+                      },
+                    ]}
+                  />
+                </div>
+              )}
             </div>
 
             <div style={{ borderTop: '1px solid var(--color-border-light)', paddingTop: 16 }}>
