@@ -12,6 +12,7 @@ import {
 import XMarkdown from '@ant-design/x-markdown';
 import { ExecutorBadge } from './ExecutorBadge';
 import { formatTokens, formatDuration } from '@/utils/format';
+import { copyToClipboard } from '@/utils/clipboard';
 
 /* ─── Types ─── */
 
@@ -182,9 +183,14 @@ export const TodoCard = memo(function TodoCard({
               {prompt && (
                 <button
                   className="kanban-copy-btn"
-                  onClick={e => {
+                  onClick={async e => {
                     e.stopPropagation();
-                    navigator.clipboard.writeText(prompt).then(() => message.success('已复制'));
+                    const success = await copyToClipboard(prompt);
+                    if (success) {
+                      message.success('已复制');
+                    } else {
+                      message.error('复制失败，请手动复制');
+                    }
                   }}
                   title="复制 Prompt"
                 >
@@ -240,9 +246,14 @@ export const TodoCard = memo(function TodoCard({
               {resultText && (
                 <button
                   className="kanban-copy-btn"
-                  onClick={e => {
+                  onClick={async e => {
                     e.stopPropagation();
-                    navigator.clipboard.writeText(resultText).then(() => message.success('已复制'));
+                    const success = await copyToClipboard(resultText);
+                    if (success) {
+                      message.success('已复制');
+                    } else {
+                      message.error('复制失败，请手动复制');
+                    }
                   }}
                   title="复制结论"
                 >

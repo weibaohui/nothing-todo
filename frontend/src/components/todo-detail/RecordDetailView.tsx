@@ -7,6 +7,7 @@ import { ExecutorBadge } from '@/components/ExecutorBadge';
 import { ChatView } from '@/components/ChatView';
 import { RefreshBtn } from './LogViewHeader';
 import { formatLocalDateTime, formatDurationSec } from '@/utils/datetime';
+import { copyToClipboard } from '@/utils/clipboard';
 import { getElapsedSeconds, formatLogTime } from './helpers';
 import { LOG_TYPE_COLORS, LOG_TYPE_LABELS } from '@/constants';
 import type { SessionGroup } from './helpers';
@@ -165,22 +166,16 @@ export function RecordDetailView({
           )}
         </div>
       </div>
-      {/* 点击命令文本即可复制，不需要额外的复制按钮 */}
-      {/* 复制逻辑三步走：①检查 clipboard API 可用性 → ②写入剪贴板 → ③反馈结果 */}
-      {/* 使用 navigator.clipboard?.writeText 可选链：HTTP 环境或旧浏览器中该 API 为 undefined，直接调用会报 TypeError */}
       {record.command && (
         <Tooltip title="点击复制命令">
           <div
             onClick={async () => {
-              try {
-                if (!navigator.clipboard?.writeText) {
-                  message.error('当前环境不支持复制');
-                  return;
-                }
-                await navigator.clipboard.writeText(record.command || '');
+              // 使用统一的复制工具函数，支持 HTTP 和 HTTPS 环境
+              const success = await copyToClipboard(record.command || '');
+              if (success) {
                 message.success('已复制');
-              } catch {
-                message.error('复制失败');
+              } else {
+                message.error('复制失败，请手动复制');
               }
             }}
             style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginBottom: 12, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
@@ -193,21 +188,17 @@ export function RecordDetailView({
         <div className={`history-result ${record.status === 'success' ? 'history-result-success' : 'history-result-failed'}`} style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>结论</span>
-            {/* 复制结论文本：先检查 clipboard API 可用性，防止在不支持的浏览器中崩溃 */}
+            {/* 复制结论文本：使用统一的复制工具函数，支持 HTTP 和 HTTPS 环境 */}
             <Button
               type="text"
               size="small"
               icon={<CopyOutlined />}
               onClick={async () => {
-                try {
-                  if (!navigator.clipboard?.writeText) {
-                    message.error('当前环境不支持复制');
-                    return;
-                  }
-                  await navigator.clipboard.writeText(record.result || '');
+                const success = await copyToClipboard(record.result || '');
+                if (success) {
                   message.success('已复制到剪贴板');
-                } catch {
-                  message.error('复制失败');
+                } else {
+                  message.error('复制失败，请手动复制');
                 }
               }}
             />

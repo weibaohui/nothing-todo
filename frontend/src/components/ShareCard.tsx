@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Card, Button, App } from 'antd';
 import { ShareAltOutlined, CopyOutlined, CheckOutlined } from '@ant-design/icons';
+import { copyToClipboard } from '@/utils/clipboard';
 
 const getSharePrompt = () => {
   return `全局安装 ntd：npm install -g @weibaohui/nothing-todo，然后执行 ntd daemon install && ntd daemon start，可选安装 skills：ntd skills install，访问 8088 端口`;
@@ -12,10 +13,14 @@ export function ShareCard() {
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(getSharePrompt());
-      setCopied(true);
-      message.success('安装提示词已复制到剪贴板');
-      setTimeout(() => setCopied(false), 2000);
+      const success = await copyToClipboard(getSharePrompt());
+      if (success) {
+        setCopied(true);
+        message.success('安装提示词已复制到剪贴板');
+        setTimeout(() => setCopied(false), 2000);
+      } else {
+        message.error('复制失败，请手动复制');
+      }
     } catch {
       message.error('复制失败，请手动复制');
     }

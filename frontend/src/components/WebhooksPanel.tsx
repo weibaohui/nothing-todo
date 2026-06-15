@@ -13,6 +13,9 @@ import {
   Popconfirm,
   Tag,
   Descriptions,
+  Tooltip,
+} from 'antd';
+import { copyToClipboard } from '@/utils/clipboard';
   Tabs,
   Empty,
   Tooltip,
@@ -30,6 +33,7 @@ import * as db from '@/utils/database';
 import type { Webhook, WebhookRecord } from '@/utils/database';
 import type { Todo } from '@/types';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { copyToClipboard } from '@/utils/clipboard';
 
 interface WebhooksPanelProps {
   todos: Todo[];
@@ -61,14 +65,11 @@ function CopyableUrl({ url, compact }: { url: string; compact: boolean }) {
         size="small"
         icon={<LinkOutlined />}
         onClick={async () => {
-          if (!navigator.clipboard?.writeText) {
-            message.error('当前环境不支持复制');
-            return;
-          }
-          try {
-            await navigator.clipboard.writeText(url);
+          // 使用统一的复制工具函数，支持 HTTP 和 HTTPS 环境
+          const success = await copyToClipboard(url);
+          if (success) {
             message.success('已复制 URL');
-          } catch {
+          } else {
             message.error('复制失败，请手动复制');
           }
         }}

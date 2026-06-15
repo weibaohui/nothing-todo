@@ -13,6 +13,7 @@ import { ExecutorBadge } from '@/components/ExecutorBadge';
 import { useApp } from '@/hooks/useApp';
 import { useViewState } from '@/hooks/useViewState';
 import { formatLocalDateTime } from '@/utils/datetime';
+import { copyToClipboard } from '@/utils/clipboard';
 import { formatTokens, formatDuration, elapsedSeconds } from '@/utils/format';
 import { LOG_TYPE_COLORS, STATUS_COLORS, REVIEW_RESULT_COLORS } from '@/constants';
 import * as db from '@/utils/database';
@@ -162,9 +163,9 @@ export function RunningRecordDrawer({ record, open, onClose, onRefresh }: Runnin
     onRefresh?.();
   }, [onRefresh]);
 
-  const handleCopyResult = useCallback(() => {
+  const handleCopyResult = useCallback(async () => {
     if (record?.result) {
-      navigator.clipboard.writeText(record.result);
+      await copyToClipboard(record.result);
     }
   }, [record]);
 

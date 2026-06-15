@@ -1,6 +1,7 @@
 import { Button, Select, Table, Tag, Typography, Modal, Form, Input, Space, Tooltip, message } from 'antd';
 import { ReloadOutlined, PlusOutlined, HistoryOutlined, QuestionCircleOutlined, CopyOutlined } from '@ant-design/icons';
 import * as db from '@/utils/database';
+import { copyToClipboard } from '@/utils/clipboard';
 import type { FeishuHistoryMessage, FeishuHistoryChat } from '@/types';
 
 const { Option } = Select;
@@ -174,8 +175,10 @@ export function RecordTab({
                       icon={<CopyOutlined />}
                       style={{ fontSize: 10, padding: 0 }}
                       onClick={() => {
-                        navigator.clipboard.writeText(record.sender_open_id);
-                        message.success('已复制 Open ID');
+                        copyToClipboard(record.sender_open_id).then(success => {
+                          if (success) message.success('已复制 Open ID');
+                          else message.error('复制失败，请手动复制');
+                        });
                       }}
                     />
                   )}

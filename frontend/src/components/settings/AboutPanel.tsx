@@ -3,6 +3,7 @@ import { Spin, Card, Empty, Space, Typography, Button, Alert, Modal, Collapse, m
 import { ExclamationCircleFilled, ReloadOutlined, CloudDownloadOutlined, CopyOutlined, CodeOutlined } from '@ant-design/icons';
 import * as db from '@/utils/database';
 import { ShareCard } from '@/components/ShareCard';
+import { copyToClipboard } from '@/utils/clipboard';
 
 const { Paragraph } = Typography;
 
@@ -352,9 +353,13 @@ export function AboutPanel() {
                                   type="text"
                                   size="small"
                                   icon={<CopyOutlined />}
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(step.code);
-                                    message.success(`已复制：${step.label}`);
+                                  onClick={async () => {
+                                    const success = await copyToClipboard(step.code);
+                                    if (success) {
+                                      message.success(`已复制：${step.label}`);
+                                    } else {
+                                      message.error('复制失败，请手动复制');
+                                    }
                                   }}
                                 />
                               </div>
@@ -372,9 +377,13 @@ export function AboutPanel() {
                               <Button
                                 size="small"
                                 icon={<CopyOutlined />}
-                                onClick={() => {
-                                  navigator.clipboard.writeText(MANUAL_UPGRADE_SCRIPT);
-                                  message.success('已复制全部升级命令');
+                                onClick={async () => {
+                                  const success = await copyToClipboard(MANUAL_UPGRADE_SCRIPT);
+                                  if (success) {
+                                    message.success('已复制全部升级命令');
+                                  } else {
+                                    message.error('复制失败，请手动复制');
+                                  }
                                 }}
                               >
                                 复制全部命令
