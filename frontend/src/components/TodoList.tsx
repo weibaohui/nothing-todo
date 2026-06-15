@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useApp } from '@/hooks/useApp';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { Button, Dropdown, Empty, Tooltip } from 'antd';
+import { Button, Dropdown, Empty, Input, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
-import { PlusOutlined, ThunderboltOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, ReadOutlined, SettingOutlined, SunOutlined, MoonOutlined, ApartmentOutlined, UnorderedListOutlined, FolderOpenOutlined, RightOutlined, MoreOutlined } from '@ant-design/icons';
+import { PlusOutlined, ThunderboltOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, ReadOutlined, SettingOutlined, SunOutlined, MoonOutlined, ApartmentOutlined, UnorderedListOutlined, FolderOpenOutlined, RightOutlined, MoreOutlined, SearchOutlined } from '@ant-design/icons';
 import { useTheme } from '@/hooks/useTheme';
 import { StatusPicker } from './StatusPicker';
 import * as db from '@/utils/database';
@@ -95,6 +95,9 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
   const [projectDirectories, setProjectDirectories] = useState<ProjectDirectory[]>([]);
   // 记录每个分组的折叠状态，key 为 workspace 路径
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  // 搜索关键字：用于按标题或提示词过滤 todo 列表；
+  // 用户输入后实时筛选，空字符串表示不过滤
+  const [searchKeyword, setSearchKeyword] = useState('');
 
   useEffect(() => {
     setIsLoading(false);
@@ -118,12 +121,23 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
     return () => window.removeEventListener('projectDirectoryAdded', handleDirAdded); // 清理：卸载时移除监听
   }, [reloadProjectDirectories]);
 
-  const filteredTodos = useMemo(() =>
-    selectedTagId
+  // 先按标签筛选，再按搜索关键字筛选；
+  // 搜索匹配标题（title）和提示词（prompt），任一包含关键字即命中
+  const filteredTodos = useMemo(() => {
+    // 第一步：标签筛选，selectedTagId 为 null 时不过滤
+    const tagFiltered = selectedTagId
       ? todos.filter(t => (t as any).tag_ids?.includes(selectedTagId))
-      : todos,
-    [todos, selectedTagId]
-  );
+      : todos;
+    // 第二步：关键字筛选，空字符串时不过滤；
+    // 统一转小写比较，实现不区分大小写的模糊匹配
+    const keyword = searchKeyword.trim().toLowerCase();
+    if (!keyword) return tagFiltered;
+    return tagFiltered.filter(t => {
+      const titleMatch = (t.title || '').toLowerCase().includes(keyword);
+      const promptMatch = (t.prompt || '').toLowerCase().includes(keyword);
+      return titleMatch || promptMatch;
+    });
+  }, [todos, selectedTagId, searchKeyword]);
 
   // 按 workspace 路径分组；workspace 为空或 null 的归入"未分组"虚拟分组，
   // 保证游离 todo 不会消失，只是放到列表底部
@@ -503,6 +517,23 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
           ))}
         </div>
       )}
+
+      {/* Search input - filter todos by title or prompt */}
+      <div className="todo-search-bar">
+        <Input
+          placeholder="搜索任务标题或提示词..."
+          prefix={<SearchOutlined style={{ color: 'var(--color-text-tertiary)' }} />}
+          allowClear
+          value={searchKeyword}
+          onChange={(e) => setSearchKeyword(e.target.value)}
+          className="todo-search-input"
+        />
+        {searchKeyword && (
+          <div className="todo-search-count">
+            找到 {filteredTodos.length} 个任务
+          </div>
+        )}
+      </div>
 
       {/* Todo list */}
       <div className="todo-list-content">

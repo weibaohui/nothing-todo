@@ -3970,3 +3970,46 @@ code {
 .running-mobile-tabs .ant-tabs-tab {
   font-size: 13px;
 }
+
+/* ---------- Todo Search Bar ---------- */
+/* 搜索框容器：放在标签筛选条和列表之间，提供标题/提示词模糊搜索 */
+.todo-search-bar {
+  padding: var(--space-sm) var(--space-lg);
+  border-bottom: 1px solid var(--color-border-light);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+}
+
+/* 搜索输入框：占满剩余宽度，圆角与标签条保持一致 */
+.todo-search-bar .todo-search-input {
+  flex: 1;
+  border-radius: var(--radius-sm);
+}
+
+/* 搜索输入框内部样式覆盖：让前缀图标和清空按钮垂直居中 */
+.todo-search-bar .todo-search-input .ant-input-prefix {
+  margin-right: var(--space-sm);
+  display: flex;
+  align-items: center;
+}
+
+/* 搜索结果计数：有搜索关键字时显示，帮助用户确认筛选范围 */
+.todo-search-count {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 暗色主题下搜索框适配 */
+[data-theme="dark"] .todo-search-bar .todo-search-input {
+  background: var(--color-bg);
+  border-color: var(--color-border);
+}
+
+[data-theme="dark"] .todo-search-bar .todo-search-input:hover,
+[data-theme="dark"] .todo-search-bar .todo-search-input-focused {
+  border-color: var(--color-primary);
+}
