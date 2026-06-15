@@ -28,6 +28,7 @@ import {
 } from '@ant-design/icons';
 import * as db from '@/utils/database';
 import type { Webhook, WebhookRecord } from '@/utils/database';
+import { copyToClipboard } from '@/utils/clipboard';
 import type { Todo } from '@/types';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
@@ -61,14 +62,11 @@ function CopyableUrl({ url, compact }: { url: string; compact: boolean }) {
         size="small"
         icon={<LinkOutlined />}
         onClick={async () => {
-          if (!navigator.clipboard?.writeText) {
-            message.error('当前环境不支持复制');
-            return;
-          }
-          try {
-            await navigator.clipboard.writeText(url);
+          // 使用统一的复制工具（兼容 HTTP 环境）
+          const ok = await copyToClipboard(url);
+          if (ok) {
             message.success('已复制 URL');
-          } catch {
+          } else {
             message.error('复制失败，请手动复制');
           }
         }}

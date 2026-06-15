@@ -11,6 +11,7 @@ import { NarrowLogView } from './NarrowLogView';
 import { getHookTriggerLabel } from '@/utils/database/hooks';
 import { ReviewStatusBadge } from './RecordDetailView';
 import type { ExecutionRecord, ExecutionStats, LogEntry } from '@/types';
+import { copyToClipboard } from '@/utils/clipboard';
 
 /** Narrow mode: single history card */
 export function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, onRefresh, onRate, getRunningTask, resolveStats, parseLogs, messageApi, onViewModeChange }: {
@@ -102,19 +103,20 @@ export function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, on
         </div>
       </div>
       {/* 点击命令文本即可复制，不需要额外的复制按钮 */}
-      {/* 复制逻辑三步走：①检查 clipboard API 可用性 → ②写入剪贴板 → ③反馈结果 */}
-      {/* 使用 navigator.clipboard?.writeText 可选链：HTTP 环境或旧浏览器中该 API 为 undefined，直接调用会报 TypeError */}
+      {/* 使用 copyToClipboard 统一处理，兼容 HTTP 环境（通过 fallback 到 execCommand） */}
       {record.command && (
         <Tooltip title="点击复制命令">
           <div
             onClick={async () => {
               try {
-                if (!navigator.clipboard?.writeText) {
-                  messageApi.error('当前环境不支持复制');
-                  return;
+                // 调用统一的复制工具（内置 fallback，兼容 HTTP 环境）
+                const ok = await copyToClipboard(record.command || '');
+                // 根据返回结果提示用户
+                if (ok) {
+                  messageApi.success('已复制');
+                } else {
+                  messageApi.error('复制失败');
                 }
-                await navigator.clipboard.writeText(record.command || '');
-                messageApi.success('已复制');
               } catch {
                 messageApi.error('复制失败');
               }
@@ -128,15 +130,17 @@ export function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, on
       {record.result !== null && record.result !== '' && (
         <div className={`history-result ${record.status === 'success' ? 'history-result-success' : 'history-result-failed'}`}>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
-            {/* 复制结论文本：先检查 clipboard API 可用性，防止在不支持的浏览器中崩溃 */}
+            {/* 复制结论文本：使用 copyToClipboard 统一处理，兼容 HTTP 环境 */}
             <Button type="text" size="small" icon={<CopyOutlined />} onClick={async () => {
               try {
-                if (!navigator.clipboard?.writeText) {
-                  messageApi.error('当前环境不支持复制');
-                  return;
+                // 调用统一的复制工具（内置 fallback，兼容 HTTP 环境）
+                const ok = await copyToClipboard(record.result || '');
+                // 根据返回结果提示用户
+                if (ok) {
+                  messageApi.success('已复制到剪贴板');
+                } else {
+                  messageApi.error('复制失败');
                 }
-                await navigator.clipboard.writeText(record.result || '');
-                messageApi.success('已复制到剪贴板');
               } catch {
                 messageApi.error('复制失败');
               }
