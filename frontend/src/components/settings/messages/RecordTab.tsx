@@ -2,6 +2,7 @@ import { Button, Select, Table, Tag, Typography, Modal, Form, Input, Space, Tool
 import { ReloadOutlined, PlusOutlined, HistoryOutlined, QuestionCircleOutlined, CopyOutlined } from '@ant-design/icons';
 import * as db from '@/utils/database';
 import type { FeishuHistoryMessage, FeishuHistoryChat } from '@/types';
+import { copyToClipboard } from '@/utils/clipboard';
 
 const { Option } = Select;
 
@@ -173,9 +174,14 @@ export function RecordTab({
                       type="link"
                       icon={<CopyOutlined />}
                       style={{ fontSize: 10, padding: 0 }}
-                      onClick={() => {
-                        navigator.clipboard.writeText(record.sender_open_id);
-                        message.success('已复制 Open ID');
+                      onClick={async () => {
+                        // 使用统一的复制工具（兼容 HTTP 环境）
+                        const ok = await copyToClipboard(record.sender_open_id);
+                        if (ok) {
+                          message.success('已复制 Open ID');
+                        } else {
+                          message.error('复制失败');
+                        }
                       }}
                     />
                   )}

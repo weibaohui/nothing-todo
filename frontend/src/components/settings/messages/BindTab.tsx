@@ -3,6 +3,7 @@ import { QrcodeOutlined, DeleteOutlined, CopyOutlined, PlusOutlined, MinusCircle
 import * as db from '@/utils/database';
 import type { FeishuPushStatus, WhitelistEntry, FeishuSenderItem } from '@/utils/database';
 import type { Todo } from '@/types';
+import { copyToClipboard } from '@/utils/clipboard';
 
 const { Paragraph } = Typography;
 
@@ -117,12 +118,14 @@ export function BindTab({
                     message.error('更新响应开关失败: ' + (e.message || '未知错误'));
                   }
                 };
-                const copyToClipboard = (text: string, label: string) => {
-                  navigator.clipboard.writeText(text).then(() => {
+                const doCopyText = async (text: string, label: string) => {
+                  // 使用统一的复制工具（兼容 HTTP 环境）
+                  const ok = await copyToClipboard(text);
+                  if (ok) {
                     message.success(`${label} 已复制`);
-                  }).catch(() => {
+                  } else {
                     message.error('复制失败');
-                  });
+                  }
                 };
 
                 return (
@@ -191,12 +194,12 @@ export function BindTab({
                               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                 <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>单聊ID:</span>
                                 <Input size="small" value={botPushStatus.p2p_receive_id} onChange={(e) => handlePushTargetUpdate('p2p_receive_id', e.target.value)} style={{ flex: 1, fontSize: 11 }} />
-                                <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.p2p_receive_id, 'p2p_receive_id')} />
+                                <Button size="small" icon={<CopyOutlined />} onClick={() => doCopyText(botPushStatus.p2p_receive_id, 'p2p_receive_id')} />
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                 <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>群ID:</span>
                                 <Input size="small" value={botPushStatus.group_chat_id || ''} onChange={(e) => handlePushTargetUpdate('group_chat_id', e.target.value)} style={{ flex: 1, fontSize: 11 }} />
-                                <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(botPushStatus.group_chat_id || '', 'group_chat_id')} />
+                                <Button size="small" icon={<CopyOutlined />} onClick={() => doCopyText(botPushStatus.group_chat_id || '', 'group_chat_id')} />
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                 <span style={{ fontSize: 11, width: 80, color: 'var(--color-text-tertiary)' }}>发送类型:</span>

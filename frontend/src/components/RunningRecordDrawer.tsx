@@ -8,6 +8,7 @@ import {
   LinkOutlined,
   RightOutlined,
 } from '@ant-design/icons';
+import { copyToClipboard } from '@/utils/clipboard';
 import XMarkdown from '@ant-design/x-markdown';
 import { ExecutorBadge } from '@/components/ExecutorBadge';
 import { useApp } from '@/hooks/useApp';
@@ -162,9 +163,10 @@ export function RunningRecordDrawer({ record, open, onClose, onRefresh }: Runnin
     onRefresh?.();
   }, [onRefresh]);
 
-  const handleCopyResult = useCallback(() => {
+  const handleCopyResult = useCallback(async () => {
     if (record?.result) {
-      navigator.clipboard.writeText(record.result);
+      // 使用统一的复制工具（兼容 HTTP 环境）
+      await copyToClipboard(record.result);
     }
   }, [record]);
 
