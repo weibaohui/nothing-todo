@@ -332,9 +332,9 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
                       color: '#722ed1',
                       border: '1px solid #722ed130',
                     }}
-                    title="评审师模板：自动评审时复制此 todo"
+                    title="评审任务：自动评审时复制此 todo"
                   >
-                    [评审模板]
+                    [评审任务]
                   </span>
                 )}
                 {todo.todo_type === 2 && (

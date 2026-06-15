@@ -112,7 +112,7 @@ pub struct Todo {
     pub hooks: Vec<crate::hooks::TodoHookItem>,
     #[serde(default)]
     pub acceptance_criteria: Option<String>,
-    /// 0=normal, 1=reviewer_template(评审师模板), 2=review_instance(评审实例).
+    /// 0=normal, 1=reviewer_template(评审任务), 2=review_instance(评审实例).
     #[serde(default)]
     pub todo_type: i32,
     /// review_instance 关联到被评审的原 todo; 其它类型为 None.

@@ -322,7 +322,7 @@ impl Database {
         self.exec_update(am).await
     }
 
-    /// 按 title 精确查找 todo (仅未软删的). 用于评审师模板的探测.
+    /// 按 title 精确查找 todo (仅未软删的). 用于评审任务 todo 的探测.
     pub async fn get_todo_by_title(&self, title: &str) -> Result<Option<Todo>, sea_orm::DbErr> {
         let model = todos::Entity::find()
             .filter(todos::Column::Title.eq(title))
@@ -341,7 +341,7 @@ impl Database {
     }
 
     /// 设置 todo_type. 主要用于将刚 create_todo_with_extras 出来的 todo 标记为
-    /// 评审师模板 (1) 或 评审实例 (2). 不在公共 API 暴露.
+    /// 评审任务 (1) 或 评审实例 (2). 不在公共 API 暴露.
     pub async fn set_todo_type(&self, id: i64, todo_type: i32) -> Result<(), sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {

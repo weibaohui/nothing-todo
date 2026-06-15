@@ -1117,7 +1117,7 @@ async fn run_auto_review_inner(
         return Ok(());
     }
 
-    // 2) 评审师模板
+    // 2) 评审任务
     let template_id = ensure_reviewer_template(&db, REVIEWER_TEMPLATE_TITLE, DEFAULT_REVIEWER_PROMPT).await?;
     let template = db.get_todo(template_id).await
         .map_err(|e| format!("reload template: {}", e))?
@@ -1144,7 +1144,7 @@ async fn run_auto_review_inner(
         .replace("{original_output}", &truncated)
         .replace("{acceptance_criteria}", acceptance_criteria);
 
-    // 4) 复用评审师模板 todo，直接执行（不 clone 新实例）
+    // 4) 复用评审任务 todo，直接执行（不 clone 新实例）
     let review_todo_id = template_id;
 
     // 5) 标记 pending

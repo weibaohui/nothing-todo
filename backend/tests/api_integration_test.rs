@@ -100,7 +100,7 @@ async fn test_get_todos() {
     let body: serde_json::Value = read_json_body(response).await;
     assert_eq!(body["code"], 0);
     let todos = body["data"].as_array().unwrap();
-    // Database::new 在 :memory: db 上会自动 seed 评审师模板(todo_type=1)。
+    // Database::new 在 :memory: db 上会自动 seed 评审任务(todo_type=1)。
     // 这里只验证我们刚创建的 "Test" todo 出现在列表里,
     // 不去数总数(seed 数据是基础设施的一部分,不是用户数据)。
     let our_todo = todos
