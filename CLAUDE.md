@@ -123,7 +123,6 @@ make build  # 构建生产版本
 ## 目录结构
 - `backend/` - Rust 后端代码（含 `backend/tests/` 集成测试）
 - `frontend/` - React 前端代码（含 `frontend/tests/` Playwright 功能测试，详见「前端测试验证」一节）
-- `tunnel.sh` - 内网穿透脚本
 
 ## 前端测试验证
 
@@ -202,8 +201,3 @@ test('深色模式渲染校验', async ({ page }) => {
 });
 ```
 
-### 内网穿透
-如需远程验证，可使用 `tunnel.sh` 启动公网访问：
-```bash
-./tunnel.sh
-```
