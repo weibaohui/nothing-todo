@@ -6,6 +6,13 @@
  */
 
 import { test, chromium } from '@playwright/test';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// 截图输出目录与本 spec 同级，跨机器可复现；
+// 之前写死 /tmp/issue-595-...-100258/... 仅在原作者本机有效，其他人运行会落到不存在的目录。
+const SCREENSHOT_DIR = resolve(fileURLToPath(import.meta.url), '..', '__screenshots__');
+const SCREENSHOT_PATH = resolve(SCREENSHOT_DIR, 'backup-size-format.png');
 
 test('截图: formatFileSize 各档位渲染结果', async () => {
   const browser = await chromium.launch();
@@ -65,7 +72,7 @@ test('截图: formatFileSize 各档位渲染结果', async () => {
   `;
   await page.setContent(html);
   await page.screenshot({
-    path: '/tmp/issue-595-backup-size-100258/frontend/tests/__screenshots__/backup-size-format.png',
+    path: SCREENSHOT_PATH,
     fullPage: true,
   });
   await browser.close();
