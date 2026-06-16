@@ -12,6 +12,7 @@
  *  `{{message}}` value automatically. */
 
 export type HookTrigger =
+  | 'before_execution'
   | 'state_changed_to_pending'
   | 'state_changed_to_in_progress'
   | 'state_changed_to_completed'
@@ -44,6 +45,7 @@ export interface TodoHookItem {
 }
 
 export const HOOK_TRIGGERS: ReadonlyArray<{ value: HookTrigger; label: string }> = [
+  { value: 'before_execution', label: '执行前' },
   { value: 'state_changed_to_pending', label: '状态变为待执行' },
   { value: 'state_changed_to_in_progress', label: '状态变为执行中' },
   { value: 'state_changed_to_completed', label: '状态变为已完成' },

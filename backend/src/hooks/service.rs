@@ -115,6 +115,84 @@ impl HookService {
             .await;
         }
     }
+
+    /// Fire `before_execution` hooks attached to `todo_id` and **wait synchronously**
+    /// for all target todos to complete before returning.
+    ///
+    /// Unlike `fire_for_todo` (which is fire-and-forget), this method blocks the
+    /// caller until every pre-hook target finishes. The source execution must
+    /// not proceed until all pre-flight steps are done.
+    ///
+    /// Errors (target missing, execution failure, etc.) are logged but do not
+    /// propagate — the caller decides what to do on failure. The `skip_if_missing`
+    /// flag on each hook item is respected: if true, a missing target is silently
+    /// skipped; if false, we log a warning but still return `Ok` to let the caller
+    /// decide.
+    pub async fn fire_before_execution(
+        self: Arc<Self>,
+        todo_id: i64,
+        ctx: HookContext,
+    ) -> Result<(), String> {
+        let this = self.clone();
+
+        let todo = match this.ctx.db.get_todo(todo_id).await {
+            Ok(Some(t)) => t,
+            Ok(None) => {
+                warn!("pre-hook fire skipped: todo #{} not found", todo_id);
+                return Err(format!("todo #{} not found", todo_id));
+            }
+            Err(e) => {
+                warn!("pre-hook fire skipped: failed to load todo #{}: {}", todo_id, e);
+                return Err(format!("failed to load todo #{}: {}", todo_id, e));
+            }
+        };
+
+        let hooks: Vec<_> = matching_items(&todo, ctx.trigger);
+
+        // No pre-hooks registered — nothing to wait for.
+        if hooks.is_empty() {
+            return Ok(());
+        }
+
+        // Execute each pre-hook target sequentially, collecting errors.
+        // We don't use `futures::future::join_all` because we want the first
+        // failure to potentially short-circuit (though we continue all to
+        // give every hook a chance to run), and we want deterministic logging order.
+        let mut errors: Vec<String> = Vec::new();
+        for item in hooks {
+            let next_chain = append_to_chain(&ctx.chain, todo_id);
+            if next_chain.contains(&item.target_todo_id) {
+                warn!(
+                    "pre-hook #{} skipped: target todo #{} already in chain {:?}",
+                    item.id, item.target_todo_id, next_chain
+                );
+                continue;
+            }
+
+            // `execute_target_todo` spawns a helper thread and waits for the
+            // result via a oneshot channel — this blocks until the target
+            // execution finishes, which is exactly what we want for a
+            // synchronous pre-flight step.
+            match execute_target_todo(&this.ctx, &this, item, &todo, next_chain).await {
+                Ok(()) => {}
+                Err(msg) => {
+                    if !item.skip_if_missing {
+                        // Non-missing target that failed — log and record.
+                        warn!("pre-hook #{} failed: {}", item.id, msg);
+                        errors.push(msg);
+                    } else {
+                        warn!("pre-hook #{} skipped (skip_if_missing): {}", item.id, msg);
+                    }
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("; "))
+        }
+    }
 }
 
 fn append_to_chain(chain: &[i64], source: i64) -> Vec<i64> {
