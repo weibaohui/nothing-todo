@@ -34,6 +34,72 @@ pub const MIN_BROADCAST_CHANNEL_CAPACITY: usize = 100;
 /// 保留运维人员根据实际负载调大的自主权。约 1M events × <1KB ≈ 1GB ceiling。
 pub const SOFT_MAX_BROADCAST_CHANNEL_CAPACITY: usize = 1_000_000;
 
+// === Grouped default constants ===
+//
+// 把 Default for Config 里的内联字符串 / 数字默认值抽到此处,便于:
+// 1. 与字段名一一对应(grep DEFAULT_XXX 就能找到默认值出处)。
+// 2. 跨配置加载 / HTTP 校验 / 测试 fixture 共享同一份事实来源。
+// 3. 让 Default for Config 函数体专注于「装配」,不混入「魔法字面量」。
+
+/// 默认数据库文件路径(原始 `~` 形式,会在 `normalize_paths` 阶段展开)。
+const DEFAULT_DB_PATH: &str = "~/.ntd/data.db";
+/// 默认日志级别。
+const DEFAULT_LOG_LEVEL: &str = "INFO";
+/// 历史消息最大处理年龄(秒),超过此值的历史消息会被标记跳过。
+const DEFAULT_HISTORY_MESSAGE_MAX_AGE_SECS: u64 = 600;
+/// 最大并发执行 todo 数。
+const DEFAULT_MAX_CONCURRENT_TODOS: u32 = 3;
+/// 日志清理保留天数(`None` 表示不清理,这里给一个合理默认 30 天)。
+const DEFAULT_AUTO_CLEANUP_LOGS_DAYS: Option<usize> = Some(30);
+/// 三类自动备份的最大保留文件数,统一为 30 份。
+const DEFAULT_BACKUP_MAX_FILES: usize = 30;
+
+/// 数据库自动备份 cron 表达式(6 字段,含秒),默认每天凌晨 3 点。
+const DEFAULT_AUTO_BACKUP_CRON: &str = "0 0 3 * * *";
+/// Todo 自动备份 cron 表达式(6 字段,含秒),默认每天凌晨 4 点。
+const DEFAULT_AUTO_TODO_BACKUP_CRON: &str = "0 0 4 * * *";
+/// Skill 自动备份 cron 表达式(6 字段,含秒),默认每天凌晨 5 点。
+const DEFAULT_AUTO_SKILL_BACKUP_CRON: &str = "0 0 5 * * *";
+/// 自定义模板自动同步 cron 表达式(6 字段,含秒),默认每天凌晨 4 点。
+const DEFAULT_AUTO_SYNC_CUSTOM_TEMPLATES_CRON: &str = "0 0 4 * * *";
+/// AI 使用统计自动归档 cron 表达式(6 字段,含秒),默认每天凌晨 1 点。
+const DEFAULT_AUTO_USAGE_STATS_CRON: &str = "0 0 1 * * *";
+
+/// 私有 helper:`auto_backup_*` / `auto_todo_backup_*` / `auto_skill_backup_*`
+/// 三组字段共享同一形状 (enabled: bool, cron: String, max_files: usize)。
+/// 抽成 helper 避免 Default for Config 里重复三次「false / cron / 30」字面量。
+struct BackupScheduleDefaults {
+    enabled: bool,
+    cron: String,
+    max_files: usize,
+}
+
+impl BackupScheduleDefaults {
+    /// 通过 cron 字符串构造一组备份计划默认值。
+    /// `enabled` 固定 false(默认不开启),`max_files` 走全局常量。
+    fn new(cron: &str) -> Self {
+        Self {
+            enabled: false,
+            cron: cron.to_string(),
+            max_files: DEFAULT_BACKUP_MAX_FILES,
+        }
+    }
+}
+
+/// 私有 helper:`auto_sync_custom_templates_*` / `auto_usage_stats_*`
+/// 两组字段共享同一形状 (enabled: bool, cron: String)。
+struct SyncScheduleDefaults {
+    enabled: bool,
+    cron: String,
+}
+
+impl SyncScheduleDefaults {
+    /// 通过 cron 字符串构造一组同步计划默认值,`enabled` 固定 false。
+    fn new(cron: &str) -> Self {
+        Self { enabled: false, cron: cron.to_string() }
+    }
+}
+
 /// Top-level configuration, persisted to `~/.ntd/config.yaml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -185,36 +251,30 @@ impl Default for CloudSyncConfig {
 }
 
 impl Default for Config {
+    /// 构建 Config 的默认值。
+    ///
+    /// 5 组「auto_*」计划字段的默认值通过 `BackupScheduleDefaults` /
+    /// `SyncScheduleDefaults` helper 集中,本函数体只做装配;
+    /// 具体字面量统一在文件顶部 const 块,新增字段时只动一处。
     fn default() -> Self {
+        let db_backup = BackupScheduleDefaults::new(DEFAULT_AUTO_BACKUP_CRON);
+        let todo_backup = BackupScheduleDefaults::new(DEFAULT_AUTO_TODO_BACKUP_CRON);
+        let skill_backup = BackupScheduleDefaults::new(DEFAULT_AUTO_SKILL_BACKUP_CRON);
+        let sync_templates = SyncScheduleDefaults::new(DEFAULT_AUTO_SYNC_CUSTOM_TEMPLATES_CRON);
+        let usage_stats = SyncScheduleDefaults::new(DEFAULT_AUTO_USAGE_STATS_CRON);
         Self {
-            port: DEFAULT_PORT,
-            host: DEFAULT_HOST.to_string(),
-            db_path: "~/.ntd/data.db".to_string(),
-            log_level: "INFO".to_string(),
-            executors: ExecutorPaths::default(),
-            auto_backup_enabled: false,
-            auto_backup_cron: "0 0 3 * * *".to_string(),
-            auto_backup_max_files: 30,
-            auto_todo_backup_enabled: false,
-            auto_todo_backup_cron: "0 0 4 * * *".to_string(),
-            auto_todo_backup_max_files: 30,
-            auto_sync_custom_templates_enabled: false,
-            auto_sync_custom_templates_cron: "0 0 4 * * *".to_string(),
-            slash_command_rules: Vec::new(),
-            default_response_todo_id: None,
-            history_message_max_age_secs: 600,
-            max_concurrent_todos: 3,
-            execution_timeout_secs: DEFAULT_EXECUTION_TIMEOUT_SECS,
-            auto_cleanup_logs_days: Some(30),
-            auto_skill_backup_enabled: false,
-            auto_skill_backup_cron: "0 0 5 * * *".to_string(),
-            auto_skill_backup_max_files: 30,
-            scheduler_default_timezone: None,
-            auto_usage_stats_enabled: false,
-            auto_usage_stats_cron: "0 0 1 * * *".to_string(),
+            port: DEFAULT_PORT, host: DEFAULT_HOST.to_string(), db_path: DEFAULT_DB_PATH.to_string(), log_level: DEFAULT_LOG_LEVEL.to_string(), executors: ExecutorPaths::default(),
+            auto_backup_enabled: db_backup.enabled, auto_backup_cron: db_backup.cron, auto_backup_max_files: db_backup.max_files,
+            auto_todo_backup_enabled: todo_backup.enabled, auto_todo_backup_cron: todo_backup.cron, auto_todo_backup_max_files: todo_backup.max_files,
+            auto_skill_backup_enabled: skill_backup.enabled, auto_skill_backup_cron: skill_backup.cron, auto_skill_backup_max_files: skill_backup.max_files,
+            auto_sync_custom_templates_enabled: sync_templates.enabled, auto_sync_custom_templates_cron: sync_templates.cron,
+            slash_command_rules: Vec::new(), default_response_todo_id: None,
+            history_message_max_age_secs: DEFAULT_HISTORY_MESSAGE_MAX_AGE_SECS,
+            max_concurrent_todos: DEFAULT_MAX_CONCURRENT_TODOS, execution_timeout_secs: DEFAULT_EXECUTION_TIMEOUT_SECS,
+            auto_cleanup_logs_days: DEFAULT_AUTO_CLEANUP_LOGS_DAYS, scheduler_default_timezone: None,
+            auto_usage_stats_enabled: usage_stats.enabled, auto_usage_stats_cron: usage_stats.cron,
             broadcast_channel_capacity: DEFAULT_BROADCAST_CHANNEL_CAPACITY,
-            cloud_sync: CloudSyncConfig::default(),
-            cors_allowed_origins: Vec::new(),
+            cloud_sync: CloudSyncConfig::default(), cors_allowed_origins: Vec::new(),
         }
     }
 }
@@ -429,6 +489,79 @@ mod tests {
     fn test_default_port() {
         let cfg = Config::default();
         assert_eq!(cfg.port, 8088);
+    }
+
+    /// 验证 `Config::default()` 产生的所有「auto_*」备份 / 同步字段
+    /// 都使用 helper 集中后的默认值(防回归 helper 路径)。
+    /// 字段值变化需要同步更新 const 或 helper 构造逻辑,这是 issue #612 拆分的核心价值。
+    #[test]
+    fn test_default_auto_backup_and_sync_fields_match_helpers() {
+        let cfg = Config::default();
+        // 三组「auto_*_backup_*」字段:enabled=false,cron 与各 helper 一致,max_files=30
+        for (enabled, _cron) in [
+            (cfg.auto_backup_enabled, &cfg.auto_backup_cron),
+            (cfg.auto_todo_backup_enabled, &cfg.auto_todo_backup_cron),
+            (cfg.auto_skill_backup_enabled, &cfg.auto_skill_backup_cron),
+        ] {
+            assert!(!enabled, "auto_*_backup_enabled 默认应为 false");
+        }
+        assert_eq!(cfg.auto_backup_max_files, 30);
+        assert_eq!(cfg.auto_todo_backup_max_files, 30);
+        assert_eq!(cfg.auto_skill_backup_max_files, 30);
+        // 三类 cron 表达式必须按文件顶部 const 块一字不差,防止有人改 helper 时漏掉某一组
+        assert_eq!(cfg.auto_backup_cron, "0 0 3 * * *");
+        assert_eq!(cfg.auto_todo_backup_cron, "0 0 4 * * *");
+        assert_eq!(cfg.auto_skill_backup_cron, "0 0 5 * * *");
+        // 两组「auto_sync_*」字段:enabled=false,cron 一致
+        assert!(!cfg.auto_sync_custom_templates_enabled);
+        assert!(!cfg.auto_usage_stats_enabled);
+        assert_eq!(cfg.auto_sync_custom_templates_cron, "0 0 4 * * *");
+        assert_eq!(cfg.auto_usage_stats_cron, "0 0 1 * * *");
+    }
+
+    /// 验证 `BackupScheduleDefaults::new` 把入参 cron 透传,其余字段走 helper 内置默认值。
+    /// 这是 Default for Config 拆出来的子 default,需要独立单测覆盖。
+    #[test]
+    fn test_backup_schedule_defaults_new() {
+        let s = BackupScheduleDefaults::new("0 0 3 * * *");
+        assert!(!s.enabled, "默认 enabled 必须为 false");
+        assert_eq!(s.cron, "0 0 3 * * *");
+        assert_eq!(s.max_files, 30);
+
+        // 不同 cron 字符串必须透传,不能被 helper 内部 const 覆盖。
+        let s2 = BackupScheduleDefaults::new("30 0 0 1 1 1");
+        assert_eq!(s2.cron, "30 0 0 1 1 1");
+        assert_eq!(s2.max_files, 30);
+        assert!(!s2.enabled);
+    }
+
+    /// 验证 `SyncScheduleDefaults::new` 把入参 cron 透传,enabled 固定 false。
+    #[test]
+    fn test_sync_schedule_defaults_new() {
+        let s = SyncScheduleDefaults::new("0 0 4 * * *");
+        assert!(!s.enabled);
+        assert_eq!(s.cron, "0 0 4 * * *");
+
+        let s2 = SyncScheduleDefaults::new("0 0 1 * * *");
+        assert_eq!(s2.cron, "0 0 1 * * *");
+    }
+
+    /// 验证「整组默认值」在 YAML 序列化 / 反序列化后仍保持一致。
+    /// 防止拆分 helper 后,某组字段遗漏写入或字段名拼写错。
+    #[test]
+    fn test_default_round_trip_preserves_all_field_values() {
+        let cfg = Config::default();
+        let yaml = serde_yaml::to_string(&cfg).expect("serialize");
+        let restored: Config = serde_yaml::from_str(&yaml).expect("deserialize");
+        // 拆出的 helper 路径产出的字段,必须 byte-for-byte 一致
+        assert_eq!(restored.auto_backup_cron, cfg.auto_backup_cron);
+        assert_eq!(restored.auto_todo_backup_cron, cfg.auto_todo_backup_cron);
+        assert_eq!(restored.auto_skill_backup_cron, cfg.auto_skill_backup_cron);
+        assert_eq!(restored.auto_backup_max_files, cfg.auto_backup_max_files);
+        assert_eq!(restored.auto_todo_backup_max_files, cfg.auto_todo_backup_max_files);
+        assert_eq!(restored.auto_skill_backup_max_files, cfg.auto_skill_backup_max_files);
+        assert_eq!(restored.auto_sync_custom_templates_cron, cfg.auto_sync_custom_templates_cron);
+        assert_eq!(restored.auto_usage_stats_cron, cfg.auto_usage_stats_cron);
     }
 
     #[test]
