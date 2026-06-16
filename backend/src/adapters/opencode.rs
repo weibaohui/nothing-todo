@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use parking_lot::Mutex;
 
+use super::helpers;
 use super::opencode_event::OpencodeAgentEvent;
 use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
 use crate::adapters::ExecutionUsage;
@@ -24,6 +25,87 @@ impl OpencodeExecutor {
             base: BaseExecutor::new(path),
             has_successful_finish: Arc::new(Mutex::new(false)),
         }
+    }
+
+    /// 把 OpenCode 时间戳（毫秒）转换为 ISO 字符串；缺失时回退到 utc_timestamp。
+    fn resolve_timestamp(ts: Option<u64>) -> String {
+        ts.and_then(|ts| chrono::DateTime::from_timestamp_millis(ts as i64))
+            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+            .unwrap_or_else(utc_timestamp)
+    }
+
+    /// step_start / step-start: 重置 has_successful_finish + usage。
+    fn handle_step_start(&self, timestamp: &str) -> Option<ParsedLogEntry> {
+        *self.has_successful_finish.lock() = false;
+        *self.base.usage.lock() = None;
+        Some(helpers::with_timestamp(helpers::entry("step_start", "Step started"), timestamp))
+    }
+
+    /// tool_use / tool-use: bash 工具显示 description + output，其它工具显示 tool + description。
+    fn handle_tool_use(
+        &self,
+        part: &super::opencode_event::OpencodeAgentPart,
+        timestamp: &str,
+    ) -> Option<ParsedLogEntry> {
+        let tool = part.tool.clone().unwrap_or_default();
+        let status = part.state.as_ref().and_then(|s| s.status.clone()).unwrap_or_default();
+        let description = part.state.as_ref().and_then(|s| s.input.as_ref().and_then(|i| i.description.clone())).unwrap_or_default();
+        let input_json = part.state.as_ref()
+            .and_then(|s| s.input.as_ref())
+            .map(|i| i.to_full_json());
+
+        // bash 特殊渲染：把命令输出也带上
+        let content = if tool == "bash" {
+            match &part.state.as_ref().and_then(|s| s.output.clone()) {
+                Some(output) => format!("[{}] {}: {}", status, description, output),
+                None => format!("[{}] {}", status, description),
+            }
+        } else {
+            format!("[{}] Tool: {} - {}", status, tool, description)
+        };
+
+        Some(helpers::with_timestamp(
+            helpers::entry_with_optional_tool("tool", content, Some(tool), input_json),
+            timestamp,
+        ))
+    }
+
+    /// text: 空文本返回 None，否则返回 text 日志。
+    fn handle_text(
+        &self,
+        part: &super::opencode_event::OpencodeAgentPart,
+        timestamp: &str,
+    ) -> Option<ParsedLogEntry> {
+        let text = part.text.clone().unwrap_or_default();
+        if text.is_empty() {
+            return None;
+        }
+        Some(helpers::with_timestamp(helpers::text_entry(text), timestamp))
+    }
+
+    /// step_finish / step-finish: 标记 has_successful_finish，从 tokens 提取 usage。
+    fn handle_step_finish(
+        &self,
+        event: &OpencodeAgentEvent,
+        timestamp: &str,
+    ) -> Option<ParsedLogEntry> {
+        // Mark as successfully finished — opencode returns non-zero exit code
+        // even on successful execution, so we track success via the event stream.
+        *self.has_successful_finish.lock() = true;
+        // Store usage info if available
+        if let Some(part) = &event.part {
+            if let Some(tokens) = &part.tokens {
+                *self.base.usage.lock() = Some(ExecutionUsage {
+                    input_tokens: tokens.input,
+                    output_tokens: tokens.output,
+                    cache_read_input_tokens: if tokens.cache.read > 0 { Some(tokens.cache.read) } else { None },
+                    cache_creation_input_tokens: if tokens.cache.write > 0 { Some(tokens.cache.write) } else { None },
+                    total_cost_usd: part.cost,
+                    duration_ms: None,
+                });
+            }
+        }
+        Some(helpers::with_timestamp(helpers::entry("step_finish", "Step finished"), timestamp))
     }
 }
 
@@ -75,96 +157,13 @@ impl CodeExecutor for OpencodeExecutor {
 
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
         let event: OpencodeAgentEvent = serde_json::from_str(line).ok()?;
-
-        let timestamp = event.timestamp
-            .and_then(|ts| chrono::DateTime::from_timestamp_millis(ts as i64))
-            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
-            .unwrap_or_else(utc_timestamp);
+        let timestamp = Self::resolve_timestamp(event.timestamp);
 
         match event.event_type.as_str() {
-            "step_start" | "step-start" => {
-                *self.has_successful_finish.lock() = false;
-                *self.base.usage.lock() = None;
-                Some(ParsedLogEntry {
-                    timestamp,
-                    log_type: "step_start".to_string(),
-                    content: "Step started".to_string(),
-                    usage: None,
-            tool_name: None,
-            tool_input_json: None,
-                })
-            }
-            "tool_use" | "tool-use" => {
-                let part = event.part?;
-                let tool = part.tool.unwrap_or_default();
-                let status = part.state.as_ref().and_then(|s| s.status.clone()).unwrap_or_default();
-                let description = part.state.as_ref().and_then(|s| s.input.as_ref().and_then(|i| i.description.clone())).unwrap_or_default();
-                let input_json = part.state.as_ref()
-                    .and_then(|s| s.input.as_ref())
-                    .map(|i| i.to_full_json());
-
-                let content = if tool == "bash" {
-                    if let Some(output) = &part.state.as_ref().and_then(|s| s.output.clone()) {
-                        format!("[{}] {}: {}", status, description, output)
-                    } else {
-                        format!("[{}] {}", status, description)
-                    }
-                } else {
-                    format!("[{}] Tool: {} - {}", status, tool, description)
-                };
-
-                Some(ParsedLogEntry {
-                    timestamp,
-                    log_type: "tool".to_string(),
-                    content,
-                    usage: None,
-                    tool_name: Some(tool),
-                    tool_input_json: input_json,
-                })
-            }
-            "text" => {
-                let part = event.part?;
-                let text = part.text.unwrap_or_default();
-                if text.is_empty() {
-                    return None;
-                }
-                Some(ParsedLogEntry {
-                    timestamp,
-                    log_type: "text".to_string(),
-                    content: text,
-                    usage: None,
-            tool_name: None,
-            tool_input_json: None,
-                })
-            }
-            "step_finish" | "step-finish" => {
-                // Mark as successfully finished — opencode returns non-zero exit code
-                // even on successful execution, so we track success via the event stream.
-                *self.has_successful_finish.lock() = true;
-
-                // Store usage info if available
-                if let Some(part) = &event.part {
-                    if let Some(tokens) = &part.tokens {
-                        let usage = ExecutionUsage {
-                            input_tokens: tokens.input,
-                            output_tokens: tokens.output,
-                            cache_read_input_tokens: if tokens.cache.read > 0 { Some(tokens.cache.read) } else { None },
-                            cache_creation_input_tokens: if tokens.cache.write > 0 { Some(tokens.cache.write) } else { None },
-                            total_cost_usd: part.cost,
-                            duration_ms: None,
-                        };
-                        *self.base.usage.lock() = Some(usage);
-                    }
-                }
-                Some(ParsedLogEntry {
-                    timestamp,
-                    log_type: "step_finish".to_string(),
-                    content: "Step finished".to_string(),
-                    usage: None,
-            tool_name: None,
-            tool_input_json: None,
-                })
-            }
+            "step_start" | "step-start" => self.handle_step_start(&timestamp),
+            "tool_use" | "tool-use" => self.handle_tool_use(event.part.as_ref()?, &timestamp),
+            "text" => self.handle_text(event.part.as_ref()?, &timestamp),
+            "step_finish" | "step-finish" => self.handle_step_finish(&event, &timestamp),
             _ => None,
         }
     }

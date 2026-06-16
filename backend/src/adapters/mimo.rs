@@ -20,6 +20,7 @@
 use std::sync::Arc;
 use parking_lot::Mutex;
 
+use super::helpers;
 use super::mimo_event::MimoEvent;
 use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
 use crate::adapters::ExecutionUsage;
@@ -46,6 +47,103 @@ impl MimoExecutor {
             base: BaseExecutor::new(path),
             has_successful_finish: Arc::new(Mutex::new(false)),
         }
+    }
+
+    /// 把 MiMo 时间戳（毫秒）转换为 ISO 字符串；缺失时回退到 utc_timestamp。
+    fn resolve_timestamp(ts: Option<u64>) -> String {
+        ts.and_then(|ts| chrono::DateTime::from_timestamp_millis(ts as i64))
+            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+            .unwrap_or_else(utc_timestamp)
+    }
+
+    /// step_start: 重置 has_successful_finish + usage（新 step 累计值重置）。
+    fn handle_step_start(&self, timestamp: &str) -> Option<ParsedLogEntry> {
+        *self.has_successful_finish.lock() = false;
+        *self.base.usage.lock() = None;
+        Some(helpers::with_timestamp(helpers::entry("step_start", "Step started"), timestamp))
+    }
+
+    /// tool_use: bash 工具显示 description + output，其它工具显示 tool + description。
+    fn handle_tool_use(
+        &self,
+        part: &super::mimo_event::MimoPart,
+        timestamp: &str,
+    ) -> Option<ParsedLogEntry> {
+        let tool = part.tool.clone().unwrap_or_default();
+        let status = part.state.as_ref().and_then(|s| s.status.clone()).unwrap_or_default();
+        // bash 工具显示描述文字而非原始命令，更适合用户阅读
+        let description = part.state.as_ref()
+            .and_then(|s| s.input.as_ref()?.description.clone())
+            .unwrap_or_default();
+        let input_json = part.state.as_ref()
+            .and_then(|s| s.input.as_ref())
+            .map(|i| i.to_full_json());
+
+        // bash 特殊渲染：把命令输出也带上
+        let content = if tool == "bash" {
+            match &part.state.as_ref().and_then(|s| s.output.clone()) {
+                Some(output) => format!("[{}] {}: {}", status, description, output),
+                None => format!("[{}] {}", status, description),
+            }
+        } else {
+            format!("[{}] Tool: {} - {}", status, tool, description)
+        };
+
+        Some(helpers::with_timestamp(
+            helpers::entry_with_optional_tool("tool", content, Some(tool), input_json),
+            timestamp,
+        ))
+    }
+
+    /// text: 空文本返回 None，否则返回 text 日志。
+    fn handle_text(
+        &self,
+        part: &super::mimo_event::MimoPart,
+        timestamp: &str,
+    ) -> Option<ParsedLogEntry> {
+        let text = part.text.clone().unwrap_or_default();
+        if text.is_empty() {
+            return None;
+        }
+        Some(helpers::with_timestamp(helpers::text_entry(text), timestamp))
+    }
+
+    /// reasoning: 思考过程，限制 500 字符避免占用过多显示空间。
+    fn handle_reasoning(
+        &self,
+        part: &super::mimo_event::MimoPart,
+        timestamp: &str,
+    ) -> Option<ParsedLogEntry> {
+        let text = part.text.clone().unwrap_or_default();
+        if text.is_empty() {
+            return None;
+        }
+        let trimmed: String = text.chars().take(500).collect();
+        Some(helpers::with_timestamp(helpers::entry("thinking", trimmed), timestamp))
+    }
+
+    /// step_finish: 标记 has_successful_finish，从 tokens 提取 usage。
+    fn handle_step_finish(
+        &self,
+        event: &MimoEvent,
+        timestamp: &str,
+    ) -> Option<ParsedLogEntry> {
+        // 标记执行成功：即使退出码非零，只要收到 step_finish 事件即表示正常完成
+        *self.has_successful_finish.lock() = true;
+        // 从 step_finish 的 tokens 字段提取 usage
+        if let Some(part) = &event.part {
+            if let Some(tokens) = &part.tokens {
+                *self.base.usage.lock() = Some(ExecutionUsage {
+                    input_tokens: tokens.input,
+                    output_tokens: tokens.output,
+                    cache_read_input_tokens: if tokens.cache.read > 0 { Some(tokens.cache.read) } else { None },
+                    cache_creation_input_tokens: if tokens.cache.write > 0 { Some(tokens.cache.write) } else { None },
+                    total_cost_usd: part.cost,
+                    duration_ms: None,
+                });
+            }
+        }
+        Some(helpers::with_timestamp(helpers::entry("step_finish", "Step finished"), timestamp))
     }
 }
 
@@ -111,118 +209,14 @@ impl CodeExecutor for MimoExecutor {
 
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
         let event: MimoEvent = serde_json::from_str(line).ok()?;
-
-        let timestamp = event.timestamp
-            .and_then(|ts| chrono::DateTime::from_timestamp_millis(ts as i64))
-            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
-            .unwrap_or_else(utc_timestamp);
+        let timestamp = Self::resolve_timestamp(event.timestamp);
 
         match event.event_type.as_str() {
-            "step_start" => {
-                // 每个 step 重置状态：清除上一步的 usage 和完成标记，
-                // 因为 usage 是累计值，必须从新一轮 step 开始重新计算
-                *self.has_successful_finish.lock() = false;
-                *self.base.usage.lock() = None;
-                Some(ParsedLogEntry {
-                    timestamp,
-                    log_type: "step_start".to_string(),
-                    content: "Step started".to_string(),
-                    usage: None,
-                    tool_name: None,
-                    tool_input_json: None,
-                })
-            }
-            "tool_use" => {
-                let part = event.part?;
-                let tool = part.tool.unwrap_or_default();
-                let status = part.state.as_ref().and_then(|s| s.status.clone()).unwrap_or_default();
-                // bash 工具显示描述文字而非原始命令，更适合用户阅读
-                let description = part.state.as_ref()
-                    .and_then(|s| s.input.as_ref()?.description.clone())
-                    .unwrap_or_default();
-                let input_json = part.state.as_ref()
-                    .and_then(|s| s.input.as_ref())
-                    .map(|i| i.to_full_json());
-
-                let content = if tool == "bash" {
-                    if let Some(output) = &part.state.as_ref().and_then(|s| s.output.clone()) {
-                        format!("[{}] {}: {}", status, description, output)
-                    } else {
-                        format!("[{}] {}", status, description)
-                    }
-                } else {
-                    format!("[{}] Tool: {} - {}", status, tool, description)
-                };
-
-                Some(ParsedLogEntry {
-                    timestamp,
-                    log_type: "tool".to_string(),
-                    content,
-                    usage: None,
-                    tool_name: Some(tool),
-                    tool_input_json: input_json,
-                })
-            }
-            "text" => {
-                let part = event.part?;
-                let text = part.text.clone().unwrap_or_default();
-                if text.is_empty() {
-                    return None;
-                }
-                Some(ParsedLogEntry {
-                    timestamp,
-                    log_type: "text".to_string(),
-                    content: text,
-                    usage: None,
-                    tool_name: None,
-                    tool_input_json: None,
-                })
-            }
-            "reasoning" => {
-                // 思考过程，需要 --thinking 参数才会输出
-                // 限制 500 字符避免单个 thinking 块占用过多显示空间
-                let part = event.part?;
-                let text = part.text.clone().unwrap_or_default();
-                if text.is_empty() {
-                    return None;
-                }
-                Some(ParsedLogEntry {
-                    timestamp,
-                    log_type: "thinking".to_string(),
-                    content: text.chars().take(500).collect(),
-                    usage: None,
-                    tool_name: None,
-                    tool_input_json: None,
-                })
-            }
-            "step_finish" => {
-                // 标记执行成功：即使退出码非零，只要收到 step_finish 事件即表示正常完成
-                *self.has_successful_finish.lock() = true;
-
-                // 从 step_finish 的 tokens 字段提取 usage
-                if let Some(part) = &event.part {
-                    if let Some(tokens) = &part.tokens {
-                        let usage = ExecutionUsage {
-                            input_tokens: tokens.input,
-                            output_tokens: tokens.output,
-                            cache_read_input_tokens: if tokens.cache.read > 0 { Some(tokens.cache.read) } else { None },
-                            cache_creation_input_tokens: if tokens.cache.write > 0 { Some(tokens.cache.write) } else { None },
-                            total_cost_usd: part.cost,
-                            duration_ms: None,
-                        };
-                        *self.base.usage.lock() = Some(usage);
-                    }
-                }
-
-                Some(ParsedLogEntry {
-                    timestamp,
-                    log_type: "step_finish".to_string(),
-                    content: "Step finished".to_string(),
-                    usage: None,
-                    tool_name: None,
-                    tool_input_json: None,
-                })
-            }
+            "step_start" => self.handle_step_start(&timestamp),
+            "tool_use" => self.handle_tool_use(event.part.as_ref()?, &timestamp),
+            "text" => self.handle_text(event.part.as_ref()?, &timestamp),
+            "reasoning" => self.handle_reasoning(event.part.as_ref()?, &timestamp),
+            "step_finish" => self.handle_step_finish(&event, &timestamp),
             _ => None,
         }
     }

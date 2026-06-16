@@ -270,6 +270,8 @@ impl BaseExecutor {
     }
 }
 
+/// 适配器层共享的解析与构造 helper（trim/JSON/Entry 构造）。
+pub mod helpers;
 pub mod mobilecoder;
 pub mod mobilecoder_event;
 pub mod claude_protocol;

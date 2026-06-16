@@ -1,5 +1,5 @@
+use super::helpers;
 use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
-use crate::models::utc_timestamp;
 
 /// Kimi executor。
 ///
@@ -14,6 +14,68 @@ pub struct KimiExecutor {
 impl KimiExecutor {
     pub fn new(path: String) -> Self {
         Self { base: BaseExecutor::new(path) }
+    }
+
+    /// 解析 assistant 角色：优先 tool_calls（首个匹配即返回），否则 text / thinking。
+    fn parse_assistant(&self, json: &serde_json::Value) -> Option<ParsedLogEntry> {
+        if let Some(entry) = self.parse_assistant_tool_call(json) {
+            return Some(entry);
+        }
+        self.parse_assistant_content(json)
+    }
+
+    /// 提取 assistant.tool_calls[0].function 作为 tool_call 日志。
+    fn parse_assistant_tool_call(&self, json: &serde_json::Value) -> Option<ParsedLogEntry> {
+        let calls = json.get("tool_calls")?.as_array()?;
+        for call in calls {
+            let func = call.get("function")?;
+            let name = func.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let args = func.get("arguments").and_then(|v| v.as_str()).unwrap_or("{}");
+            return Some(helpers::tool_call_entry(
+                "tool_call",
+                format!("Calling tool: {} with args: {}", name, args),
+                name,
+                Some(args.to_string()),
+            ));
+        }
+        None
+    }
+
+    /// 收集 content[] 中的 text/think，按 text > thinking 优先级返回。
+    fn parse_assistant_content(&self, json: &serde_json::Value) -> Option<ParsedLogEntry> {
+        let items = json.get("content")?.as_array()?;
+        let mut text: Option<String> = None;
+        let mut think: Option<String> = None;
+        for item in items {
+            match item.get("type").and_then(|v| v.as_str()) {
+                Some("text") => {
+                    if let Some(t) = item.get("text").and_then(|v| v.as_str()) {
+                        text = Some(t.to_string());
+                    }
+                }
+                Some("think") => {
+                    if let Some(t) = item.get("think").and_then(|v| v.as_str()) {
+                        think = Some(t.to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+        text.map(|t| helpers::text_entry(t))
+            .or_else(|| think.map(|t| helpers::entry("thinking", t)))
+    }
+
+    /// 解析 tool 角色的 content[0].text 作为 tool_result。
+    fn parse_tool_result(&self, json: &serde_json::Value) -> Option<ParsedLogEntry> {
+        let items = json.get("content")?.as_array()?;
+        for item in items {
+            if item.get("type").and_then(|v| v.as_str()) == Some("text") {
+                if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+                    return Some(helpers::entry("tool_result", text));
+                }
+            }
+        }
+        None
     }
 }
 
@@ -50,136 +112,32 @@ impl CodeExecutor for KimiExecutor {
     }
 
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            return None;
-        }
-
-        // Skip non-JSON lines
-        if !trimmed.starts_with('{') {
-            return None;
-        }
-
-        let json = match serde_json::from_str::<serde_json::Value>(trimmed) {
-            Ok(v) => v,
-            Err(_) => return None,
-        };
-
+        let json = helpers::parse_json_line(line)?;
+        // 非对象（Kimi 始终输出 JSON 对象）一律忽略，行为与原实现一致
         let role = json.get("role").and_then(|v| v.as_str())?;
-
-        // Assistant message: could have tool_calls or text content
-        if role == "assistant" {
-            // Has tool_calls - this is a tool call request
-            if let Some(tool_calls) = json.get("tool_calls").and_then(|v| v.as_array()) {
-                for call in tool_calls {
-                    if let Some(func) = call.get("function") {
-                        let name = func.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
-                        let args = func.get("arguments").and_then(|v| v.as_str()).unwrap_or("{}");
-                        return Some(ParsedLogEntry {
-                            timestamp: utc_timestamp(),
-                            log_type: "tool_call".to_string(),
-                            content: format!("Calling tool: {} with args: {}", name, args),
-                            usage: None,
-                            tool_name: Some(name.to_string()),
-                            tool_input_json: Some(args.to_string()),
-                        });
-                    }
-                }
-            }
-
-            // Collect all content items and return as separate log entries
-            if let Some(content) = json.get("content").and_then(|v| v.as_array()) {
-                let mut text_result: Option<String> = None;
-                let mut think_result: Option<String> = None;
-
-                for item in content {
-                    match item.get("type").and_then(|v| v.as_str()) {
-                        Some("text") => {
-                            if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
-                                text_result = Some(text.to_string());
-                            }
-                        }
-                        Some("think") => {
-                            if let Some(think) = item.get("think").and_then(|v| v.as_str()) {
-                                think_result = Some(think.to_string());
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-
-                // Return text first if present (it's the final answer)
-                if let Some(text) = text_result {
-                    return Some(ParsedLogEntry {
-                        timestamp: utc_timestamp(),
-                        log_type: "text".to_string(),
-                        content: text,
-                        usage: None,
-            tool_name: None,
-            tool_input_json: None,
-                    });
-                }
-                // Fall back to thinking
-                if let Some(think) = think_result {
-                    return Some(ParsedLogEntry {
-                        timestamp: utc_timestamp(),
-                        log_type: "thinking".to_string(),
-                        content: think,
-                        usage: None,
-            tool_name: None,
-            tool_input_json: None,
-                    });
-                }
-            }
-            return None;
+        match role {
+            "assistant" => self.parse_assistant(&json),
+            "tool" => self.parse_tool_result(&json),
+            _ => None,
         }
-
-        // Tool result
-        if role == "tool" {
-            if let Some(content) = json.get("content").and_then(|v| v.as_array()) {
-                for item in content {
-                    if item.get("type").and_then(|v| v.as_str()) == Some("text") {
-                        if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
-                            return Some(ParsedLogEntry {
-                                timestamp: utc_timestamp(),
-                                log_type: "tool_result".to_string(),
-                                content: text.to_string(),
-                                usage: None,
-            tool_name: None,
-            tool_input_json: None,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        None
     }
 
     fn parse_stderr_line(&self, line: &str) -> Option<ParsedLogEntry> {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with("To resume this session:") {
+        let trimmed = helpers::trimmed_non_empty(line)?;
+        // 跳过 resume 提示行（不属于 stderr 内容）
+        if trimmed.starts_with("To resume this session:") {
             return None;
         }
 
         // Classify stderr content by its nature
         let log_type = if trimmed.starts_with("[tool-streaming") {
-            "tool".to_string()
+            "tool"
         } else if trimmed.contains("error") || trimmed.contains("Error") || trimmed.contains("ERROR") || trimmed.contains("failed") || trimmed.contains("Failed") {
-            "stderr".to_string()
+            "stderr"
         } else {
-            "info".to_string()
+            "info"
         };
-
-        Some(ParsedLogEntry {
-            timestamp: utc_timestamp(),
-            log_type,
-            content: trimmed.to_string(),
-            usage: None,
-            tool_name: None,
-            tool_input_json: None,
-        })
+        Some(helpers::entry(log_type, trimmed))
     }
 
     fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
