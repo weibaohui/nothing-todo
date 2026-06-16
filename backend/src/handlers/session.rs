@@ -497,72 +497,72 @@ fn scan_hermes(sessions: &mut Vec<SessionInfo>) {
             Err(_) => continue,
         };
 
-            let mut first_ts: Option<String> = None;
-            let mut last_ts: Option<String> = None;
-            let mut model: Option<String> = None;
-            let mut first_prompt: Option<String> = None;
-            let mut msg_count: u32 = 0;
-            let mut project_path = String::new();
+        let mut first_ts: Option<String> = None;
+        let mut last_ts: Option<String> = None;
+        let mut model: Option<String> = None;
+        let mut first_prompt: Option<String> = None;
+        let mut msg_count: u32 = 0;
+        let mut project_path = String::new();
 
-            for line in content.lines() {
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-                    let role = v.get("role").and_then(|r| r.as_str()).unwrap_or("");
+        for line in content.lines() {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                let role = v.get("role").and_then(|r| r.as_str()).unwrap_or("");
 
-                    if role == "session_meta" {
-                        first_ts = v.get("timestamp").and_then(|t| t.as_str()).map(String::from);
-                    } else if role == "user" {
-                        msg_count += 1;
-                        let text = v.get("content")
-                            .and_then(|c| c.as_str())
-                            .unwrap_or("");
-                        if first_prompt.is_none() && !text.is_empty() {
-                            first_prompt = Some(truncate_str(text, 200));
-                        }
-                        // Try to get cwd from tool calls or context
-                        if project_path.is_empty() {
-                            if let Some(tool_calls) = v.get("tool_calls") {
-                                for tc in tool_calls.as_array().unwrap_or(&vec![]) {
-                                    if let Some(inp) = tc.get("function").and_then(|f| f.get("arguments")) {
-                                        if let Some(cwd) = inp.get("cwd").and_then(|c| c.as_str()) {
-                                            project_path = cwd.to_string();
-                                        }
+                if role == "session_meta" {
+                    first_ts = v.get("timestamp").and_then(|t| t.as_str()).map(String::from);
+                } else if role == "user" {
+                    msg_count += 1;
+                    let text = v.get("content")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("");
+                    if first_prompt.is_none() && !text.is_empty() {
+                        first_prompt = Some(truncate_str(text, 200));
+                    }
+                    // Try to get cwd from tool calls or context
+                    if project_path.is_empty() {
+                        if let Some(tool_calls) = v.get("tool_calls") {
+                            for tc in tool_calls.as_array().unwrap_or(&vec![]) {
+                                if let Some(inp) = tc.get("function").and_then(|f| f.get("arguments")) {
+                                    if let Some(cwd) = inp.get("cwd").and_then(|c| c.as_str()) {
+                                        project_path = cwd.to_string();
                                     }
                                 }
                             }
                         }
-                    } else if role == "assistant" {
-                        msg_count += 1;
-                        if model.is_none() {
-                            model = v.get("model").and_then(|m| m.as_str()).map(String::from);
-                        }
                     }
-
-                    if let Some(ts) = v.get("timestamp").and_then(|t| t.as_str()) {
-                        last_ts = Some(ts.to_string());
+                } else if role == "assistant" {
+                    msg_count += 1;
+                    if model.is_none() {
+                        model = v.get("model").and_then(|m| m.as_str()).map(String::from);
                     }
                 }
+
+                if let Some(ts) = v.get("timestamp").and_then(|t| t.as_str()) {
+                    last_ts = Some(ts.to_string());
+                }
             }
+        }
 
-            let session_id = name.trim_end_matches(".jsonl").to_string();
+        let session_id = name.trim_end_matches(".jsonl").to_string();
 
-            sessions.push(SessionInfo {
-                session_id,
-                source: "hermes".to_string(),
-                project_path,
-                status: "completed".to_string(),
-                executor: "hermes".to_string(),
-                model: model.unwrap_or_else(|| "-".into()),
-                git_branch: None,
-                message_count: msg_count,
-                total_input_tokens: 0,
-                total_output_tokens: 0,
-                first_prompt,
-                created_at: first_ts,
-                last_active_at: last_ts,
-                file_size,
-                version: None,
-                subagent_count: 0,
-            });
+        sessions.push(SessionInfo {
+            session_id,
+            source: "hermes".to_string(),
+            project_path,
+            status: "completed".to_string(),
+            executor: "hermes".to_string(),
+            model: model.unwrap_or_else(|| "-".into()),
+            git_branch: None,
+            message_count: msg_count,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            first_prompt,
+            created_at: first_ts,
+            last_active_at: last_ts,
+            file_size,
+            version: None,
+            subagent_count: 0,
+        });
     }
 }
 
