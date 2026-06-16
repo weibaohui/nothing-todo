@@ -64,6 +64,40 @@ impl SchedulerError {
     }
 }
 
+/// 判断一个去重升序整数切片是否构成连续区间(步长 1)。
+///
+/// 期望输入是 `BTreeSet` 收集后转的 `Vec`,即元素已升序无重复。
+/// - `len() < 2` 视为不连续(单值区间本身没有"区间"概念,留给 caller 走单值分支)。
+/// - 例: `[0,1,2,3]` → true;`[0,2,4]` → false;`[5,6,8]` → false。
+fn is_contiguous(items: &[u32]) -> bool {
+    if items.len() < 2 {
+        return false;
+    }
+    items.windows(2).all(|w| w[1] == w[0] + 1)
+}
+
+/// 计算一个去重升序整数切片的等差步长(若构成等差数列)。
+///
+/// 期望输入是 `BTreeSet` 收集后转的 `Vec`,即元素已升序无重复。
+/// 返回 `Some(step)` 表示整个序列步长恒为 `step > 0`;
+/// `None` 表示不是等差数列或元素数 < 2。
+/// - 例: `[0,2,4,6]` → Some(2);`[0,2,5]` → None;`[5,5]` → None (步长为 0 不算等差)。
+fn arithmetic_step(items: &[u32]) -> Option<u32> {
+    if items.len() < 2 {
+        return None;
+    }
+    // 步长为零的退化情况(去重集合理论上不会出现,但 `BTreeSet` 转 `Vec` 仍可能
+    // 出现 caller 误传含重复元素的情况): 显式拒掉,避免后续值下溢。
+    let step = items[1].checked_sub(items[0])?;
+    if step == 0 {
+        return None;
+    }
+    items
+        .windows(2)
+        .all(|w| w[1].checked_sub(w[0]) == Some(step))
+        .then_some(step)
+}
+
 /// 把一个去重整数集合格式化成 cron 字段值。
 ///
 /// 紧凑模式优先级:
@@ -75,6 +109,9 @@ impl SchedulerError {
 ///
 /// 为什么不用 4. 的等差:实现稍复杂,但产出 cron 更短、对人友好。常见
 /// `*/N` / `a-b/N` 都是这种形式。
+///
+/// 重构后 (issue #614): 把"连续区间"和"等差数列"两个判断抽到
+/// `is_contiguous` / `arithmetic_step` 辅助函数,本函数体只剩分支串联。
 fn format_cron_field(set: &BTreeSet<u32>) -> String {
     if set.is_empty() {
         return "*".to_string();
@@ -84,36 +121,22 @@ fn format_cron_field(set: &BTreeSet<u32>) -> String {
         return items[0].to_string();
     }
 
-    // 检查连续区间
-    let mut is_contiguous = true;
-    for i in 1..items.len() {
-        if items[i] != items[i - 1] + 1 {
-            is_contiguous = false;
-            break;
-        }
-    }
-    if is_contiguous {
-        return format!("{}-{}", items[0], items[items.len() - 1]);
+    // 连续区间: 步长 1 的等差,先匹配以避免被通用 arithmetic_step 抢走。
+    // 安全: `is_contiguous` 在 `len() < 2` 时返回 false,能走到这里时 `len() >= 2`,
+    // `items[items.len() - 1]` 不会越界; 风格上沿用主分支的索引取末位写法,避免 `.last().unwrap()` 触发 `clippy::unwrap_used`。
+    if is_contiguous(&items) {
+        let last = items[items.len() - 1];
+        return format!("{}-{}", items[0], last);
     }
 
-    // 检查等差数列 (步长固定)
-    if items.len() >= 2 {
-        let step = items[1] - items[0];
-        if step > 0 {
-            let mut is_arith = true;
-            for i in 2..items.len() {
-                if items[i] - items[i - 1] != step {
-                    is_arith = false;
-                    break;
-                }
-            }
-            if is_arith {
-                return format!("{}-{}/{}", items[0], items[items.len() - 1], step);
-            }
-        }
+    // 等差数列 (步长固定,> 0): `a-b/N` 紧凑表示。
+    // 安全同上的 `len() >= 2` 不变式,索引取末位不会越界。
+    if let Some(step) = arithmetic_step(&items) {
+        let last = items[items.len() - 1];
+        return format!("{}-{}/{}", items[0], last, step);
     }
 
-    // 兜底:逗号列表
+    // 兜底:逗号列表。
     items
         .iter()
         .map(|x| x.to_string())
@@ -950,5 +973,137 @@ mod scheduler_error_tests {
             !err.to_string().to_lowercase().contains("panic"),
             "error should be returned via Result, not panic. got: {err}"
         );
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod format_cron_field_tests {
+    //! Tests for `format_cron_field` and the helpers extracted in issue #614.
+    //!
+    //! 拆分前 `format_cron_field` 内部的两段 `for i in 1..len { ... }` 检查循环
+    //! 没有任何独立测试,只能通过端到端 `convert_cron_to_utc` 间接覆盖。重构后
+    //! 拆出 `is_contiguous` / `arithmetic_step`,这里对它们 + 主函数做穷尽覆盖,
+    //! 覆盖 {空集/单值/连续/等差/不规则/单元素退化/步长 0 退化}。
+    use super::{arithmetic_step, format_cron_field, is_contiguous};
+    use std::collections::BTreeSet;
+
+    /// `is_contiguous`: 单元素 / 空切片不算"区间"。
+    /// 期望与 `format_cron_field` 行为一致 —— 单值走单值分支,不需要区间判定。
+    #[test]
+    fn test_is_contiguous_empty_and_single() {
+        assert!(!is_contiguous(&[]), "empty slice is not contiguous");
+        assert!(!is_contiguous(&[42]), "single element is not contiguous");
+    }
+
+    /// `is_contiguous`: 步长 1 的升序序列。
+    #[test]
+    fn test_is_contiguous_true_cases() {
+        assert!(is_contiguous(&[0, 1, 2, 3, 4]));
+        assert!(is_contiguous(&[7, 8, 9]));
+        // 跨"小时边界"也不算特殊,只看数值差 1。
+        assert!(is_contiguous(&[22, 23, 24]));
+    }
+
+    /// `is_contiguous`: 任一处差值不是 1 就判否。
+    #[test]
+    fn test_is_contiguous_false_cases() {
+        // 等差但步长 2
+        assert!(!is_contiguous(&[0, 2, 4, 6]));
+        // 中间断了一格
+        assert!(!is_contiguous(&[0, 1, 3, 4]));
+        // 降序
+        assert!(!is_contiguous(&[5, 4, 3]));
+        // 重复
+        assert!(!is_contiguous(&[1, 1, 2]));
+    }
+
+    /// `arithmetic_step`: 空 / 单元素 / 步长 0 都返回 None。
+    #[test]
+    fn test_arithmetic_step_degenerate() {
+        assert_eq!(arithmetic_step(&[]), None);
+        assert_eq!(arithmetic_step(&[7]), None);
+        // 步长 0 是退化情况(集合理论上去重后不该出现),显式拒掉。
+        assert_eq!(arithmetic_step(&[5, 5, 5]), None);
+    }
+
+    /// `arithmetic_step`: 标准等差数列。
+    #[test]
+    fn test_arithmetic_step_basic() {
+        assert_eq!(arithmetic_step(&[0, 2, 4, 6]), Some(2));
+        assert_eq!(arithmetic_step(&[0, 5, 10, 15, 20]), Some(5));
+        // 步长 1 的等差 —— 这与 `is_contiguous` 语义重叠,只是 step 是 1。
+        assert_eq!(arithmetic_step(&[0, 1, 2, 3]), Some(1));
+    }
+
+    /// `arithmetic_step`: 非等差序列返回 None。
+    #[test]
+    fn test_arithmetic_step_non_arithmetic() {
+        // 中间断了一档
+        assert_eq!(arithmetic_step(&[0, 2, 5, 6]), None);
+        // 降序
+        assert_eq!(arithmetic_step(&[10, 8, 6]), None);
+    }
+
+    /// `format_cron_field`: 空集 → `*`。
+    #[test]
+    fn test_format_cron_field_empty() {
+        let set: BTreeSet<u32> = BTreeSet::new();
+        assert_eq!(format_cron_field(&set), "*");
+    }
+
+    /// `format_cron_field`: 单值 → `"7"`。
+    #[test]
+    fn test_format_cron_field_single() {
+        let set: BTreeSet<u32> = BTreeSet::from([7]);
+        assert_eq!(format_cron_field(&set), "7");
+    }
+
+    /// `format_cron_field`: 连续区间 → `"a-b"`,步长 1 优先于通用等差。
+    /// 这一点很关键: `[0,1,2,3]` 既是连续也是步长 1 的等差,
+    /// 按 issue 描述的优先级应输出短形式 `0-3` 而不是 `0-3/1`。
+    #[test]
+    fn test_format_cron_field_contiguous_range() {
+        let set: BTreeSet<u32> = BTreeSet::from([0, 1, 2, 3, 4]);
+        assert_eq!(format_cron_field(&set), "0-4");
+        let set: BTreeSet<u32> = BTreeSet::from([9, 10, 11]);
+        assert_eq!(format_cron_field(&set), "9-11");
+    }
+
+    /// `format_cron_field`: 等差数列 → `"a-b/N"`。
+    /// 常见例子: 小时字段展开为 `0,2,4,...,22` 紧凑写成 `0-22/2`。
+    #[test]
+    fn test_format_cron_field_arithmetic() {
+        let set: BTreeSet<u32> = BTreeSet::from([0, 2, 4, 6]);
+        assert_eq!(format_cron_field(&set), "0-6/2");
+        // 实际生产里出现过的形态: 0,15,30,45 分钟 → 0-45/15
+        let set: BTreeSet<u32> = BTreeSet::from([0, 15, 30, 45]);
+        assert_eq!(format_cron_field(&set), "0-45/15");
+    }
+
+    /// `format_cron_field`: 不规则序列 → 逗号列表。
+    #[test]
+    fn test_format_cron_field_irregular() {
+        let set: BTreeSet<u32> = BTreeSet::from([0, 5, 10, 12]);
+        assert_eq!(format_cron_field(&set), "0,5,10,12");
+        // 步长变了: 0,3,7,12 (差 3,4,5) 也不构成等差
+        let set: BTreeSet<u32> = BTreeSet::from([0, 3, 7, 12]);
+        assert_eq!(format_cron_field(&set), "0,3,7,12");
+    }
+
+    /// `format_cron_field`: 二元素连续 → 连续区间,而不是等差(虽然也是步长 1 等差)。
+    /// 防御"二元素时被算成等差"导致输出 `a-b/1` 这种啰嗦表示的回归。
+    #[test]
+    fn test_format_cron_field_two_elements_contiguous() {
+        let set: BTreeSet<u32> = BTreeSet::from([3, 4]);
+        assert_eq!(format_cron_field(&set), "3-4");
+    }
+
+    /// `format_cron_field`: 二元素等差(步长 2) → 等差表示。
+    /// 区别于上一个 case: 步长不是 1,触发 arithmetic_step 分支。
+    #[test]
+    fn test_format_cron_field_two_elements_arithmetic() {
+        let set: BTreeSet<u32> = BTreeSet::from([3, 5]);
+        assert_eq!(format_cron_field(&set), "3-5/2");
     }
 }
