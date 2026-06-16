@@ -169,22 +169,6 @@ ntd 支持多种 AI CLI 工具，选择你已有的或最喜欢的即可：
 - **Worktree**：执行时自动创建 Git worktree，隔离分支操作，适合仓库内多任务并行
 - **后置 Todo 进度提取**：Hermes 特有功能，执行完成后从会话文件中提取内部 Todo 进度
 
-### 各执行器特点
-
-| 执行器 | 特点 | 安装方式 |
-|--------|------|----------|
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) | 官方 CLI，最完善的功能支持，NDJSON 流式输出 | `npm install -g @anthropic-ai/claude-code` |
-| [Codex](https://openai.com/codex) | OpenAI 代码助手，支持复杂推理 | 官方渠道 |
-| [CodeBuddy](https://codebuddy.com) | 与 Claude Code 协议兼容的工具调用展示 | 官方渠道 |
-| [Opencode](https://opencode.ai) | 开源代码助手，自定义事件流格式 | 官方渠道 |
-| [MobileCoder](https://github.com/nicheai/mobilecoder) | 移动端 AI 代码助手，支持事件流解析 | 官方渠道 |
-| [AtomCode](https://atomcode.dev) | 轻量级 AI 代码编辑器，stderr 解析 | 官方渠道 |
-| [Hermes](https://github.com/bhousai/hermes) | 支持 Todo 进度提取，适合任务分解场景 | 官方渠道 |
-| [Kimi](https://kimi.moonshot.cn) | 国产大模型 CLI，支持思考过程展示 | 官方渠道 |
-| [Pi](https://pi.ai) | 智能 AI 助手，支持 NDJSON 事件流，含思考过程展示 | 官方渠道 |
-| [CodeWhale](https://codewhale.cn) | AI 代码助手，适合中文场景 | 官方渠道 |
-| [MiMo](https://mimo.ai) | 多模态 AI 代码助手，支持思考过程与 Token 统计 | 官方渠道 |
-
 ---
 
 ## 功能概览
