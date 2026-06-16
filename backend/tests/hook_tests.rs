@@ -10,6 +10,7 @@ mod hook_trigger_tests {
 
     #[test]
     fn as_str_covers_all_variants() {
+        assert_eq!(HookTrigger::BeforeExecution.as_str(), "before_execution");
         assert_eq!(HookTrigger::StateChangedToPending.as_str(), "state_changed_to_pending");
         assert_eq!(HookTrigger::StateChangedToInProgress.as_str(), "state_changed_to_in_progress");
         assert_eq!(HookTrigger::StateChangedToCompleted.as_str(), "state_changed_to_completed");
@@ -19,6 +20,7 @@ mod hook_trigger_tests {
     #[test]
     fn from_str_round_trips_and_is_case_sensitive() {
         for t in [
+            HookTrigger::BeforeExecution,
             HookTrigger::StateChangedToPending,
             HookTrigger::StateChangedToInProgress,
             HookTrigger::StateChangedToCompleted,
@@ -29,6 +31,7 @@ mod hook_trigger_tests {
         assert_eq!(HookTrigger::from_str("invalid"), None);
         assert_eq!(HookTrigger::from_str(""), None);
         assert_eq!(HookTrigger::from_str("BEFORE_CREATE"), None);
+        assert_eq!(HookTrigger::from_str("before_execution"), Some(HookTrigger::BeforeExecution));
     }
 
     #[test]
@@ -53,11 +56,10 @@ mod hook_trigger_tests {
 
     #[test]
     fn is_sync_only_for_before_lifecycle() {
-        // Lifecycle gates were removed — all remaining triggers observe state
-        // changes asynchronously. This test is a placeholder reminding future
-        // maintainers that the sync/async distinction no longer applies to
-        // HookTrigger itself.
-        let _all: [HookTrigger; 4] = [
+        // All 5 hook trigger variants — including BeforeExecution (the only
+        // execution-phase trigger alongside the 4 state-change triggers).
+        let _all: [HookTrigger; 5] = [
+            HookTrigger::BeforeExecution,
             HookTrigger::StateChangedToPending,
             HookTrigger::StateChangedToInProgress,
             HookTrigger::StateChangedToCompleted,

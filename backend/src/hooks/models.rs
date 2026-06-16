@@ -4,13 +4,21 @@ use crate::models::TodoStatus;
 
 /// Hook trigger types.
 ///
-/// The only triggers that exist are per-target-state: each fires when a todo
-/// transitions INTO that status. There are intentionally no lifecycle gates
-/// (`before_create` / `after_create` / `before_delete` / `after_delete`) —
-/// hooks observe state changes, they don't gate lifecycle events.
+/// Triggers are divided into two categories:
+/// - **State-change triggers**: fire when a todo transitions INTO a status
+///   (`pending` / `in_progress` / `completed` / `failed`).
+/// - **Execution triggers**: fire before or after a todo executes.
+///
+/// There are intentionally no lifecycle gates (`before_create` / `after_create`
+/// / `before_delete` / `after_delete`) — hooks observe state changes, they
+/// don't gate lifecycle events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HookTrigger {
+    /// Fires just before a todo execution starts. The target todo runs first
+    /// as a "pre-flight" step; the source execution only proceeds after the
+    /// pre-hook completes.
+    BeforeExecution,
     StateChangedToPending,
     StateChangedToInProgress,
     StateChangedToCompleted,
@@ -20,6 +28,7 @@ pub enum HookTrigger {
 impl HookTrigger {
     pub fn as_str(&self) -> &'static str {
         match self {
+            Self::BeforeExecution => "before_execution",
             Self::StateChangedToPending => "state_changed_to_pending",
             Self::StateChangedToInProgress => "state_changed_to_in_progress",
             Self::StateChangedToCompleted => "state_changed_to_completed",
@@ -29,6 +38,7 @@ impl HookTrigger {
 
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
+            "before_execution" => Some(Self::BeforeExecution),
             "state_changed_to_pending" => Some(Self::StateChangedToPending),
             "state_changed_to_in_progress" => Some(Self::StateChangedToInProgress),
             "state_changed_to_completed" => Some(Self::StateChangedToCompleted),
@@ -40,6 +50,10 @@ impl HookTrigger {
     /// Map a target `TodoStatus` to its corresponding state-change trigger.
     /// Returns `None` for statuses without a dedicated trigger (e.g. `cancelled`)
     /// so callers can decide whether to fire any hook at all.
+    ///
+    /// Note: `BeforeExecution` is NOT a state-change trigger and is therefore
+    /// not returned here — callers that need to fire pre-execution hooks must
+    /// do so explicitly via a dedicated path (e.g. `fire_before_execution`).
     pub fn for_target_status(status: TodoStatus) -> Option<Self> {
         match status {
             TodoStatus::Pending => Some(Self::StateChangedToPending),
@@ -338,5 +352,33 @@ impl HookContext {
             trigger,
             chain,
         })
+    }
+
+    /// Build a pre-execution context for a todo about to run.
+    /// The trigger is always `HookTrigger::BeforeExecution`.
+    ///
+    /// Unlike state-change hooks (which are fire-and-forget), pre-execution
+    /// hooks are **synchronous blocking**: the source execution must wait for
+    /// all pre-hook targets to complete before proceeding. This ensures the
+    /// pre-flight step finishes before the main work starts.
+    pub fn for_before_execution(
+        todo_id: i64,
+        todo_title: String,
+        executor: Option<String>,
+        workspace: Option<String>,
+        chain: Vec<i64>,
+    ) -> Self {
+        Self {
+            todo_id: Some(todo_id),
+            todo_title,
+            old_status: None,
+            new_status: None,
+            executor,
+            workspace,
+            task_id: None,
+            trigger_time: crate::models::utc_timestamp(),
+            trigger: HookTrigger::BeforeExecution,
+            chain,
+        }
     }
 }

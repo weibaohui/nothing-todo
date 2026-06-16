@@ -589,6 +589,9 @@ fn fire_completion_hooks(
     )
 )]
 pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionResult {
+    // Extract `chain` before the rest so it stays available for cloning in
+    // the pre-hook section and in `fire_completion_hooks` at the end.
+    let chain = request.chain;
     let RunTodoExecutionRequest {
         db,
         executor_registry,
@@ -603,12 +606,12 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         params,
         resume_session_id,
         resume_message,
-        chain,
         source_todo_id,
         source_todo_title,
         source_hook_id,
         feishu_bot_id,
         feishu_receive_id,
+        ..
     } = request;
     let message = params
         .as_ref()
@@ -653,6 +656,27 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
     let todo_executor = todo.as_ref().and_then(|t| t.executor.clone());
     let todo_workspace = todo.as_ref().and_then(|t| t.workspace.clone());
     let todo_worktree_enabled = todo.as_ref().map(|t| t.worktree_enabled).unwrap_or(false);
+
+    // Fire before_execution hooks synchronously — block until all pre-flight targets finish.
+    // If the hook fails and the user didn't set skip_if_missing, we abort the main execution.
+    // We skip firing altogher when `todo` is None (todo was deleted between scheduling and now).
+    if let Some(ref t) = todo {
+        let ctx = crate::hooks::models::HookContext::for_before_execution(
+            todo_id,
+            t.title.clone(),
+            t.executor.clone(),
+            t.workspace.clone(),
+            chain.clone(),
+        );
+        match hook_service.clone().fire_before_execution(todo_id, ctx).await {
+            Ok(()) => {}
+            Err(msg) => {
+                // Pre-hook failed — abort this execution without creating a record.
+                tracing::warn!("aborting execution due to pre-hook failure: {}", msg);
+                return ExecutionResult { task_id, record_id: None };
+            }
+        }
+    }
 
     // Determine which executor to use: explicit > todo stored > default.
     // 抽到 `resolve_executor_type` 让 warn 日志集中，并支持单测。
