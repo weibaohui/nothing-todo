@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use parking_lot::Mutex;
 
+use super::helpers;
 use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
 use crate::adapters::ExecutionUsage;
-use crate::models::utc_timestamp;
 
 /// AtomCode executor。
 ///
@@ -47,122 +47,29 @@ impl CodeExecutor for AtomcodeExecutor {
     }
 
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            return None;
-        }
-        Some(ParsedLogEntry {
-            timestamp: utc_timestamp(),
-            log_type: "text".to_string(),
-            content: trimmed.to_string(),
-            usage: None,
-            tool_name: None,
-            tool_input_json: None,
-        })
+        let trimmed = helpers::trimmed_non_empty(line)?;
+        // atomcode 的 stdout 不解析为结构化事件，全部当作普通文本透传给前端。
+        Some(helpers::text_entry(trimmed))
     }
 
     fn parse_stderr_line(&self, line: &str) -> Option<ParsedLogEntry> {
-        let trimmed = line.trim();
+        let trimmed = helpers::trimmed_non_empty(line)?;
 
-        // Skip streaming and headless markers
+        // 跳过 streaming / headless 标记行：与原行为一致（不向前端展示）
         if trimmed.starts_with("[tool-streaming") || trimmed.starts_with("[headless]") {
             return None;
         }
 
-        // [tokens] prompt=11 completion=0
         if trimmed.starts_with("[tokens]") {
-            let mut prompt_tokens = 0u64;
-            let mut completion_tokens = 0u64;
-            for part in trimmed.split_whitespace().skip(1) {
-                if let Some((key, val)) = part.split_once('=') {
-                    match key {
-                        "prompt" => prompt_tokens = val.parse().unwrap_or(0),
-                        "completion" => completion_tokens = val.parse().unwrap_or(0),
-                        _ => {}
-                    }
-                }
-            }
-
-            let mut usage_guard = self.base.usage.lock();
-            if let Some(ref mut usage) = *usage_guard {
-                usage.input_tokens = prompt_tokens;
-                usage.output_tokens = completion_tokens;
-            } else {
-                *usage_guard = Some(ExecutionUsage {
-                    input_tokens: prompt_tokens,
-                    output_tokens: completion_tokens,
-                    cache_read_input_tokens: None,
-                    cache_creation_input_tokens: None,
-                    total_cost_usd: None,
-                    duration_ms: None,
-                });
-            }
-
-            return Some(ParsedLogEntry {
-                timestamp: utc_timestamp(),
-                log_type: "tokens".to_string(),
-                content: trimmed.to_string(),
-                usage: None,
-                tool_name: None,
-                tool_input_json: None,
-            });
+            return self.parse_tokens_line(trimmed);
         }
-
-        // [done] 4.6s tokens=0 turns=1 tool_calls=0 [stopped=turn_limit]
         if trimmed.starts_with("[done]") {
-            *self.has_done.lock() = true;
-
-            let mut total_tokens = 0u64;
-            let mut turns = 0u64;
-            let mut tool_calls = 0u64;
-            let mut duration_ms = None;
-
-            for (i, part) in trimmed.split_whitespace().enumerate() {
-                if i == 1 {
-                    // e.g. "4.6s"
-                    let s = part.trim_end_matches('s');
-                    if let Ok(secs) = s.parse::<f64>() {
-                        duration_ms = Some((secs * 1000.0) as u64);
-                    }
-                } else if let Some((key, val)) = part.split_once('=') {
-                    match key {
-                        "tokens" => total_tokens = val.parse().unwrap_or(0),
-                        "turns" => turns = val.parse().unwrap_or(0),
-                        "tool_calls" => tool_calls = val.parse().unwrap_or(0),
-                        _ => {}
-                    }
-                }
-            }
-
-            let mut usage_guard = self.base.usage.lock();
-            if let Some(ref mut usage) = *usage_guard {
-                usage.duration_ms = duration_ms;
-            } else if total_tokens > 0 {
-                *usage_guard = Some(ExecutionUsage {
-                    input_tokens: total_tokens,
-                    output_tokens: 0,
-                    cache_read_input_tokens: None,
-                    cache_creation_input_tokens: None,
-                    total_cost_usd: None,
-                    duration_ms,
-                });
-            }
-
-            return Some(ParsedLogEntry {
-                timestamp: utc_timestamp(),
-                log_type: "step_finish".to_string(),
-                content: format!("Execution finished: {} turns, {} tool calls", turns, tool_calls),
-                usage: None,
-                tool_name: None,
-                tool_input_json: None,
-            });
+            return self.parse_done_line(trimmed);
         }
-
-        // [tool→ write_file args={...}]
         if trimmed.starts_with("[tool→") {
             let (tool_name, tool_input_json) = parse_atomcode_tool_call(trimmed);
             return Some(ParsedLogEntry {
-                timestamp: utc_timestamp(),
+                timestamp: crate::models::utc_timestamp(),
                 log_type: "tool".to_string(),
                 content: trimmed.to_string(),
                 usage: None,
@@ -170,31 +77,12 @@ impl CodeExecutor for AtomcodeExecutor {
                 tool_input_json,
             });
         }
-
-        // [tool← write_file OK 0ms] ...
         if trimmed.starts_with("[tool←") {
-            return Some(ParsedLogEntry {
-                timestamp: utc_timestamp(),
-                log_type: "tool".to_string(),
-                content: trimmed.to_string(),
-                usage: None,
-                tool_name: None,
-                tool_input_json: None,
-            });
+            return Some(helpers::entry("tool", trimmed));
         }
-
-        // [approval-denied] tool=write_file reason=...
         if trimmed.starts_with("[approval-denied]") {
-            return Some(ParsedLogEntry {
-                timestamp: utc_timestamp(),
-                log_type: "error".to_string(),
-                content: trimmed.to_string(),
-                usage: None,
-                tool_name: None,
-                tool_input_json: None,
-            });
+            return Some(helpers::error_entry(trimmed));
         }
-
         None
     }
 
@@ -209,6 +97,105 @@ impl CodeExecutor for AtomcodeExecutor {
     fn get_model(&self) -> Option<String> {
         None
     }
+}
+
+impl AtomcodeExecutor {
+    /// 解析 `[tokens] prompt=N completion=M` 行，更新 usage 并返回 tokens 日志条目。
+    fn parse_tokens_line(&self, trimmed: &str) -> Option<ParsedLogEntry> {
+        // 解析 key=value 形式，例如 [tokens] prompt=11 completion=0
+        let mut prompt_tokens = 0u64;
+        let mut completion_tokens = 0u64;
+        for part in trimmed.split_whitespace().skip(1) {
+            if let Some((key, val)) = part.split_once('=') {
+                match key {
+                    "prompt" => prompt_tokens = val.parse().unwrap_or(0),
+                    "completion" => completion_tokens = val.parse().unwrap_or(0),
+                    _ => {}
+                }
+            }
+        }
+
+        // 增量更新：已有 usage 时只覆盖 input/output，保留 cache / cost / duration 等字段。
+        let mut usage_guard = self.base.usage.lock();
+        if let Some(ref mut usage) = *usage_guard {
+            usage.input_tokens = prompt_tokens;
+            usage.output_tokens = completion_tokens;
+        } else {
+            *usage_guard = Some(ExecutionUsage {
+                input_tokens: prompt_tokens,
+                output_tokens: completion_tokens,
+                cache_read_input_tokens: None,
+                cache_creation_input_tokens: None,
+                total_cost_usd: None,
+                duration_ms: None,
+            });
+        }
+
+        Some(helpers::entry("tokens", trimmed))
+    }
+
+    /// 解析 `[done] 4.6s tokens=N turns=N tool_calls=N ...` 行，更新 has_done + usage 并返回 step_finish 日志。
+    fn parse_done_line(&self, trimmed: &str) -> Option<ParsedLogEntry> {
+        *self.has_done.lock() = true;
+        let stats = parse_done_stats(trimmed);
+        self.update_usage_from_done(&stats);
+        Some(helpers::entry(
+            "step_finish",
+            format!("Execution finished: {} turns, {} tool calls", stats.turns, stats.tool_calls),
+        ))
+    }
+
+    /// 把 `[done]` 行的统计结果合并进 base.usage：
+    /// - 已有 usage 时补齐 duration；
+    /// - 之前无 usage 且 total_tokens>0 时新建一条。
+    fn update_usage_from_done(&self, stats: &DoneStats) {
+        let mut usage_guard = self.base.usage.lock();
+        if let Some(ref mut usage) = *usage_guard {
+            usage.duration_ms = stats.duration_ms;
+        } else if stats.total_tokens > 0 {
+            *usage_guard = Some(ExecutionUsage {
+                input_tokens: stats.total_tokens,
+                output_tokens: 0,
+                cache_read_input_tokens: None,
+                cache_creation_input_tokens: None,
+                total_cost_usd: None,
+                duration_ms: stats.duration_ms,
+            });
+        }
+    }
+}
+
+/// `[done]` 行解析出来的统计字段。
+/// 用结构体集中收集 tokens / turns / tool_calls / duration，
+/// 让 parse_done_line 与 update_usage_from_done 各自单一职责。
+struct DoneStats {
+    total_tokens: u64,
+    turns: u64,
+    tool_calls: u64,
+    duration_ms: Option<u64>,
+}
+
+/// 从 `[done] 4.6s tokens=N turns=N tool_calls=N ...` 解析所有 key=value。
+/// duration 来自第二个 token（第一个非 `[done]` 段），其它字段以 key=value 形式逐个匹配。
+fn parse_done_stats(trimmed: &str) -> DoneStats {
+    let mut stats = DoneStats { total_tokens: 0, turns: 0, tool_calls: 0, duration_ms: None };
+    for (i, part) in trimmed.split_whitespace().enumerate() {
+        if i == 1 {
+            // 例如 "4.6s" → 4600 ms
+            let s = part.trim_end_matches('s');
+            if let Ok(secs) = s.parse::<f64>() {
+                stats.duration_ms = Some((secs * 1000.0) as u64);
+            }
+        } else if let Some((key, val)) = part.split_once('=') {
+            match key {
+                "tokens" => stats.total_tokens = val.parse().unwrap_or(0),
+                "turns" => stats.turns = val.parse().unwrap_or(0),
+                "tool_calls" => stats.tool_calls = val.parse().unwrap_or(0),
+                _ => {}
+            }
+        }
+    }
+    stats
 }
 
 /// Parse tool name and args JSON from atomcode stderr format: [tool→ name args={...}]

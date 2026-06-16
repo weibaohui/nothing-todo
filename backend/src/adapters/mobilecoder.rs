@@ -1,3 +1,4 @@
+use super::helpers;
 use super::mobilecoder_event::MobilecoderAgentEvent;
 use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
 use crate::adapters::ExecutionUsage;
@@ -15,6 +16,101 @@ pub struct MobilecoderExecutor {
 impl MobilecoderExecutor {
     pub fn new(path: String) -> Self {
         Self { base: BaseExecutor::new(path) }
+    }
+
+    /// 解析 MobileCoder 的 timestamp 字段：优先 ISO 8601，再回退到数字（毫秒/秒），
+    /// 最后落到 utc_timestamp()。逻辑与原内联分支完全等价。
+    fn resolve_timestamp(ts: Option<&super::mobilecoder_event::MobilecoderTimestamp>) -> String {
+        let Some(ts) = ts else { return utc_timestamp() };
+        let raw = &ts.0;
+        // Try ISO 8601 first (new version format)
+        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(raw) {
+            return dt.with_timezone(&chrono::Utc)
+                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                .to_string();
+        }
+        // Try as numeric string (milliseconds or seconds)
+        if let Ok(ts_f) = raw.parse::<f64>() {
+            let ts_ms = if ts_f > 1e12 { ts_f as i64 } else { (ts_f * 1000.0) as i64 };
+            if let Some(dt) = chrono::DateTime::from_timestamp_millis(ts_ms) {
+                return dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+            }
+        }
+        utc_timestamp()
+    }
+
+    /// step_start: 重置 usage（新一轮 step 累计值重置），返回 step_start 日志。
+    fn handle_step_start(&self, timestamp: &str) -> Option<ParsedLogEntry> {
+        *self.base.usage.lock() = None;
+        Some(helpers::with_timestamp(
+            helpers::entry_with_optional_tool("step_start", "Step started", None, None),
+            timestamp,
+        ))
+    }
+
+    /// tool_use: bash 工具显示 description + output；其它工具显示 tool + description。
+    fn handle_tool_use(
+        &self,
+        part: &super::mobilecoder_event::MobilecoderAgentPart,
+        timestamp: &str,
+    ) -> Option<ParsedLogEntry> {
+        let tool = part.tool.clone().unwrap_or_default();
+        let status = part.state.as_ref().and_then(|s| s.status.clone()).unwrap_or_default();
+        let description = part.state.as_ref().and_then(|s| s.input.as_ref().and_then(|i| i.description.clone())).unwrap_or_default();
+        let input_json = part.state.as_ref()
+            .and_then(|s| s.input.as_ref())
+            .map(|i| i.to_full_json());
+
+        // bash 特殊渲染：把命令输出也带上，其它工具只显示描述
+        let content = if tool == "bash" {
+            match &part.state.as_ref().and_then(|s| s.output.clone()) {
+                Some(output) => format!("[{}] {}: {}", status, description, output),
+                None => format!("[{}] {}", status, description),
+            }
+        } else {
+            format!("[{}] Tool: {} - {}", status, tool, description)
+        };
+
+        // 空工具名不上报 tool_name 字段，避免前端拿到空字符串
+        let tool_name = if tool.trim().is_empty() { None } else { Some(tool) };
+        Some(helpers::with_timestamp(
+            helpers::entry_with_optional_tool("tool", content, tool_name, input_json),
+            timestamp,
+        ))
+    }
+
+    /// text: 空文本返回 None（前端不渲染空消息），否则返回 text 日志。
+    fn handle_text(
+        &self,
+        part: &super::mobilecoder_event::MobilecoderAgentPart,
+        timestamp: &str,
+    ) -> Option<ParsedLogEntry> {
+        let text = part.text.clone().unwrap_or_default();
+        if text.is_empty() {
+            return None;
+        }
+        Some(helpers::with_timestamp(helpers::text_entry(text), timestamp))
+    }
+
+    /// step_finish: 从 part.tokens 提取 usage，返回 step_finish 日志。
+    fn handle_step_finish(
+        &self,
+        event: &MobilecoderAgentEvent,
+        timestamp: &str,
+    ) -> Option<ParsedLogEntry> {
+        if let Some(part) = &event.part {
+            if let Some(tokens) = &part.tokens {
+                *self.base.usage.lock() = Some(ExecutionUsage {
+                    input_tokens: tokens.input,
+                    output_tokens: tokens.output,
+                    cache_read_input_tokens: if tokens.cache.read > 0 { Some(tokens.cache.read) } else { None },
+                    cache_creation_input_tokens: if tokens.cache.write > 0 { Some(tokens.cache.write) } else { None },
+                    total_cost_usd: part.cost,
+                    duration_ms: None,
+                });
+            }
+        }
+        Some(helpers::with_timestamp(helpers::entry("step_finish", "Step finished"), timestamp))
     }
 }
 
@@ -67,111 +163,13 @@ impl CodeExecutor for MobilecoderExecutor {
 
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
         let event: MobilecoderAgentEvent = serde_json::from_str(line).ok()?;
-
-        let timestamp = event.timestamp
-            .map(|ts| {
-                let raw = ts.0;
-                // Try ISO 8601 first (new version format)
-                if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&raw) {
-                    return dt.with_timezone(&chrono::Utc)
-                        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-                        .to_string();
-                }
-                // Try as numeric string (milliseconds or seconds)
-                if let Ok(ts_f) = raw.parse::<f64>() {
-                    let ts_ms = if ts_f > 1e12 { ts_f as i64 } else { (ts_f * 1000.0) as i64 };
-                    if let Some(dt) = chrono::DateTime::from_timestamp_millis(ts_ms) {
-                        return dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-                    }
-                }
-                utc_timestamp()
-            })
-            .unwrap_or_else(utc_timestamp);
+        let timestamp = Self::resolve_timestamp(event.timestamp.as_ref());
 
         match event.event_type.as_str() {
-            "step_start" => {
-                *self.base.usage.lock() = None;
-                Some(ParsedLogEntry {
-                    timestamp,
-                    log_type: "step_start".to_string(),
-                    content: "Step started".to_string(),
-                    usage: None,
-            tool_name: None,
-            tool_input_json: None,
-                })
-            }
-            "tool_use" => {
-                let part = event.part?;
-                let tool = part.tool.unwrap_or_default();
-                let status = part.state.as_ref().and_then(|s| s.status.clone()).unwrap_or_default();
-                let description = part.state.as_ref().and_then(|s| s.input.as_ref().and_then(|i| i.description.clone())).unwrap_or_default();
-                let input_json = part.state.as_ref()
-                    .and_then(|s| s.input.as_ref())
-                    .map(|i| i.to_full_json());
-
-                let content = if tool == "bash" {
-                    if let Some(output) = &part.state.as_ref().and_then(|s| s.output.clone()) {
-                        format!("[{}] {}: {}", status, description, output)
-                    } else {
-                        format!("[{}] {}", status, description)
-                    }
-                } else {
-                    format!("[{}] Tool: {} - {}", status, tool, description)
-                };
-
-                let tool_name = if tool.trim().is_empty() {
-                    None
-                } else {
-                    Some(tool)
-                };
-
-                Some(ParsedLogEntry {
-                    timestamp,
-                    log_type: "tool".to_string(),
-                    content,
-                    usage: None,
-                    tool_name,
-                    tool_input_json: input_json,
-                })
-            }
-            "text" => {
-                let text = event.part?.text.unwrap_or_default();
-                if text.is_empty() {
-                    return None;
-                }
-                Some(ParsedLogEntry {
-                    timestamp,
-                    log_type: "text".to_string(),
-                    content: text,
-                    usage: None,
-            tool_name: None,
-            tool_input_json: None,
-                })
-            }
-            "step_finish" => {
-                // Store usage info if available
-                if let Some(part) = &event.part {
-                    if let Some(tokens) = &part.tokens {
-                        let usage = ExecutionUsage {
-                            input_tokens: tokens.input,
-                            output_tokens: tokens.output,
-                            cache_read_input_tokens: if tokens.cache.read > 0 { Some(tokens.cache.read) } else { None },
-                            cache_creation_input_tokens: if tokens.cache.write > 0 { Some(tokens.cache.write) } else { None },
-                            total_cost_usd: part.cost,
-                            duration_ms: None,
-                        };
-                        *self.base.usage.lock() = Some(usage);
-                    }
-                }
-                Some(ParsedLogEntry {
-                    timestamp,
-                    log_type: "step_finish".to_string(),
-                    content: "Step finished".to_string(),
-                    usage: None,
-            tool_name: None,
-            tool_input_json: None,
-                })
-            }
+            "step_start" => self.handle_step_start(&timestamp),
+            "tool_use" => self.handle_tool_use(event.part.as_ref()?, &timestamp),
+            "text" => self.handle_text(event.part.as_ref()?, &timestamp),
+            "step_finish" => self.handle_step_finish(&event, &timestamp),
             _ => None,
         }
     }

@@ -1,3 +1,4 @@
+use super::helpers;
 use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
 use super::claude_protocol::{ClaudeMessage, ClaudeContentBlock};
 use crate::adapters::ExecutionUsage;
@@ -18,6 +19,138 @@ pub struct ClaudeCodeExecutor {
 impl ClaudeCodeExecutor {
     pub fn new(path: String) -> Self {
         Self { base: BaseExecutor::new(path) }
+    }
+
+    /// 处理 system 事件：把 model 写入 base.state，content 显示 session init 摘要。
+    fn handle_system(&self, model: Option<&String>, session_id: Option<&String>, subtype: Option<&String>) -> Option<ParsedLogEntry> {
+        if let Some(m) = model {
+            *self.base.model.lock() = Some(m.clone());
+        }
+        Some(helpers::entry(
+            "system",
+            format!("Session init: {:?}", session_id.or(subtype)),
+        ))
+    }
+
+    /// 处理 assistant 事件：优先 tool_use → thinking → tool_result → text → redacted 顺序匹配。
+    /// 第一个匹配的 block 直接返回对应日志条目，text block 会 join 所有 text 段。
+    fn handle_assistant(&self, message: &super::claude_protocol::ClaudeMessageContent) -> Option<ParsedLogEntry> {
+        // 收集 text blocks 用于 fallback；与原行为一致：所有 text 用 \n 连接
+        let mut text_parts: Vec<&str> = Vec::new();
+        for block in &message.content {
+            match block {
+                ClaudeContentBlock::ToolUse { name, input, .. } => return Some(tool_use_entry(name.as_ref(), input)),
+                ClaudeContentBlock::Thinking { thinking: Some(t) } => return Some(thinking_entry(t)),
+                ClaudeContentBlock::ToolResult { content, is_error, .. } => {
+                    return Some(tool_result_entry(content.as_deref(), *is_error));
+                }
+                ClaudeContentBlock::Text { text: Some(t) } => text_parts.push(t.as_str()),
+                ClaudeContentBlock::Redacted { redacted } => return Some(redacted_entry(redacted.as_deref())),
+                _ => {}
+            }
+        }
+        // text fallback：把所有 text blocks 用 \n 拼成单个 assistant 条目
+        if !text_parts.is_empty() {
+            return Some(ParsedLogEntry {
+                timestamp: utc_timestamp(),
+                log_type: "assistant".to_string(),
+                content: text_parts.join("\n"),
+                usage: None,
+                tool_name: None,
+                tool_input_json: None,
+            });
+        }
+        None
+    }
+
+    /// 处理 user 事件：通常只携带 tool_result block；无匹配返回 None。
+    fn handle_user(&self, message: &super::claude_protocol::ClaudeMessageContent) -> Option<ParsedLogEntry> {
+        for block in &message.content {
+            if let ClaudeContentBlock::ToolResult { content, is_error, .. } = block {
+                return Some(tool_result_entry(content.as_deref(), *is_error));
+            }
+        }
+        None
+    }
+
+    /// 处理 result 事件：组装 ExecutionUsage + final 文本/log_type。
+    fn handle_result(
+        &self,
+        result: Option<&str>,
+        is_error: bool,
+        duration_ms: Option<u64>,
+        total_cost_usd: Option<f64>,
+        usage: Option<&crate::adapters::claude_protocol::ClaudeUsage>,
+    ) -> Option<ParsedLogEntry> {
+        let err_str = if is_error { "[error] " } else { "" };
+        let result_str = result.unwrap_or_default();
+        let usage = usage.map(|u| crate::models::ExecutionUsage {
+            input_tokens: u.input_tokens,
+            output_tokens: u.output_tokens,
+            cache_read_input_tokens: u.cache_read_input_tokens,
+            cache_creation_input_tokens: u.cache_creation_input_tokens,
+            total_cost_usd,
+            duration_ms,
+        });
+        Some(helpers::entry_with_usage(
+            if is_error { "error" } else { "result" },
+            format!("{}{}", err_str, result_str),
+            usage,
+        ))
+    }
+}
+
+/// tool_use block：log_type="tool_use"，content 含工具名 + 截断 300 字符的 input。
+fn tool_use_entry(name: Option<&String>, input: &serde_json::Value) -> ParsedLogEntry {
+    let name_str = name.cloned().unwrap_or_else(|| "unknown".to_string());
+    let input_str = serde_json::to_string(input).unwrap_or_default();
+    let content = format!("调用工具: {} - {}", name_str, input_str.chars().take(300).collect::<String>());
+    ParsedLogEntry {
+        timestamp: utc_timestamp(),
+        log_type: "tool_use".to_string(),
+        content,
+        usage: None,
+        tool_name: Some(name_str),
+        tool_input_json: Some(input_str),
+    }
+}
+
+/// thinking block：log_type="thinking"，content 截断 500 字符。
+fn thinking_entry(t: &str) -> ParsedLogEntry {
+    ParsedLogEntry {
+        timestamp: utc_timestamp(),
+        log_type: "thinking".to_string(),
+        content: t.chars().take(500).collect::<String>(),
+        usage: None,
+        tool_name: None,
+        tool_input_json: None,
+    }
+}
+
+/// tool_result block（assistant 或 user 上下文）：log_type="tool_result"，
+/// is_error=true 时前缀 "[错误] "，content 截断 300 字符。
+fn tool_result_entry(content: Option<&str>, is_error: Option<bool>) -> ParsedLogEntry {
+    let err_str = if is_error.unwrap_or(false) { "[错误] " } else { "" };
+    let body = content.unwrap_or("").chars().take(300).collect::<String>();
+    ParsedLogEntry {
+        timestamp: utc_timestamp(),
+        log_type: "tool_result".to_string(),
+        content: format!("{}{}", err_str, body),
+        usage: None,
+        tool_name: None,
+        tool_input_json: None,
+    }
+}
+
+/// redacted block：log_type="assistant"，content 前缀 "[redacted] "。
+fn redacted_entry(redacted: Option<&str>) -> ParsedLogEntry {
+    ParsedLogEntry {
+        timestamp: utc_timestamp(),
+        log_type: "assistant".to_string(),
+        content: format!("[redacted] {}", redacted.unwrap_or("")),
+        usage: None,
+        tool_name: None,
+        tool_input_json: None,
     }
 }
 
@@ -69,155 +202,21 @@ impl CodeExecutor for ClaudeCodeExecutor {
         if line.is_empty() {
             return None;
         }
-
         // Try to parse as Claude NDJSON message
         if let Ok(msg) = serde_json::from_str::<ClaudeMessage>(line) {
             return match msg {
                 ClaudeMessage::System { subtype, session_id, model } => {
-                    // Store model if found
-                    if let Some(m) = model {
-                        *self.base.model.lock() = Some(m.clone());
-                    }
-                    Some(ParsedLogEntry {
-                        timestamp: utc_timestamp(),
-                        log_type: "system".to_string(),
-                        content: format!("Session init: {:?}", session_id.or(subtype)),
-                        usage: None,
-            tool_name: None,
-            tool_input_json: None,
-                    })
+                    self.handle_system(model.as_ref(), session_id.as_ref(), subtype.as_ref())
                 }
-                ClaudeMessage::Assistant { message, .. } => {
-                    // Check for tool_use first (for tool execution display)
-                    for block in &message.content {
-                        if let ClaudeContentBlock::ToolUse { name, input, .. } = block {
-                            let input_str = serde_json::to_string(input).unwrap_or_default();
-                            return Some(ParsedLogEntry {
-                                timestamp: utc_timestamp(),
-                                log_type: "tool_use".to_string(),
-                                content: format!("调用工具: {} - {}", name.as_ref().unwrap_or(&"unknown".to_string()), input_str.chars().take(300).collect::<String>()),
-                                usage: None,
-                                tool_name: name.clone(),
-                                tool_input_json: Some(serde_json::to_string(input).unwrap_or_default()),
-                            });
-                        }
-                    }
-
-                    // Check for thinking (for AI thinking display)
-                        for block in &message.content {
-                            if let ClaudeContentBlock::Thinking { thinking: Some(t) } = block {
-                                return Some(ParsedLogEntry {
-                                    timestamp: utc_timestamp(),
-                                    log_type: "thinking".to_string(),
-                                    content: t.chars().take(500).collect::<String>(),
-                                    usage: None,
-            tool_name: None,
-            tool_input_json: None,
-                                });
-                            }
-                        }
-
-                    // Check for tool_result (from user message)
-                    for block in &message.content {
-                        if let ClaudeContentBlock::ToolResult { content, is_error, .. } = block {
-                            let err_str = if is_error.unwrap_or(false) { "[错误] " } else { "" };
-                            return Some(ParsedLogEntry {
-                                timestamp: utc_timestamp(),
-                                log_type: "tool_result".to_string(),
-                                content: format!("{}{}", err_str, content.as_ref().unwrap_or(&String::new()).chars().take(300).collect::<String>()),
-                                usage: None,
-            tool_name: None,
-            tool_input_json: None,
-                            });
-                        }
-                    }
-
-                    // Check for text content
-                    let mut text_parts = Vec::new();
-                    for block in &message.content {
-                        if let ClaudeContentBlock::Text { text: Some(t) } = block {
-                            text_parts.push(t.clone());
-                        }
-                    }
-                    if !text_parts.is_empty() {
-                        return Some(ParsedLogEntry {
-                            timestamp: utc_timestamp(),
-                            log_type: "assistant".to_string(),
-                            content: text_parts.join("\n"),
-                            usage: None,
-            tool_name: None,
-            tool_input_json: None,
-                        });
-                    }
-
-                    // Check for redacted content
-                    for block in &message.content {
-                        if let ClaudeContentBlock::Redacted { redacted } = block {
-                            return Some(ParsedLogEntry {
-                                timestamp: utc_timestamp(),
-                                log_type: "assistant".to_string(),
-                                content: format!("[redacted] {}", redacted.as_ref().unwrap_or(&String::new())),
-                                usage: None,
-            tool_name: None,
-            tool_input_json: None,
-                            });
-                        }
-                    }
-
-                    None
-                }
-                ClaudeMessage::User { message, .. } => {
-                    // Check for tool_result in user message
-                    for block in &message.content {
-                        if let ClaudeContentBlock::ToolResult { content, is_error, .. } = block {
-                            let err_str = if is_error.unwrap_or(false) { "[错误] " } else { "" };
-                            return Some(ParsedLogEntry {
-                                timestamp: utc_timestamp(),
-                                log_type: "tool_result".to_string(),
-                                content: format!("{}{}", err_str, content.as_ref().unwrap_or(&String::new()).chars().take(300).collect::<String>()),
-                                usage: None,
-            tool_name: None,
-            tool_input_json: None,
-                            });
-                        }
-                    }
-                    None
-                }
+                ClaudeMessage::Assistant { message, .. } => self.handle_assistant(&message),
+                ClaudeMessage::User { message, .. } => self.handle_user(&message),
                 ClaudeMessage::Result { result, is_error, duration_ms, total_cost_usd, usage, .. } => {
-                    let err_str = if is_error { "[error] " } else { "" };
-                    let result_str = result.unwrap_or_default();
-
-                    // Build usage from Result fields
-                    let usage = usage.map(|u| crate::models::ExecutionUsage {
-                        input_tokens: u.input_tokens,
-                        output_tokens: u.output_tokens,
-                        cache_read_input_tokens: u.cache_read_input_tokens,
-                        cache_creation_input_tokens: u.cache_creation_input_tokens,
-                        total_cost_usd,
-                        duration_ms,
-                    });
-
-                    Some(ParsedLogEntry {
-                        timestamp: utc_timestamp(),
-                        log_type: if is_error { "error".to_string() } else { "result".to_string() },
-                        content: format!("{}{}", err_str, result_str),
-                        usage,
-                    tool_name: None,
-                    tool_input_json: None,
-                    })
+                    self.handle_result(result.as_deref(), is_error, duration_ms, total_cost_usd, usage.as_ref())
                 }
             };
         }
-
         // Fallback: treat as raw text
-        Some(ParsedLogEntry {
-            timestamp: utc_timestamp(),
-            log_type: "text".to_string(),
-            content: line.to_string(),
-            usage: None,
-            tool_name: None,
-            tool_input_json: None,
-        })
+        Some(helpers::text_entry(line))
     }
 
     fn get_usage(&self, logs: &[ParsedLogEntry]) -> Option<ExecutionUsage> {

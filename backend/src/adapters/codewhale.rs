@@ -13,9 +13,9 @@
 
 use serde_json::Value;
 
+use super::helpers;
 use super::{BaseExecutor, CodeExecutor, ExecutorType, ParsedLogEntry};
 use crate::adapters::ExecutionUsage;
-use crate::models::utc_timestamp;
 
 /// Codewhale executor implementation。
 ///
@@ -29,6 +29,80 @@ pub struct CodewhaleExecutor {
 impl CodewhaleExecutor {
     pub fn new(path: String) -> Self {
         Self { base: BaseExecutor::new(path) }
+    }
+
+    /// {"type":"tool_use","name":"exec_shell","id":"call_xxx","input":{"command":"ls"}}
+    fn parse_tool_use(&self, json: &Value) -> Option<ParsedLogEntry> {
+        let name = json.get("name").and_then(Value::as_str).unwrap_or("unknown");
+        let input = json.get("input");
+        let command = input
+            .and_then(|v| v.get("command"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let input_json = input.map(|v| v.to_string());
+        Some(helpers::tool_call_entry(
+            "tool_call",
+            format!("Calling tool: {} with args: {}", name, command),
+            name,
+            input_json,
+        ))
+    }
+
+    /// {"type":"tool_result","id":"call_xxx","output":"...","status":"success"}
+    fn parse_tool_result(&self, json: &Value) -> Option<ParsedLogEntry> {
+        let output = json.get("output").and_then(Value::as_str).unwrap_or_default();
+        let status = json.get("status").and_then(Value::as_str).unwrap_or("completed");
+        let id = json.get("id").and_then(Value::as_str).unwrap_or_default();
+        let content = if output.is_empty() {
+            format!("[{}] (id: {})", status, id)
+        } else {
+            format!("[{}] {}", status, output)
+        };
+        Some(helpers::entry("tool_result", content))
+    }
+
+    /// {"type":"content","content":"Hello"}
+    /// Trim trailing whitespace/newlines to prevent extra line breaks in final result.
+    fn parse_content(&self, json: &Value) -> Option<ParsedLogEntry> {
+        let raw = json.get("content").and_then(Value::as_str).unwrap_or_default();
+        let content = raw.trim_end();
+        if content.is_empty() {
+            return None;
+        }
+        Some(helpers::text_entry(content))
+    }
+
+    /// {"type":"metadata","meta":{"model":"...","input_tokens":N,"output_tokens":M,"session_id":"...","status":"completed"}}
+    fn parse_metadata(&self, json: &Value) -> Option<ParsedLogEntry> {
+        let meta = json.get("meta")?;
+
+        // Extract and store model
+        if let Some(model) = meta.get("model").and_then(Value::as_str) {
+            *self.base.model.lock() = Some(model.to_string());
+        }
+
+        // Extract and store usage
+        let input_tokens = meta.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+        let output_tokens = meta.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+
+        if input_tokens > 0 || output_tokens > 0 {
+            let usage = ExecutionUsage {
+                input_tokens,
+                output_tokens,
+                cache_read_input_tokens: None,
+                cache_creation_input_tokens: None,
+                total_cost_usd: None,
+                duration_ms: None,
+            };
+            *self.base.usage.lock() = Some(usage);
+        }
+
+        let status = meta.get("status").and_then(Value::as_str).unwrap_or("completed");
+        Some(helpers::entry_with_usage(
+            "tokens",
+            format!("Tokens: input={}, output={}, status={}", input_tokens, output_tokens, status),
+            self.base.usage.lock().clone(),
+        ))
     }
 }
 
@@ -87,111 +161,14 @@ impl CodeExecutor for CodewhaleExecutor {
 
     /// Parse a single NDJSON line from codewhale stream-json output.
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            return None;
-        }
-
-        let json = serde_json::from_str::<Value>(trimmed).ok()?;
+        let json = helpers::parse_json_line(line)?;
         let event_type = json.get("type")?.as_str()?;
-
         match event_type {
-            "tool_use" => {
-                // {"type":"tool_use","name":"exec_shell","id":"call_xxx","input":{"command":"ls"}}
-                let name = json.get("name").and_then(Value::as_str).unwrap_or("unknown");
-                let input = json.get("input");
-                let command = input
-                    .and_then(|v| v.get("command"))
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                let input_json = input.map(|v| v.to_string());
-
-                Some(ParsedLogEntry {
-                    timestamp: utc_timestamp(),
-                    log_type: "tool_call".to_string(),
-                    content: format!("Calling tool: {} with args: {}", name, command),
-                    usage: None,
-                    tool_name: Some(name.to_string()),
-                    tool_input_json: input_json,
-                })
-            }
-            "tool_result" => {
-                // {"type":"tool_result","id":"call_xxx","output":"...","status":"success"}
-                let output = json.get("output").and_then(Value::as_str).unwrap_or_default();
-                let status = json.get("status").and_then(Value::as_str).unwrap_or("completed");
-                let id = json.get("id").and_then(Value::as_str).unwrap_or_default();
-
-                Some(ParsedLogEntry {
-                    timestamp: utc_timestamp(),
-                    log_type: "tool_result".to_string(),
-                    content: if output.is_empty() {
-                        format!("[{}] (id: {})", status, id)
-                    } else {
-                        format!("[{}] {}", status, output)
-                    },
-                    usage: None,
-                    tool_name: None,
-                    tool_input_json: None,
-                })
-            }
-            "content" => {
-                // {"type":"content","content":"Hello"}
-                // Trim trailing whitespace/newlines to prevent extra line breaks in final result
-                let content = json.get("content").and_then(Value::as_str).unwrap_or_default().trim_end();
-                if content.is_empty() {
-                    return None;
-                }
-                Some(ParsedLogEntry {
-                    timestamp: utc_timestamp(),
-                    log_type: "text".to_string(),
-                    content: content.to_string(),
-                    usage: None,
-                    tool_name: None,
-                    tool_input_json: None,
-                })
-            }
-            "metadata" => {
-                // {"type":"metadata","meta":{"model":"deepseek-v4-pro","input_tokens":25182,"output_tokens":34,"session_id":"...","status":"completed"}}
-                let meta = json.get("meta")?;
-
-                // Extract and store model
-                if let Some(model) = meta.get("model").and_then(Value::as_str) {
-                    *self.base.model.lock() = Some(model.to_string());
-                }
-
-                // Extract and store usage
-                let input_tokens = meta.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                let output_tokens = meta.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-
-                if input_tokens > 0 || output_tokens > 0 {
-                    let usage = ExecutionUsage {
-                        input_tokens,
-                        output_tokens,
-                        cache_read_input_tokens: None,
-                        cache_creation_input_tokens: None,
-                        total_cost_usd: None,
-                        duration_ms: None,
-                    };
-                    *self.base.usage.lock() = Some(usage);
-                }
-
-                let status = meta.get("status").and_then(Value::as_str).unwrap_or("completed");
-                Some(ParsedLogEntry {
-                    timestamp: utc_timestamp(),
-                    log_type: "tokens".to_string(),
-                    content: format!(
-                        "Tokens: input={}, output={}, status={}",
-                        input_tokens, output_tokens, status
-                    ),
-                    usage: self.base.usage.lock().clone(),
-                    tool_name: None,
-                    tool_input_json: None,
-                })
-            }
-            "done" => {
-                // {"type":"done"} - terminal event, ignore
-                None
-            }
+            "tool_use" => self.parse_tool_use(&json),
+            "tool_result" => self.parse_tool_result(&json),
+            "content" => self.parse_content(&json),
+            "metadata" => self.parse_metadata(&json),
+            // "done" - terminal event, ignore
             _ => None,
         }
     }
@@ -202,14 +179,11 @@ impl CodeExecutor for CodewhaleExecutor {
         BaseExecutor::default_parse_stderr_line(line)
     }
 
-    // check_success 走 CodeExecutor 默认实现（委托给 BaseExecutor），
-    // 与本文件以前的 in-class 实现完全等价。去掉重复 override 是 PR #536 的核心目标。
-
     fn get_final_result(&self, logs: &[ParsedLogEntry]) -> Option<String> {
         // CodeWhale streams text as small chunks (individual characters or words).
         // To preserve word boundaries and spacing between chunks, we must:
         // 1) Concatenate all raw chunks first (without per-chunk trimming)
-        // 2) Then strip <think> tags from the full concatenated text once
+        // 2) Then strip  think tags from the full concatenated text once
         // 3) Finally normalize whitespace on the result
         // This prevents "  Hello  " + "  World  " from becoming "HelloWorld"
         // (the old approach trimmed each chunk separately, losing inter-chunk spaces).
@@ -398,7 +372,7 @@ mod tests {
         // CodeWhale streams text as small chunks; get_final_result must preserve
         // word boundaries across chunks:
         // 1) Concatenate all raw chunks first (without per-chunk trimming)
-        // 2) Then strip <think> tags from the full concatenated text once
+        // 2) Then strip think tags from the full concatenated text once
         // 3) Finally normalize whitespace on the result
         // This prevents inter-chunk spaces from being lost.
         // "  Hello  " + "  World  " → "Hello World"
