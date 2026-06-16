@@ -88,11 +88,32 @@ pub struct SessionDetail {
 
 // ─── Helpers ──────────────────────────────────────────────
 
-/// Parsed metadata from a Claude Code session log line.
-pub type ClaudeLineMeta = (
-    Option<String>, Option<String>, Option<String>, Option<String>,
-    Option<String>, Option<String>, Option<u64>, Option<u64>, String,
-);
+/// Parsed metadata extracted from a single Claude Code JSONL line.
+///
+/// 用 9 字段位置元组会让调用点必须靠注释/心智模型对齐 `(ts, model, branch, ver, entry, content, inp, out, role)`，
+/// 改字段顺序或新增字段极易破坏解构。改为具名字段后,
+/// 调用点写 `meta.timestamp` / `meta.input_tokens` 自解释,改字段顺序零影响。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedSessionLine {
+    /// 日志行时间戳;仅在原 JSON 含 `timestamp` 字段时存在
+    pub timestamp: Option<String>,
+    /// assistant 消息的 model 名;user/queue 行无 model
+    pub model: Option<String>,
+    /// Claude Code 会话关联的 git 分支(仅 user 行携带)
+    pub git_branch: Option<String>,
+    /// Claude Code 版本号(仅 user 行携带)
+    pub version: Option<String>,
+    /// 入口点(CLI / SDK / web 等,仅 user 行携带)
+    pub entrypoint: Option<String>,
+    /// 文本内容:user 取 `message.content`,queue 取顶层 `content`
+    pub prompt: Option<String>,
+    /// assistant message.usage.input_tokens
+    pub input_tokens: Option<u64>,
+    /// assistant message.usage.output_tokens
+    pub output_tokens: Option<u64>,
+    /// 归一化角色: `"user"` / `"assistant"` / `"queue"`
+    pub role: String,
+}
 
 // 读取家目录的 helper。生产进程启动后 `dirs::home_dir()` 在极端环境
 // (chroot/SELinux 拒绝) 才可能返回 None；按 codebase 约定回退到 /tmp，
@@ -139,31 +160,67 @@ fn decode_project_path(encoded: &str) -> String {
 
 fn parse_claude_line_metadata(
     line: &str,
-) -> Option<ClaudeLineMeta> {
+) -> Option<ParsedSessionLine> {
     let v: serde_json::Value = serde_json::from_str(line).ok()?;
     let msg_type = v.get("type")?.as_str()?;
     match msg_type {
         "user" => {
-            let ts = v.get("timestamp").and_then(|t| t.as_str()).map(String::from);
-            let branch = v.get("gitBranch").and_then(|b| b.as_str()).map(String::from);
-            let ver = v.get("version").and_then(|v| v.as_str()).map(String::from);
-            let entry = v.get("entrypoint").and_then(|e| e.as_str()).map(String::from);
-            let content = v.get("message").and_then(|m| m.get("content")).map(extract_text_content);
-            Some((ts, None, branch, ver, entry, content, None, None, "user".into()))
+            // user 行携带分支/版本/entrypoint 等会话级元信息,但无 model/usage;
+            // 缺失的 model 与 token 字段显式置 None,避免与 assistant 行的值混在一起。
+            let timestamp = v.get("timestamp").and_then(|t| t.as_str()).map(String::from);
+            let git_branch = v.get("gitBranch").and_then(|b| b.as_str()).map(String::from);
+            let version = v.get("version").and_then(|v| v.as_str()).map(String::from);
+            let entrypoint = v.get("entrypoint").and_then(|e| e.as_str()).map(String::from);
+            let prompt = v.get("message").and_then(|m| m.get("content")).map(extract_text_content);
+            Some(ParsedSessionLine {
+                timestamp,
+                model: None,
+                git_branch,
+                version,
+                entrypoint,
+                prompt,
+                input_tokens: None,
+                output_tokens: None,
+                role: "user".into(),
+            })
         }
         "assistant" => {
-            let ts = v.get("timestamp").and_then(|t| t.as_str()).map(String::from);
+            // assistant 行核心是 model + usage;分支/版本/entrypoint 在该行不存在,
+            // 故统一 None,下游扫描时保留最早一次见到的值。
+            let timestamp = v.get("timestamp").and_then(|t| t.as_str()).map(String::from);
             let msg = v.get("message")?;
             let model = msg.get("model").and_then(|m| m.as_str()).map(String::from);
             let usage = msg.get("usage");
             let input_tokens = usage.and_then(|u| u.get("input_tokens")).and_then(|t| t.as_u64());
             let output_tokens = usage.and_then(|u| u.get("output_tokens")).and_then(|t| t.as_u64());
-            Some((ts, model, None, None, None, None, input_tokens, output_tokens, "assistant".into()))
+            Some(ParsedSessionLine {
+                timestamp,
+                model,
+                git_branch: None,
+                version: None,
+                entrypoint: None,
+                prompt: None,
+                input_tokens,
+                output_tokens,
+                role: "assistant".into(),
+            })
         }
         "queue-operation" if v.get("operation").and_then(|o| o.as_str()) == Some("enqueue") => {
-            let ts = v.get("timestamp").and_then(|t| t.as_str()).map(String::from);
-            let content = v.get("content").and_then(|c| c.as_str()).map(String::from);
-            Some((ts, None, None, None, None, content, None, None, "queue".into()))
+            // queue-enqueue 行的 content 直接位于顶层,不走 message.content;
+            // role 归一化为 "queue" 是为了和 user/assistant 平级比较,msg_count 计数不计入。
+            let timestamp = v.get("timestamp").and_then(|t| t.as_str()).map(String::from);
+            let prompt = v.get("content").and_then(|c| c.as_str()).map(String::from);
+            Some(ParsedSessionLine {
+                timestamp,
+                model: None,
+                git_branch: None,
+                version: None,
+                entrypoint: None,
+                prompt,
+                input_tokens: None,
+                output_tokens: None,
+                role: "queue".into(),
+            })
         }
         _ => None,
     }
@@ -220,19 +277,21 @@ fn scan_claude_code(sessions: &mut Vec<SessionInfo>) {
                     let mut total_out: u64 = 0;
 
                     for line in file_content.lines() {
-                        if let Some((ts, mdl, branch, ver, entry, prompt, inp, out, role)) =
-                            parse_claude_line_metadata(line)
-                        {
-                            if first_ts.is_none() { first_ts = ts.clone(); }
-                            if ts.is_some() { last_ts = ts; }
-                            if mdl.is_some() { model = mdl; }
-                            if branch.is_some() { git_branch = branch; }
-                            if ver.is_some() { version = ver; }
-                            if entry.is_some() { executor = entry; }
-                            if first_prompt.is_none() && prompt.is_some() { first_prompt = prompt; }
-                            if role == "user" || role == "assistant" { msg_count += 1; }
-                            if let Some(i) = inp { total_in += i; }
-                            if let Some(o) = out { total_out += o; }
+                        if let Some(meta) = parse_claude_line_metadata(line) {
+                            // 显式字段访问消除位置心智模型:
+                            // ts 出现就更新 last_ts,首次见到的作为 first_ts;
+                            // model/branch/version/entry 同理取"首次见到"的策略,
+                            // 与原 9 元组解构行为保持一致。
+                            if first_ts.is_none() { first_ts = meta.timestamp.clone(); }
+                            if meta.timestamp.is_some() { last_ts = meta.timestamp.clone(); }
+                            if meta.model.is_some() { model = meta.model; }
+                            if meta.git_branch.is_some() { git_branch = meta.git_branch; }
+                            if meta.version.is_some() { version = meta.version; }
+                            if meta.entrypoint.is_some() { executor = meta.entrypoint; }
+                            if first_prompt.is_none() && meta.prompt.is_some() { first_prompt = meta.prompt; }
+                            if meta.role == "user" || meta.role == "assistant" { msg_count += 1; }
+                            if let Some(i) = meta.input_tokens { total_in += i; }
+                            if let Some(o) = meta.output_tokens { total_out += o; }
                         }
                     }
 
@@ -994,6 +1053,108 @@ mod pi_scan_tests {
     }
 }
 
+/// 覆盖 issue #608:Claude Code 日志行解析改用强类型结构体后的全部 3 条 return 分支
+/// (user / assistant / queue-operation) 与 4 条 negative 分支(无 type / 未知 type /
+/// queue 非 enqueue / 非 JSON),确保字段映射与原 9 元组完全等价。
+#[cfg(test)]
+mod claude_line_meta_tests {
+    use super::*;
+
+    /// 解析器对空字符串、纯文本、缺 type 字段、空 JSON 一律返 None,
+    /// 避免在主扫描循环里因"看起来像 JSON 但语义无关"的行污染结果。
+    #[test]
+    fn parse_claude_line_metadata_returns_none_for_garbage() {
+        assert!(parse_claude_line_metadata("").is_none());
+        assert!(parse_claude_line_metadata("not json").is_none());
+        assert!(parse_claude_line_metadata("{}").is_none(), "no type => None");
+        assert!(parse_claude_line_metadata("{\"foo\":1}").is_none(), "unknown shape => None");
+    }
+
+    /// user 行:把 gitBranch/version/entrypoint 显式映射到 git_branch/version/entrypoint,
+    /// 把 message.content 文本提取到 prompt;model 与 token 一律 None。
+    #[test]
+    fn parse_claude_line_metadata_extracts_user_fields() {
+        let line = r#"{"type":"user","timestamp":"2026-06-15T10:00:00Z","gitBranch":"feat/x","version":"1.2.3","entrypoint":"sdk-py","message":{"role":"user","content":"hello"}}"#;
+        let meta = parse_claude_line_metadata(line).expect("user line should parse");
+        assert_eq!(meta.timestamp.as_deref(), Some("2026-06-15T10:00:00Z"));
+        assert_eq!(meta.git_branch.as_deref(), Some("feat/x"));
+        assert_eq!(meta.version.as_deref(), Some("1.2.3"));
+        assert_eq!(meta.entrypoint.as_deref(), Some("sdk-py"));
+        assert_eq!(meta.prompt.as_deref(), Some("hello"));
+        // user 行不应携带 model / token,显式 None 让下游判定时无需 Option<...>.is_none() 推断
+        assert!(meta.model.is_none());
+        assert!(meta.input_tokens.is_none());
+        assert!(meta.output_tokens.is_none());
+        assert_eq!(meta.role, "user");
+    }
+
+    /// assistant 行:model + usage.input_tokens/output_tokens 三个字段从 message.usage 抽取;
+    /// 分支/版本/entrypoint 一律 None(该行本就不携带会话级元信息)。
+    #[test]
+    fn parse_claude_line_metadata_extracts_assistant_fields() {
+        let line = r#"{"type":"assistant","timestamp":"2026-06-15T10:00:01Z","message":{"role":"assistant","model":"claude-opus-4","usage":{"input_tokens":15,"output_tokens":44}}}"#;
+        let meta = parse_claude_line_metadata(line).expect("assistant line should parse");
+        assert_eq!(meta.timestamp.as_deref(), Some("2026-06-15T10:00:01Z"));
+        assert_eq!(meta.model.as_deref(), Some("claude-opus-4"));
+        assert_eq!(meta.input_tokens, Some(15));
+        assert_eq!(meta.output_tokens, Some(44));
+        // 保持与原元组解构一致的 None —— 即使数据真缺,扫描器走"首次见到"分支不会错。
+        assert!(meta.git_branch.is_none());
+        assert!(meta.version.is_none());
+        assert!(meta.entrypoint.is_none());
+        assert!(meta.prompt.is_none());
+        assert_eq!(meta.role, "assistant");
+    }
+
+    /// queue-operation 行只在 operation=="enqueue" 时被采纳,content 直接位于顶层。
+    /// role 归一化为 "queue",与 user/assistant 平级比较;扫描器 msg_count 不计入。
+    #[test]
+    fn parse_claude_line_metadata_handles_queue_operation() {
+        let enqueue = r#"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-06-15T10:00:02Z","content":"queued prompt"}"#;
+        let meta = parse_claude_line_metadata(enqueue).expect("enqueue line should parse");
+        assert_eq!(meta.prompt.as_deref(), Some("queued prompt"));
+        assert_eq!(meta.role, "queue");
+        assert!(meta.model.is_none());
+        assert!(meta.input_tokens.is_none());
+
+        // dequeue 不应被采纳(原行为就是 None,只采纳 enqueue)
+        let dequeue = r#"{"type":"queue-operation","operation":"dequeue","content":"x"}"#;
+        assert!(parse_claude_line_metadata(dequeue).is_none());
+    }
+
+    /// 结构体字段命名自解释:与原 9 元组 `(ts, model, branch, ver, entry, content, inp, out, role)`
+    /// 的位置一一对应,但通过具名字段访问,后续维护不需要再对照位置。
+    /// 本测试通过 `debug_assert_eq!` 锁定整体形状,作为防回归快照。
+    #[test]
+    fn parsed_session_line_field_shape_is_stable() {
+        let line = r#"{"type":"user","timestamp":"t","gitBranch":"b","version":"v","entrypoint":"e","message":{"content":"c"}}"#;
+        let meta = parse_claude_line_metadata(line).expect("user line should parse");
+        // 字段顺序由 struct 定义决定,这里用结构体字面量锁定期望值,后续重构改字段会编译期失败。
+        let expected = ParsedSessionLine {
+            timestamp: Some("t".into()),
+            model: None,
+            git_branch: Some("b".into()),
+            version: Some("v".into()),
+            entrypoint: Some("e".into()),
+            prompt: Some("c".into()),
+            input_tokens: None,
+            output_tokens: None,
+            role: "user".into(),
+        };
+        assert_eq!(meta, expected);
+    }
+
+    /// 显式 message.content 数组形态:Claude Code 实际日志里 content 可能是
+    /// `[{type:"text", text:"..."}]`,验证 extract_text_content 被透传到 prompt。
+    #[test]
+    fn parse_claude_line_metadata_user_content_array() {
+        let line = r#"{"type":"user","message":{"content":[{"type":"text","text":"你好"},{"type":"text","text":"世界"}]}}"#;
+        let meta = parse_claude_line_metadata(line).expect("user array content should parse");
+        // extract_text_content 用 \n 拼接多 text 块
+        assert_eq!(meta.prompt.as_deref(), Some("你好\n世界"));
+    }
+}
+
 // ─── Unified scan ─────────────────────────────────────────
 
 /// Map executor name to scanner function and default source name.
@@ -1226,31 +1387,33 @@ fn get_claude_detail(session_id: &str) -> Option<SessionDetail> {
     let mut messages: Vec<SessionMessage> = Vec::new();
 
     for line in content.lines() {
-        if let Some((ts, mdl, branch, ver, entry, prompt, inp, out, role)) =
-            parse_claude_line_metadata(line)
-        {
-            if first_ts.is_none() { first_ts = ts.clone(); }
-            if ts.is_some() { last_ts = ts.clone(); }
-            if mdl.is_some() { model = mdl.clone(); }
-            if branch.is_some() { git_branch = branch; }
-            if ver.is_some() { version = ver; }
-            if entry.is_some() { executor = entry; }
-            if first_prompt.is_none() && prompt.is_some() { first_prompt = prompt.clone(); }
-            if role == "user" || role == "assistant" {
+        if let Some(meta) = parse_claude_line_metadata(line) {
+            // 显式字段名让 first/last 时间的判定、消息预览、token 累加
+            // 全部变成自解释的字段引用,无须记住元组位置。
+            if first_ts.is_none() { first_ts = meta.timestamp.clone(); }
+            if meta.timestamp.is_some() { last_ts = meta.timestamp.clone(); }
+            if meta.model.is_some() { model = meta.model.clone(); }
+            if meta.git_branch.is_some() { git_branch = meta.git_branch; }
+            if meta.version.is_some() { version = meta.version; }
+            if meta.entrypoint.is_some() { executor = meta.entrypoint; }
+            if first_prompt.is_none() && meta.prompt.is_some() { first_prompt = meta.prompt.clone(); }
+            if meta.role == "user" || meta.role == "assistant" {
                 msg_count += 1;
-                let preview = prompt.map(|p| truncate_str(&p, 500)).unwrap_or_default();
+                // preview 与 push 都消费 meta.prompt/move 元数据,故 clone prompt;
+                // role/model 也可能后面还要用,所以都 clone。
+                let preview = meta.prompt.as_ref().map(|p| truncate_str(p, 500)).unwrap_or_default();
                 messages.push(SessionMessage {
-                    role: role.clone(),
+                    role: meta.role.clone(),
                     content_preview: preview,
-                    model: mdl.clone(),
-                    input_tokens: inp,
-                    output_tokens: out,
-                    timestamp: ts,
+                    model: meta.model.clone(),
+                    input_tokens: meta.input_tokens,
+                    output_tokens: meta.output_tokens,
+                    timestamp: meta.timestamp,
                     stop_reason: None,
                 });
             }
-            if let Some(i) = inp { total_in += i; }
-            if let Some(o) = out { total_out += o; }
+            if let Some(i) = meta.input_tokens { total_in += i; }
+            if let Some(o) = meta.output_tokens { total_out += o; }
         }
     }
 
