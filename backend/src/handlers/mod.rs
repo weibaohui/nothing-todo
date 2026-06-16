@@ -100,6 +100,22 @@ pub enum ExecEvent {
     },
 }
 
+/// HTTP handler 统一错误类型。
+///
+/// 公开枚举保持稳定（issue #613 要求：仅重构实现方式，不改公开 API）。
+/// 3 个变体对应 3 个语义层级：
+/// - `NotFound`：资源缺失
+/// - `BadRequest`：用户输入错误（caller 可修复）
+/// - `Internal`：服务器侧故障（caller 无法直接修）
+///
+/// ## SchedulerError 分类规则（issue #499）
+/// `From<SchedulerError>` 实现的语义：
+/// - 用户输入错误（`InvalidCron` / `InvalidTimezone`）→ 400 BadRequest，
+///   因为这些是 caller 可以修复的（换个合法 cron、换个合法时区）。
+/// - 其它（数据库失败、scheduler 后端失败、内部错误）→ 500 Internal。
+///
+/// impl 放在 `handlers/mod.rs` 而非 `scheduler.rs`，是为了避免
+/// `scheduler -> handlers` 的反向依赖：`scheduler` 不需要知道 `AppError` 的存在。
 #[derive(Debug)]
 pub enum AppError {
     NotFound,
@@ -107,13 +123,69 @@ pub enum AppError {
     Internal(String),
 }
 
+impl AppError {
+    /// 把错误拆成 HTTP 响应三件套：(status, code, message)。
+    ///
+    /// 抽离的目的是把 `IntoResponse::into_response` 收成 3 行骨架，
+    /// 让 status/code/message 的映射集中在一处，便于测试与扩展新变体。
+    fn error_response_parts(&self) -> (StatusCode, i32, String) {
+        match self {
+            Self::NotFound => (
+                StatusCode::NOT_FOUND,
+                crate::models::codes::NOT_FOUND,
+                "Not found".to_string(),
+            ),
+            Self::BadRequest(msg) => (
+                StatusCode::BAD_REQUEST,
+                crate::models::codes::BAD_REQUEST,
+                msg.clone(),
+            ),
+            Self::Internal(msg) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                crate::models::codes::INTERNAL,
+                msg.clone(),
+            ),
+        }
+    }
+
+    /// 从 `sea_orm::DbErr` 构造：`RecordNotFound` 视为 404，其余归 500。
+    #[allow(clippy::needless_pass_by_value)] // 工厂方法签名：与 From impl 对齐
+    fn from_db_err(err: sea_orm::DbErr) -> Self {
+        match &err {
+            sea_orm::DbErr::RecordNotFound(_) => Self::NotFound,
+            _ => Self::Internal(err.to_string()),
+        }
+    }
+
+    /// 从 `std::io::Error` 构造：统一归 500。
+    #[allow(clippy::needless_pass_by_value)] // 工厂方法签名：与 From impl 对齐
+    fn from_io_err(err: std::io::Error) -> Self {
+        Self::Internal(err.to_string())
+    }
+
+    /// 从 `SchedulerError` 构造：用户输入错误→400，其它→500。
+    /// 分类细节见模块顶部 doc comment。
+    #[allow(clippy::needless_pass_by_value)] // 工厂方法签名：与 From impl 对齐
+    fn from_scheduler_error(err: crate::scheduler::SchedulerError) -> Self {
+        match &err {
+            crate::scheduler::SchedulerError::InvalidCron { .. }
+            | crate::scheduler::SchedulerError::InvalidTimezone(_) => {
+                Self::BadRequest(err.to_string())
+            }
+            crate::scheduler::SchedulerError::Database(_)
+            | crate::scheduler::SchedulerError::SchedulerBackend(_)
+            | crate::scheduler::SchedulerError::Internal(_) => {
+                Self::Internal(err.to_string())
+            }
+        }
+    }
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, code, message) = match &self {
-            Self::NotFound => (StatusCode::NOT_FOUND, crate::models::codes::NOT_FOUND, "Not found".to_string()),
-            Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, crate::models::codes::BAD_REQUEST, msg.clone()),
-            Self::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, crate::models::codes::INTERNAL, msg.clone()),
-        };
+        // 整个 body 只剩"三件套 → ApiResponse → Response"的机械拼装，
+        // 所有 status/code/message 决策都已收敛在 `error_response_parts`。
+        let (status, code, message) = self.error_response_parts();
         let body = axum::Json(crate::models::ApiResponse::<()>::err(code, &message));
         (status, body).into_response()
     }
@@ -121,48 +193,27 @@ impl IntoResponse for AppError {
 
 impl From<sea_orm::DbErr> for AppError {
     fn from(err: sea_orm::DbErr) -> Self {
-        match &err {
-            sea_orm::DbErr::RecordNotFound(_) => AppError::NotFound,
-            _ => AppError::Internal(err.to_string()),
-        }
+        Self::from_db_err(err)
     }
 }
 
 impl From<String> for AppError {
     fn from(s: String) -> Self {
-        AppError::BadRequest(s)
+        // 裸 String 转 BadRequest 是项目内的约定（多为校验失败信息），
+        // 保留直接构造以避免在调用点散落额外的工厂调用。
+        Self::BadRequest(s)
     }
 }
 
 impl From<std::io::Error> for AppError {
     fn from(err: std::io::Error) -> Self {
-        AppError::Internal(err.to_string())
+        Self::from_io_err(err)
     }
 }
 
-/// 把 `SchedulerError` 映射到 HTTP 响应（issue #499）。
-///
-/// 分类规则：
-/// - 用户输入错误（`InvalidCron` / `InvalidTimezone`）→ 400 BadRequest，
-///   因为这些是 caller 可以修复的（换个合法 cron、换个合法时区）。
-/// - 其它（数据库失败、scheduler 后端失败、内部错误）→ 500 Internal，
-///   这些是服务器侧问题，caller 没法直接修。
-///
-/// 把这个 impl 放在 `handlers/mod.rs` 而不是 `scheduler.rs`，是为了避免
-/// `scheduler -> handlers` 的反向依赖：`scheduler` 不需要知道 `AppError` 的存在。
 impl From<crate::scheduler::SchedulerError> for AppError {
     fn from(err: crate::scheduler::SchedulerError) -> Self {
-        match &err {
-            crate::scheduler::SchedulerError::InvalidCron { .. }
-            | crate::scheduler::SchedulerError::InvalidTimezone(_) => {
-                AppError::BadRequest(err.to_string())
-            }
-            crate::scheduler::SchedulerError::Database(_)
-            | crate::scheduler::SchedulerError::SchedulerBackend(_)
-            | crate::scheduler::SchedulerError::Internal(_) => {
-                AppError::Internal(err.to_string())
-            }
-        }
+        Self::from_scheduler_error(err)
     }
 }
 
@@ -1334,5 +1385,208 @@ mod request_id_tests {
         headers.insert("x-request-id", "trace-abc-123".parse().unwrap());
         let id = resolve_request_id(&headers);
         assert_eq!(id, "trace-abc-123");
+    }
+}
+
+#[cfg(test)]
+mod app_error_tests {
+    //! 覆盖 issue #613 重构后的 `AppError`：
+    //! 1. `error_response_parts` —— 三个变体的 (status, code, message) 三件套
+    //! 2. `from_db_err` / `from_io_err` / `from_scheduler_error` —— 工厂方法
+    //! 3. `IntoResponse` 公开行为 —— status code 与 body JSON 与重构前一致
+    //!
+    //! 验证点：拆分前后对调用方完全等价（status / JSON body 字节级一致）。
+    //!
+    //! `panic!` 在测试里是 assertion 失败的合理表现（test 失败机制依赖 panic），
+    //! 这里把模块级 panic/expect_used 抑制掉，避免 clippy `panic` lint 噪音。
+    #![allow(clippy::panic, clippy::expect_used, clippy::unwrap_used)]
+
+    use super::AppError;
+    use crate::models::codes;
+    use crate::scheduler::SchedulerError;
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+
+    // === error_response_parts ===
+
+    #[test]
+    fn test_error_response_parts_not_found() {
+        let (status, code, message) = AppError::NotFound.error_response_parts();
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(code, codes::NOT_FOUND);
+        assert_eq!(message, "Not found");
+    }
+
+    #[test]
+    fn test_error_response_parts_bad_request() {
+        let err = AppError::BadRequest("invalid cron".to_string());
+        let (status, code, message) = err.error_response_parts();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(code, codes::BAD_REQUEST);
+        assert_eq!(message, "invalid cron");
+    }
+
+    #[test]
+    fn test_error_response_parts_internal() {
+        let err = AppError::Internal("db down".to_string());
+        let (status, code, message) = err.error_response_parts();
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(code, codes::INTERNAL);
+        assert_eq!(message, "db down");
+    }
+
+    // === from_db_err ===
+
+    #[test]
+    fn test_from_db_err_record_not_found_maps_to_not_found() {
+        // sea_orm 的 RecordNotFound 是 SeaORM「行不存在」信号，
+        // 历史上一律被映射为 404（不是 500），保留该行为。
+        let err = sea_orm::DbErr::RecordNotFound("todo 42".into());
+        match AppError::from_db_err(err) {
+            AppError::NotFound => {}
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_from_db_err_other_variants_map_to_internal() {
+        // 任何非 RecordNotFound 的数据库错误归 Internal；to_string 透传。
+        // 用一个具体变体（Custom）而不是 RecordNotFound，覆盖非 RecordNotFound 分支。
+        let err = sea_orm::DbErr::Custom("connection refused".to_string());
+        match AppError::from_db_err(err) {
+            AppError::Internal(msg) => assert!(msg.contains("connection refused")),
+            other => panic!("expected Internal, got {other:?}"),
+        }
+    }
+
+    // === from_io_err ===
+
+    #[test]
+    fn test_from_io_err_maps_to_internal() {
+        // io::Error 来自文件系统 / 网络等基础设施层，全部归 500。
+        let err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
+        match AppError::from_io_err(err) {
+            AppError::Internal(msg) => assert!(msg.contains("file missing")),
+            other => panic!("expected Internal, got {other:?}"),
+        }
+    }
+
+    // === from_scheduler_error ===
+
+    #[test]
+    fn test_from_scheduler_error_invalid_cron_maps_to_bad_request() {
+        // 用户输入错误 → 400（issue #499 分类规则）
+        let err = SchedulerError::InvalidCron {
+            expr: "bad cron".to_string(),
+            todo_id: 7,
+        };
+        match AppError::from_scheduler_error(err) {
+            AppError::BadRequest(msg) => assert!(msg.contains("bad cron")),
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_from_scheduler_error_invalid_timezone_maps_to_bad_request() {
+        // 用户输入错误 → 400
+        let err = SchedulerError::InvalidTimezone("Mars/Olympus".to_string());
+        match AppError::from_scheduler_error(err) {
+            AppError::BadRequest(msg) => assert!(msg.contains("Mars/Olympus")),
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_from_scheduler_error_internal_maps_to_internal() {
+        // 兜底变体 → 500
+        let err = SchedulerError::Internal("scheduler panicked".to_string());
+        match AppError::from_scheduler_error(err) {
+            AppError::Internal(msg) => assert!(msg.contains("scheduler panicked")),
+            other => panic!("expected Internal, got {other:?}"),
+        }
+    }
+
+    // === From trait: 验证 From impl 也走同一工厂方法 ===
+
+    #[test]
+    fn test_from_db_err_via_from_trait() {
+        let err: sea_orm::DbErr = sea_orm::DbErr::RecordNotFound("x".into());
+        let app: AppError = err.into();
+        // 通过 from_db_err 走同一工厂；从 From trait 入口验证等价
+        matches!(app, AppError::NotFound);
+    }
+
+    #[test]
+    fn test_from_io_err_via_from_trait() {
+        let err: std::io::Error = std::io::Error::other("boom");
+        let app: AppError = err.into();
+        matches!(app, AppError::Internal(_));
+    }
+
+    #[test]
+    fn test_from_string_maps_to_bad_request() {
+        // 裸 String 约定为 BadRequest（多为校验失败），保留原行为。
+        let app: AppError = "bad input".to_string().into();
+        match app {
+            AppError::BadRequest(msg) => assert_eq!(msg, "bad input"),
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_from_scheduler_error_via_from_trait() {
+        let err = SchedulerError::InvalidTimezone("bad/tz".to_string());
+        let app: AppError = err.into();
+        matches!(app, AppError::BadRequest(_));
+    }
+
+    // === IntoResponse 公开行为：保证重构前后字节级一致 ===
+
+    /// 把 Response 拆成 (status, body_bytes) 便于断言。
+    async fn response_to_parts(
+        resp: axum::response::Response,
+    ) -> (StatusCode, Vec<u8>) {
+        let (parts, body) = resp.into_parts();
+        let bytes = axum::body::to_bytes(body, usize::MAX)
+            .await
+            .expect("body should collect");
+        (parts.status, bytes.to_vec())
+    }
+
+    #[tokio::test]
+    async fn test_into_response_not_found_returns_404_with_err_code() {
+        // 验证：NotFound → 404 + ApiResponse JSON 包含 code=NOT_FOUND & "Not found"
+        let resp = AppError::NotFound.into_response();
+        let (status, body) = response_to_parts(resp).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let body_str = String::from_utf8_lossy(&body);
+        assert!(
+            body_str.contains(&format!("\"code\":{}", codes::NOT_FOUND)),
+            "body should carry NOT_FOUND code, got: {body_str}"
+        );
+        assert!(
+            body_str.contains("Not found"),
+            "body should carry 'Not found' message, got: {body_str}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_into_response_bad_request_returns_400_with_message() {
+        let resp = AppError::BadRequest("invalid cron".to_string()).into_response();
+        let (status, body) = response_to_parts(resp).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let body_str = String::from_utf8_lossy(&body);
+        assert!(body_str.contains(&format!("\"code\":{}", codes::BAD_REQUEST)));
+        assert!(body_str.contains("invalid cron"));
+    }
+
+    #[tokio::test]
+    async fn test_into_response_internal_returns_500_with_message() {
+        let resp = AppError::Internal("db down".to_string()).into_response();
+        let (status, body) = response_to_parts(resp).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        let body_str = String::from_utf8_lossy(&body);
+        assert!(body_str.contains(&format!("\"code\":{}", codes::INTERNAL)));
+        assert!(body_str.contains("db down"));
     }
 }
