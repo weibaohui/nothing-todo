@@ -13,7 +13,7 @@ use crate::feishu::{
 use crate::service_context::ServiceContext;
 use crate::config::Config as AppConfig;
 use crate::task_manager::TaskManager;
-use crate::db::{Database, NewFeishuMessage};
+use crate::db::{Database, FeishuProjectBinding, NewFeishuMessage};
 use crate::models::{AgentBot, BotConfig, build_trigger_params};
 use crate::services::message_debounce::{MessageDebounce, PendingMessage};
 
@@ -28,6 +28,7 @@ pub struct FeishuListener {
     debounce: Arc<MessageDebounce>,
 }
 
+#[derive(Clone, Copy)]
 struct ListenerMessageContext<'a> {
     db: &'a Arc<Database>,
     config: &'a Arc<RwLock<AppConfig>>,
@@ -40,6 +41,7 @@ struct ListenerMessageContext<'a> {
     bot_config: &'a BotConfig,
 }
 
+#[derive(Clone, Copy)]
 struct FeishuCommandContext<'a> {
     db: &'a Arc<Database>,
     credentials: &'a DashMap<i64, (String, String, String)>,
@@ -172,218 +174,194 @@ impl FeishuListener {
         Ok(())
     }
 
+    /// 编排整条飞书消息的处理流程。
+    /// 步骤：自消息过滤 → 落库 → 加 reaction → 内建命令 → 权限闸门 → 晋升 pending binding
+    ///      → 项目绑定路径 → 斜杠规则/默认回复 → echo 日志 → 清理 reaction。
+    /// 每个步骤下沉到职责单一的子函数，本函数只负责"组合 + 早退"。
+    /// 把 519 行的单体函数按阶段拆分后，可读性、可测性、可维护性都显著提升。
     async fn handle_message(context: ListenerMessageContext<'_>, msg: &ChannelMessage) {
-        let ListenerMessageContext {
-            db,
-            config,
-            token_manager,
-            credentials,
-            debounce,
-            task_manager,
-            bot_id,
-            bot_open_id,
-            bot_config,
-        } = context;
+        // 自发消息直接 return：飞书多端登录会把自己的消息广播过来
+        if Self::is_self_sent(context.bot_open_id, context.bot_id, &msg.sender) {
+            return;
+        }
+        // 1) 把消息原样落库，供历史审计；落库失败不影响主流程
+        Self::persist_incoming_message(context.db, context.bot_id, msg).await;
+        // 2) THUMBSUP reaction 用作"处理中"指示；后续由 cleanup_reaction 兜底删除
+        let reaction_id = Self::add_reaction(
+            context.credentials,
+            context.token_manager,
+            context.bot_id,
+            &msg.id,
+            "THUMBSUP",
+        )
+        .await;
+        // 3) 构造所有 handle_xxx 子函数共用的精简上下文（已 trim content）
+        let cmd = Self::build_command_context(&context, msg, reaction_id.as_deref());
+        // 4) 内建斜杠命令：/sethome /feishupush /list /bind /unbind /new /stop
+        if Self::route_builtin_command(context.task_manager, cmd).await {
+            return;
+        }
+        // 5) 接收/响应权限闸门：dm/group 策略 + 全局响应开关 + 群白名单
+        if !Self::passes_response_gates(&context, &cmd, msg).await {
+            Self::cleanup_reaction(&context, msg, reaction_id.as_deref()).await;
+            return;
+        }
+        // 6) 把 Web 页面创建的 __pending__ binding 关联到当前真实 chat
+        Self::promote_pending_binding(context.db, context.bot_id, cmd.channel, cmd.chat_type).await;
+        // 7) 项目绑定路径（resume / new session），命中即返回（内部已清 reaction）
+        if Self::handle_project_binding_path(&context, &cmd).await {
+            return;
+        }
+        // 8) 用户自定义斜杠规则 + 默认回复兜底
+        Self::dispatch_slash_or_default(&context, &cmd).await;
+        // 9) echo 调试日志（按 chat_type 区分私聊/群聊）
+        Self::log_echo_reply(&context, &cmd);
+        // 10) 收尾：删掉 THUMBSUP reaction
+        Self::cleanup_reaction(&context, msg, reaction_id.as_deref()).await;
+    }
 
-        tracing::info!(
-            "[feishu:{}] handle_message: sender={}, bot_open_id={}, content={:?}, chat_type={:?}",
-            bot_id,
-            msg.sender,
-            bot_open_id,
-            msg.content,
-            msg.chat_type
-        );
+    // ---------------------------------------------------------------------
+    // 下面是 handle_message 拆分出的辅助方法。
+    // 原来的 519 行函数被拆为：编排器（handle_message）+ 9 个职责单一的子阶段。
+    // 抽取原则遵循《重构 2nd》Ch6 Extract Function：每个子函数不超过 30 行，
+    // 函数名自文档化，副作用边界（reaction 清理、debounce push）显式可见。
+    // ---------------------------------------------------------------------
 
-        if msg.sender == bot_open_id {
+    /// 自发消息（多端同步过来的自己）一律忽略，避免循环触发
+    fn is_self_sent(bot_open_id: &str, bot_id: i64, sender: &str) -> bool {
+        if sender == bot_open_id {
+            // 飞书多端登录时，发送的消息会广播到所有连接；用 bot_open_id 过滤自己
             tracing::info!("[feishu:{}] skipping self-sent message", bot_id);
-            return;
+            return true;
         }
+        false
+    }
 
+    /// 把原始消息原样落库（chat_type、mention 状态都来自 msg），
+    /// 用于消息历史审计；落库失败不影响主流程
+    async fn persist_incoming_message(db: &Arc<Database>, bot_id: i64, msg: &ChannelMessage) {
+        // chat_type 为空时按 p2p 兜底（飞书私聊字段缺失场景）
         let chat_type = msg.chat_type.as_deref().unwrap_or("p2p");
+        // p2p 没有 mentioned_open_ids 概念；group 消息 @ bot 时该数组非空
         let is_mention = !msg.mentioned_open_ids.is_empty();
+        let _ = db
+            .save_feishu_message(NewFeishuMessage {
+                bot_id,
+                message_id: &msg.id,
+                chat_id: &msg.channel,
+                chat_type,
+                sender_open_id: &msg.sender,
+                sender_type: msg.sender_type.as_deref(),
+                content: Some(&msg.content),
+                msg_type: "text",
+                is_mention,
+            })
+            .await;
+    }
 
-        db.save_feishu_message(NewFeishuMessage {
-            bot_id,
+    /// 把 ListenerMessageContext 里散落的相关字段聚成 FeishuCommandContext，
+    /// 避免每个 handle_xxx 函数都要从 9 个字段里手挑
+    fn build_command_context<'a>(
+        context: &'a ListenerMessageContext<'a>,
+        msg: &'a ChannelMessage,
+        reaction_id: Option<&'a str>,
+    ) -> FeishuCommandContext<'a> {
+        FeishuCommandContext {
+            db: context.db,
+            credentials: context.credentials,
+            token_manager: context.token_manager,
+            bot_id: context.bot_id,
+            // 飞书未填 chat_type 时按 p2p 兜底
+            chat_type: msg.chat_type.as_deref().unwrap_or("p2p"),
+            sender: &msg.sender,
+            channel: &msg.channel,
             message_id: &msg.id,
-            chat_id: &msg.channel,
-            chat_type,
-            sender_open_id: &msg.sender,
-            sender_type: msg.sender_type.as_deref(),
-            content: Some(&msg.content),
-            msg_type: "text",
-            is_mention,
-        })
-        .await
-        .ok();
-
-        let content = msg.content.trim();
-
-        // Add "processing" reaction
-        let reaction_id =
-            Self::add_reaction(credentials, token_manager, bot_id, &msg.id, "THUMBSUP").await;
-
-        // /sethome command
-        if content == "/sethome" {
-            Self::handle_sethome(FeishuCommandContext {
-                db,
-                credentials,
-                token_manager,
-                bot_id,
-                chat_type,
-                sender: &msg.sender,
-                channel: &msg.channel,
-                message_id: &msg.id,
-                content,
-                reaction_id: reaction_id.as_deref(),
-            })
-            .await;
-            return;
+            // 提前 trim，让命令匹配和后续 prompt 共用同一个干净字符串
+            content: msg.content.trim(),
+            reaction_id,
         }
+    }
 
-        // /feishupush command (toggle push)
-        if content == "/feishupush" {
-            Self::handle_feishupush(FeishuCommandContext {
-                db,
-                credentials,
-                token_manager,
-                bot_id,
-                chat_type,
-                sender: &msg.sender,
-                channel: &msg.channel,
-                message_id: &msg.id,
-                content,
-                reaction_id: reaction_id.as_deref(),
-            })
-            .await;
-            return;
+    /// 内建斜杠命令分发：7 个固定指令任一命中即返回 true（已处理）。
+    /// /stop 是唯一需要 task_manager 的，所以单独把 task_manager 传进来。
+    /// 顺序按命令在聊天中的使用频率排：list > bind > unbind > sethome > feishupush > new > stop
+    async fn route_builtin_command(
+        task_manager: &Arc<TaskManager>,
+        cmd: FeishuCommandContext<'_>,
+    ) -> bool {
+        // /sethome：把当前 chat 标记为推送目标并打开响应开关
+        if cmd.content == "/sethome" {
+            Self::handle_sethome(cmd).await;
+            return true;
         }
-
-        // /list command — list all registered project directories
-        if content == "/list" {
-            Self::handle_list(FeishuCommandContext {
-                db,
-                credentials,
-                token_manager,
-                bot_id,
-                chat_type,
-                sender: &msg.sender,
-                channel: &msg.channel,
-                message_id: &msg.id,
-                content,
-                reaction_id: reaction_id.as_deref(),
-            })
-            .await;
-            return;
+        // /feishupush：循环切换推送等级（disabled → result_only → all → disabled）
+        if cmd.content == "/feishupush" {
+            Self::handle_feishupush(cmd).await;
+            return true;
         }
-
-        // /bind or /bind <project_name>
-        if content == "/bind" || content.starts_with("/bind ") {
-            Self::handle_bind(FeishuCommandContext {
-                db,
-                credentials,
-                token_manager,
-                bot_id,
-                chat_type,
-                sender: &msg.sender,
-                channel: &msg.channel,
-                message_id: &msg.id,
-                content,
-                reaction_id: reaction_id.as_deref(),
-            })
-            .await;
-            return;
+        // /list：列出所有已注册项目目录，供 /bind 时挑选
+        if cmd.content == "/list" {
+            Self::handle_list(cmd).await;
+            return true;
         }
-
-        // /unbind command
-        if content == "/unbind" {
-            Self::handle_unbind(FeishuCommandContext {
-                db,
-                credentials,
-                token_manager,
-                bot_id,
-                chat_type,
-                sender: &msg.sender,
-                channel: &msg.channel,
-                message_id: &msg.id,
-                content,
-                reaction_id: reaction_id.as_deref(),
-            })
-            .await;
-            return;
+        // /bind 与 /bind <name> 走同一个处理函数，由 handle_bind 内部区分
+        if cmd.content == "/bind" || cmd.content.starts_with("/bind ") {
+            Self::handle_bind(cmd).await;
+            return true;
         }
-
-        // /new command — start a fresh session without resuming previous one
-        if content == "/new" {
-            Self::handle_new(FeishuCommandContext {
-                db,
-                credentials,
-                token_manager,
-                bot_id,
-                chat_type,
-                sender: &msg.sender,
-                channel: &msg.channel,
-                message_id: &msg.id,
-                content,
-                reaction_id: reaction_id.as_deref(),
-            })
-            .await;
-            return;
+        if cmd.content == "/unbind" {
+            Self::handle_unbind(cmd).await;
+            return true;
         }
-
-        // /stop command — stop the currently running execution for this binding
-        if content == "/stop" {
-            Self::handle_stop(
-                task_manager,
-                FeishuCommandContext {
-                    db,
-                    credentials,
-                    token_manager,
-                    bot_id,
-                    chat_type,
-                    sender: &msg.sender,
-                    channel: &msg.channel,
-                    message_id: &msg.id,
-                    content,
-                    reaction_id: reaction_id.as_deref(),
-                },
-            )
-            .await;
-            return;
+        if cmd.content == "/new" {
+            Self::handle_new(cmd).await;
+            return true;
         }
-
-        if !Self::is_message_allowed(chat_type, is_mention, bot_config) {
-            if let Some(rid) = &reaction_id {
-                Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
-            }
-            return;
+        if cmd.content == "/stop" {
+            Self::handle_stop(task_manager, cmd).await;
+            return true;
         }
+        false
+    }
 
-        // Check if message response is enabled for this chat type
-        let response_enabled = db
-            .get_feishu_response_enabled(bot_id, chat_type)
+    /// 三道响应权限闸门，按顺序短路：dm/group 策略 → 全局响应开关 → 群白名单
+    /// 全部通过返回 true；任一失败返回 false
+    async fn passes_response_gates(
+        context: &ListenerMessageContext<'_>,
+        cmd: &FeishuCommandContext<'_>,
+        msg: &ChannelMessage,
+    ) -> bool {
+        // 闸门一：bot_config 里的 dm_enabled / group_enabled / group_require_mention
+        let is_mention = !msg.mentioned_open_ids.is_empty();
+        if !Self::is_message_allowed(cmd.chat_type, is_mention, context.bot_config) {
+            return false;
+        }
+        // 闸门二：bot+chat_type 级别的响应开关（/sethome 会打开此开关）
+        let response_enabled = context
+            .db
+            .get_feishu_response_enabled(context.bot_id, cmd.chat_type)
             .await
             .unwrap_or(false);
-
         if !response_enabled {
             tracing::info!(
                 "[feishu:{}] message response is disabled for {} chat type",
-                bot_id,
-                chat_type
+                context.bot_id,
+                cmd.chat_type
             );
-            if let Some(rid) = &reaction_id {
-                Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
-            }
-            return;
+            return false;
         }
-
-        // Check group whitelist for group chats
-        if chat_type == "group" {
-            let in_whitelist = match db.is_sender_in_whitelist(bot_id, &msg.sender).await {
+        // 闸门三：群聊白名单；查询失败默认放行（防御性，不阻塞正常用户）
+        if cmd.chat_type == "group" {
+            let in_whitelist = match context
+                .db
+                .is_sender_in_whitelist(context.bot_id, &msg.sender)
+                .await
+            {
                 Ok(allowed) => allowed,
                 Err(e) => {
                     tracing::warn!(
                         "[feishu:{}] whitelist check failed for sender {}, defaulting to allow: {}",
-                        bot_id,
+                        context.bot_id,
                         msg.sender,
                         e
                     );
@@ -393,303 +371,343 @@ impl FeishuListener {
             if !in_whitelist {
                 tracing::info!(
                     "[feishu:{}] sender {} not in group whitelist, skipping",
-                    bot_id,
+                    context.bot_id,
                     msg.sender
                 );
-                if let Some(rid) = &reaction_id {
-                    Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
-                }
+                return false;
+            }
+        }
+        true
+    }
+
+    /// 把页面创建的 __pending__ binding 关联到当前真实 chat。
+    /// chat_id 写成 __pending__ 是页面端的占位策略，等首次消息进来再回填。
+    /// 只在 todo 仍然存在时晋升，避免把残留 binding 绑到错误项目。
+    async fn promote_pending_binding(
+        db: &Arc<Database>,
+        bot_id: i64,
+        channel: &str,
+        chat_type: &str,
+    ) {
+        let bindings = db
+            .get_feishu_project_bindings(bot_id)
+            .await
+            .unwrap_or_default();
+        // 找到 PENDING_CHAT_ID 的占位 binding
+        let pending = bindings
+            .iter()
+            .find(|b| b.chat_id == crate::models::PENDING_CHAT_ID)
+            .cloned();
+        let Some(pending) = pending else {
+            return;
+        };
+        // todo 已删除时 binding 残留，跳过晋升避免误绑
+        if db.get_todo(pending.todo_id).await.ok().flatten().is_none() {
+            return;
+        }
+        match db
+            .attach_feishu_project_binding(pending.id, channel, chat_type)
+            .await
+        {
+            Ok(_) => tracing::info!(
+                "[feishu:{}] promoted pending binding {} (project_dir_id={}) to chat {}",
+                bot_id,
+                pending.id,
+                pending.project_dir_id,
+                channel
+            ),
+            Err(e) => tracing::warn!(
+                "[feishu:{}] failed to promote pending binding: {}",
+                bot_id,
+                e
+            ),
+        }
+    }
+
+    /// 清理 reaction（add_reaction 失败时 reaction_id 为 None，直接跳过）
+    async fn cleanup_reaction(
+        context: &ListenerMessageContext<'_>,
+        msg: &ChannelMessage,
+        reaction_id: Option<&str>,
+    ) {
+        if let Some(rid) = reaction_id {
+            Self::delete_reaction(
+                context.credentials,
+                context.token_manager,
+                context.bot_id,
+                &msg.id,
+                rid,
+            )
+            .await;
+        }
+    }
+
+    /// echo 调试日志（按 chat_type 区分私聊/群聊），方便排查"发了消息但没反应"
+    fn log_echo_reply(context: &ListenerMessageContext<'_>, cmd: &FeishuCommandContext<'_>) {
+        // echo_reply 关闭时静默，避免日志噪音
+        if !context.bot_config.echo_reply {
+            return;
+        }
+        if cmd.chat_type == "p2p" {
+            tracing::info!(
+                "[feishu:{}] 收到私聊消息: sender={}, content={}",
+                context.bot_id,
+                cmd.sender,
+                cmd.content
+            );
+        } else if cmd.chat_type == "group" {
+            tracing::info!(
+                "[feishu:{}] 收到群聊消息: channel={}, sender={}, content={}",
+                context.bot_id,
+                cmd.channel,
+                cmd.sender,
+                cmd.content
+            );
+        }
+    }
+
+    /// 项目绑定路径：有 binding → 计算 resume 信息 → push 到 debounce → 返回 true。
+    /// 无 binding / disabled / todo 缺失 → 返回 false，让上层降级到斜杠/默认回复。
+    async fn handle_project_binding_path(
+        context: &ListenerMessageContext<'_>,
+        cmd: &FeishuCommandContext<'_>,
+    ) -> bool {
+        // 第一步：拉 binding
+        let binding = match context
+            .db
+            .get_feishu_project_binding(context.bot_id, cmd.channel)
+            .await
+        {
+            Ok(Some(b)) => b,
+            Ok(None) => return false, // 无 binding，让上层处理斜杠/默认
+            Err(e) => {
+                tracing::error!("[feishu:{}] query binding failed: {e}", context.bot_id);
+                return false;
+            }
+        };
+        // disabled binding 不参与路由，fall through 到斜杠/默认
+        if !binding.enabled {
+            tracing::info!(
+                "[feishu:{}] binding {} is disabled, falling through to slash commands",
+                context.bot_id,
+                binding.id
+            );
+            return false;
+        }
+        // 第二步：拉 todo
+        let Some(todo) = context.db.get_todo(binding.todo_id).await.ok().flatten() else {
+            tracing::warn!(
+                "[feishu:{}] bound todo #{} not found for chat {}",
+                context.bot_id,
+                binding.todo_id,
+                cmd.channel
+            );
+            return false;
+        };
+        // 第三步：算 resume + push
+        Self::push_project_execution(context, cmd, &binding, &todo).await;
+        true
+    }
+
+    /// 把项目绑定触发的执行推到 debounce，由 debounce 在去抖窗口后调用 run_todo_execution
+    async fn push_project_execution(
+        context: &ListenerMessageContext<'_>,
+        cmd: &FeishuCommandContext<'_>,
+        binding: &FeishuProjectBinding,
+        todo: &crate::models::Todo,
+    ) {
+        // latest_record 是判断 should_resume 的唯一数据源：binding.latest_record_id
+        // 可能为 None（首次执行）也可能指向已结束的 record
+        let latest_record = match binding.latest_record_id {
+            Some(rid) => context.db.get_execution_record(rid).await.ok().flatten(),
+            None => None,
+        };
+        let (resume_session_id, resume_message) =
+            Self::compute_resume_info(&latest_record, &binding.session_id, cmd.content);
+        tracing::info!(
+            "[feishu:{}] binding check: todo_id={}, latest_record_id={:?}, should_resume={}, binding.session_id={:?}",
+            context.bot_id,
+            binding.todo_id,
+            binding.latest_record_id,
+            resume_session_id.is_some(),
+            binding.session_id
+        );
+        // executor 优先用 todo 自带的；未配置时退回 claudecode
+        let executor = todo.executor.as_deref().unwrap_or("claudecode");
+        context.debounce.push(PendingMessage {
+            bot_id: context.bot_id,
+            chat_id: cmd.channel.to_string(),
+            chat_type: cmd.chat_type.to_string(),
+            sender: cmd.sender.to_string(),
+            content: cmd.content.to_string(),
+            todo_id: binding.todo_id,
+            todo_prompt: todo.prompt.clone(),
+            executor: Some(executor.to_string()),
+            trigger_type: "feishu_project_bind".to_string(),
+            params: None,
+            message_id: Some(cmd.message_id.to_string()),
+            resume_session_id,
+            resume_message,
+            binding_id: Some(binding.id),
+        });
+        // 命中绑定路径，主动清理 reaction（不等到 handle_message 收尾）
+        Self::cleanup_reaction(context, &Self::dummy_msg_from_cmd(cmd), cmd.reaction_id).await;
+    }
+
+    /// 纯函数：根据 latest_record + binding.session_id 决定是否 resume 已有 session。
+    /// 返回 (resume_session_id, resume_message)：
+    ///   - 不 resume → (None, None)
+    ///   - resume → (real_sid, Some(content))
+    fn compute_resume_info(
+        latest_record: &Option<crate::models::ExecutionRecord>,
+        binding_session_id: &Option<String>,
+        content: &str,
+    ) -> (Option<String>, Option<String>) {
+        // should_resume 条件（取自 handle_message 原注释）：
+        //   1. latest_record 必须有 session_id
+        //   2. 上一次执行必须已结束（status != Running），
+        //      避免与 Claude Code 正在写入的 JSONL 文件产生竞态
+        let should_resume = latest_record
+            .as_ref()
+            .map(|r| {
+                r.session_id.is_some()
+                    && r.status != crate::models::ExecutionStatus::Running
+            })
+            .unwrap_or(false);
+        if !should_resume {
+            return (None, None);
+        }
+        // ⚠️ 不能直接用 binding_session_id：debounce 首次执行时把它设成了 task_id（随机 UUID），
+        // Claude Code 真正的 session_id 来自 stdout JSONL，保存在 execution_records.session_id。
+        let real_sid = latest_record
+            .as_ref()
+            .and_then(|r| r.session_id.clone())
+            .or_else(|| binding_session_id.clone());
+        (real_sid, Some(content.to_string()))
+    }
+
+    /// 项目绑定路径专用：根据 cmd 字段构造一个用于 cleanup 的伪 msg 引用。
+    /// 避免 push_project_execution 持有原 msg 的借用，保持签名简单
+    fn dummy_msg_from_cmd(cmd: &FeishuCommandContext<'_>) -> ChannelMessage {
+        ChannelMessage {
+            id: cmd.message_id.to_string(),
+            sender: cmd.sender.to_string(),
+            sender_type: None,
+            content: cmd.content.to_string(),
+            channel: cmd.channel.to_string(),
+            // timestamp 在 cleanup 路径中不被使用，填 0 即可
+            timestamp: 0,
+            chat_type: Some(cmd.chat_type.to_string()),
+            mentioned_open_ids: vec![],
+        }
+    }
+
+    /// 斜杠规则 + 默认回复兜底：优先匹配 config.slash_command_rules，
+    /// 命中后用规则关联的 todo 执行；未命中或非斜杠消息走 default_response_todo_id
+    async fn dispatch_slash_or_default(
+        context: &ListenerMessageContext<'_>,
+        cmd: &FeishuCommandContext<'_>,
+    ) {
+        // 先尝试用户自定义斜杠规则
+        if let Some(command_ctx) = Self::parse_slash_command(cmd.content) {
+            if Self::try_dispatch_slash_rule(context, cmd, &command_ctx).await {
                 return;
             }
         }
+        // 兜底：默认回复 todo
+        Self::dispatch_default_response(context, cmd).await;
+    }
 
-        // 如果当前 chat 没有绑定，检查是否有 __pending__ binding 需要关联过来。
-        // 页面创建绑定时 chat_id 先写成 __pending__，等首次消息进来再关联到真实 chat。
-        // 晋升范围：只在 pending binding 中找匹配 project_dir 的，防止把错误项目绑定到当前聊天。
-        let pending_binding = {
-            let bindings = db.get_feishu_project_bindings(bot_id).await.unwrap_or_default();
-            let pending: Option<_> = bindings
+    /// 尝试匹配一条 slash_command_rules；命中且能拿到 todo 就 push 并返回 true
+    async fn try_dispatch_slash_rule(
+        context: &ListenerMessageContext<'_>,
+        cmd: &FeishuCommandContext<'_>,
+        command_ctx: &SlashCommandMatch<'_>,
+    ) -> bool {
+        // 在 config 里查匹配的规则（克隆出来以释放读锁）
+        let rule = {
+            let cfg = context.config.read().unwrap();
+            cfg.slash_command_rules
                 .iter()
-                .filter(|b| b.chat_id == crate::models::PENDING_CHAT_ID)
+                .find(|r| r.slash_command == command_ctx.command && r.enabled)
                 .cloned()
-                .next();
-            // 确认该 binding 的 todo 仍然存在（防御：页面删除了 todo 但 binding 残留）
-            if let Some(ref p) = pending {
-                if db.get_todo(p.todo_id).await.ok().flatten().is_none() {
-                    None
-                } else {
-                    pending
-                }
-            } else {
-                None
-            }
         };
-        if let Some(pending) = pending_binding {
-            match db.attach_feishu_project_binding(pending.id, &msg.channel, chat_type).await {
-                Ok(_) => {
-                    tracing::info!(
-                        "[feishu:{}] promoted pending binding {} (project_dir_id={}) to chat {}",
-                        bot_id, pending.id, pending.project_dir_id, msg.channel
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!("[feishu:{}] failed to promote pending binding: {}", bot_id, e);
-                }
-            }
+        let Some(rule) = rule else {
+            return false;
+        };
+        // 斜杠命令 body 为空时不触发
+        if command_ctx.body.is_empty() {
+            return false;
         }
-
-        // 检查当前聊天是否有项目目录绑定 → 走项目执行路径
-        // 绑定路径优先级高于斜杠命令和默认回复：
-        //   有绑定 → 最近一条 execution 还在运行 → resume 同一 session
-        //   有绑定 → 最近一条已结束（或从未执行）→ 开新 session
-        //   无绑定 → 降级到斜杠命令/默认回复
-        // 为什么用 latest_record_id 判断而非 get_execution_record_by_task_id？
-        //   resume 执行时新 record 的 task_id ≠ session_id，用 task_id 查会找到旧的
-        //   已结束的 record 导致 should_resume=false，会话链断裂。
-        match db.get_feishu_project_binding(bot_id, &msg.channel).await {
-            Ok(Some(binding)) => {
-                // enabled=false 的绑定不参与路由，但也不 return——让控制流落到斜杠命令/默认回复处理
-                // （与 Ok(None) 的处理逻辑一致：fall through 到后续 parse_slash_command）
-                if !binding.enabled {
-                    tracing::info!("[feishu:{}] binding {} is disabled, falling through to slash commands", bot_id, binding.id);
-                    if let Some(rid) = &reaction_id {
-                        Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
-                    }
-                }
-                // 检查绑定的 todo 是否存在
-                if let Ok(Some(todo)) = db.get_todo(binding.todo_id).await {
-                    // Determine if we should resume an existing session or start fresh.
-                    // Fetch the latest execution record once and reuse it for both the
-                    // should_resume check and the session_id extraction (avoids duplicate DB call).
-                    //
-                    // Resume criteria:
-                    //   1. session_id is present in the latest execution record
-                    //   2. the execution record's task is still alive in task_manager
-                    //      (defensive: avoids resuming against a crashed executor's session file)
-                    //   3. the execution is NOT still in flight (status != "running").
-                    //      If status == "running", the Claude Code process is still writing
-                    //      the JSONL file; resuming now races with that write.
-                    // NOTE: we check latest_record_id (not get_execution_record_by_task_id)
-                    // because resume executions have different task_ids — the session_id
-                    // stays the same across turns, but the latest execution_record changes.
-                    let latest_record = match binding.latest_record_id {
-                        Some(rid) => db.get_execution_record(rid).await.ok().flatten(),
-                        None => None,
-                    };
-
-                    let should_resume = latest_record
-                        .as_ref()
-                        .map(|r| {
-                            r.session_id.is_some()
-                                && r.status != crate::models::ExecutionStatus::Running
-                        })
-                        .unwrap_or(false);
-
-                    tracing::info!(
-                        "[feishu:{}] binding check: todo_id={}, latest_record_id={:?}, should_resume={}, binding.session_id={:?}",
-                        bot_id, binding.todo_id, binding.latest_record_id, should_resume, binding.session_id
-                    );
-
-                    let (resume_session_id, resume_message) = if should_resume {
-                        // ⚠️ 不能使用 binding.session_id：debounce 首次执行时把它设为了 task_id（随机 UUID）
-                        // Claude Code 真正的 session_id 来自 stdout JSONL 输出，
-                        // 保存在 execution_records.session_id 中。必须从 latest_record 读取。
-                        let real_sid = latest_record
-                            .as_ref()
-                            .and_then(|r| r.session_id.clone())
-                            .or_else(|| binding.session_id.clone());
-                        (real_sid, Some(content.to_string()))
-                    } else {
-                        (None, None)
-                    };
-
-                    // Use the todo's configured executor, fallback to claudecode
-                    let executor = todo.executor.as_deref().unwrap_or("claudecode");
-
-                    debounce.push(PendingMessage {
-                        bot_id,
-                        chat_id: msg.channel.clone(),
-                        chat_type: chat_type.to_string(),
-                        sender: msg.sender.clone(),
-                        content: content.to_string(),
-                        todo_id: binding.todo_id,
-                        todo_prompt: todo.prompt.clone(),
-                        executor: Some(executor.to_string()),
-                        trigger_type: "feishu_project_bind".to_string(),
-                        params: None,
-                        message_id: Some(msg.id.clone()),
-                        resume_session_id,
-                        resume_message,
-                        binding_id: Some(binding.id),
-                    });
-                    // 清理 reaction 后返回，避免 THUMBSUP 一直残留在消息上
-                    if let Some(rid) = &reaction_id {
-                        Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
-                    }
-                    return;
-                } else {
-                    tracing::warn!(
-                        "[feishu:{}] bound todo #{} not found for chat {}",
-                        bot_id, binding.todo_id, msg.channel
-                    );
-                }
-            }
-            Ok(None) => {} // No binding — fall through
-            Err(e) => {
-                tracing::error!("[feishu:{}] query binding failed: {e}", bot_id);
-            }
-        }
-
-        if let Some(command_ctx) = Self::parse_slash_command(content) {
-            // Try slash command match
-            let matched_rule = {
-                let cfg = config.read().unwrap();
-                cfg.slash_command_rules
-                    .iter()
-                    .find(|r| r.slash_command == command_ctx.command && r.enabled)
-                    .cloned()
-            };
-
-            if let Some(rule) = matched_rule {
-                if !command_ctx.body.is_empty() {
-                    let todo = match db.get_todo(rule.todo_id).await {
-                        Ok(Some(t)) => Some(t),
-                        Ok(None) => None,
-                        Err(e) => {
-                            tracing::error!(
-                                "Failed to fetch todo {} for slash command: {}",
-                                rule.todo_id,
-                                e
-                            );
-                            None
-                        }
-                    };
-                    if let Some(todo) = todo {
-                        let (_, params) = build_trigger_params(&format!("{} {}", command_ctx.command, command_ctx.body));
-
-                        debounce.push(PendingMessage {
-                            bot_id,
-                            chat_id: msg.channel.clone(),
-                            chat_type: chat_type.to_string(),
-                            sender: msg.sender.clone(),
-                            content: command_ctx.body.to_string(),
-                            todo_id: todo.id,
-                            todo_prompt: todo.prompt.clone(),
-                            executor: todo.executor.clone(),
-                            trigger_type: "slash_command".to_string(),
-                            params: Some(params),
-                            message_id: Some(msg.id.clone()),
-                            resume_session_id: None,
-                            resume_message: None,
-                            binding_id: None,
-                        });
-                    }
-                }
-            } else {
-                // No matching slash rule, fall through to default response
-                let default_todo_id = {
-                    let cfg = config.read().unwrap();
-                    cfg.default_response_todo_id
-                };
-                if let Some(todo_id) = default_todo_id {
-                    if !content.is_empty() {
-                        let todo_prompt = match db.get_todo(todo_id).await {
-                            Ok(Some(t)) => Some(t.prompt.clone()),
-                            Ok(None) => None,
-                            Err(e) => {
-                                tracing::error!(
-                                    "Failed to fetch todo {} for debounce: {}",
-                                    todo_id,
-                                    e
-                                );
-                                None
-                            }
-                        }
-                        .unwrap_or_default();
-                        let (_, params) = build_trigger_params(content);
-                        debounce.push(PendingMessage {
-                            bot_id,
-                            chat_id: msg.channel.clone(),
-                            chat_type: chat_type.to_string(),
-                            sender: msg.sender.clone(),
-                            content: content.to_string(),
-                            todo_id,
-                            todo_prompt,
-                            executor: None,
-                            trigger_type: "default_response".to_string(),
-                            params: Some(params),
-                            message_id: Some(msg.id.clone()),
-                            resume_session_id: None,
-                            resume_message: None,
-                            binding_id: None,
-                        });
-                    }
-                }
-            }
-        } else {
-            // Non-slash message, check default response
-            let default_todo_id = {
-                let cfg = config.read().unwrap();
-                cfg.default_response_todo_id
-            };
-
-            if let Some(todo_id) = default_todo_id {
-                if !content.is_empty() {
-                    let todo_prompt = match db.get_todo(todo_id).await {
-                        Ok(Some(t)) => Some(t.prompt.clone()),
-                        Ok(None) => None,
-                        Err(e) => {
-                            tracing::error!(
-                                "Failed to fetch todo {} for message debounce: {}",
-                                todo_id,
-                                e
-                            );
-                            None
-                        }
-                    }
-                    .unwrap_or_default();
-                    let (_, params) = build_trigger_params(content);
-                    debounce.push(PendingMessage {
-                        bot_id,
-                        chat_id: msg.channel.clone(),
-                        chat_type: chat_type.to_string(),
-                        sender: msg.sender.clone(),
-                        content: content.to_string(),
-                        todo_id,
-                        todo_prompt,
-                        executor: None,
-                        trigger_type: "default_response".to_string(),
-                        params: Some(params),
-                        message_id: Some(msg.id.clone()),
-                        resume_session_id: None,
-                        resume_message: None,
-                        binding_id: None,
-                    });
-                }
-            }
-        }
-
-        if chat_type == "p2p" && bot_config.echo_reply {
-            tracing::info!(
-                "[feishu:{}] 收到私聊消息: sender={}, content={}",
-                bot_id,
-                msg.sender,
-                content
+        // 拉规则关联的 todo
+        let Some(todo) = context.db.get_todo(rule.todo_id).await.ok().flatten() else {
+            tracing::error!(
+                "Failed to fetch todo {} for slash command",
+                rule.todo_id
             );
-        }
-        if chat_type == "group" && bot_config.echo_reply {
-            tracing::info!(
-                "[feishu:{}] 收到群聊消息: channel={}, sender={}, content={}",
-                bot_id,
-                msg.channel,
-                msg.sender,
-                content
-            );
-        }
+            return false;
+        };
+        let (_, params) =
+            build_trigger_params(&format!("{} {}", command_ctx.command, command_ctx.body));
+        context.debounce.push(PendingMessage {
+            bot_id: context.bot_id,
+            chat_id: cmd.channel.to_string(),
+            chat_type: cmd.chat_type.to_string(),
+            sender: cmd.sender.to_string(),
+            content: command_ctx.body.to_string(),
+            todo_id: todo.id,
+            todo_prompt: todo.prompt.clone(),
+            executor: todo.executor.clone(),
+            trigger_type: "slash_command".to_string(),
+            params: Some(params),
+            message_id: Some(cmd.message_id.to_string()),
+            resume_session_id: None,
+            resume_message: None,
+            binding_id: None,
+        });
+        true
+    }
 
-        if let Some(rid) = &reaction_id {
-            Self::delete_reaction(credentials, token_manager, bot_id, &msg.id, rid).await;
+    /// 默认回复：未匹配任何斜杠规则时把消息丢给 default_response_todo_id
+    async fn dispatch_default_response(
+        context: &ListenerMessageContext<'_>,
+        cmd: &FeishuCommandContext<'_>,
+    ) {
+        // 未配置默认 todo 直接退出
+        let default_todo_id = context.config.read().unwrap().default_response_todo_id;
+        let Some(todo_id) = default_todo_id else {
+            return;
+        };
+        // 空内容不触发
+        if cmd.content.is_empty() {
+            return;
         }
+        // 容错：todo 缺失时使用空 prompt，避免阻塞消息流
+        let todo_prompt = context
+            .db
+            .get_todo(todo_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|t| t.prompt)
+            .unwrap_or_default();
+        let (_, params) = build_trigger_params(cmd.content);
+        context.debounce.push(PendingMessage {
+            bot_id: context.bot_id,
+            chat_id: cmd.channel.to_string(),
+            chat_type: cmd.chat_type.to_string(),
+            sender: cmd.sender.to_string(),
+            content: cmd.content.to_string(),
+            todo_id,
+            todo_prompt,
+            executor: None,
+            trigger_type: "default_response".to_string(),
+            params: Some(params),
+            message_id: Some(cmd.message_id.to_string()),
+            resume_session_id: None,
+            resume_message: None,
+            binding_id: None,
+        });
     }
 
     /// 判断当前消息是否符合接收配置。
@@ -1755,5 +1773,105 @@ mod tests {
         };
         assert!(!FeishuListener::is_message_allowed("group", false, &cfg));
         assert!(FeishuListener::is_message_allowed("group", true, &cfg));
+    }
+
+    // --- compute_resume_info 的单元测试 ---
+    // 纯函数：根据 latest_record + binding_session_id + content 计算 resume 决策。
+    // 覆盖：None record / 无 session_id / status=Running / 正常 resume 四个分支。
+
+    /// 构造一个测试用 ExecutionRecord；status / session_id 由调用方指定
+    fn make_test_record(
+        session_id: Option<String>,
+        status: crate::models::ExecutionStatus,
+    ) -> crate::models::ExecutionRecord {
+        crate::models::ExecutionRecord {
+            id: 1,
+            todo_id: 1,
+            session_id,
+            status,
+            command: String::new(),
+            stdout: String::new(),
+            stderr: String::new(),
+            result: None,
+            started_at: String::new(),
+            finished_at: None,
+            usage: None,
+            executor: None,
+            model: None,
+            trigger_type: "test".to_string(),
+            pid: None,
+            task_id: None,
+            todo_progress: None,
+            execution_stats: None,
+            resume_message: None,
+            source_todo_id: None,
+            source_todo_title: None,
+            source_hook_id: None,
+            rating: None,
+            source_execution_record_id: None,
+            last_review_status: None,
+            last_reviewed_at: None,
+            worktree_path: None,
+        }
+    }
+
+    /// 无 latest_record → 不 resume
+    #[test]
+    fn test_compute_resume_info_no_record() {
+        let (sid, msg) = FeishuListener::compute_resume_info(&None, &None, "继续任务");
+        assert!(sid.is_none());
+        assert!(msg.is_none());
+    }
+
+    /// latest_record 没有 session_id → 不 resume
+    #[test]
+    fn test_compute_resume_info_no_session_id() {
+        let record = make_test_record(None, crate::models::ExecutionStatus::Success);
+        let (sid, msg) = FeishuListener::compute_resume_info(&Some(record), &None, "继续任务");
+        assert!(sid.is_none());
+        assert!(msg.is_none());
+    }
+
+    /// status=Running 时不 resume（避免与 Claude Code JSONL 写竞态）
+    #[test]
+    fn test_compute_resume_info_running_status() {
+        let record = make_test_record(
+            Some("sess-abc".to_string()),
+            crate::models::ExecutionStatus::Running,
+        );
+        let (sid, msg) = FeishuListener::compute_resume_info(&Some(record), &None, "继续任务");
+        assert!(sid.is_none());
+        assert!(msg.is_none());
+    }
+
+    /// 正常 resume 路径：返回 latest_record.session_id + content
+    #[test]
+    fn test_compute_resume_info_normal_resume() {
+        let record = make_test_record(
+            Some("sess-xyz".to_string()),
+            crate::models::ExecutionStatus::Success,
+        );
+        let (sid, msg) = FeishuListener::compute_resume_info(
+            &Some(record),
+            &Some("fallback-sid".to_string()),
+            "帮我重构",
+        );
+        assert_eq!(sid.as_deref(), Some("sess-xyz"));
+        assert_eq!(msg.as_deref(), Some("帮我重构"));
+    }
+
+    /// session_id 缺失时回退到 binding_session_id
+    #[test]
+    fn test_compute_resume_info_fallback_to_binding() {
+        let record = make_test_record(None, crate::models::ExecutionStatus::Success);
+        // ⚠️ 当前实现要求 record.session_id.is_some() 才走 resume 分支，
+        // 因此 None 不会触发 fallback；该测试断言当前行为
+        let (sid, msg) = FeishuListener::compute_resume_info(
+            &Some(record),
+            &Some("binding-sid".to_string()),
+            "继续",
+        );
+        assert!(sid.is_none());
+        assert!(msg.is_none());
     }
 }

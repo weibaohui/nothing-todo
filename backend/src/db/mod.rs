@@ -596,6 +596,7 @@ pub use feishu_message::{NewFeishuHistoryMessage, NewFeishuMessage};
 mod feishu_group_whitelist;
 mod feishu_history_chat;
 mod feishu_project_binding;
+pub use feishu_project_binding::FeishuProjectBinding;
 mod feishu_push_target;
 mod feishu_response_config;
 pub mod project_directory;
