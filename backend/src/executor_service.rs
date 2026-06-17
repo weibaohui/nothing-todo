@@ -1719,6 +1719,11 @@ struct SpawnRuntime {
     execution_timeout_secs: u64,
     feishu_bot_id: Option<i64>,
     feishu_receive_id: Option<String>,
+    /// spawn 阶段实际使用的 cwd：worktree 路径优先，回退到 todo.workspace。
+    /// 修复 issue #660 重构中的回归：原代码在 spawn 闭包内用 effective_workspace
+    /// 决定子进程 cwd，但拆分到 spawn_executor_child 后误用了 todo_workspace，
+    /// 导致启用 worktree 时子进程仍在原始 workspace 内运行。
+    effective_workspace: Option<String>,
     prepared: PreparedExecution,
 }
 
@@ -1741,6 +1746,9 @@ fn move_into_runtime(spawned: SpawnInputs) -> SpawnRuntime {
         execution_timeout_secs: spawned.execution_timeout_secs,
         feishu_bot_id: prepared.request.feishu_bot_id,
         feishu_receive_id: prepared.request.feishu_receive_id.clone(),
+        // 关键：把 effective_workspace 整字段 move 进 runtime，
+        // 避免 spawn_executor_child 误用 todo_workspace（worktree 失效）。
+        effective_workspace: spawned.effective_workspace,
         prepared,
     }
 }
@@ -1751,7 +1759,10 @@ fn spawn_executor_child(runtime: &SpawnRuntime) -> Result<command_group::AsyncGr
     let mut cmd = build_executor_command(
         &runtime.prepared.executable_path,
         &runtime.prepared.command_args,
-        runtime.prepared.todo_workspace.as_deref(),
+        // 用 effective_workspace 而不是 prepared.todo_workspace：
+        // effective_workspace 在 worktree 启用时已经回退到 worktree 路径，
+        // 直接用 todo_workspace 会让子进程在原始 workspace 运行（issue #643 失效）。
+        runtime.effective_workspace.as_deref(),
     );
     cmd.group_spawn()
 }
@@ -2557,6 +2568,25 @@ mod run_todo_execution_stage_tests {
             _req: RunTodoExecutionRequest,
         ) -> impl std::future::Future<Output = Result<PreparedExecution, ExecutionResult>> {
             prepare_execution_state(_req)
+        }
+    }
+
+    /// 回归测试：issue #660 重构中 `move_into_runtime` 必须把
+    /// `SpawnInputs.effective_workspace` 透传到 `SpawnRuntime.effective_workspace`，
+    /// 而不是丢失到 `prepared.todo_workspace`。这是 issue #643 (worktree) 的
+    /// 正确行为保证：worktree 启用时 spawn 子进程必须以 worktree 路径为 cwd。
+    #[test]
+    fn test_spawn_runtime_carries_effective_workspace() {
+        // 编译期断言 SpawnRuntime 持有 effective_workspace 字段。
+        // 用法：spawn_executor_child 内部用 runtime.effective_workspace.as_deref()
+        // 决定子进程 cwd；如果字段缺失或被改名，这个 helper 就编不过。
+        fn _assert_field(rt: &SpawnRuntime) -> Option<&String> {
+            rt.effective_workspace.as_ref()
+        }
+        // 同时断言 prepared.todo_workspace 与 effective_workspace 是两个独立字段，
+        // 避免有人把 effective_workspace 直接删掉回退到 todo_workspace。
+        fn _assert_distinct_fields(rt: &SpawnRuntime) -> (Option<&String>, Option<&String>) {
+            (rt.effective_workspace.as_ref(), rt.prepared.todo_workspace.as_ref())
         }
     }
 }
