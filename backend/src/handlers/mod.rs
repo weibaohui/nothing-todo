@@ -1999,7 +1999,8 @@ mod create_app_refactor_tests {
             drop(tmp_home);
         };
 
-        // dev 分支：默认未设 NTD_MODE，`is_dev_mode()` 返回 false → 走 if 分支
+        // 默认未设 NTD_MODE，`is_dev_mode()` 返回 false → 实际走 prod 分支；
+        // 这里第一次 `cors_layer()` 调用测的就是 prod 路径。
         let _dev_layer = cors_layer();
 
         // 切到 prod：保存原值避免污染其它测试，结束还原
@@ -2048,35 +2049,129 @@ mod create_app_refactor_tests {
     }
 
     /// 重构后 `create_app` 函数体大小合规：去除签名/空行/注释后应在 30 行以内
-    /// （CLAUDE.md 要求）。直接读源码并按行计非空非注释行。
+    /// （CLAUDE.md 要求）。动态从源码定位 `pub fn create_app` 的 body 范围：
+    /// regex 锚定签名起点，再做花括号平衡扫描（跳过字符串/char 字面量与行注释），
+    /// 最后只数 body 内非空非注释行。无需手维护行号常量，重构不再误伤。
     #[test]
     fn create_app_function_body_is_under_30_lines() {
-        // 静态断言：以源码行号 [start, end) 作为契约，半开区间 [927, 951) 对应：
-        //   - CREATE_APP_START=927：`pub fn create_app` 所在行
-        //   - CREATE_APP_END=951：闭合大括号 `}` 所在行（不含），便于用 `..` 切片
-        // ⚠ 重新修改 `create_app` 函数体时，必须同步更新这两个常量。
-        // 这条契约存在的目的是：阻止 `create_app` 重新长成 312 行巨型函数（issue #661）。
-        const CREATE_APP_START: usize = 927; // pub fn create_app
-        const CREATE_APP_END: usize = 951;   // 闭括号 `}` 之后一行（半开区间）
         const BODY_LINES_BUDGET: usize = 30;
-
         let src = include_str!("mod.rs");
-        let lines: Vec<&str> = src.lines().collect();
-        let body_lines: usize = (CREATE_APP_START..CREATE_APP_END)
-            .map(|i| lines.get(i - 1).copied().unwrap_or(""))
+
+        // 1) regex 锚定 `pub fn create_app\s*(` 签名起点
+        let sig_re = regex::Regex::new(r"pub fn create_app\s*\(")
+            .expect("compile create_app signature regex");
+        let sig_match = sig_re
+            .find(src)
+            .expect("create_app signature not found in mod.rs");
+        let after_sig = &src[sig_match.end()..];
+        // 签名所在行号（1-based），用于报错信息定位
+        let sig_line = src[..sig_match.start()].matches('\n').count() + 1;
+
+        // 2) 从签名后的第一个 `{` 开始做花括号平衡扫描；跳过字符串/char/行注释
+        let open_idx = after_sig
+            .find('{')
+            .expect("create_app body opening brace not found");
+        let body_start = sig_match.end() + open_idx;
+        let body_bytes = src[body_start..].as_bytes();
+
+        let mut depth: i32 = 0;
+        let mut i = 0;
+        let mut body_end = body_start; // exclusive: 指向匹配 `}` 之后一字节
+        let mut in_line_comment = false;
+        let mut in_block_comment = false;
+        let mut in_string = false;
+        let mut in_char = false;
+        let mut prev_was_escape = false;
+        while i < body_bytes.len() {
+            let c = body_bytes[i] as char;
+            // 行注释优先级最高；遇到换行就退出
+            if in_line_comment {
+                if c == '\n' {
+                    in_line_comment = false;
+                }
+                i += 1;
+                continue;
+            }
+            if in_block_comment {
+                if c == '*' && i + 1 < body_bytes.len() && body_bytes[i + 1] == b'/' {
+                    in_block_comment = false;
+                    i += 2;
+                    continue;
+                }
+                i += 1;
+                continue;
+            }
+            if in_string {
+                if prev_was_escape {
+                    prev_was_escape = false;
+                } else if c == '\\' {
+                    prev_was_escape = true;
+                } else if c == '"' {
+                    in_string = false;
+                }
+                i += 1;
+                continue;
+            }
+            if in_char {
+                if prev_was_escape {
+                    prev_was_escape = false;
+                } else if c == '\\' {
+                    prev_was_escape = true;
+                } else if c == '\'' {
+                    in_char = false;
+                }
+                i += 1;
+                continue;
+            }
+            // 不在任何字面量 / 注释中：识别字面量起点与花括号
+            if c == '/' && i + 1 < body_bytes.len() {
+                if body_bytes[i + 1] == b'/' {
+                    in_line_comment = true;
+                    i += 2;
+                    continue;
+                } else if body_bytes[i + 1] == b'*' {
+                    in_block_comment = true;
+                    i += 2;
+                    continue;
+                }
+            }
+            match c {
+                '"' => in_string = true,
+                '\'' => in_char = true,
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        body_end = body_start + i + 1; // exclusive
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        assert!(
+            depth == 0 && body_end > body_start,
+            "create_app body 未匹配到闭合大括号（depth={}）",
+            depth
+        );
+
+        // 3) body 范围按行展开，统计非空非注释行
+        let body_src = &src[body_start..body_end];
+        let body_lines = body_src
+            .lines()
             .filter(|line| {
                 let trimmed = line.trim();
-                // 排除纯空行、纯注释行
+                // 排除纯空行与纯行注释
                 !trimmed.is_empty() && !trimmed.starts_with("//")
             })
             .count();
         assert!(
             body_lines <= BODY_LINES_BUDGET,
-            "create_app 函数有效行数 {} 超过 CLAUDE.md 限制 {}（行 {}-{}）",
+            "create_app 函数有效行数 {} 超过 CLAUDE.md 限制 {}（签名在第 {} 行）",
             body_lines,
             BODY_LINES_BUDGET,
-            CREATE_APP_START,
-            CREATE_APP_END,
+            sig_line,
         );
     }
 }
