@@ -38,9 +38,6 @@ export interface CommandEntry {
   timestamp: string;
 }
 
-/** issue #648: 执行历史记录页内的视图模式（Segmented 选项） */
-export type LogViewMode = 'log' | 'chat' | 'command';
-
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'tool' | 'thinking' | 'result';
   content: string;

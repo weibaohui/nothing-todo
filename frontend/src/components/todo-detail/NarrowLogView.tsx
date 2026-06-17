@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChatView } from '@/components/ChatView';
 import { LogViewHeader } from './LogViewHeader';
 import { formatLogTime } from './helpers';
@@ -28,10 +28,17 @@ export function NarrowLogView({ record, isRunning, displayLogs, liveLogs, viewMo
   // 用户主动切到「对话/命令」时直接展开，否则只对运行中的记录展开（更符合直觉）。
   const defaultOpen = isRunning || viewMode === 'chat' || viewMode === 'command';
   const [isExpanded, setIsExpanded] = useState(defaultOpen);
-  // PR #657 复查 C1 修复：useState 初始值只读一次，viewMode 后续变化不会触发展开。
-  // 显式同步「切到 chat/command 必展开」这条约束；用户后续手动 collapse 仍可生效。
+  // 修复 PR #658 复查 HIGH#2：用户主动折叠后，viewMode 切换不应再强制展开；
+  // 用 ref 记录用户手动折叠行为，让 useEffect 仅在 ref=false 时才 setIsExpanded(true)
+  const userCollapsedRef = useRef(false);
   useEffect(() => {
-    if (viewMode === 'chat' || viewMode === 'command') {
+    // 切回 log 视图时清零，让后续切换能继续自动展开
+    if (viewMode === 'log') {
+      userCollapsedRef.current = false;
+      return;
+    }
+    // 用户没手动折叠过 + 切到 chat/command → 自动展开
+    if ((viewMode === 'chat' || viewMode === 'command') && !userCollapsedRef.current) {
       setIsExpanded(true);
     }
   }, [viewMode]);
@@ -44,7 +51,16 @@ export function NarrowLogView({ record, isRunning, displayLogs, liveLogs, viewMo
   } as const;
   const title = `${titleMap[viewMode]}${liveTag}`;
   return (
-    <details style={{ marginTop: 8 }} open={isExpanded} onToggle={(e) => setIsExpanded((e.target as HTMLDetailsElement).open)}>
+    <details
+      style={{ marginTop: 8 }}
+      open={isExpanded}
+      onToggle={(e) => {
+        // 捕获用户主动折叠：之后切 viewMode 不会强制展开
+        const open = (e.target as HTMLDetailsElement).open;
+        if (!open) userCollapsedRef.current = true;
+        setIsExpanded(open);
+      }}
+    >
       <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
         <span>{title}</span>
         <LogViewHeader
