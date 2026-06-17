@@ -401,7 +401,9 @@ impl FeishuListener {
 
     /// 阶段 5：项目绑定执行路径
     /// - 无绑定 / 绑定 todo 不存在 → 返回 false，让控制流落到斜杠命令/默认回复
-    /// - 有绑定且 todo 在 → 决定 resume 还是新 session，push 到 debounce 后返回 true
+    /// - 绑定 enabled=false → 清理 reaction 后返回 false，让控制流落到斜杠命令/默认回复
+    ///   （保留原始行为：disabled 绑定不再触发项目执行，与 enabled 路径完全分离）
+    /// - 绑定 enabled 且 todo 在 → 决定 resume 还是新 session，push 到 debounce 后返回 true
     async fn try_route_project_binding(
         context: &ListenerMessageContext<'_>,
         msg: &ChannelMessage,
@@ -423,11 +425,27 @@ impl FeishuListener {
         let latest_record = Self::fetch_latest_record(context.db, binding.latest_record_id).await;
         let (resume_session_id, resume_message) =
             Self::decide_resume_session(&binding, latest_record.as_ref(), prep.content);
+        // 日志保留 binding.session_id 与 latest_record.status：排查「为什么 session 没 resume /
+        // 串了」的关键线索（详见 PR #665 review #3 CANDIDATE #3）。
         tracing::info!(
-            "[feishu:{}] binding check: todo_id={}, latest_record_id={:?}, should_resume={}",
-            context.bot_id, binding.todo_id, binding.latest_record_id, resume_session_id.is_some()
+            "[feishu:{}] binding check: todo_id={}, latest_record_id={:?}, should_resume={}, binding.session_id={:?}, latest_record_status={:?}",
+            context.bot_id,
+            binding.todo_id,
+            binding.latest_record_id,
+            resume_session_id.is_some(),
+            binding.session_id,
+            latest_record.as_ref().map(|r| r.status.clone()),
         );
-        Self::push_binding_execution(context.debounce, msg, prep.chat_type, &binding, &todo, resume_session_id, resume_message);
+        Self::push_binding_execution(
+            context.debounce,
+            msg,
+            prep.chat_type,
+            prep.content,
+            &binding,
+            &todo,
+            resume_session_id,
+            resume_message,
+        );
         Self::cleanup_reaction(context, msg, prep.reaction_id.as_deref()).await;
         true
     }
@@ -493,18 +511,44 @@ impl FeishuListener {
         debounce: &Arc<MessageDebounce>,
         msg: &ChannelMessage,
         chat_type: &str,
+        content: &str,
         binding: &crate::db::feishu_project_binding::FeishuProjectBinding,
         todo: &crate::models::Todo,
         resume_session_id: Option<String>,
         resume_message: Option<String>,
     ) {
+        let pending = Self::build_binding_execution_message(
+            msg,
+            chat_type,
+            content,
+            binding,
+            todo,
+            resume_session_id,
+            resume_message,
+        );
+        debounce.push(pending);
+    }
+
+    /// 阶段 5c 纯函数：从上下文构造 PendingMessage，与 debounce 副作用解耦以便单测。
+    /// `content` 必须是 trimmed 后的原始消息（区别于 resume 上下文的 `resume_message`），
+    /// 避免 `should_resume=false` 时 executor 收到空 content（PR #665 review #3 #2 修复）。
+    #[allow(clippy::too_many_arguments)]
+    fn build_binding_execution_message(
+        msg: &ChannelMessage,
+        chat_type: &str,
+        content: &str,
+        binding: &crate::db::feishu_project_binding::FeishuProjectBinding,
+        todo: &crate::models::Todo,
+        resume_session_id: Option<String>,
+        resume_message: Option<String>,
+    ) -> PendingMessage {
         let executor = todo.executor.as_deref().unwrap_or("claudecode");
-        debounce.push(PendingMessage {
+        PendingMessage {
             bot_id: binding.bot_id,
             chat_id: msg.channel.clone(),
             chat_type: chat_type.to_string(),
             sender: msg.sender.clone(),
-            content: resume_message.clone().unwrap_or_default(),
+            content: content.to_string(),
             todo_id: binding.todo_id,
             todo_prompt: todo.prompt.clone(),
             executor: Some(executor.to_string()),
@@ -514,7 +558,7 @@ impl FeishuListener {
             resume_session_id,
             resume_message,
             binding_id: Some(binding.id),
-        });
+        }
     }
 
     /// 阶段 6：兜底路由（自定义斜杠命令规则 或 默认回复 todo）
@@ -1805,6 +1849,86 @@ mod tests {
         assert!(rule.is_none(), "disabled rules must be filtered out");
         let rule = FeishuListener::find_slash_rule(&cfg, "/unknown");
         assert!(rule.is_none());
+    }
+
+    #[test]
+    fn test_build_binding_execution_message_preserves_content_on_no_resume() {
+        // PR #665 review #3 CANDIDATE #2 回归测试：resume_message=None 时 content
+        // 仍必须是原始 trimmed 消息，绝不能吞成空串。
+        let msg = dummy_msg("请帮我修复登录 bug");
+        let binding = dummy_binding();
+        let todo = dummy_todo();
+        let pending = FeishuListener::build_binding_execution_message(
+            &msg,
+            "p2p",
+            "请帮我修复登录 bug",
+            &binding,
+            &todo,
+            None,
+            None,
+        );
+        assert_eq!(pending.content, "请帮我修复登录 bug");
+        assert!(pending.resume_message.is_none());
+        assert!(pending.resume_session_id.is_none());
+    }
+
+    #[test]
+    fn test_build_binding_execution_message_content_independent_of_resume_message() {
+        // resume 场景下，content 仍是当前用户消息，resume_message 单独保留。
+        // 防止以后误把 resume_message 当成 content 写。
+        let msg = dummy_msg("继续");
+        let binding = dummy_binding();
+        let todo = dummy_todo();
+        let pending = FeishuListener::build_binding_execution_message(
+            &msg,
+            "p2p",
+            "继续",
+            &binding,
+            &todo,
+            Some("real_sid".into()),
+            Some("继续".into()),
+        );
+        assert_eq!(pending.content, "继续");
+        assert_eq!(pending.resume_message.as_deref(), Some("继续"));
+        assert_eq!(pending.resume_session_id.as_deref(), Some("real_sid"));
+    }
+
+    fn dummy_msg(content: &str) -> crate::feishu::message::ChannelMessage {
+        crate::feishu::message::ChannelMessage {
+            id: "m1".into(),
+            sender: "user1".into(),
+            sender_type: Some("user".into()),
+            content: content.into(),
+            channel: "c1".into(),
+            timestamp: 0,
+            chat_type: Some("p2p".into()),
+            mentioned_open_ids: vec![],
+        }
+    }
+
+    fn dummy_todo() -> crate::models::Todo {
+        crate::models::Todo {
+            id: 7,
+            title: "飞书-bot".into(),
+            prompt: "system prompt".into(),
+            status: crate::models::TodoStatus::Pending,
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+            tag_ids: vec![],
+            executor: Some("claudecode".into()),
+            scheduler_enabled: false,
+            scheduler_config: None,
+            scheduler_timezone: None,
+            scheduler_next_run_at: None,
+            task_id: None,
+            workspace: None,
+            worktree_enabled: false,
+            hooks: vec![],
+            acceptance_criteria: None,
+            todo_type: 0,
+            parent_todo_id: None,
+            auto_review_enabled: true,
+        }
     }
 
     fn dummy_binding() -> FeishuProjectBinding {
