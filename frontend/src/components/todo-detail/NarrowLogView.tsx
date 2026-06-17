@@ -4,6 +4,7 @@ import { LogViewHeader } from './LogViewHeader';
 import { formatLogTime } from './helpers';
 import { LOG_TYPE_COLORS, LOG_TYPE_LABELS } from '@/constants';
 import type { LogEntry, ExecutionRecord } from '@/types';
+import { CommandPanel } from '@/components/CommandPanel';
 
 /** Shared log rendering for narrow mode cards - as a proper component */
 export function NarrowLogView({ record, isRunning, displayLogs, liveLogs, viewMode, onRefresh, onViewModeChange }: {
@@ -17,10 +18,11 @@ export function NarrowLogView({ record, isRunning, displayLogs, liveLogs, viewMo
 }) {
   const defaultOpen = isRunning || viewMode === 'chat';
   const [isExpanded, setIsExpanded] = useState(defaultOpen);
-  if (!isRunning && displayLogs.length === 0) return null;
-  const title = viewMode === 'chat'
-    ? `对话视图 (${displayLogs.length} 条)${isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}`
-    : `查看日志 (${displayLogs.length} 条)${isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}`;
+  const title = viewMode === 'command'
+    ? `命令视图 (${displayLogs.length} 条)${isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}`
+    : viewMode === 'chat'
+      ? `对话视图 (${displayLogs.length} 条)${isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}`
+      : `查看日志 (${displayLogs.length} 条)${isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}`;
   return (
     <details style={{ marginTop: 8 }} open={isExpanded} onToggle={(e) => setIsExpanded((e.target as HTMLDetailsElement).open)}>
       <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -35,6 +37,10 @@ export function NarrowLogView({ record, isRunning, displayLogs, liveLogs, viewMo
       {viewMode === 'chat' ? (
         <div style={{ maxHeight: 400, overflow: 'auto' }}>
           <ChatView logs={displayLogs as LogEntry[]} isRunning={isRunning} />
+        </div>
+      ) : viewMode === 'command' ? (
+        <div style={{ maxHeight: 400, overflow: 'auto' }}>
+          <CommandPanel logs={displayLogs} executor={record.executor} />
         </div>
       ) : (
         <div style={{
