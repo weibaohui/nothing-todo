@@ -6,7 +6,16 @@ import { LOG_TYPE_COLORS, LOG_TYPE_LABELS } from '@/constants';
 import type { LogEntry, ExecutionRecord } from '@/types';
 import { CommandPanel } from '@/components/CommandPanel';
 
-/** Shared log rendering for narrow mode cards - as a proper component */
+/**
+ * 窄屏模式卡片内的日志渲染组件。
+ *
+ * 三种 viewMode：
+ * - 'log'：原始日志列表
+ * - 'chat'：对话视图（ChatView）
+ * - 'command'：命令视图（CommandPanel，从 logs 提取命令并按执行器协议展示）
+ *
+ * 视图模式与桌面端 RecordDetailView、续轮组件 ContinuationLogView/ContinuationLogsLoader 保持一致。
+ */
 export function NarrowLogView({ record, isRunning, displayLogs, liveLogs, viewMode, onRefresh, onViewModeChange }: {
   record: ExecutionRecord;
   isRunning: boolean;
@@ -16,13 +25,17 @@ export function NarrowLogView({ record, isRunning, displayLogs, liveLogs, viewMo
   onRefresh: (id: number) => Promise<void>;
   onViewModeChange: (mode: 'log' | 'chat' | 'command') => void;
 }) {
-  const defaultOpen = isRunning || viewMode === 'chat';
+  // 用户主动切到「对话/命令」时直接展开，否则只对运行中的记录展开（更符合直觉）。
+  const defaultOpen = isRunning || viewMode === 'chat' || viewMode === 'command';
   const [isExpanded, setIsExpanded] = useState(defaultOpen);
-  const title = viewMode === 'command'
-    ? `命令视图 (${displayLogs.length} 条)${isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}`
-    : viewMode === 'chat'
-      ? `对话视图 (${displayLogs.length} 条)${isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}`
-      : `查看日志 (${displayLogs.length} 条)${isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : ''}`;
+  // 抽 liveTag：避免在三个分支里复制同一表达式；新增视图模式只需扩 titleMap。
+  const liveTag = isRunning && liveLogs && liveLogs.length > 0 ? ' · 实时' : '';
+  const titleMap = {
+    log: `查看日志 (${displayLogs.length} 条)`,
+    chat: `对话视图 (${displayLogs.length} 条)`,
+    command: `命令视图 (${displayLogs.length} 条)`,
+  } as const;
+  const title = `${titleMap[viewMode]}${liveTag}`;
   return (
     <details style={{ marginTop: 8 }} open={isExpanded} onToggle={(e) => setIsExpanded((e.target as HTMLDetailsElement).open)}>
       <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>

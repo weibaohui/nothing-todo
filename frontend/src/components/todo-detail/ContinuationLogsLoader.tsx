@@ -1,11 +1,20 @@
 import { useState, useEffect } from 'react';
 import { ChatView } from '@/components/ChatView';
+import { CommandPanel } from '@/components/CommandPanel';
 import { LogViewHeader } from './LogViewHeader';
 import { formatLogTime } from './helpers';
 import * as db from '@/utils/database';
 import type { LogEntry, ExecutionRecord } from '@/types';
 
-/** Lazy-load logs for a continuation record in ChainGroupCard */
+/**
+ * 续轮记录懒加载日志视图。
+ *
+ * 与 ContinuationLogView 互斥使用：当前 chain group 内若已有 logs 用前者，
+ * 否则用本组件按需拉取一次。三种 viewMode 与 NarrowLogView 对齐：
+ * - 'log'：原始日志列表
+ * - 'chat'：对话视图
+ * - 'command'：命令视图（CommandPanel）
+ */
 export function ContinuationLogsLoader({ record, viewMode, onRefresh, onViewModeChange }: {
   record: ExecutionRecord;
   viewMode: 'log' | 'chat' | 'command';
@@ -13,7 +22,8 @@ export function ContinuationLogsLoader({ record, viewMode, onRefresh, onViewMode
   onViewModeChange: (mode: 'log' | 'chat' | 'command') => void;
 }) {
   const [logs, setLogs] = useState<LogEntry[] | null>(null);
-  const [isExpanded, setIsExpanded] = useState(viewMode === 'chat');
+  // 切到「对话/命令」视图时直接展开，避免用户多次点击。
+  const [isExpanded, setIsExpanded] = useState(viewMode === 'chat' || viewMode === 'command');
   useEffect(() => {
     db.getExecutionLogs(record.id, 1, 200)
       .then(r => setLogs(r.logs))
@@ -21,7 +31,9 @@ export function ContinuationLogsLoader({ record, viewMode, onRefresh, onViewMode
   }, [record.id]);
   if (logs === null) return null;
   if (logs.length === 0) return null;
-  const title = viewMode === 'chat' ? `对话 (${logs.length})` : `日志 (${logs.length})`;
+  // 抽 titleMap 替代三元嵌套：新增视图模式只需改这张表。
+  const titleMap = { log: `日志 (${logs.length})`, chat: `对话 (${logs.length})`, command: `命令 (${logs.length})` } as const;
+  const title = titleMap[viewMode];
   return (
     <details style={{ marginTop: 6 }} open={isExpanded} onToggle={(e) => setIsExpanded((e.target as HTMLDetailsElement).open)}>
       <summary style={{ cursor: 'pointer', color: 'var(--color-primary)', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -37,6 +49,10 @@ export function ContinuationLogsLoader({ record, viewMode, onRefresh, onViewMode
       {viewMode === 'chat' ? (
         <div style={{ maxHeight: 300, overflow: 'auto' }}>
           <ChatView logs={logs as LogEntry[]} isRunning={false} />
+        </div>
+      ) : viewMode === 'command' ? (
+        <div style={{ maxHeight: 300, overflow: 'auto' }}>
+          <CommandPanel logs={logs} executor={record.executor} />
         </div>
       ) : (
         <div style={{
