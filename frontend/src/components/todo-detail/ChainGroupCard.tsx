@@ -254,6 +254,7 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
                   <ContinuationLogsLoader record={record} viewMode={viewMode} onRefresh={onRefresh} onViewModeChange={onViewModeChange} />
                 ) : (
                   <ContinuationLogView
+                    record={record}
                     logs={logs}
                     isRunning={isRunning}
                     viewMode={viewMode}

@@ -1,5 +1,5 @@
 import { Button, Segmented } from 'antd';
-import { ReloadOutlined, UnorderedListOutlined, MessageOutlined } from '@ant-design/icons';
+import { ReloadOutlined, UnorderedListOutlined, MessageOutlined, CodeOutlined } from '@ant-design/icons';
 
 /** 统一刷新按钮组件 */
 export const RefreshBtn = ({ onClick, size = 'small' }: { onClick: () => void; size?: 'small' | 'middle' }) => (
@@ -24,10 +24,11 @@ export function LogViewHeader({ title, viewMode, onViewModeChange, onRefresh, fo
       <Segmented
         size="small"
         value={viewMode}
-        onChange={(value) => onViewModeChange(value as 'log' | 'chat')}
+        onChange={(value) => onViewModeChange(value as 'log' | 'chat' | 'command')}
         options={[
           { value: 'log', icon: <UnorderedListOutlined />, label: '日志' },
           { value: 'chat', icon: <MessageOutlined />, label: '对话' },
+          { value: 'command', icon: <CodeOutlined />, label: '命令' },
         ]}
       />
     </div>
