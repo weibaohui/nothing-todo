@@ -154,11 +154,9 @@ function extractKimiCommands(logs: LogEntry[]): CommandEntry[] {
   const commands: CommandEntry[] = [];
   for (const log of logs) {
     if (log.type === 'tool_call' && isBashTool(log.toolName)) {
-      // kimi 二次解析：toolInputJson 是字符串化的对象
-      const outer = parseJsonSafe(log.toolInputJson);
-      const inner = (outer && typeof outer.command === 'string')
-        ? outer
-        : parseJsonSafe(typeof log.toolInputJson === 'string' ? log.toolInputJson : null);
+      // kimi 二次解析：toolInputJson 是字符串化的 JSON 对象，
+      // 直接 parse 一次就能拿到 command 字段；二次回退分支永远不可达（同一字符串）
+      const inner = parseJsonSafe(log.toolInputJson);
       commands.push({
         id: log.toolCallId || `cmd-kimi-${commands.length}-${log.timestamp}`,
         toolName: log.toolName || 'Shell',
@@ -196,35 +194,48 @@ function extractCodeWhaleCommands(logs: LogEntry[]): CommandEntry[] {
   const commands: CommandEntry[] = [];
   for (const log of logs) {
     if (log.type === 'tool_call' && isBashTool(log.toolName)) {
-      const input = parseJsonSafe(log.toolInputJson) || parseJsonSafe(log.content);
-      commands.push({
-        id: log.toolCallId || `cmd-cw-${commands.length}-${log.timestamp}`,
-        toolName: log.toolName || 'exec_shell',
-        command: (input?.command as string) || '',
-        args: input ? JSON.stringify(input, null, 2) : log.content,
-        success: false,
-        timestamp: log.timestamp,
-      });
+      pushCodeWhaleCall(log, commands);
     } else if (log.type === 'tool_result') {
-      let matched = false;
-      if (log.toolCallId) {
-        const cmd = commands.find(c => c.id === log.toolCallId);
-        if (cmd) {
-          cmd.output = log.toolResult ?? log.content;
-          const resultInput = parseJsonSafe(log.toolInputJson);
-          cmd.success = (resultInput?.status as string) === 'success';
-          matched = true;
-        }
-      }
-      if (!matched) {
-        const out = log.toolResult ?? log.content;
-        const resultInput = parseJsonSafe(log.toolInputJson);
-        const success = (resultInput?.status as string) === 'success';
-        pairByOrder(commands, out, !success, log);
-      }
+      applyCodeWhaleResult(log, commands);
     }
   }
   return commands;
+}
+
+/** codewhale 单条 tool_call → 推入新命令；input.command 提取命令 */
+function pushCodeWhaleCall(log: LogEntry, commands: CommandEntry[]): void {
+  const input = parseJsonSafe(log.toolInputJson) || parseJsonSafe(log.content);
+  commands.push({
+    id: log.toolCallId || `cmd-cw-${commands.length}-${log.timestamp}`,
+    toolName: log.toolName || 'exec_shell',
+    command: (input?.command as string) || '',
+    args: input ? JSON.stringify(input, null, 2) : log.content,
+    success: false,
+    timestamp: log.timestamp,
+  });
+}
+
+/** codewhale 成功判定在 tool_result.input.status === 'success' */
+function applyCodeWhaleResult(log: LogEntry, commands: CommandEntry[]): void {
+  const resultInput = parseJsonSafe(log.toolInputJson);
+  const success = (resultInput?.status as string) === 'success';
+  if (fillCodeWhaleByToolCallId(log, commands, success)) return;
+  // FIFO 兜底：没 toolCallId 时按顺序配对
+  const out = log.toolResult ?? log.content;
+  pairByOrder(commands, out, !success, log);
+}
+
+function fillCodeWhaleByToolCallId(
+  log: LogEntry,
+  commands: CommandEntry[],
+  success: boolean,
+): boolean {
+  if (!log.toolCallId) return false;
+  const cmd = commands.find(c => c.id === log.toolCallId);
+  if (!cmd) return false;
+  cmd.output = log.toolResult ?? log.content;
+  cmd.success = success;
+  return true;
 }
 
 /**
@@ -238,51 +249,76 @@ function extractCodexCommands(logs: LogEntry[]): CommandEntry[] {
   const commands: CommandEntry[] = [];
   for (const log of logs) {
     if (log.type === 'tool_call' && log.toolName === 'command_execution') {
-      const input = parseJsonSafe(log.toolInputJson) || parseJsonSafe(log.content);
-      const rawCmd = input?.command;
-      const command = Array.isArray(rawCmd) ? rawCmd.join(' && ') : (rawCmd as string) || '';
-      commands.push({
-        id: log.toolCallId || `cmd-codex-${commands.length}-${log.timestamp}`,
-        toolName: 'command_execution',
-        command,
-        args: input ? JSON.stringify(input, null, 2) : log.content,
-        success: false,
-        timestamp: log.timestamp,
-      });
+      pushCodexCall(log, commands);
     } else if (log.type === 'tool_result') {
-      let matched = false;
-      if (log.toolCallId) {
-        const cmd = commands.find(c => c.id === log.toolCallId);
-        if (cmd) {
-          cmd.output = log.toolResult ?? log.content;
-          const resultInput = parseJsonSafe(log.toolInputJson);
-          cmd.exitCode = typeof resultInput?.exit_code === 'number' ? (resultInput.exit_code as number) : undefined;
-          cmd.success = (resultInput?.status as string) === 'completed';
-          if (typeof resultInput?.duration_ms === 'number') {
-            cmd.durationMs = resultInput.duration_ms as number;
-          }
-          matched = true;
-        }
-      }
-      if (!matched) {
-        const out = log.toolResult ?? log.content;
-        const resultInput = parseJsonSafe(log.toolInputJson);
-        const paired = pairByOrder(commands, out, !resultInput || (resultInput.status as string) !== 'completed', log);
-        // FIFO 兜底：codex 把 exit_code / duration_ms 放在 tool_result 的 input 里，
-        // 这里补到刚配对的命令上，避免信息丢失。
-        if (paired) {
-          const last = commands[commands.length - 1];
-          if (typeof resultInput?.exit_code === 'number') {
-            last.exitCode = resultInput.exit_code as number;
-          }
-          if (typeof resultInput?.duration_ms === 'number') {
-            last.durationMs = resultInput.duration_ms as number;
-          }
-        }
-      }
+      applyCodexResult(log, commands);
     }
   }
   return commands;
+}
+
+/** codex 单条 tool_call → 推入新命令；command 可能是字符串数组，join 成 shell 复合语句 */
+function pushCodexCall(log: LogEntry, commands: CommandEntry[]): void {
+  const input = parseJsonSafe(log.toolInputJson) || parseJsonSafe(log.content);
+  const rawCmd = input?.command;
+  const command = Array.isArray(rawCmd) ? rawCmd.join(' && ') : (rawCmd as string) || '';
+  commands.push({
+    id: log.toolCallId || `cmd-codex-${commands.length}-${log.timestamp}`,
+    toolName: 'command_execution',
+    command,
+    args: input ? JSON.stringify(input, null, 2) : log.content,
+    success: false,
+    timestamp: log.timestamp,
+  });
+}
+
+/** 把 codex tool_result 的 exit_code / duration_ms 写回命中的命令 */
+function applyCodexResult(log: LogEntry, commands: CommandEntry[]): void {
+  // result input 里同时携带 exit_code / status / duration_ms，一次解析三处复用
+  const resultInput = parseJsonSafe(log.toolInputJson);
+  if (fillCodexByToolCallId(log, commands, resultInput)) return;
+  // 兜底：没有 toolCallId 时按 FIFO 配对，并把 exit_code / duration_ms 补到最后一条上
+  fillCodexByFifo(log, commands, resultInput);
+}
+
+function fillCodexByToolCallId(
+  log: LogEntry,
+  commands: CommandEntry[],
+  resultInput: Record<string, unknown> | null,
+): boolean {
+  if (!log.toolCallId) return false;
+  const cmd = commands.find(c => c.id === log.toolCallId);
+  if (!cmd) return false;
+  cmd.output = log.toolResult ?? log.content;
+  cmd.exitCode = typeof resultInput?.exit_code === 'number' ? (resultInput.exit_code as number) : undefined;
+  cmd.success = (resultInput?.status as string) === 'completed';
+  if (typeof resultInput?.duration_ms === 'number') {
+    cmd.durationMs = resultInput.duration_ms as number;
+  }
+  return true;
+}
+
+function fillCodexByFifo(
+  log: LogEntry,
+  commands: CommandEntry[],
+  resultInput: Record<string, unknown> | null,
+): void {
+  const out = log.toolResult ?? log.content;
+  const success = resultInput && (resultInput.status as string) === 'completed';
+  // 找第一个 output 未填的命令（与 pairByOrder 一致），FIFO 命中可能是中间任何一条，
+  // 不能用 commands[length-1]（那是按 push 顺序的最后一条，可能早已被填过）。
+  const cmd = commands.find(c => c.output === undefined);
+  if (!cmd) return;
+  cmd.output = out;
+  cmd.success = !!success;
+  if (log.timestamp) cmd.timestamp = log.timestamp;
+  // 把 result input 里的 exit_code / duration_ms 写到真正命中的 cmd 上
+  if (typeof resultInput?.exit_code === 'number') {
+    cmd.exitCode = resultInput.exit_code as number;
+  }
+  if (typeof resultInput?.duration_ms === 'number') {
+    cmd.durationMs = resultInput.duration_ms as number;
+  }
 }
 
 /**
@@ -296,39 +332,59 @@ function extractPiCommands(logs: LogEntry[]): CommandEntry[] {
   const commands: CommandEntry[] = [];
   for (const log of logs) {
     if ((log.type === 'tool_use' || log.type === 'tool_call') && isBashTool(log.toolName)) {
-      const input = parseJsonSafe(log.toolInputJson) || parseJsonSafe(log.content);
-      const args = (input?.args as Record<string, unknown>) || input;
-      commands.push({
-        id: log.toolCallId || `cmd-pi-${commands.length}-${log.timestamp}`,
-        toolName: log.toolName || 'bash',
-        command: (args?.command as string) || (input?.command as string) || '',
-        args: args ? JSON.stringify(args, null, 2) : log.content,
-        success: false,
-        timestamp: log.timestamp,
-      });
+      pushPiCall(log, commands);
     } else if (log.type === 'tool_result') {
-      let matched = false;
-      if (log.toolCallId) {
-        const cmd = commands.find(c => c.id === log.toolCallId);
-        if (cmd) {
-          const resultInput = parseJsonSafe(log.toolInputJson);
-          cmd.output = (resultInput?.output as string) || log.toolResult || log.content;
-          cmd.success = (resultInput?.status as string) === 'success';
-          if (typeof resultInput?.duration_ms === 'number') {
-            cmd.durationMs = resultInput.duration_ms as number;
-          }
-          matched = true;
-        }
-      }
-      if (!matched) {
-        const resultInput = parseJsonSafe(log.toolInputJson);
-        const out = (resultInput?.output as string) || log.toolResult || log.content;
-        const success = (resultInput?.status as string) === 'success';
-        pairByOrder(commands, out, !success, log);
-      }
+      applyPiResult(log, commands);
     }
   }
   return commands;
+}
+
+/** pi 单条 tool_use/tool_call → 推入新命令；command 路径在 toolExecution.args.command */
+function pushPiCall(log: LogEntry, commands: CommandEntry[]): void {
+  const input = parseJsonSafe(log.toolInputJson) || parseJsonSafe(log.content);
+  const args = (input?.args as Record<string, unknown>) || input;
+  commands.push({
+    id: log.toolCallId || `cmd-pi-${commands.length}-${log.timestamp}`,
+    toolName: log.toolName || 'bash',
+    command: (args?.command as string) || (input?.command as string) || '',
+    args: args ? JSON.stringify(args, null, 2) : log.content,
+    success: false,
+    timestamp: log.timestamp,
+  });
+}
+
+/** 把 pi tool_result 的 output / status / duration_ms 写回命中的命令 */
+function applyPiResult(log: LogEntry, commands: CommandEntry[]): void {
+  const resultInput = parseJsonSafe(log.toolInputJson);
+  if (fillPiByToolCallId(log, commands, resultInput)) return;
+  fillPiByFifo(log, commands, resultInput);
+}
+
+function fillPiByToolCallId(
+  log: LogEntry,
+  commands: CommandEntry[],
+  resultInput: Record<string, unknown> | null,
+): boolean {
+  if (!log.toolCallId) return false;
+  const cmd = commands.find(c => c.id === log.toolCallId);
+  if (!cmd) return false;
+  cmd.output = (resultInput?.output as string) || log.toolResult || log.content;
+  cmd.success = (resultInput?.status as string) === 'success';
+  if (typeof resultInput?.duration_ms === 'number') {
+    cmd.durationMs = resultInput.duration_ms as number;
+  }
+  return true;
+}
+
+function fillPiByFifo(
+  log: LogEntry,
+  commands: CommandEntry[],
+  resultInput: Record<string, unknown> | null,
+): void {
+  const out = (resultInput?.output as string) || log.toolResult || log.content;
+  const success = (resultInput?.status as string) === 'success';
+  pairByOrder(commands, out, !success, log);
 }
 
 /**
@@ -341,56 +397,81 @@ function extractPiCommands(logs: LogEntry[]): CommandEntry[] {
  */
 function extractAtomcodeCommands(logs: LogEntry[]): CommandEntry[] {
   const commands: CommandEntry[] = [];
+  // atomcode 的两条协议路径各自专用正则，避免在循环里重复创建
   const callRe = /\[tool→\s+(\w+)\s+args=(\{.*?\})\]/;
   const resultRe = /\[tool←\s+(\w+)\s+(OK|ERROR)\s+(\d+ms)?\]/;
 
   for (const log of logs) {
-    // 路径 1：toolName 透出（已升级的后端）
+    // 路径 1：后端已透出 toolName / toolInputJson（升级后的协议）
     if (log.type === 'tool' && isBashTool(log.toolName)) {
-      const input = parseJsonSafe(log.toolInputJson);
-      const cmd = (input?.command as string) || '';
-      commands.push({
-        id: `cmd-atom-${commands.length}-${log.timestamp}`,
-        toolName: log.toolName || 'bash',
-        command: cmd,
-        args: input ? JSON.stringify(input, null, 2) : log.content,
-        success: false,
-        timestamp: log.timestamp,
-      });
+      pushAtomToolCall(log, commands);
       continue;
     }
-    // 路径 2：content 正则
+    // 路径 2：content 里的 `[tool→ ...]` / `[tool← ...]` stderr 风格
     const callMatch = log.content.match(callRe);
     if (callMatch) {
-      const [, toolName, argsJson] = callMatch;
-      const args = parseJsonSafe(argsJson);
-      commands.push({
-        id: `cmd-atom-${commands.length}-${log.timestamp}`,
-        toolName,
-        command: (args?.command as string) || '',
-        args: argsJson,
-        success: false,
-        timestamp: log.timestamp,
-      });
+      pushAtomStderrCall(callMatch, log, commands);
       continue;
     }
     const resultMatch = log.content.match(resultRe);
     if (resultMatch) {
-      const [, toolName, status, duration] = resultMatch;
-      // 找最近同名的未完成命令
-      for (let i = commands.length - 1; i >= 0; i--) {
-        if (commands[i].toolName === toolName && commands[i].output === undefined) {
-          commands[i].success = status === 'OK';
-          if (duration) {
-            const ms = parseDuration(duration);
-            if (ms != null) commands[i].durationMs = ms;
-          }
-          break;
-        }
-      }
+      applyAtomStderrResult(resultMatch, log.content, commands);
     }
   }
   return commands;
+}
+
+/** atomcode 路径 1：toolName 透出时直接组装 CommandEntry */
+function pushAtomToolCall(log: LogEntry, commands: CommandEntry[]): void {
+  const input = parseJsonSafe(log.toolInputJson);
+  commands.push({
+    id: `cmd-atom-${commands.length}-${log.timestamp}`,
+    toolName: log.toolName || 'bash',
+    command: (input?.command as string) || '',
+    args: input ? JSON.stringify(input, null, 2) : log.content,
+    success: false,
+    timestamp: log.timestamp,
+  });
+}
+
+/** atomcode 路径 2：从 stderr 风格的 `[tool→ ... args={...}]` 行提取命令 */
+function pushAtomStderrCall(callMatch: RegExpMatchArray, log: LogEntry, commands: CommandEntry[]): void {
+  const [, toolName, argsJson] = callMatch;
+  const args = parseJsonSafe(argsJson);
+  commands.push({
+    id: `cmd-atom-${commands.length}-${log.timestamp}`,
+    toolName,
+    command: (args?.command as string) || '',
+    args: argsJson,
+    success: false,
+    timestamp: log.timestamp,
+  });
+}
+
+/** atomcode 路径 2：从 `[tool← ... OK|ERROR Nms]` 行把状态写回最近同名的未完成命令 */
+function applyAtomStderrResult(
+  resultMatch: RegExpMatchArray,
+  fullContent: string,
+  commands: CommandEntry[],
+): void {
+  const [, toolName, status, duration] = resultMatch;
+  // 倒序找最近一个同名且 output 未填的命令，避免误填到早期同名调用
+  for (let i = commands.length - 1; i >= 0; i--) {
+    if (commands[i].toolName === toolName && commands[i].output === undefined) {
+      commands[i].success = status === 'OK';
+      // stderr 行里 `[tool← ...]` 前缀之后剩下的内容就是命令的实际输出，
+      // 切掉前缀与紧随的换行，避免 UI 显示「无返回结果」
+      const prefix = resultMatch[0];
+      const idx = fullContent.indexOf(prefix);
+      const tail = idx >= 0 ? fullContent.slice(idx + prefix.length) : '';
+      commands[i].output = tail.replace(/^\r?\n/, '');
+      if (duration) {
+        const ms = parseDuration(duration);
+        if (ms != null) commands[i].durationMs = ms;
+      }
+      break;
+    }
+  }
 }
 
 /** 解析 "39ms" / "1.2s" 为毫秒数。返回 null 表示解析失败。 */
@@ -463,5 +544,7 @@ export const __test__ = {
   extractCodexCommands,
   extractPiCommands,
   extractAtomcodeCommands,
+  // hermes 走「不支持」分支（返回 []），挂出便于测试兜底契约不被误改
+  extractHermesCommands,
   parseDuration,
 };

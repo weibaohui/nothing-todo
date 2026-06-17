@@ -25,6 +25,7 @@
   --color-bg: #f8fafc;
   --color-bg-layout: #f8fafc;
   --color-bg-elevated: #ffffff;
+  --color-bg-hover: #f1f5f9;
   --color-border: #e2e8f0;
   --color-border-light: #f1f5f9;
 
@@ -74,6 +75,9 @@
 
   /* Alpha-enabled colors for glass effect */
   --color-bg-elevated-alpha: rgba(255, 255, 255, 0.85);
+
+  /* Command output area */
+  --command-output-bg: #f6f8fa;
 }
 
 /* ---------- Dark Theme Variables ---------- */
@@ -133,6 +137,9 @@
   /* Code blocks */
   --code-bg: #1e1e2e;
   --code-border: #313244;
+
+  /* Command output area */
+  --command-output-bg: #181825;
 
   /* Glass effect */
   --glass-bg: rgba(30, 30, 46, 0.85);
@@ -3989,4 +3996,15 @@ code {
 
 .running-mobile-tabs .ant-tabs-tab {
   font-size: 13px;
+}
+
+/* ---------- Command View ---------- */
+/* 命令卡片展开/收起按钮的 hover 反馈：CSS class 实现可让 transition 真的生效；
+   之前 inline onMouseEnter 直接改 style.background 会瞬时切换，transition 形同虚设。 */
+.command-toggle-btn {
+  background: var(--color-bg);
+  transition: background var(--transition-fast);
+}
+.command-toggle-btn:hover {
+  background: var(--color-bg-hover);
 }
