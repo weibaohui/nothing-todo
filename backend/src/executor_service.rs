@@ -1619,9 +1619,8 @@ async fn dispatch_spawned_executor_task(spawned: SpawnInputs) -> ExecutionResult
 /// 子任务的真正实现。设计上与重构前的闭包体逐位等价——所有副作用（emit event、写 DB、
 /// fire hook、清理 worktree）都按原顺序保留。
 async fn run_spawned_executor_task(spawned: SpawnInputs) {
-    // 将 task_guard 移入函数作用域，使其存活到整个执行周期。
-    // 若不绑定，外层 drop 时会误删 Sender 导致 cancel_rx.recv() 返回 None。
-    let _task_guard = spawned.prepared.task_guard;
+    // 编排流程：构建 runtime → 启动子进程 → 等待 outcome → dispatch。
+    // 每个 step 拆到独立 helper，本函数仅负责串联，使 body 控制在 ≤30 行。
     let execution_start = std::time::Instant::now();
     let mut runtime = move_into_runtime(spawned);
 
@@ -1633,8 +1632,35 @@ async fn run_spawned_executor_task(spawned: SpawnInputs) {
         runtime.executor_spawn.as_ref(),
     );
 
-    let mut child = match spawn_executor_child(&runtime) {
-        Ok(c) => c,
+    let Some(mut child) = try_spawn_executor_child(&runtime).await else {
+        return;
+    };
+    save_child_pid_and_close_stdin(&mut child, &runtime.db, runtime.record_id).await;
+
+    let (log_flusher, stdout_task, stderr_task, flush_timer) =
+        setup_log_capture_pipeline_for(&runtime, &mut child).await;
+    let outcome = await_run_outcome_with_timeout(&mut runtime, &mut child).await;
+    dispatch_outcome(
+        outcome,
+        &mut child,
+        stdout_task,
+        stderr_task,
+        log_flusher,
+        flush_timer,
+        runtime,
+        execution_start,
+    )
+    .await;
+}
+
+/// 启动子进程；spawn 失败时清理 worktree 并触发 spawn failure 路径，返回 `None`。
+///
+/// 返回 `Option` 让调用点用 `let ... else { return; }` 早退，省去 match/Err 分支。
+async fn try_spawn_executor_child(
+    runtime: &SpawnRuntime,
+) -> Option<command_group::AsyncGroupChild> {
+    match spawn_executor_child(runtime) {
+        Ok(c) => Some(c),
         Err(e) => {
             cleanup_worktree_if_needed(&runtime.worktree_ctx);
             handle_spawn_failure(
@@ -1650,42 +1676,36 @@ async fn run_spawned_executor_task(spawned: SpawnInputs) {
                 e,
             )
             .await;
-            return;
+            None
         }
-    };
-    save_child_pid_and_close_stdin(&mut child, &runtime.db, runtime.record_id).await;
+    }
+}
 
-    let (log_flusher, stdout_task, stderr_task, flush_timer) =
-        setup_log_capture_pipeline_for(&runtime, &mut child).await;
-
-    let timeout_sleep = configure_timeout_sleep(runtime.execution_timeout_secs);
-    tokio::pin!(timeout_sleep);
-    let outcome = await_run_outcome(
-        &mut runtime.cancel_rx,
+/// 配置超时 + 在 select! 中 await outcome（cancel / timeout / child exit）。
+///
+/// 把 timeout_sleep 的 pin 留在 helper 内。cancel_rx 通过 `runtime.prepared.cancel_rx`
+/// 借用，避免 SpawnRuntime 顶层冗余 cancel_rx 字段。
+async fn await_run_outcome_with_timeout(
+    runtime: &mut SpawnRuntime,
+    child: &mut command_group::AsyncGroupChild,
+) -> RunOutcome {
+    let mut timeout_sleep = configure_timeout_sleep(runtime.execution_timeout_secs);
+    await_run_outcome(
+        &mut runtime.prepared.cancel_rx,
         &mut timeout_sleep,
         runtime.execution_timeout_secs,
-        &mut child,
+        child,
     )
-    .await;
-    // select! 宏里 cancel_rx.recv() 编译器看不到对绑定的 mutation，触发 unused_mut；
-    // 显式 drop 是 lint 抑制补丁（issue #660 评审 #9）。
-    drop(runtime.cancel_rx);
-
-    dispatch_outcome(
-        outcome,
-        &mut child,
-        stdout_task,
-        stderr_task,
-        log_flusher,
-        flush_timer,
-        runtime,
-        execution_start,
-    )
-    .await;
+    .await
 }
 
 /// `run_spawned_executor_task` 的执行期状态：把 SpawnInputs 字段全部 clone
 /// 出来成可借用结构，避免在 spawn 闭包内对原 owned 值反复 .clone()。
+///
+/// `cancel_rx` / `task_guard` 不在此结构下沉：仍由 `prepared: PreparedExecution` 持有，
+/// 通过 `runtime.prepared.cancel_rx` / `runtime.prepared.task_guard` 访问。
+/// SpawnRuntime 只冗余「spawn 阶段热路径」所需字段，减少一次 clone 同时避开
+/// `prepared.cancel_rx` 与 `prepared` 字段的部分 move 冲突。
 struct SpawnRuntime {
     db: Arc<Database>,
     tx: broadcast::Sender<ExecEvent>,
@@ -1697,29 +1717,31 @@ struct SpawnRuntime {
     worktree_ctx: WorktreeContext,
     task_id: String,
     execution_timeout_secs: u64,
-    cancel_rx: tokio::sync::mpsc::Receiver<()>,
     feishu_bot_id: Option<i64>,
     feishu_receive_id: Option<String>,
     prepared: PreparedExecution,
 }
 
 /// 把 SpawnInputs 全部字段展开到 SpawnRuntime。
+///
+/// 先把 `prepared` 整体下沉到本地变量（避开 `spawned.prepared.cancel_rx` 与
+/// `prepared: spawned.prepared` 同时部分 move 触发 E0382）。
 fn move_into_runtime(spawned: SpawnInputs) -> SpawnRuntime {
+    let prepared = spawned.prepared;
     SpawnRuntime {
-        db: spawned.prepared.request.db.clone(),
-        tx: spawned.prepared.request.tx.clone(),
-        task_manager: spawned.prepared.request.task_manager.clone(),
-        todo_id: spawned.prepared.request.todo_id,
+        db: prepared.request.db.clone(),
+        tx: prepared.request.tx.clone(),
+        task_manager: prepared.request.task_manager.clone(),
+        todo_id: prepared.request.todo_id,
         todo_title: spawned.todo_title.clone(),
         executor_spawn: spawned.executor_spawn.clone(),
-        record_id: spawned.prepared.record_id,
+        record_id: prepared.record_id,
         worktree_ctx: spawned.worktree_ctx,
-        task_id: spawned.prepared.task_id.clone(),
+        task_id: prepared.task_id.clone(),
         execution_timeout_secs: spawned.execution_timeout_secs,
-        cancel_rx: spawned.prepared.cancel_rx,
-        feishu_bot_id: spawned.prepared.request.feishu_bot_id,
-        feishu_receive_id: spawned.prepared.request.feishu_receive_id.clone(),
-        prepared: spawned.prepared,
+        feishu_bot_id: prepared.request.feishu_bot_id,
+        feishu_receive_id: prepared.request.feishu_receive_id.clone(),
+        prepared,
     }
 }
 
@@ -1787,7 +1809,7 @@ async fn dispatch_outcome(
                 runtime.executor_spawn.as_ref(),
                 runtime.record_id,
                 runtime.feishu_bot_id,
-                runtime.feishu_receive_id.as_deref(),
+                runtime.feishu_receive_id.clone(),
                 &runtime.worktree_ctx,
             )
             .await;
@@ -1809,7 +1831,7 @@ async fn dispatch_outcome(
                 runtime.record_id,
                 runtime.execution_timeout_secs,
                 runtime.feishu_bot_id,
-                runtime.feishu_receive_id.as_deref(),
+                runtime.feishu_receive_id.clone(),
                 &runtime.worktree_ctx,
             )
             .await;
@@ -2010,11 +2032,20 @@ async fn handle_completed_branch(
     flush_timer: tokio::task::JoinHandle<()>,
     ctx: SpawnContext,
 ) {
-    // 子进程已自然退出，stdout/stderr 管道已关闭；先 await reader 让它们把 buffer
-    // 里残余的行都解析完，再 finalize flusher 一次性写库。
+    // 编排「正常完成」路径：await readers → 解析 exit → 发进度 → flush 提取 →
+    // persist record + finalize → cleanup worktree。
+    // 每步交给 helper，本函数 body 控制在 ≤30 行。
     await_readers(stdout_task, stderr_task).await;
     let (exit_code, success) = resolve_exit_outcome(&status, ctx.executor.as_ref());
+    emit_post_execution_todo_progress_ctx(&ctx).await;
+    let (logs_snapshot, result_str) =
+        flush_and_extract_logs(&ctx, log_flusher, flush_timer).await;
+    persist_and_finalize_completion(&ctx, success, exit_code, &logs_snapshot, result_str).await;
+    cleanup_worktree_if_needed(&ctx.worktree_ctx);
+}
 
+/// 透传 ctx 字段给 `emit_post_execution_todo_progress`。
+async fn emit_post_execution_todo_progress_ctx(ctx: &SpawnContext) {
     emit_post_execution_todo_progress(
         &ctx.db,
         &ctx.tx,
@@ -2023,26 +2054,46 @@ async fn handle_completed_branch(
         ctx.record_id,
     )
     .await;
+}
 
-    let (all_logs_snapshot, result_str) = flush_and_extract_result(
+/// 把 ctx + flusher 状态喂给 `flush_and_extract_result`，避免 handle_completed_branch
+/// 内出现 5 行 `&ctx.db / &ctx.record_id / ctx.executor.as_ref()` 模板。
+async fn flush_and_extract_logs(
+    ctx: &SpawnContext,
+    log_flusher: Arc<LogFlusher>,
+    flush_timer: tokio::task::JoinHandle<()>,
+) -> (Vec<crate::models::ParsedLogEntry>, String) {
+    flush_and_extract_result(
         log_flusher,
         flush_timer,
         &ctx.db,
         ctx.record_id,
         ctx.executor.as_ref(),
     )
-    .await;
+    .await
+}
 
+/// persist_completion_record + finalize_normal_completion 二合一：
+///
+/// 把原本散落在 handle_completed_branch 末尾的 21 参数 finalize 调用收口到一个 helper，
+/// 让 orchestrator 只剩 4 行；persist_completion_record 自己的 5 参数不变，
+/// 因为它规模可控、可读性 OK。
+async fn persist_and_finalize_completion(
+    ctx: &SpawnContext,
+    success: bool,
+    exit_code: i32,
+    logs_snapshot: &[crate::models::ParsedLogEntry],
+    result_str: String,
+) {
     persist_completion_record(
         &ctx.db,
         ctx.executor.as_ref(),
         ctx.record_id,
-        &all_logs_snapshot,
+        logs_snapshot,
         success,
         ctx.execution_start,
     )
     .await;
-
     finalize_normal_completion(
         ctx.db.clone(),
         ctx.executor_registry.clone(),
@@ -2062,10 +2113,9 @@ async fn handle_completed_branch(
         result_str,
         ctx.trigger_type.clone(),
         ctx.feishu_bot_id,
-        ctx.feishu_receive_id,
+        ctx.feishu_receive_id.clone(),
     )
     .await;
-    cleanup_worktree_if_needed(&ctx.worktree_ctx);
 }
 
 /// 等待 stdout/stderr reader 跑完，回收子任务句柄。
