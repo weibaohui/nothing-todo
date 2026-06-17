@@ -1289,6 +1289,9 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
 
     // Update todo status to running and associate with task
     if let Err(e) = db.start_todo_execution(todo_id, &task_id).await {
+        // worktree 已在此之前创建并写入 record_path；失败路径下若启用了 auto_cleanup
+        // 必须立刻清理，避免遗留 worktree 目录/分支与「未启动成功」的执行记录错位。
+        cleanup_worktree_if_needed(&worktree_ctx);
         return reject_start_todo_failure(
             &db, &tx, &task_manager, &task_id, todo_id,
             todo.as_ref().map(|t| t.title.as_str()).unwrap_or(""),
@@ -1373,6 +1376,10 @@ pub async fn run_todo_execution(request: RunTodoExecutionRequest) -> ExecutionRe
         let mut child = match cmd.group_spawn() {
             Ok(c) => c,
             Err(e) => {
+                // spawn 失败：worktree 不会留下孤儿文件，但 record_path 已经被回写到 DB，
+                // 如果 auto_cleanup=true 必须在这里显式清理，否则下次「同 todo_id 同秒」
+                // 重试时会被前面的 exists 守卫拦下，导致 worktree 永远不清理。
+                cleanup_worktree_if_needed(&worktree_ctx);
                 handle_spawn_failure(
                     &db_clone,
                     &tx_clone,

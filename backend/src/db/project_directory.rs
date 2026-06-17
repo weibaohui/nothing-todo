@@ -67,8 +67,9 @@ impl Database {
     }
 
     /// 更新项目目录字段。
-    /// - `name=None` 表示"不修改名称"（与 `get_or_create` 的语义保持一致）
-    /// - `name=Some("")` 在 handler 层会被 trim+reject，这里不做二次校验
+    /// - `name=None` 表示"不修改名称"（与 `get_or_create` 的语义保持一致），
+    ///   实现用 `ActiveValue::Unchanged` 跳过 name 列；handler 层负责把空字符串 trim 拒绝。
+    /// - `name=Some(s)` 直接覆盖当前名称。
     /// - `git_worktree_enabled` / `auto_cleanup` 是 issue #643 新增的可选修改项；
     ///   传入 None 时跳过对应列，传入 Some(bool) 时写入新值。
     pub async fn update_project_directory(
@@ -79,13 +80,22 @@ impl Database {
         auto_cleanup: Option<bool>,
     ) -> Result<(), sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
+        // 用 match 把 Option<&str> 直接落到三种语义：None=Unchanged, Some("")=仍 Unchanged
+        // （handler 已拒绝空串，这里再做一次兜底），Some(non-empty)=Set。避免出现「Set(None) 把列写成 NULL」的反直觉行为。
         let mut am = project_directories::ActiveModel {
             id: ActiveValue::Unchanged(id),
-            name: ActiveValue::Set(name.map(|s| s.to_string())),
             updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
-        // ActiveValue::Set 写 NULL 不安全（NOT NULL 列），所以用 NotSet/Unchanged 显式表达"跳过"
+        match name {
+            Some(s) if !s.is_empty() => {
+                am.name = ActiveValue::Set(Some(s.to_string()));
+            }
+            _ => {
+                am.name = ActiveValue::Unchanged(Default::default());
+            }
+        }
+        // ActiveValue::Set 写 NULL 不安全（NOT NULL 列），所以用 None 显式表达"跳过"
         if let Some(flag) = git_worktree_enabled {
             am.git_worktree_enabled = ActiveValue::Set(flag);
         }

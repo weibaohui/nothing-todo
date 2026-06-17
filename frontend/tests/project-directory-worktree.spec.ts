@@ -12,19 +12,24 @@ import { test, expect, Page } from '@playwright/test';
 
 const BASE = 'http://localhost:5173';
 
-const fixtureDirs = [
-  {
-    id: 1,
-    path: '/tmp/proj-a',
-    name: 'proj-a',
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    git_worktree_enabled: false,
-    auto_cleanup: false,
-  },
-];
+// 默认 fixture 模板：每个用例在 beforeEach 里深拷贝一份，避免相互污染。
+// 历史上把 fixtureDirs 作为 module-level 单例，PUT 路径会原地 mutate[0]，
+// 导致用例之间互踩状态、跑两次结果不一样。
+function defaultFixtureDirs() {
+  return [
+    {
+      id: 1,
+      path: '/tmp/proj-a',
+      name: 'proj-a',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      git_worktree_enabled: false,
+      auto_cleanup: false,
+    },
+  ];
+}
 
-async function mockProjectDirApis(page: Page) {
+async function mockProjectDirApis(page: Page, fixtureDirs: ReturnType<typeof defaultFixtureDirs>) {
   // GET 列表
   await page.route('**/api/project-directories', async (route) => {
     if (route.request().method() === 'GET') {
@@ -60,7 +65,8 @@ async function mockProjectDirApis(page: Page) {
 }
 
 test('project directory: worktree 开关渲染 + 行为', async ({ page }) => {
-  await mockProjectDirApis(page);
+  const fixtureDirs = defaultFixtureDirs();
+  await mockProjectDirApis(page, fixtureDirs);
   await page.goto(BASE);
   // 跳到设置页, 项目目录 tab
   await page.evaluate(() => {
@@ -102,7 +108,10 @@ test('project directory: worktree 开关渲染 + 行为', async ({ page }) => {
 });
 
 test('project directory: API 接受新字段并回显', async ({ page }) => {
-  await mockProjectDirApis(page);
+  const fixtureDirs = defaultFixtureDirs();
+  await mockProjectDirApis(page, fixtureDirs);
+  // 修复：相对路径 fetch 需要稳定的 page context，先 goto(BASE) 给一个真实 origin。
+  await page.goto(BASE);
   // 1) PUT 开启 worktree
   const putResult = await page.evaluate(async () => {
     const resp = await fetch('/api/project-directories/1', {

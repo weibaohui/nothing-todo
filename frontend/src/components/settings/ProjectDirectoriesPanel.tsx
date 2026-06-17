@@ -87,13 +87,25 @@ export function ProjectDirectoriesPanel() {
       message.warning('请先开启"启用 Git Worktree"');
       return;
     }
-    const previous = { ...target };
-    const optimistic: ProjectDirectory = { ...target, [flag]: next };
+    // 计算乐观更新与请求体：键名要用 snake_case（与后端/类型定义一致），
+    // 之前用 `[flag]: next` 直接挂 camelCase 键会导致 UI 与 API 不一致。
+    // 当关闭 git_worktree_enabled 时联动把 auto_cleanup 复位为 false：
+    // 因为 auto_cleanup 在 git worktree 关闭后已无意义，留着只会让 UI 显示一个永远
+    // 不会触发的「自动清理」勾，给人误导。
+    const nextGit = flag === 'gitWorktreeEnabled' ? next : (target.git_worktree_enabled ?? false);
+    const nextAuto = flag === 'autoCleanup' ? next : (target.auto_cleanup ?? false);
+    const optimistic: ProjectDirectory = {
+      ...target,
+      git_worktree_enabled: nextGit,
+      // 仅在「关闭 git_worktree_enabled」时把 auto_cleanup 拉回 false，单独切 auto_cleanup 不联动 git
+      auto_cleanup: nextGit ? nextAuto : false,
+    };
     setProjectDirectories(prev => prev.map(d => d.id === id ? optimistic : d));
+    const previous = target;
     try {
       await db.updateProjectDirectory(id, target.name ?? '', {
-        gitWorktreeEnabled: flag === 'gitWorktreeEnabled' ? next : (target.git_worktree_enabled ?? false),
-        autoCleanup: flag === 'autoCleanup' ? next : (target.auto_cleanup ?? false),
+        gitWorktreeEnabled: nextGit,
+        autoCleanup: nextGit ? nextAuto : false,
       });
     } catch (err: any) {
       // 失败回滚到之前的值，并提示用户

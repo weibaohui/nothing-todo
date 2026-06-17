@@ -1638,32 +1638,50 @@ impl Migration for V5ProjectDirectoryWorktree {
     }
 }
 
+/// 把 v5 三条 ALTER 串成一条：只在 "duplicate column name" 类型的错误上吞掉并 warn，
+/// 其它真实错误（表不存在、SQL 语法错误等）必须传播出去——否则迁移被错误地标记为已应用，
+/// 后续运行会因为缺列而炸在更难定位的位置。
+///
+/// SQLite 错误信息中 "duplicate column name" 由原生接口直接产出，未走 i18n；按子串匹配即可。
+async fn run_v5_alter(db: &Database, sql: &str, label: &str) -> Result<(), sea_orm::DbErr> {
+    if let Err(e) = db.exec(sql).await {
+        // 仅在「列已存在」这一类幂等错误上跳过，其它错误必须向上抛
+        let msg = e.to_string();
+        if msg.contains("duplicate column name") {
+            tracing::warn!(
+                "migration v5: {} column may already exist, skipping: {}",
+                label,
+                msg
+            );
+            Ok(())
+        } else {
+            Err(e)
+        }
+    } else {
+        Ok(())
+    }
+}
+
 async fn v5_project_directory_worktree(db: &Database) -> Result<(), sea_orm::DbErr> {
-    // 加列失败时只 warn 不阻塞启动：老库可能已经手工补过这些列，
-    // 此时 `duplicate column name` 是预期情况，与 V1 的向后兼容 ALTER 一致。
-    db.exec("ALTER TABLE project_directories ADD COLUMN git_worktree_enabled INTEGER NOT NULL DEFAULT 0")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v5: ALTER TABLE project_directories ADD COLUMN git_worktree_enabled: {} (column may already exist)",
-                e
-            );
-        });
-    db.exec("ALTER TABLE project_directories ADD COLUMN auto_cleanup INTEGER NOT NULL DEFAULT 0")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v5: ALTER TABLE project_directories ADD COLUMN auto_cleanup: {} (column may already exist)",
-                e
-            );
-        });
-    db.exec("ALTER TABLE execution_records ADD COLUMN worktree_path TEXT")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v5: ALTER TABLE execution_records ADD COLUMN worktree_path: {} (column may already exist)",
-                e
-            );
-        });
+    // 加列失败时只在「duplicate column name」语义下吞掉并 warn：老库可能已经手工补过这些列。
+    // 其它错误（如表不存在、SQL 语法错误）必须传播，避免迁移被错误标记为已应用后留下隐患。
+    run_v5_alter(
+        db,
+        "ALTER TABLE project_directories ADD COLUMN git_worktree_enabled INTEGER NOT NULL DEFAULT 0",
+        "git_worktree_enabled",
+    )
+    .await?;
+    run_v5_alter(
+        db,
+        "ALTER TABLE project_directories ADD COLUMN auto_cleanup INTEGER NOT NULL DEFAULT 0",
+        "auto_cleanup",
+    )
+    .await?;
+    run_v5_alter(
+        db,
+        "ALTER TABLE execution_records ADD COLUMN worktree_path TEXT",
+        "worktree_path",
+    )
+    .await?;
     Ok(())
 }

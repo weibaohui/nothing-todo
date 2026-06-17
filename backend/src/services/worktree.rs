@@ -12,6 +12,8 @@
 //!      引入 git2 会多一层 Rust ABI 维护成本；
 //!   2. git CLI 的错误信息更可读，调试更直观；
 //!   3. 这部分逻辑只在前置/收尾阶段跑一次，不在 hot path，开销可以接受。
+//! - 所有同步 git 调用统一走 `run_git_with_timeout` 包装，避免在 lock / I/O hang 时
+//!   阻塞调用方线程。超时后会主动 `kill` 子进程并返回 WorktreeError::GitTimeout。
 //! - worktree 目录名格式：`<todo_id>-<unix_secs>`。`unix_secs` 选秒而不是纳秒，
 //!   避免出现同名 worktree 时仅相差几纳秒无法区分。
 //! - `cleanup_worktree` 在目录已不存在或 `git worktree remove` 失败时**不报错**：
@@ -19,8 +21,14 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 use thiserror::Error;
 use tracing::{info, warn};
+use wait_timeout::ChildExt;
+
+/// 单次 git 命令的硬超时。30 秒覆盖「首次 init + 空 commit」最坏路径，
+/// 远高于 `git rev-parse` / `worktree add` 等轻量子命令的常态耗时。
+const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// 在项目目录下创建 worktree 的相对目录名（issue #643 规范要求）。
 ///
@@ -40,6 +48,14 @@ pub enum WorktreeError {
         dir: String,
         stderr: String,
     },
+    /// git 子命令在 `GIT_COMMAND_TIMEOUT` 内未结束。kill 子进程后向上抛，
+    /// 由调用方决定回退到原 workspace 还是直接报失败。
+    #[error("`git {cmd}` in {dir} timed out after {timeout:?}")]
+    GitTimeout {
+        cmd: String,
+        dir: String,
+        timeout: Duration,
+    },
 }
 
 /// 单实例无状态服务。
@@ -48,6 +64,79 @@ pub enum WorktreeError {
 /// "由 ntd 程序托管 worktree 生命周期" —— 用一个具名类型让调用方更明确
 /// 表达"这是 worktree 相关操作"，未来加 metrics/tracing 接入也好挂。
 pub struct WorktreeService;
+
+/// 给同步 git 命令加超时边界。
+///
+/// 之所以自己包一层而不直接 `cmd.output()`：
+///   - git 在持有锁、远端 I/O hang 时 `output()` 会无限阻塞，
+///     把调用方所在 tokio worker 也拖死；
+///   - 超时后必须主动 `kill` 子进程，否则即便我们返回 Err 也会留下孤儿 git。
+///
+/// 实现思路：在线程里跑 `cmd.output()`，把结果通过 channel 传出；主线程用
+/// `recv_timeout` 等待。超时分支用 `Child::from_pid` 不行（我们没保留句柄），
+/// 所以这里改为 `cmd.spawn() + wait_timeout` 直接同步等待，超时分支 `kill` 子进程。
+///
+/// 入参 `cmd_label` 用于在超时/失败时把「这条命令是啥」打到日志/错误信息里，
+/// 方便排查。`cwd_display` 仅作错误日志用，current_dir 仍由调用方设置到 `cmd` 上。
+fn run_git_with_timeout(
+    mut cmd: Command,
+    cmd_label: &str,
+    cwd_display: &str,
+) -> Result<std::process::Output, WorktreeError> {
+    // 把输出重定向到管道，便于超时分支独立 kill 进程；不在超时分支读 stdout/stderr，
+    // 减少 pipe 关闭的潜在阻塞。
+    cmd.stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| WorktreeError::GitUnavailable(e.to_string()))?;
+    // `wait_timeout` 是同步调用：返回 `Ok(Some(status))` 表示子进程已完成，
+    // `Ok(None)` 表示还在跑（需要 kill），`Err` 通常意味着 wait 系统调用失败。
+    match child
+        .wait_timeout(GIT_COMMAND_TIMEOUT)
+        .map_err(|e| WorktreeError::GitUnavailable(e.to_string()))?
+    {
+        Some(_) => {
+            // 子进程已结束；用 `wait_with_output` 等价语义收集 stdout/stderr。
+            // std 没有暴露「已经 wait 完但还要读 pipe」的 API，所以这里退化为
+            // 重新调用 wait_with_output：对于正常结束的子进程，第二次 wait
+            // 立刻返回已缓存的 ExitStatus，pipe 数据仍然可读。
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+            if let Some(mut s) = child.stdout.take() {
+                use std::io::Read;
+                let _ = s.read_to_end(&mut stdout);
+            }
+            if let Some(mut s) = child.stderr.take() {
+                use std::io::Read;
+                let _ = s.read_to_end(&mut stderr);
+            }
+            let status = child.wait().map_err(|e| {
+                WorktreeError::GitUnavailable(e.to_string())
+            })?;
+            Ok(std::process::Output {
+                status,
+                stdout,
+                stderr,
+            })
+        }
+        None => {
+            // 超时：先 kill 再 wait，避免僵尸进程
+            warn!(
+                cmd = cmd_label,
+                dir = cwd_display,
+                "git command exceeded timeout, killing child"
+            );
+            let _ = child.kill();
+            let _ = child.wait();
+            Err(WorktreeError::GitTimeout {
+                cmd: cmd_label.to_string(),
+                dir: cwd_display.to_string(),
+                timeout: GIT_COMMAND_TIMEOUT,
+            })
+        }
+    }
+}
 
 impl WorktreeService {
     pub fn new() -> Self {
@@ -69,44 +158,43 @@ impl WorktreeService {
 
         // 用 `git rev-parse --git-dir` 探测：返回成功即表示已是 git 仓库，
         // 比检查 `.git` 子目录更稳（worktree 自身的 `.git` 是文件不是目录）。
-        let probe = Command::new("git")
+        // 探测本身走超时路径：失败=不是仓库，Ok 但退出非零=同义。
+        let mut probe_cmd = Command::new("git");
+        probe_cmd
             .arg("rev-parse")
             .arg("--git-dir")
-            .current_dir(p)
-            .output();
-        match probe {
+            .current_dir(p);
+        match run_git_with_timeout(probe_cmd, "rev-parse --git-dir", project_path) {
             Ok(out) if out.status.success() => return Ok(()),
             Ok(_) => {
                 // 不是仓库，下一步执行 init
                 info!(project = %project_path, "initializing empty git repository");
             }
             Err(e) => {
-                return Err(WorktreeError::GitUnavailable(e.to_string()));
+                // 超时或 spawn 失败都按「不可用」处理，让外层走 fallback
+                return Err(e);
             }
         }
 
-        let init_out = Command::new("git")
-            .arg("init")
-            .arg("-b")
-            .arg("main")
-            .current_dir(p)
-            .output()
-            .map_err(|e| WorktreeError::GitUnavailable(e.to_string()))?;
-        if !init_out.status.success() {
-            // 兜底：某些旧版 git 不支持 `-b main`，再用默认 init 重试
-            let fallback = Command::new("git")
-                .arg("init")
-                .current_dir(p)
-                .output()
-                .map_err(|e| WorktreeError::GitUnavailable(e.to_string()))?;
-            if !fallback.status.success() {
-                let stderr = String::from_utf8_lossy(&fallback.stderr).into_owned();
-                return Err(WorktreeError::GitCommandFailed {
-                    cmd: "init".into(),
-                    dir: project_path.to_string(),
-                    stderr,
-                });
-            }
+        // init 主路径走超时包装；fallback 同样。两条路径都失败时把第二次的错误向上抛。
+        let mut init_cmd = Command::new("git");
+        init_cmd.arg("init").arg("-b").arg("main").current_dir(p);
+        let init_out = run_git_with_timeout(init_cmd, "init -b main", project_path)?;
+        if init_out.status.success() {
+            return Ok(());
+        }
+
+        // 兜底：某些旧版 git 不支持 `-b main`，再用默认 init 重试
+        let mut fallback_cmd = Command::new("git");
+        fallback_cmd.arg("init").current_dir(p);
+        let fallback = run_git_with_timeout(fallback_cmd, "init", project_path)?;
+        if !fallback.status.success() {
+            // 兜底也失败，错误信息通常来自 stderr；这里只能粗略标记，由调用方日志定位
+            return Err(WorktreeError::GitCommandFailed {
+                cmd: "init".into(),
+                dir: project_path.to_string(),
+                stderr: "git init failed after fallback".into(),
+            });
         }
         Ok(())
     }
@@ -136,13 +224,23 @@ impl WorktreeService {
 
         let worktree_dir = self.worktree_path(project_path, todo_id);
         if worktree_dir.exists() {
-            // 同名目录已存在（极小概率：todo_id 复用 + 同一秒）—— 不强制清理，
-            // 让上层 executor 走原始 workspace 路径，把决策权留给调用方。
+            // 同名目录已存在（todo_id 复用 + 同一秒碰撞）——不再静默复用：
+            // 复用「脏」目录会让新执行继承上一次留下的未追踪文件 / 残留分支，
+            // 把问题推迟到执行末段更难排查。这里返回 Err 让上层 `resolve_worktree_context`
+            // 走 `WorktreeContext::default()` 回退到原始 workspace。
             warn!(
                 worktree = %worktree_dir.display(),
-                "worktree directory already exists, skipping creation"
+                todo_id = todo_id,
+                "worktree directory already exists, aborting to let caller fall back"
             );
-            return Ok(worktree_dir.to_string_lossy().into_owned());
+            return Err(WorktreeError::GitCommandFailed {
+                cmd: "worktree add".into(),
+                dir: project_path.to_string(),
+                stderr: format!(
+                    "worktree directory already exists: {}",
+                    worktree_dir.display()
+                ),
+            });
         }
 
         // 创建 .worktrees 父目录（如果还不存在）。`git worktree add` 不会自动建父目录。
@@ -167,16 +265,16 @@ impl WorktreeService {
             .parse()
             .unwrap_or(0);
         let branch_name = format!("wt-{}-{}", todo_id, sec_marker);
-        let out = Command::new("git")
+        let mut add_cmd = Command::new("git");
+        add_cmd
             .arg("worktree")
             .arg("add")
             .arg("-b")
             .arg(&branch_name)
             .arg(&worktree_dir)
             .arg(&base)
-            .current_dir(project_path)
-            .output()
-            .map_err(|e| WorktreeError::GitUnavailable(e.to_string()))?;
+            .current_dir(project_path);
+        let out = run_git_with_timeout(add_cmd, "worktree add", project_path)?;
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
             return Err(WorktreeError::GitCommandFailed {
@@ -212,13 +310,14 @@ impl WorktreeService {
             }
         };
 
-        let out = Command::new("git")
+        let mut rm_cmd = Command::new("git");
+        rm_cmd
             .arg("worktree")
             .arg("remove")
             .arg("--force")
             .arg(path)
-            .current_dir(&main_repo)
-            .output();
+            .current_dir(&main_repo);
+        let out = run_git_with_timeout(rm_cmd, "worktree remove --force", &main_repo.to_string_lossy());
         match out {
             Ok(o) if o.status.success() => {
                 info!(worktree = %worktree_path, "cleaned up git worktree");
@@ -249,26 +348,24 @@ impl WorktreeService {
     /// 探测仓库是否有任意 commit（HEAD 是否解析得到）。
     /// 取代硬编码 "main" 的存在性检查——空仓库 init 后任何分支都没有 commit。
     fn has_any_commit(&self, project_path: &str) -> Result<bool, WorktreeError> {
-        let out = Command::new("git")
-            .arg("rev-parse")
+        let mut cmd = Command::new("git");
+        cmd.arg("rev-parse")
             .arg("--verify")
             .arg("HEAD")
-            .current_dir(project_path)
-            .output()
-            .map_err(|e| WorktreeError::GitUnavailable(e.to_string()))?;
+            .current_dir(project_path);
+        let out = run_git_with_timeout(cmd, "rev-parse --verify HEAD", project_path)?;
         Ok(out.status.success())
     }
 
     /// 获取当前分支名（空仓库 fallback 到默认 "main"）。
     /// 优先级：`rev-parse --abbrev-ref HEAD` → 当用户处于 detached HEAD 时退到 init.defaultBranch。
     fn current_branch(&self, project_path: &str) -> Result<String, WorktreeError> {
-        let probe = Command::new("git")
-            .arg("rev-parse")
+        let mut cmd = Command::new("git");
+        cmd.arg("rev-parse")
             .arg("--abbrev-ref")
             .arg("HEAD")
-            .current_dir(project_path)
-            .output()
-            .map_err(|e| WorktreeError::GitUnavailable(e.to_string()))?;
+            .current_dir(project_path);
+        let probe = run_git_with_timeout(cmd, "rev-parse --abbrev-ref HEAD", project_path)?;
         if probe.status.success() {
             let name = String::from_utf8_lossy(&probe.stdout).trim().to_string();
             // detached HEAD 时 git 会输出 "HEAD"，不是真正的分支名
@@ -288,15 +385,14 @@ impl WorktreeService {
         // 原因：某些精简 git 镜像（CI/容器）下 `safe.directory` 限制会让 `git config --local`
         // 静默失败，导致 commit 时 "unable to auto-detect email address" 报错。
         // 环境变量绕过配置层，是 git 官方推荐的"一次性提交"做法。
-        let commit = Command::new("git")
-            .args(["commit", "--allow-empty", "-m", "ntd: initial worktree base"])
+        let mut cmd = Command::new("git");
+        cmd.args(["commit", "--allow-empty", "-m", "ntd: initial worktree base"])
             .current_dir(project_path)
             .env("GIT_AUTHOR_NAME", "ntd")
             .env("GIT_AUTHOR_EMAIL", "ntd@localhost")
             .env("GIT_COMMITTER_NAME", "ntd")
-            .env("GIT_COMMITTER_EMAIL", "ntd@localhost")
-            .output()
-            .map_err(|e| WorktreeError::GitUnavailable(e.to_string()))?;
+            .env("GIT_COMMITTER_EMAIL", "ntd@localhost");
+        let commit = run_git_with_timeout(cmd, "commit --allow-empty", project_path)?;
         if !commit.status.success() {
             let stderr = String::from_utf8_lossy(&commit.stderr).into_owned();
             return Err(WorktreeError::GitCommandFailed {

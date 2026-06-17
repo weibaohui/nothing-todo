@@ -148,21 +148,14 @@ export async function getProjectDirectories(): Promise<ProjectDirectory[]> {
 
 // 创建项目目录：后端要求 name 必填，调用方需保证传入非空字符串。
 // 返回完整 ProjectDirectory 对象（含 id），供调用方更新本地状态。
-// 兼容老调用：可选的 worktree 开关默认走 false，不传就不会被发到后端。
+// issue #643 修复：create 接口在后端并不消费 gitWorktreeEnabled / autoCleanup 字段，
+// 发送它们只会让前端误以为「新建时就能决定策略」，实际上策略需要在 update 时设置。
+// 这里彻底删除 options 参数与对应 body 字段，调用方需要时改走 updateProjectDirectory。
 export async function createProjectDirectory(
   path: string,
   name: string,
-  options?: { gitWorktreeEnabled?: boolean; autoCleanup?: boolean },
 ): Promise<ProjectDirectory> {
-  // 仅当 options 给定时才附加 worktree 字段，避免老调用方发 `{gitWorktreeEnabled: undefined}`。
-  const body: Record<string, unknown> = { path, name };
-  if (options?.gitWorktreeEnabled !== undefined) {
-    body.git_worktree_enabled = options.gitWorktreeEnabled;
-  }
-  if (options?.autoCleanup !== undefined) {
-    body.auto_cleanup = options.autoCleanup;
-  }
-  return unwrap(await api.post('/api/project-directories', body));
+  return unwrap(await api.post('/api/project-directories', { path, name }));
 }
 
 // 更新项目目录。`name` 必填；worktree 开关可选（不传=保持现状）。
