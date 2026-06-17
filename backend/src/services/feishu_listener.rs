@@ -424,7 +424,7 @@ impl FeishuListener {
         };
         let latest_record = Self::fetch_latest_record(context.db, binding.latest_record_id).await;
         let (resume_session_id, resume_message) =
-            Self::decide_resume_session(&binding, latest_record.as_ref(), prep.content);
+            Self::decide_resume_session(latest_record.as_ref(), prep.content);
         // 日志保留 binding.session_id 与 latest_record.status：排查「为什么 session 没 resume /
         // 串了」的关键线索（详见 PR #665 review #3 CANDIDATE #3）。
         tracing::info!(
@@ -478,11 +478,10 @@ impl FeishuListener {
     }
 
     /// 阶段 5b：决定 resume 还是新开 session
-    /// 必须从 latest_record 读 session_id（不能用 binding.session_id）：
-    /// debounce 首次执行时把 binding.session_id 设成了 task_id（随机 UUID），
-    /// Claude Code 真正的 session_id 在 execution_records.session_id 里
+    /// 从 latest_record 读 session_id：record 没有就开新 session
+    /// （早期版本曾尝试用 `binding.session_id` 兜底，但首次执行时 binding.session_id
+    /// 被设成 task_id 占位，fallback 永远不触发，已删除。）
     fn decide_resume_session(
-        binding: &crate::db::feishu_project_binding::FeishuProjectBinding,
         latest_record: Option<&crate::models::ExecutionRecord>,
         content: &str,
     ) -> (Option<String>, Option<String>) {
@@ -494,9 +493,7 @@ impl FeishuListener {
             return (None, None);
         }
         // 已通过 should_resume 守卫：latest_record 是 Some 且 r.session_id 是 Some，
-        // 旧代码 `.or_else(|| binding.session_id.clone())` 是不可达分支——
-        // binding.session_id 在首次执行时被设成 task_id 占位，fallback 永远不会触发。
-        // 用 expect 表达「在 guard 假设下必定成立」，替代曾经的 or_else 占位。
+        // 用 expect 表达「在 guard 假设下必定成立」。
         let real_sid = Some(
             latest_record
                 .and_then(|r| r.session_id.clone())
@@ -1785,8 +1782,7 @@ mod tests {
     #[test]
     fn test_decide_resume_session_no_record_returns_none() {
         // 没 record → 不 resume，返回 (None, None)
-        let binding = dummy_binding();
-        let (sid, msg) = FeishuListener::decide_resume_session(&binding, None, "hello");
+        let (sid, msg) = FeishuListener::decide_resume_session(None, "hello");
         assert!(sid.is_none());
         assert!(msg.is_none());
     }
@@ -1794,21 +1790,17 @@ mod tests {
     #[test]
     fn test_decide_resume_session_running_record_skips_resume() {
         // record.status == Running → 不 resume（避免和正在写 stdout JSONL 的进程抢文件）
-        let binding = dummy_binding();
         let record = dummy_record(ExecutionStatus::Running, Some("real_sid"));
-        let (sid, msg) = FeishuListener::decide_resume_session(&binding, Some(&record), "hi");
+        let (sid, msg) = FeishuListener::decide_resume_session(Some(&record), "hi");
         assert!(sid.is_none(), "running record should not resume");
         assert!(msg.is_none());
     }
 
     #[test]
     fn test_decide_resume_session_finished_record_uses_record_sid() {
-        // record 已结束 + 有 session_id → 用 record 里的 sid（不能用 binding.session_id，
-        // 那个是首次执行时设的 task_id 占位）
-        let mut binding = dummy_binding();
-        binding.session_id = Some("binding_task_id_placeholder".into());
+        // record 已结束 + 有 session_id → 用 record 里的 sid
         let record = dummy_record(ExecutionStatus::Success, Some("real_claude_sid"));
-        let (sid, msg) = FeishuListener::decide_resume_session(&binding, Some(&record), "继续");
+        let (sid, msg) = FeishuListener::decide_resume_session(Some(&record), "继续");
         assert_eq!(sid.as_deref(), Some("real_claude_sid"));
         assert_eq!(msg.as_deref(), Some("继续"));
     }
@@ -1817,10 +1809,8 @@ mod tests {
     fn test_decide_resume_session_finished_no_sid_skips_resume() {
         // record 已结束但没有 session_id → 不满足 should_resume 条件（需要 sid），
         // 保持原行为：返回 (None, None)，由 caller 决定下一步
-        let mut binding = dummy_binding();
-        binding.session_id = Some("binding_sid".into());
         let record = dummy_record(ExecutionStatus::Success, None);
-        let (sid, msg) = FeishuListener::decide_resume_session(&binding, Some(&record), "msg");
+        let (sid, msg) = FeishuListener::decide_resume_session(Some(&record), "msg");
         assert!(sid.is_none());
         assert!(msg.is_none());
     }
