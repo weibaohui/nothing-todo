@@ -1,18 +1,27 @@
 /**
- * issue #648: 单条命令卡片
+ * issue #648: 单条命令卡片 — 终端风格
  *
- * - 标题：`$ command`，等宽字体，左侧带状态色边框
- * - 工具名小标签（Bash / bash / exec_shell / ...）
- * - 复制按钮：把整条 command 文本写入剪贴板
- * - output 区域：默认折叠；点击展开/收起
- * - 长 output 默认截断预览（>300 字符）
+ * 设计要点：
+ * - 左侧 3px 状态色边框标识成功/失败
+ * - 顶部：状态图标 + 命令文本（等宽） + 复制按钮 + 耗时
+ * - 输出区：终端风格暗底（暗色主题）或浅灰底（亮色主题），等宽字体
+ * - 长输出默认折叠，点击展开/收起
+ * - 所有交互元素有 cursor:pointer 和 hover 反馈
  */
 import { useState } from 'react';
 import { Button, Tooltip, message } from 'antd';
-import { CopyOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, DownOutlined, RightOutlined } from '@ant-design/icons';
+import {
+  CopyOutlined,
+  CheckCircleFilled,
+  CloseCircleFilled,
+  ClockCircleOutlined,
+  DownOutlined,
+  RightOutlined,
+} from '@ant-design/icons';
 import type { CommandEntry } from '@/types';
 import { copyToClipboard } from '@/utils/clipboard';
 
+/** 输出预览截断阈值 */
 const OUTPUT_PREVIEW_LIMIT = 300;
 
 export interface CommandCardProps {
@@ -31,11 +40,14 @@ export function CommandCard({ command, index }: CommandCardProps) {
     message[ok ? 'success' : 'error'](ok ? '已复制命令' : '复制失败');
   };
 
-  const borderColor = command.success ? 'var(--color-success)' : 'var(--color-error)';
-  const StatusIcon = command.success ? <CheckCircleOutlined /> : <CloseCircleOutlined />;
+  // 状态色：成功用绿色，失败用红色
+  const statusColor = command.success ? 'var(--color-success)' : 'var(--color-error)';
   const statusText = command.success ? '成功' : '失败';
+  const StatusIcon = command.success
+    ? <CheckCircleFilled style={{ color: 'var(--color-success)' }} />
+    : <CloseCircleFilled style={{ color: 'var(--color-error)' }} />;
 
-  // 折叠状态下只展示前 N 字符 + "..."
+  // 折叠状态下只展示前 N 字符 + 省略号
   const displayedOutput = hasOutput && !expanded
     ? `${command.output!.slice(0, OUTPUT_PREVIEW_LIMIT)}…`
     : command.output || '';
@@ -44,75 +56,123 @@ export function CommandCard({ command, index }: CommandCardProps) {
     <div
       data-testid={`command-card-${index}`}
       style={{
-        border: `1px solid var(--color-border-light)`,
-        borderLeft: `3px solid ${borderColor}`,
-        borderRadius: 6,
+        border: '1px solid var(--color-border-light)',
+        borderLeft: `3px solid ${statusColor}`,
+        borderRadius: 8,
         background: 'var(--color-bg-elevated)',
-        padding: '8px 12px',
+        overflow: 'hidden',
       }}
     >
-      {/* 标题行：状态条 + 工具名 + $ command + 复制按钮 + 时长 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ color: borderColor, fontSize: 12 }}>{StatusIcon}</span>
+      {/* 标题行：状态 + 命令 + 操作 */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '8px 12px',
+        borderBottom: hasOutput ? '1px solid var(--color-border-light)' : 'none',
+      }}>
+        {/* 状态图标 + 文本 */}
         <span style={{
-          fontSize: 10, padding: '1px 6px', borderRadius: 3,
-          background: 'var(--color-border-light)', color: 'var(--color-text-secondary)',
-        }}>{command.toolName}</span>
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          fontSize: 12,
+          color: statusColor,
+          flexShrink: 0,
+        }}>
+          {StatusIcon}
+          <span>{statusText}</span>
+        </span>
+        {/* 命令文本 */}
         <code
           data-testid={`command-text-${index}`}
           style={{
-            flex: 1, minWidth: 0,
-            fontFamily: 'var(--font-mono)', fontSize: 12,
-            color: 'var(--color-text)', overflow: 'hidden',
-            textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            flex: 1,
+            minWidth: 0,
+            fontFamily: 'var(--font-mono)',
+            fontSize: 13,
+            fontWeight: 500,
+            color: 'var(--color-text)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
           }}
         >
-          $ {command.command || '(空命令)'}
+          <span style={{ color: 'var(--color-text-tertiary)', userSelect: 'none' }}>$ </span>
+          {command.command || '(空命令)'}
         </code>
-        <Tooltip title="复制命令">
-          <Button
-            type="text" size="small" icon={<CopyOutlined />}
-            onClick={onCopy}
-            aria-label="复制命令"
-            data-testid={`command-copy-${index}`}
-          />
-        </Tooltip>
-        {command.durationMs != null && (
-          <Tooltip title={`耗时 ${command.durationMs}ms`}>
-            <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-              <ClockCircleOutlined /> {formatDuration(command.durationMs)}
+        {/* 右侧操作区 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+          {/* 耗时 */}
+          {command.durationMs != null && (
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 3,
+              fontSize: 11,
+              color: 'var(--color-text-tertiary)',
+              padding: '2px 6px',
+              borderRadius: 4,
+              background: 'var(--color-bg)',
+            }}>
+              <ClockCircleOutlined />
+              {formatDuration(command.durationMs)}
             </span>
-          </Tooltip>
-        )}
-        <span style={{
-          fontSize: 10, padding: '1px 6px', borderRadius: 3,
-          color: borderColor, background: 'var(--color-border-light)',
-        }}>
-          {statusText}
-        </span>
-      </div>
-      {/* output 区域 */}
-      {hasOutput && (
-        <div style={{ marginTop: 6 }}>
-          {isLong && (
-            <Button
-              type="link" size="small"
-              icon={expanded ? <DownOutlined /> : <RightOutlined />}
-              onClick={() => setExpanded(v => !v)}
-              style={{ padding: 0, fontSize: 11, height: 'auto' }}
-            >
-              {expanded ? '收起' : `展开完整输出（${command.output!.length} 字符）`}
-            </Button>
           )}
+          {/* 复制按钮 */}
+          <Tooltip title="复制命令">
+            <Button
+              type="text"
+              size="small"
+              icon={<CopyOutlined />}
+              onClick={onCopy}
+              aria-label="复制命令"
+              data-testid={`command-copy-${index}`}
+              style={{ color: 'var(--color-text-tertiary)' }}
+            />
+          </Tooltip>
+        </div>
+      </div>
+
+      {/* 输出区域 */}
+      {hasOutput && (
+        <div>
+          {/* 展开/收起按钮 */}
+          {isLong && (
+            <button
+              onClick={() => setExpanded(v => !v)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                width: '100%',
+                padding: '5px 12px',
+                border: 'none',
+                background: 'var(--color-bg)',
+                color: 'var(--color-primary)',
+                fontSize: 11,
+                fontFamily: 'var(--font-sans)',
+                cursor: 'pointer',
+                transition: 'background var(--transition-fast)',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-bg-hover)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'var(--color-bg)')}
+            >
+              {expanded ? <DownOutlined /> : <RightOutlined />}
+              {expanded ? '收起输出' : `展开全部（${command.output!.length} 字符）`}
+            </button>
+          )}
+          {/* 输出内容 */}
           <pre
             data-testid={`command-output-${index}`}
             style={{
-              margin: '4px 0 0',
-              padding: 8,
-              background: 'var(--log-bg)',
-              color: 'var(--log-text)',
-              borderRadius: 4,
-              fontFamily: 'var(--font-mono)', fontSize: 11,
+              margin: 0,
+              padding: '10px 12px',
+              background: 'var(--command-output-bg, var(--color-bg))',
+              color: 'var(--color-text-secondary)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 12,
+              lineHeight: 1.6,
               maxHeight: expanded ? 400 : 120,
               overflow: 'auto',
               whiteSpace: 'pre-wrap',
@@ -121,15 +181,23 @@ export function CommandCard({ command, index }: CommandCardProps) {
           >{displayedOutput}</pre>
         </div>
       )}
+
+      {/* 无输出提示 */}
       {!hasOutput && (
-        <div style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginTop: 4 }}>
-          （无返回结果）
+        <div style={{
+          padding: '6px 12px',
+          fontSize: 12,
+          color: 'var(--color-text-tertiary)',
+          fontStyle: 'italic',
+        }}>
+          无返回结果
         </div>
       )}
     </div>
   );
 }
 
+/** 格式化毫秒为人类可读时长 */
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;

@@ -2,10 +2,7 @@
  * issue #648: 命令视图面板
  *
  * 从 `LogEntry[]` 中按执行器协议提取 CommandEntry 列表，并渲染为
- * 可折叠的命令卡片。每条命令展示：
- * - `$ command` 标题（等宽字体 + 复制按钮）
- * - output（默认折叠，长输出只显示前 100 字符预览）
- * - 时长 / 状态徽章
+ * 可折叠的命令卡片。终端风格 UI，适配亮色/暗色主题。
  *
  * 设计取舍：
  * - 提取与渲染分离（commandExtractor 工具），便于复用与单测。
@@ -13,7 +10,8 @@
  * - hermes 执行器显式提示"不支持命令提取"，而不是悄悄返回空数组。
  */
 import { useMemo } from 'react';
-import { Empty, Tooltip, Tag, Alert } from 'antd';
+import { Alert } from 'antd';
+import { CodeOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import type { LogEntry, CommandEntry } from '@/types';
 import { extractCommandsByExecutor } from '@/utils/commandExtractor';
 import { CommandCard } from './CommandCard';
@@ -43,21 +41,65 @@ export function CommandPanel({ logs, executor }: CommandPanelProps) {
 
   if (commands.length === 0) {
     return (
-      <Empty
-        description="本次执行未捕获到可提取的 Bash 命令"
-        image={Empty.PRESENTED_IMAGE_SIMPLE}
-      />
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '48px 24px',
+        gap: 12,
+      }}>
+        <CodeOutlined style={{ fontSize: 32, color: 'var(--color-text-tertiary)' }} />
+        <div style={{
+          fontSize: 14,
+          color: 'var(--color-text-secondary)',
+          fontWeight: 500,
+        }}>
+          未捕获到可提取的 Bash 命令
+        </div>
+        <div style={{
+          fontSize: 12,
+          color: 'var(--color-text-tertiary)',
+          textAlign: 'center',
+          maxWidth: 320,
+        }}>
+          本次执行未产生 Bash / Shell 类工具调用，或日志格式不兼容当前提取器
+        </div>
+      </div>
     );
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }} data-testid="command-panel">
-      <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>
-        共 {commands.length} 条命令
-        <Tooltip title="按执行器协议逐条提取；跨调用-返回的关联失败时会按时间顺序配对">
-          <Tag style={{ marginLeft: 8 }} color="default">i</Tag>
-        </Tooltip>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }} data-testid="command-panel">
+      {/* 统计栏 */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '6px 12px',
+        borderRadius: 8,
+        background: 'var(--color-bg)',
+        border: '1px solid var(--color-border-light)',
+        fontSize: 12,
+        color: 'var(--color-text-tertiary)',
+      }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <CodeOutlined />
+          <span style={{ fontWeight: 500, color: 'var(--color-text-secondary)' }}>
+            共 {commands.length} 条命令
+          </span>
+        </span>
+        <span style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          fontSize: 11,
+        }}>
+          <InfoCircleOutlined />
+          按时间顺序配对
+        </span>
       </div>
+      {/* 命令卡片列表 */}
       {commands.map((cmd, idx) => (
         <CommandCard key={cmd.id || `cmd-${idx}`} command={cmd} index={idx} />
       ))}
