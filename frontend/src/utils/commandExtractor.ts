@@ -305,15 +305,19 @@ function fillCodexByFifo(
 ): void {
   const out = log.toolResult ?? log.content;
   const success = resultInput && (resultInput.status as string) === 'completed';
-  const paired = pairByOrder(commands, out, !success, log);
-  if (!paired) return;
-  // FIFO 配到的就是最后一条，把 result input 里的 exit_code / duration_ms 补上去
-  const last = commands[commands.length - 1];
+  // 找第一个 output 未填的命令（与 pairByOrder 一致），FIFO 命中可能是中间任何一条，
+  // 不能用 commands[length-1]（那是按 push 顺序的最后一条，可能早已被填过）。
+  const cmd = commands.find(c => c.output === undefined);
+  if (!cmd) return;
+  cmd.output = out;
+  cmd.success = !!success;
+  if (log.timestamp) cmd.timestamp = log.timestamp;
+  // 把 result input 里的 exit_code / duration_ms 写到真正命中的 cmd 上
   if (typeof resultInput?.exit_code === 'number') {
-    last.exitCode = resultInput.exit_code as number;
+    cmd.exitCode = resultInput.exit_code as number;
   }
   if (typeof resultInput?.duration_ms === 'number') {
-    last.durationMs = resultInput.duration_ms as number;
+    cmd.durationMs = resultInput.duration_ms as number;
   }
 }
 
@@ -411,7 +415,7 @@ function extractAtomcodeCommands(logs: LogEntry[]): CommandEntry[] {
     }
     const resultMatch = log.content.match(resultRe);
     if (resultMatch) {
-      applyAtomStderrResult(resultMatch, commands);
+      applyAtomStderrResult(resultMatch, log.content, commands);
     }
   }
   return commands;
@@ -445,12 +449,22 @@ function pushAtomStderrCall(callMatch: RegExpMatchArray, log: LogEntry, commands
 }
 
 /** atomcode 路径 2：从 `[tool← ... OK|ERROR Nms]` 行把状态写回最近同名的未完成命令 */
-function applyAtomStderrResult(resultMatch: RegExpMatchArray, commands: CommandEntry[]): void {
+function applyAtomStderrResult(
+  resultMatch: RegExpMatchArray,
+  fullContent: string,
+  commands: CommandEntry[],
+): void {
   const [, toolName, status, duration] = resultMatch;
   // 倒序找最近一个同名且 output 未填的命令，避免误填到早期同名调用
   for (let i = commands.length - 1; i >= 0; i--) {
     if (commands[i].toolName === toolName && commands[i].output === undefined) {
       commands[i].success = status === 'OK';
+      // stderr 行里 `[tool← ...]` 前缀之后剩下的内容就是命令的实际输出，
+      // 切掉前缀与紧随的换行，避免 UI 显示「无返回结果」
+      const prefix = resultMatch[0];
+      const idx = fullContent.indexOf(prefix);
+      const tail = idx >= 0 ? fullContent.slice(idx + prefix.length) : '';
+      commands[i].output = tail.replace(/^\r?\n/, '');
       if (duration) {
         const ms = parseDuration(duration);
         if (ms != null) commands[i].durationMs = ms;

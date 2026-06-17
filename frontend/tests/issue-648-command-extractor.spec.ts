@@ -8,13 +8,15 @@
  * - Claude / Agent / kimi / codex / pi / atomcode 的提取正确性
  * - extractCommandsByExecutor 的分派
  *
- * Playwright 跑在 headless 浏览器中，因此 Vite dev server 必须先启动
- * （在 18088 端口，ntd 项目的 dev 默认端口）。失败时打印详细 diff。
+ * Playwright 跑在 headless 浏览器中，因此 Vite dev server（npm run dev，5173 端口）
+ * 必须先启动。失败时打印详细 diff。
  */
 
 import { test, expect } from '@playwright/test';
 
-const DEV_URL = process.env.E2E_BASE_URL || 'http://localhost:18089';
+// 与 playwright.config.ts 的 baseURL 保持一致（Vite dev server 默认 5173），
+// 不要写成 18088（那是 `make dev` 起的后端 embedded 端口，不会暴露 /src/* 模块路径）。
+const DEV_URL = process.env.E2E_BASE_URL || 'http://localhost:5173';
 
 test.describe('commandExtractor — Issue #648', () => {
   test('parseJsonSafe 应在非法 JSON 上返回 null', async ({ page }) => {
@@ -165,6 +167,35 @@ test.describe('commandExtractor — Issue #648', () => {
     expect(result[0].success).toBe(true);
   });
 
+  test('codex FIFO 配对结果乱序时 exit_code / duration_ms 应写到真正命中的命令', async ({ page }) => {
+    // 回归测试：3 条命令依次 push；result 没有 toolCallId，按 FIFO 命中第一条未填的 cmd；
+    // 修复前会错误写到 commands[length-1]（最后一条），修复后应写到第 1 条。
+    await page.goto(DEV_URL);
+    const result = await page.evaluate(async () => {
+      const mod = await import('/src/utils/commandExtractor.ts');
+      const logs = [
+        { timestamp: 't1', type: 'tool_call', content: 'x', toolName: 'command_execution',
+          toolInputJson: JSON.stringify({ command: 'echo first' }) },
+        { timestamp: 't2', type: 'tool_call', content: 'x', toolName: 'command_execution',
+          toolInputJson: JSON.stringify({ command: 'echo middle' }) },
+        { timestamp: 't3', type: 'tool_call', content: 'x', toolName: 'command_execution',
+          toolInputJson: JSON.stringify({ command: 'echo last' }) },
+        { timestamp: 't4', type: 'tool_result', content: 'first-output', toolCallId: undefined,
+          toolInputJson: JSON.stringify({ exit_code: 0, status: 'completed', duration_ms: 50 }) },
+      ];
+      return mod.__test__.extractCodexCommands(logs);
+    });
+    expect(result).toHaveLength(3);
+    // FIFO 命中第一条（FIFO 配对只看 output 是否为空，与 push 顺序一致）
+    expect(result[0].output).toBe('first-output');
+    expect(result[0].exitCode).toBe(0);
+    expect(result[0].durationMs).toBe(50);
+    expect(result[0].success).toBe(true);
+    // 中间与最后一条不应被错误填充
+    expect(result[1].output).toBeUndefined();
+    expect(result[2].output).toBeUndefined();
+  });
+
   test('pi 应从 toolExecution.args.command 提取', async ({ page }) => {
     await page.goto(DEV_URL);
     const result = await page.evaluate(async () => {
@@ -201,6 +232,8 @@ test.describe('commandExtractor — Issue #648', () => {
     expect(result[0].command).toBe('ls -la');
     expect(result[0].success).toBe(true);
     expect(result[0].durationMs).toBe(39);
+    // stderr 行 `[tool← ...]` 前缀之后的剩余内容（命令实际输出）不应被吞掉
+    expect(result[0].output).toBe('file.txt');
   });
 
   test('extractCommandsByExecutor 应正确分派到各协议族', async ({ page }) => {
