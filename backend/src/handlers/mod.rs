@@ -931,8 +931,28 @@ pub fn create_app(
     // 避免出现两份 HookService 各自管自己内部状态、彼此观察不到对方 (见 issue #509)。
     hook_service: Arc<HookService>,
 ) -> Router {
+    // 把状态构造与中间件叠加分两步：先 build 再 merge，便于读者按"装配顺序"线性阅读
     let state = build_app_state(ctx, scheduler, hook_service);
 
+    Router::new()
+        .merge(mount_domain_routes())
+        .merge(project_directory::routes())
+        .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
+        .layer(CompressionLayer::new())
+        .layer(cors_layer())
+        // TraceLayer 闭包体已抽到 `make_request_span` 函数，这里直接传函数指针
+        .layer(TraceLayer::new_for_http().make_span_with(make_request_span))
+        // request_id 中间件放在 TraceLayer 之外（axum 的 layer 栈是后注册先生效），
+        // 这样 TraceLayer 创建的 span 上下文里就能拿到 request_id 字段；同时响应头
+        // 也由这一层写入 X-Request-Id，前端日志 / 上游网关可以和服务端对账。
+        .layer(axum::middleware::from_fn(propagate_request_id))
+        .with_state(state)
+}
+
+/// 把 18 个领域子路由函数合并成一个 Router 一次性 merge 进 `create_app`。
+/// `project_directory` 是另一个模块里实现的同名子路由（不在 18 个里），由 `create_app`
+/// 单独 merge，避免在跨模块拓扑变化时改这个函数。
+fn mount_domain_routes() -> Router<AppState> {
     Router::new()
         .merge(root_routes())
         .merge(todo_routes())
@@ -952,32 +972,25 @@ pub fn create_app(
         .merge(custom_template_routes())
         .merge(cloud_routes())
         .merge(events_routes())
-        .merge(project_directory::routes())
-        .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
-        .layer(CompressionLayer::new())
-        .layer(cors_layer())
-        // 自定义 span：把 request_id / method / uri 三个字段直接挂在 span 上，
-        // 这样 TraceLayer 默认的 on_request / on_response 日志、以及 handler 内部
-        // 所有 tracing::info! / tracing::warn! 输出，都会自动带 request_id 字段。
-        // request_id 来自 propagate_request_id 中间件写入的 extensions。
-        .layer(TraceLayer::new_for_http().make_span_with(|req: &Request| {
-            let request_id = req
-                .extensions()
-                .get::<RequestId>()
-                .map(|r| r.0.clone())
-                .unwrap_or_else(|| "-".to_string());
-            tracing::info_span!(
-                "http_request",
-                request_id = %request_id,
-                method = %req.method(),
-                uri = %req.uri(),
-            )
-        }))
-        // request_id 中间件放在 TraceLayer 之外（axum 的 layer 栈是后注册先生效），
-        // 这样 TraceLayer 创建的 span 上下文里就能拿到 request_id 字段；同时响应头
-        // 也由这一层写入 X-Request-Id，前端日志 / 上游网关可以和服务端对账。
-        .layer(axum::middleware::from_fn(propagate_request_id))
-        .with_state(state)
+}
+
+/// 给 TraceLayer 用的 span 工厂：把 `request_id` / `method` / `uri` 直接挂在 span 字段上，
+/// 这样 TraceLayer 默认的 on_request / on_response 日志、以及 handler 内部所有
+/// `tracing::info!` / `tracing::warn!` 输出都会自动带上 `request_id` 字段，便于按
+/// 调用链对账。`request_id` 来自 `propagate_request_id` 中间件写入的 extensions，
+/// 未拿到时退化为 `"-"`，避免 span 字段缺失导致的下游日志格式异常。
+fn make_request_span(req: &Request) -> tracing::Span {
+    let request_id = req
+        .extensions()
+        .get::<RequestId>()
+        .map(|r| r.0.clone())
+        .unwrap_or_else(|| "-".to_string());
+    tracing::info_span!(
+        "http_request",
+        request_id = %request_id,
+        method = %req.method(),
+        uri = %req.uri(),
+    )
 }
 
 /// 构造 `AppState` 并按需启动后台服务（feishu bot / stale binding cleanup / history fetcher /
@@ -1957,17 +1970,33 @@ mod create_app_refactor_tests {
     //! 测试目标不是"覆盖所有路由分支"，而是"验证拆分后函数签名/返回值/基本行为不变"。
     use super::*;
 
+    // 用 Mutex 串行化 NTD_MODE 环境变量操作，避免与 cargo test 默认多线程执行产生 data race
+    // （std::env::set_var 在多线程下非线程安全）。
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// `cors_layer()` 在 dev 模式 / 生产模式 都能正常构造而不 panic。
-    /// `is_dev_mode()` 由环境变量控制，单测里两种都覆盖：先 dev（默认），再切到 prod。
+    /// `is_dev_mode()` 由环境变量控制（`NTD_MODE=dev`），单测里两种都覆盖：
+    /// 先 dev（默认未设），再切到 prod，最后恢复现场。
     #[test]
     fn cors_layer_constructs_in_both_modes() {
-        // 默认 cargo test 不会设置 prod 环境变量，所以这里 dev 分支自然命中
+        // 取锁后整个测试内部对 NTD_MODE 的读写都串行，避免 cargo test 多线程下
+        // 与其它测试的 env var 写入产生竞争。
+        let _guard = ENV_LOCK.lock().expect("ENV_LOCK poisoned");
+
+        // dev 分支：默认未设 NTD_MODE，`is_dev_mode()` 返回 false → 走 if 分支
         let _dev_layer = cors_layer();
 
-        // 切到 prod：先保存原值，结束还原
-        // 实际上 `Config::is_dev_mode()` 看的是 env var / 用户目录，无法在单测内简单
-        // 反转；这里只断言 dev 分支能构造（prod 分支的 if 表达式用相同 CorsLayer API，
-        // 编译期已经过 type check）。
+        // 切到 prod：保存原值避免污染其它测试，结束还原
+        let prev = std::env::var("NTD_MODE").ok();
+        std::env::set_var("NTD_MODE", "prod");
+        // prod 分支会调用 Config::load() 读 cors_allowed_origins；
+        // Config::load 在无配置文件时会自动写一份默认配置到 ~/.ntd/config.yaml，
+        // 对单测环境无副作用。
+        let _prod_layer = cors_layer();
+        match prev {
+            Some(v) => std::env::set_var("NTD_MODE", v),
+            None => std::env::remove_var("NTD_MODE"),
+        }
     }
 
     /// 每个领域子路由函数都返回非空 `Router<AppState>`，不 panic。
@@ -2003,13 +2032,16 @@ mod create_app_refactor_tests {
     }
 
     /// 重构后 `create_app` 函数体大小合规：去除签名/空行/注释后应在 30 行以内
-    /// （CLAUDE.md 要求）。直接读源码并按行计 \n.{},} 等空白外的有效行。
+    /// （CLAUDE.md 要求）。直接读源码并按行计非空非注释行。
     #[test]
     fn create_app_function_body_is_under_30_lines() {
-        // 静态断言：以源码行号 [start, end) 作为契约
-        // 重新写 create_app 时必须同步更新这里的数字区间
-        const CREATE_APP_START: usize = 916; // pub fn create_app
-        const CREATE_APP_END: usize = 957;   // 闭括号
+        // 静态断言：以源码行号 [start, end) 作为契约，半开区间 [927, 951) 对应：
+        //   - CREATE_APP_START=927：`pub fn create_app` 所在行
+        //   - CREATE_APP_END=951：闭合大括号 `}` 所在行（不含），便于用 `..` 切片
+        // ⚠ 重新修改 `create_app` 函数体时，必须同步更新这两个常量。
+        // 这条契约存在的目的是：阻止 `create_app` 重新长成 312 行巨型函数（issue #661）。
+        const CREATE_APP_START: usize = 927; // pub fn create_app
+        const CREATE_APP_END: usize = 951;   // 闭括号 `}` 之后一行（半开区间）
         const BODY_LINES_BUDGET: usize = 30;
 
         let src = include_str!("mod.rs");
@@ -2018,7 +2050,7 @@ mod create_app_refactor_tests {
             .map(|i| lines.get(i - 1).copied().unwrap_or(""))
             .filter(|line| {
                 let trimmed = line.trim();
-                // 排除纯空行、纯注释行、纯括号行
+                // 排除纯空行、纯注释行
                 !trimmed.is_empty() && !trimmed.starts_with("//")
             })
             .count();
