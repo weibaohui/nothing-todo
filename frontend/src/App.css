@@ -706,6 +706,9 @@ body {
   border-radius: var(--radius-sm);
   font-size: 13px;
   word-break: break-all;
+  /* padding 过渡提到基础类上，折叠/展开两个方向都能平滑切换；
+     之前 transition 只挂在 .history-result-expanded 上，折叠方向会"啪"一下跳变。 */
+  transition: padding 0.15s ease;
 }
 
 .history-result-success {
@@ -716,6 +719,23 @@ body {
 .history-result-failed {
   background: var(--color-error-bg);
   color: var(--color-error);
+}
+
+/* issue #652: 折叠态下压缩到只剩一行头部，展开态保留正常内边距。
+   transition 已上移至 .history-result 基础类，折叠/展开两个方向都能平滑切换。 */
+.history-result-collapsed {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+/* Markdown 内容区域加一个轻量的出现动画，避免切换时生硬 */
+.conclusion-content {
+  animation: conclusion-fade-in 0.15s ease;
+}
+
+@keyframes conclusion-fade-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 /* ---------- Chat View ---------- */
