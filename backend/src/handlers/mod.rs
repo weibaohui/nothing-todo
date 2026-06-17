@@ -1979,24 +1979,40 @@ mod create_app_refactor_tests {
     /// 先 dev（默认未设），再切到 prod，最后恢复现场。
     #[test]
     fn cors_layer_constructs_in_both_modes() {
-        // 取锁后整个测试内部对 NTD_MODE 的读写都串行，避免 cargo test 多线程下
-        // 与其它测试的 env var 写入产生竞争。
+        // 取锁后整个测试内部对 NTD_MODE / HOME 的读写都串行，避免 cargo test 多线程下
+        // 与其它测试的 env var 写入产生竞争（std::env::set_var 在多线程下非线程安全）。
         let _guard = ENV_LOCK.lock().expect("ENV_LOCK poisoned");
+
+        // 把 HOME 重定向到临时目录，阻止 prod 分支的 `Config::load()` 写到
+        // ~/.ntd/config.yaml。TempDir 在 scope 结束时自动清理，测试结束连同
+        // 临时 config.yaml 一起消失，开发者本机 / CI runner 都不会留垃圾。
+        let tmp_home = tempfile::TempDir::new().expect("create tempdir for HOME");
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp_home.path());
+
+        let restore = |prev: Option<String>| {
+            match prev {
+                Some(v) => std::env::set_var("HOME", v),
+                None => std::env::remove_var("HOME"),
+            }
+            // tmp_home drop 删目录；显式 drop 避免 set_var 之后还残留 HOME
+            drop(tmp_home);
+        };
 
         // dev 分支：默认未设 NTD_MODE，`is_dev_mode()` 返回 false → 走 if 分支
         let _dev_layer = cors_layer();
 
         // 切到 prod：保存原值避免污染其它测试，结束还原
-        let prev = std::env::var("NTD_MODE").ok();
+        let prev_mode = std::env::var("NTD_MODE").ok();
         std::env::set_var("NTD_MODE", "prod");
         // prod 分支会调用 Config::load() 读 cors_allowed_origins；
-        // Config::load 在无配置文件时会自动写一份默认配置到 ~/.ntd/config.yaml，
-        // 对单测环境无副作用。
+        // 由于 HOME 已被重定向到 tmp_home，写入的 config.yaml 落在 tempdir 里。
         let _prod_layer = cors_layer();
-        match prev {
+        match prev_mode {
             Some(v) => std::env::set_var("NTD_MODE", v),
             None => std::env::remove_var("NTD_MODE"),
         }
+        restore(prev_home);
     }
 
     /// 每个领域子路由函数都返回非空 `Router<AppState>`，不 panic。
