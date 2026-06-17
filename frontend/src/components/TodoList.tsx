@@ -122,8 +122,12 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
 
   const filteredTodos = useMemo(() => {
     // 先按标签过滤
-    let result = selectedTagId
-      ? todos.filter(t => (t as any).tag_ids?.includes(selectedTagId))
+    // 按选中标签过滤：直接读 Todo.tag_ids 即可，
+    // 不需要 `as any` — Todo 类型已在 frontend/src/types/todo.ts 中声明该字段。
+    // 显式用 `!== null` 判定而不是真值判断：selectedTagId 类型是 number | null，
+    // 0 是合法 id，truthy 判定会把合法的 0 当作「未选中」而错误地跳过过滤。
+    let result = selectedTagId !== null
+      ? todos.filter(t => t.tag_ids?.includes(selectedTagId))
       : todos;
     
     // 再按关键字搜索（匹配标题或提示词）
@@ -255,7 +259,9 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
 
   // 抽离 Todo 行渲染，平铺与分组两个模式共用，避免重复代码
   const renderTodoItem = (todo: Todo) => {
-    const todoTags = ((todo as any).tag_ids as number[] | undefined)?.map(id => tagMap.get(id)).filter((t): t is typeof tags[0] => !!t) ?? [];
+    // tag_ids 在 Todo 类型中是必填 number[]，但历史接口偶发返回缺失字段，
+    // 所以用可选链 + 空数组兜底，避免运行时崩溃。
+    const todoTags = todo.tag_ids?.map(id => tagMap.get(id)).filter((t): t is typeof tags[0] => !!t) ?? [];
     const primaryTag = todoTags[0];
     const isCompleted = todo.status === 'completed';
     const relativeTime = formatRelativeTime(todo.updated_at);
