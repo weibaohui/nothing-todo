@@ -87,6 +87,8 @@ test.describe('可折叠结论 — Issue #652', () => {
     const toggle = page.locator('[data-testid="conclusion-toggle"]');
     await expect(toggle).toContainText('字');
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    // aria-controls 指向内容区域 id（WAI-ARIA disclosure pattern）
+    await expect(toggle).toHaveAttribute('aria-controls', 'conclusion-content-default');
 
     // 截图：默认展开
     await container.screenshot({
@@ -200,10 +202,9 @@ test.describe('可折叠结论 — Issue #652', () => {
     // 拦截 clipboard 写入（在浏览器里通过 permissions 提前允许）
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
     await page.locator('[data-testid="conclusion-copy"]').click();
-    // 不验证 messageApi 的具体内容（mock 化），只确保点击不报错
-    const errors: string[] = [];
-    page.on('pageerror', e => errors.push(e.message));
-    await page.waitForTimeout(200);
-    expect(errors).toEqual([]);
+    // 真正读剪贴板断言内容一致，比单纯"无报错"更严格。
+    // 防止 copyToClipboard 静默吞错时用例仍能通过（PR #475 的同类教训）。
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copied).toBe('需要复制的结论内容');
   });
 });

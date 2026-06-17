@@ -32,6 +32,9 @@ const HEADER_GAP = 8;
 // 折叠态下，整块被压缩到只剩一行头部；展开态保留 marginBottom 与内层 Markdown 容器
 const CONTAINER_MARGIN_BOTTOM = 12;
 
+// toggle 按钮与正文内容区的 id 关联前缀；拼上 recordId 防止同一页多条记录冲突
+const CONTENT_ID_PREFIX = 'conclusion-content-';
+
 export interface CollapsibleConclusionProps {
   /** Markdown 文本，来自 ExecutionRecord.result */
   result: string;
@@ -105,13 +108,13 @@ export function CollapsibleConclusion({
     setCollapsed(stored ?? false);
   }, [storageKey]);
 
-  // 切换折叠态：写本地状态 + 持久化到 localStorage
+  // 切换折叠态：写本地状态 + 持久化到 localStorage。
+  // 不把副作用塞进 setState updater：React 18 StrictMode / 并发模式下
+  // updater 会被多次调用，副作用写在 updater 内会重复写 localStorage。
   const toggle = () => {
-    setCollapsed(prev => {
-      const next = !prev;
-      writeCollapsedState(storageKey, next);
-      return next;
-    });
+    const next = !collapsed;
+    setCollapsed(next);
+    writeCollapsedState(storageKey, next);
   };
 
   // 复制 Markdown 源文到剪贴板；统一走 copyToClipboard，兼容 HTTP 环境
@@ -131,6 +134,10 @@ export function CollapsibleConclusion({
   const statusClass = status === 'success'
     ? 'history-result-success'
     : 'history-result-failed';
+
+  // 内容区域 id，供 toggle 按钮 aria-controls 关联（WAI-ARIA disclosure pattern）。
+  // 未提供 recordId 时用 'default'，避免出现在多记录场景下 id 冲突。
+  const contentId = `${CONTENT_ID_PREFIX}${recordId ?? 'default'}`;
 
   return (
     <div
@@ -154,6 +161,7 @@ export function CollapsibleConclusion({
           onClick={toggle}
           icon={collapsed ? <CaretDownOutlined /> : <CaretUpOutlined />}
           aria-expanded={!collapsed}
+          aria-controls={contentId}
           aria-label={collapsed ? '展开结论' : '折叠结论'}
           data-testid="conclusion-toggle"
           style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '0 8px' }}
@@ -192,7 +200,11 @@ export function CollapsibleConclusion({
         />
       </div>
       {!collapsed && (
-        <div className="conclusion-content" data-testid="conclusion-content">
+        <div
+          id={contentId}
+          className="conclusion-content"
+          data-testid="conclusion-content"
+        >
           <XMarkdown content={result} />
         </div>
       )}
