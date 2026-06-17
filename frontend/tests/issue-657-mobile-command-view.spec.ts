@@ -197,4 +197,58 @@ test.describe('issue #657 — 窄屏命令视图', () => {
     expect(cmdText).toContain('git pull origin main');
     expect(cmdText).toContain('共 2 条命令');
   });
+
+  // 修复 PR #658 复查 HIGH#2：用户主动折叠后切到「命令」视图应保持折叠。
+  // 修复前 useEffect 会无脑 setIsExpanded(true) 覆盖用户行为。
+  test('NarrowLogView 用户手动折叠后切到命令视图应保持折叠', async ({ page }) => {
+    await mountAndRead(page, {
+      component: 'NarrowLogView',
+      logs: SAMPLE_LOGS,
+      executor: 'claudecode',
+      viewMode: 'chat',
+      recordId: 43,
+    });
+
+    // 初始 chat 视图：useEffect 应自动展开
+    const chatOpen = await page.evaluate(() => {
+      const d = document.querySelector('#test-target details');
+      return d ? d.hasAttribute('open') : false;
+    });
+    expect(chatOpen).toBe(true);
+
+    // 模拟用户主动折叠 details
+    await page.evaluate(() => {
+      const d = document.querySelector('#test-target details') as HTMLDetailsElement | null;
+      if (d) {
+        d.open = false;
+        d.dispatchEvent(new Event('toggle'));
+      }
+    });
+    await page.waitForTimeout(150);
+    const afterCollapse = await page.evaluate(() => {
+      const d = document.querySelector('#test-target details');
+      return d ? d.hasAttribute('open') : false;
+    });
+    expect(afterCollapse).toBe(false);
+
+    // 切到「命令」视图：userCollapsedRef=true，应保持闭合
+    await page.locator('#test-target .ant-segmented-item:has-text("命令")').first().click();
+    await page.waitForTimeout(300);
+    const afterCommand = await page.evaluate(() => {
+      const d = document.querySelector('#test-target details');
+      return d ? d.hasAttribute('open') : false;
+    });
+    expect(afterCommand).toBe(false);
+
+    // 切回 log 视图后重置 ref，再切到 command 仍能自动展开
+    await page.locator('#test-target .ant-segmented-item:has-text("日志")').first().click();
+    await page.waitForTimeout(300);
+    await page.locator('#test-target .ant-segmented-item:has-text("命令")').first().click();
+    await page.waitForTimeout(300);
+    const afterReset = await page.evaluate(() => {
+      const d = document.querySelector('#test-target details');
+      return d ? d.hasAttribute('open') : false;
+    });
+    expect(afterReset).toBe(true);
+  });
 });
