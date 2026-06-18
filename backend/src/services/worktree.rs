@@ -15,7 +15,7 @@
 //! - 所有同步 git 调用统一走 `run_git_with_timeout` 包装，避免在 lock / I/O hang 时
 //!   阻塞调用方线程。超时后会主动 `kill` 子进程并返回 WorktreeError::GitTimeout。
 //! - worktree 目录名格式：`<todo_id>-<yymmddHHMMss>-<rand8>`。用 `yymmddHHMMss`（可读时间）
-//!   + 8 hex 字符（uuid::Uuid::new_v4 前 8 位）确保唯一性。
+//!   + 8 hex 字符（UUIDv4 高 32 bit）确保唯一性。
 //! - `cleanup_worktree` 在目录已不存在或 `git worktree remove` 失败时**不报错**：
 //!   用户手动删除或 git 元数据丢失时，让"清理"成为幂等 no-op 而非阻塞执行结果。
 
@@ -223,14 +223,15 @@ impl WorktreeService {
             self.ensure_empty_commit(project_path)?;
         }
 
-        // 生成唯一标识：`yymmddHHMMss` 格式时间戳 + 8 hex 随机数（取 uuid::Uuid::new_v4 前 8 位），
-        // 目录名和分支名共享同一标识，确保 cleanup 时能对应。
+        // 生成唯一标识：`yymmddHHMMss` 时间戳 + 8 hex 随机数（UUIDv4 高 32 bit）。
+        // 目录名与分支名共享同一 identity 仅便于 `git worktree list` 人肉对账；
+        // cleanup 通过 .git 文件里的 gitdir 指针定位主仓，不需要解析 identity。
         let identity = Self::mint_identity();
         let worktree_dir = PathBuf::from(project_path)
             .join(WORKTREE_ROOT_DIR)
             .join(format!("{}-{}", todo_id, &identity));
         if worktree_dir.exists() {
-            // 同名目录已存在（todo_id 复用 + 上一轮 cleanup 未跑 / 32-bit uuid 碰撞）——
+            // 同名目录已存在（典型场景：上一轮 cleanup 未跑 / 同 todo_id 跨进程并发创建竞争）——
             // 不再静默复用：复用「脏」目录会让新执行继承上一次留下的未追踪文件 / 残留分支，
             // 把问题推迟到执行末段更难排查。这里返回 Err 让上层 `resolve_worktree_context`
             // 走 `WorktreeContext::default()` 回退到原始 workspace。
@@ -336,25 +337,17 @@ impl WorktreeService {
         }
     }
 
-    /// worktree 目录的绝对路径（不含创建动作），便于单测与日志展示。
-    /// 格式：`<project>/.worktrees/<todo_id>-<identity>`。
-    /// `identity` 应来自 `Self::mint_identity()`。
-    pub fn worktree_path(&self, project_path: &str, todo_id: i64, identity: &str) -> PathBuf {
-        PathBuf::from(project_path)
-            .join(WORKTREE_ROOT_DIR)
-            .join(format!("{}-{}", todo_id, identity))
-    }
-
     /// 生成 worktree 目录/分支名的唯一标识后缀。
     ///
     /// 格式：`<yymmddHHMMss>-<8 hex>`，例如 `260618043952-a3f12b4c`。
     /// - `yymmddHHMMss`：UTC 时间的紧凑可读形式，不包含 `-` `:` `.` 等非法分支名字符。
-    /// - 8 hex 字符取 UUIDv4 前 8 位（16^8 = 4G 空间），使用 OS CSPRNG，无模偏置。
+    /// - 8 hex 字符取 UUIDv4 高 32 bit（16^8 = 4G 空间），使用 OS CSPRNG，无模偏置；
+    ///   直接用 `as_u128() >> 96` 抽位，不依赖 `simple()` 的字符串格式。
     /// 分支名 = `wt-{todo_id}-{identity}`，目录名 = `{todo_id}-{identity}`。
     fn mint_identity() -> String {
         let now = chrono::Utc::now();
         let ts = now.format("%y%m%d%H%M%S").to_string();
-        let rand8 = Uuid::new_v4().simple().to_string()[..8].to_string();
+        let rand8 = format!("{:08x}", Uuid::new_v4().as_u128() >> 96);
         format!("{}-{}", ts, rand8)
     }
 
@@ -504,24 +497,35 @@ mod tests {
             .expect("re-call should be noop");
     }
 
-    /// worktree_path 不依赖文件系统状态，只把 todo_id 拼进路径里。
+    /// 验证 mint_identity 输出格式稳定：12 位数字 + '-' + 8 位小写 hex。
+    /// 不再硬编码字面量——直接调 mint_identity 并解析结果，格式漂移会立刻 fail。
     #[test]
-    fn test_worktree_path_format() {
-        let svc = WorktreeService::new();
-        let identity = "260618043952-a3f12b4c";
-        let p = svc.worktree_path("/tmp/proj", 42, identity);
-        let s = p.to_string_lossy();
-        assert_eq!(s, "/tmp/proj/.worktrees/42-260618043952-a3f12b4c");
+    fn test_mint_identity_format() {
+        let id = WorktreeService::mint_identity();
+        assert_eq!(id.len(), 21, "identity 应该是 21 字符，实际: {}", id);
+        assert_eq!(id.chars().nth(12), Some('-'), "分隔符应在第 12 位，实际: {}", id);
+        let (ts, rand) = id.split_once('-').expect("包含 '-' 分隔符");
+        assert_eq!(ts.len(), 12, "时间戳 12 位数字，实际: {}", ts);
+        assert_eq!(rand.len(), 8, "随机段 8 位 hex，实际: {}", rand);
+        assert!(ts.chars().all(|c| c.is_ascii_digit()), "时间戳全数字，实际: {}", ts);
+        assert!(
+            rand.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')),
+            "随机段全小写 hex，实际: {}",
+            rand
+        );
     }
 
-    /// 验证 mint_identity 在 1 秒内 500 次调用无碰撞。
-    /// 如果 uuid 或时间戳退化，这里会暴露。
+    /// 验证 mint_identity 在 1 秒内 1000 次调用无碰撞。
+    /// 1000 次足以暴露 UUIDv4 退化（如 random 写死 0）；跨秒时 timestamp 也会
+    /// 变化，所以「跨秒后靠 timestamp」不会让退化场景漏检——但理论上无法区分
+    /// 「rand 退化被 timestamp 救」和「rand 真的够随机」。足够覆盖本 PR 的
+    /// 「不撞」立论即可。
     #[test]
     fn test_mint_identity_uniqueness_within_one_second() {
         let mut seen = std::collections::HashSet::new();
-        for _ in 0..500 {
+        for _ in 0..1000 {
             let id = WorktreeService::mint_identity();
-            assert!(seen.insert(id), "collision within 500 calls");
+            assert!(seen.insert(id), "collision within 1000 calls");
         }
     }
 
@@ -553,6 +557,28 @@ mod tests {
             .expect("create worktree");
         let wt_path = PathBuf::from(&wt);
         assert!(wt_path.exists(), "worktree dir should exist after create");
+        // 验证 create_worktree 产出的路径格式：<project>/.worktrees/1-<12digits>-<8hex>
+        // 走真实生产路径，覆盖 inline 在 create_worktree 里的 format 串；
+        // 替代旧版 test_worktree_path_format（用字面量、未调 mint_identity 的假阳测试）。
+        let wt_name = wt_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .expect("worktree dir name utf8");
+        let parts: Vec<&str> = wt_name.split('-').collect();
+        assert_eq!(parts.len(), 3, "expected 3 '-'-separated parts, got: {}", wt_name);
+        assert_eq!(parts[0], "1", "todo_id 前缀不匹配, got: {}", wt_name);
+        assert_eq!(parts[1].len(), 12, "timestamp 应 12 位, got: {}", parts[1]);
+        assert!(
+            parts[1].chars().all(|c| c.is_ascii_digit()),
+            "timestamp 全数字, got: {}",
+            parts[1]
+        );
+        assert_eq!(parts[2].len(), 8, "random 应 8 位, got: {}", parts[2]);
+        assert!(
+            parts[2].chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')),
+            "random 全小写 hex, got: {}",
+            parts[2]
+        );
         // .worktrees 子目录在主仓下应当存在
         let wt_root = dir.path().join(WORKTREE_ROOT_DIR);
         assert!(wt_root.exists(), ".worktrees root should be created");
