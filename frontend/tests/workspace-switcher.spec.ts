@@ -11,7 +11,9 @@
 
 import { test, expect, chromium } from '@playwright/test';
 
-const DEV_URL = process.env.E2E_BASE_URL || 'http://localhost:5173';
+// CLAUDE.md 规定 dev server 默认监听 18088（不是 Vite 默认的 5173），
+// 把 fallback 从 5173 改成 18088，避免直接 `npx playwright test` 时连不上 dev 服务。
+const DEV_URL = process.env.E2E_BASE_URL || 'http://localhost:18088';
 
 test.describe('工作空间选择器', () => {
   test('选择器正确显示在搜索框上方', async () => {
