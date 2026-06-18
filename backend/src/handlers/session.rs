@@ -2073,9 +2073,10 @@ mod session_scanner_dispatch_tests {
 
     /// 重构前的 match 显式列出"无 session 存储"的 executor 名 (codebuddy 等)
     /// 也应当返 None;行为必须与原来逐分支对照一致。
+    /// Issue #673 新增的 zhanlu 也属于「暂无 scanner」的范畴,与 opencode/mimo 同列。
     #[test]
     fn get_scanner_returns_none_for_unsupported_executors() {
-        for name in ["codebuddy", "opencode", "mobilecoder", "mimo"] {
+        for name in ["codebuddy", "opencode", "mobilecoder", "mimo", "zhanlu"] {
             assert!(
                 get_scanner(name).is_none(),
                 "scanner for {name} should be None (no session storage found)"
@@ -2275,8 +2276,9 @@ mod session_scanner_tests {
             assert!(get_scanner(name).is_some(), "scanner {name} should be registered");
             assert_eq!(get_scanner(name).unwrap().name(), name);
         }
-        // 旧 match 中显式 None 的几个 executor 继续走 None 分支
-        for name in ["codebuddy", "opencode", "mobilecoder", "mimo", "unknown", ""] {
+        // 旧 match 中显式 None 的几个 executor 继续走 None 分支；
+        // Issue #673 新增的 zhanlu 同样不在 SCANNERS 内（与 opencode/mimo 一致）
+        for name in ["codebuddy", "opencode", "mobilecoder", "mimo", "zhanlu", "unknown", ""] {
             assert!(get_scanner(name).is_none(), "scanner {name} should NOT be registered");
         }
     }

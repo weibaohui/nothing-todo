@@ -36,6 +36,9 @@ pub fn executor_skills_dir_str(et: &str) -> Option<PathBuf> {
         "mobilecoder" => Some(home.join(".mobile-coder").join("skills")),
         "pi" => Some(home.join(".pi").join("skills")),
         "mimo" => Some(home.join(".local/share/mimocode").join("skills")),
+        // Zhanlu: Issue #673 新增执行器，session 路径为 ~/.local/share/zhanlu/storage，
+        // skills 目录与 session 目录同根
+        "zhanlu" => Some(home.join(".local/share/zhanlu").join("skills")),
         // agents 是只读 skill 来源：扫描但不参与执行器管理/Todo 执行
         "agents" => Some(home.join(".agents").join("skills")),
         _ => None,
@@ -125,12 +128,15 @@ fn executor_label(et: ExecutorType) -> &'static str {
         ExecutorType::Codewhale => "CodeWhale",
         ExecutorType::Pi => "Pi",
         ExecutorType::Mimo => "MiMo",
+        ExecutorType::Zhanlu => "Zhanlu",
     }
 }
 
 // 保留 ALL_EXECUTORS 供其他可能用到的代码；新代码请用 ALL_SKILL_SOURCES
+// 12 = 10 个旧执行器 + Mimo (PR #669) + Issue #673 新增的 Zhanlu
+// 注意：加新执行器必须同时更新下面数组与本注释的计数，否则会出现 H1 同型错位。
 #[allow(dead_code)]
-const ALL_EXECUTORS: [ExecutorType; 10] = [
+const ALL_EXECUTORS: [ExecutorType; 12] = [
     ExecutorType::Claudecode,
     ExecutorType::Hermes,
     ExecutorType::Codex,
@@ -141,6 +147,8 @@ const ALL_EXECUTORS: [ExecutorType; 10] = [
     ExecutorType::Mobilecoder,
     ExecutorType::Codewhale,
     ExecutorType::Pi,
+    ExecutorType::Mimo,
+    ExecutorType::Zhanlu,
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -491,7 +499,7 @@ fn discover_skills_for_executor(et: ExecutorType) -> ExecutorSkills {
 const ALL_SKILL_SOURCES: &[&str] = &[
     "claudecode", "codebuddy", "opencode", "atomcode",
     "hermes", "kimi", "mobilecoder", "codex",
-    "pi", "mimo",
+    "pi", "mimo", "zhanlu",
     "agents",
 ];
 
@@ -519,7 +527,7 @@ fn executor_label_for_source(name: &str) -> &'static str {
 ///
 /// GET /api/skills - List skills grouped by executor
 ///
-/// 扫描 8 个 ExecutorType 之外，还扫 `~/.agents/skills`（只读 skill 来源）。
+/// 扫描 11 个 ExecutorType 之外，还扫 `~/.agents/skills`（只读 skill 来源）。
 /// agents 不参与 Todo 执行，但能在 Skills 总览/对比/同步里看到并使用。
 ///
 /// 实现选择：每个来源的目录 IO 放在 `spawn_blocking` 里跑，
@@ -529,7 +537,7 @@ pub async fn list_skills(
 ) -> Result<ApiResponse<Vec<ExecutorSkills>>, AppError> {
     // spawn_blocking：磁盘 IO 不能跑在 tokio reactor 上，否则会卡住其他请求
     let result = tokio::task::spawn_blocking(move || {
-        // 顺序遍历 10 个来源：单次调用只 IO 一次，顺序 vs 并行收益不大，
+        // 顺序遍历 12 个来源：单次调用只 IO 一次，顺序 vs 并行收益不大，
         // 而且顺序能保证响应里 source 顺序稳定，方便前端按位置渲染 Tab
         ALL_SKILL_SOURCES
             .iter()

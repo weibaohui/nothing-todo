@@ -133,10 +133,22 @@ pub static EXECUTORS: &[ExecutorDef] = &[
         session_dir: "~/.local/share/mimocode",
         aliases: &["mimocode"],
     },
+    ExecutorDef {
+        // Zhanlu: Issue #673 新增的执行器，行为与 opencode 完全一致。
+        // binary_name / default_path 都走 PATH 解析（统一为 `zl`），
+        // session 目录是 ~/.local/share/zhanlu/storage。
+        name: "zhanlu",
+        executor_type: ExecutorType::Zhanlu,
+        binary_name: "zl",
+        display_name: "Zhanlu",
+        default_path: "zl",
+        session_dir: "~/.local/share/zhanlu/storage",
+        aliases: &["zhanlucode", "zl"],
+    },
 ];
 
 /// 支持继续对话的执行器集合（与前端 RESUMABLE_EXECUTORS 保持一致）
-pub const RESUMABLE_EXECUTORS: &[&str] = &["claudecode", "kimi", "opencode", "mobilecoder", "hermes", "codewhale", "pi", "mimo"];
+pub const RESUMABLE_EXECUTORS: &[&str] = &["claudecode", "kimi", "opencode", "mobilecoder", "hermes", "codewhale", "pi", "mimo", "zhanlu"];
 
 /// 默认执行器
 pub const DEFAULT_EXECUTOR: &str = "claudecode";
@@ -289,6 +301,8 @@ pub mod pi;
 pub mod pi_event;
 pub mod mimo;
 pub mod mimo_event;
+pub mod zhanlu;
+pub mod zhanlu_event;
 
 #[async_trait]
 pub trait CodeExecutor: Send + Sync {
@@ -409,6 +423,7 @@ impl ExecutorRegistry {
             "codewhale" => Arc::new(codewhale::CodewhaleExecutor::new(path.to_string())),
             "pi" => Arc::new(pi::PiExecutor::new(path.to_string())),
             "mimo" => Arc::new(mimo::MimoExecutor::new(path.to_string())),
+            "zhanlu" => Arc::new(zhanlu::ZhanluExecutor::new(path.to_string())),
             _ => return None,
         };
         Some(executor)
@@ -483,6 +498,16 @@ mod tests {
         assert_eq!(parse_executor_type("mimo"), Some(ExecutorType::Mimo));
         assert_eq!(parse_executor_type("MIMO"), Some(ExecutorType::Mimo));
         assert_eq!(parse_executor_type("mimocode"), Some(ExecutorType::Mimo));
+    }
+
+    #[test]
+    fn test_parse_executor_type_zhanlu() {
+        // Issue #673: zhanlu 必须能被 parse_executor_type 解析为 ExecutorType::Zhanlu
+        // 同时别名 zhanlucode / zl 也能解析到 Zhanlu
+        assert_eq!(parse_executor_type("zhanlu"), Some(ExecutorType::Zhanlu));
+        assert_eq!(parse_executor_type("ZHANLU"), Some(ExecutorType::Zhanlu));
+        assert_eq!(parse_executor_type("zhanlucode"), Some(ExecutorType::Zhanlu));
+        assert_eq!(parse_executor_type("zl"), Some(ExecutorType::Zhanlu));
     }
 
     #[test]

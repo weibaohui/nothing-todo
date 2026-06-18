@@ -168,6 +168,9 @@ export const EXECUTORS: ExecutorOption[] = [
   { value: 'codewhale',  label: 'CodeWhale', color: '#00cec9', icon: <FaSquare color="#00cec9" size={14} /> },
   { value: 'pi',        label: 'Pi',        color: '#8e44ad', icon: <FaSquare color="#8e44ad" size={14} /> },
   { value: 'mimo',      label: 'MiMo',      color: '#ff6b6b', icon: <FaSquare color="#ff6b6b" size={14} /> },
+  // Issue #673: 新增 Zhanlu 执行器，与 Opencode 输出格式一致
+  // 颜色与下方 EXECUTOR_COLORS.zhanlu 同步为 #0f766e，与 agents(#2d3436) 视觉可分。
+  { value: 'zhanlu',    label: 'Zhanlu',    color: '#0f766e', icon: <FaSquare color="#0f766e" size={14} /> },
   // `agents` is read-only skill source (`~/.agents/skills`), not shown in executor management.
   // Included here so it appears in Skills overview/sync tabs.
   { value: 'agents',     label: 'Agents',    color: '#2d3436', icon: <FaSquare color="#2d3436" size={14} /> },
@@ -185,6 +188,9 @@ export const EXECUTOR_COLORS: Record<string, string> = {
   codewhale: '#00cec9',
   pi: '#8e44ad',
   mimo: '#ff6b6b',
+  // Issue #673 + PR #677 review H1：zhanlu 颜色与 agents 撞色（都是 #2d3436），
+  // 改为深青 `#0f766e` 与 opencode 的 `#fdcb6e` / agents 的 `#2d3436` 视觉可分。
+  zhanlu: '#0f766e',
   agents: '#2d3436',
   // Aliases for backward compatibility with database names
   'claude_code': '#e17055',
@@ -203,7 +209,7 @@ export function getExecutorOption(value: string): ExecutorOption {
   return EXECUTORS.find(e => e.value === value.toLowerCase()) || EXECUTORS[0];
 }
 
-export const RESUMABLE_EXECUTORS = new Set(['claudecode', 'kimi', 'opencode', 'mobilecoder', 'hermes', 'codewhale', 'pi', 'mimo']);
+export const RESUMABLE_EXECUTORS = new Set(['claudecode', 'kimi', 'opencode', 'mobilecoder', 'hermes', 'codewhale', 'pi', 'mimo', 'zhanlu']);
 
 /// 默认执行器
 export const DEFAULT_EXECUTOR = 'claudecode';

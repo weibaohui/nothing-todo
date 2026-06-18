@@ -32,6 +32,7 @@
 
 - `claude_code.rs`：Claude 风格 stream-json。
 - `opencode.rs`：事件流中包含 step、tool、text、tokens。
+- `zhanlu.rs`：与 opencode 完全一致的协议族（Issue #673 直接复制而成），后续可能演化独立。
 - `kimi.rs`：OpenAI chat message 风格 JSONL。
 - `codex.rs`：宽松解析不同 JSONL 事件字段。
 

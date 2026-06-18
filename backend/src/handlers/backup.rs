@@ -1125,6 +1125,8 @@ fn all_executor_skills_dirs() -> Vec<(&'static str, PathBuf)> {
         ("atomcode", home.join(".atomcode").join("skills")),
         ("kimi", home.join(".kimi").join("skills")),
         ("mobilecoder", home.join(".mobile-coder").join("skills")),
+        // Issue #673: Zhanlu skills 目录在 ~/.local/share/zhanlu/skills
+        ("zhanlu", home.join(".local/share/zhanlu").join("skills")),
     ]
 }
 

@@ -123,6 +123,8 @@ mod executor_type_tests {
         assert_eq!(ExecutorType::Mobilecoder.to_string(), "mobilecoder");
         assert_eq!(ExecutorType::Codebuddy.to_string(), "codebuddy");
         assert_eq!(ExecutorType::Codex.to_string(), "codex");
+        // Issue #673: Zhanlu 应当序列化为 "zhanlu"
+        assert_eq!(ExecutorType::Zhanlu.to_string(), "zhanlu");
     }
 
     #[test]
@@ -137,6 +139,10 @@ mod executor_type_tests {
         assert_eq!(parse_executor_type("mobilecoder"), Some(ExecutorType::Mobilecoder));
         assert_eq!(parse_executor_type("codebuddy"), Some(ExecutorType::Codebuddy));
         assert_eq!(parse_executor_type("codex"), Some(ExecutorType::Codex));
+        // Issue #673: parse_executor_type 必须能识别 zhanlu（含别名 zhanlucode / zl）
+        assert_eq!(parse_executor_type("zhanlu"), Some(ExecutorType::Zhanlu));
+        assert_eq!(parse_executor_type("zhanlucode"), Some(ExecutorType::Zhanlu));
+        assert_eq!(parse_executor_type("zl"), Some(ExecutorType::Zhanlu));
     }
 
     #[test]
