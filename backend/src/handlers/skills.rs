@@ -133,7 +133,8 @@ fn executor_label(et: ExecutorType) -> &'static str {
 }
 
 // 保留 ALL_EXECUTORS 供其他可能用到的代码；新代码请用 ALL_SKILL_SOURCES
-// 12 = 11 个旧执行器 + Issue #673 新增的 Zhanlu
+// 12 = 10 个旧执行器 + Mimo (PR #669) + Issue #673 新增的 Zhanlu
+// 注意：加新执行器必须同时更新下面数组与本注释的计数，否则会出现 H1 同型错位。
 #[allow(dead_code)]
 const ALL_EXECUTORS: [ExecutorType; 12] = [
     ExecutorType::Claudecode,
