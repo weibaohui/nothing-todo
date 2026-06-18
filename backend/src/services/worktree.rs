@@ -200,7 +200,7 @@ impl WorktreeService {
         Ok(())
     }
 
-    /// 基于 `<project>/.worktrees/<todo_id>-<yymmddHHMMss>-<rand4>/` 下创建 worktree。
+    /// 基于 `<project>/.worktrees/<todo_id>-<yymmddHHMMss>-<rand8>/` 下创建 worktree。
     ///
     /// 如果当前分支还不存在（仓库刚 init），则先建一个空 commit 避免
     /// `git worktree add` 报 "fatal: invalid reference"。
@@ -223,15 +223,15 @@ impl WorktreeService {
             self.ensure_empty_commit(project_path)?;
         }
 
-        // 生成唯一标识：`yymmddHHMMss` 格式时间戳 + 4 位随机数（使用 rand 生成），
+        // 生成唯一标识：`yymmddHHMMss` 格式时间戳 + 8 hex 随机数（取 uuid::Uuid::new_v4 前 8 位），
         // 目录名和分支名共享同一标识，确保 cleanup 时能对应。
         let identity = Self::mint_identity();
         let worktree_dir = PathBuf::from(project_path)
             .join(WORKTREE_ROOT_DIR)
             .join(format!("{}-{}", todo_id, &identity));
         if worktree_dir.exists() {
-            // 同名目录已存在（todo_id 复用 + 同一秒纳秒碰撞）——不再静默复用：
-            // 复用「脏」目录会让新执行继承上一次留下的未追踪文件 / 残留分支，
+            // 同名目录已存在（todo_id 复用 + 上一轮 cleanup 未跑 / 32-bit uuid 碰撞）——
+            // 不再静默复用：复用「脏」目录会让新执行继承上一次留下的未追踪文件 / 残留分支，
             // 把问题推迟到执行末段更难排查。这里返回 Err 让上层 `resolve_worktree_context`
             // 走 `WorktreeContext::default()` 回退到原始 workspace。
             warn!(
