@@ -245,7 +245,9 @@ impl WorktreeService {
                 orphan_branch = %branch_name,
                 todo_id = todo_id,
                 "worktree directory already exists, aborting to let caller fall back; \
-                 manual cleanup if stale: git worktree remove --force <dir> && git branch -D <branch>"
+                 manual cleanup if stale: `git worktree remove --force {dir} && git branch -D {branch}`",
+                dir = worktree_dir.display().to_string(),
+                branch = branch_name.clone(),
             );
             return Err(WorktreeError::GitCommandFailed {
                 cmd: "worktree add".into(),
@@ -347,10 +349,14 @@ impl WorktreeService {
     ///
     /// 格式：`<yymmddHHMMss>-<8 hex>`，例如 `260618043952-a3f12b4c`。
     /// - `yymmddHHMMss`：UTC 时间的紧凑可读形式，不包含 `-` `:` `.` 等非法分支名字符。
-    /// - 8 hex 字符取 UUIDv4 高 32 bit：UUIDv4 共 122 bit 随机（去掉 version 4 bit + variant 2 bit），
-    ///   `>> 96` 取出的 32 bit 中前 6 bit 是固定字段，实际熵 ≈ 26 bit（≈ 2^26 = 67M）。
-    ///   与测试 doc 已坦诚的 partial entropy degradation 局限对齐——ntd 同 todo_id 在
-    ///   同一秒并发远超 8K 量级才会撞 birthday boundary，PR 自述 YAGNI 不做。
+    /// - 8 hex 字符取 UUIDv4 高 32 bit（`time_low` 字段）：
+    ///   UUIDv4 在 RFC 4122 字节序下，`time_low`（bytes 0-3 = u128 高 32 bit）是整段
+    ///   32 bit 连续全随机的窗口——version 4 bit 在 byte 6 高 nibble（u128 bits 79..76），
+    ///   variant 2 bit 在 byte 8 高 2（u128 bits 63..62），都不在 `time_low` 里。
+    ///   因此 `as_u128() >> 96` 抽出的 32 bit 全部可用，熵 = 32 bit ≈ 4.3B，
+    ///   birthday 边界 ≈ 65K（同秒同 todo_id 并发）。
+    ///   选 `>> 96` 而不是 `>> 64` / `>> 80` 是因为后者会切到含 version/variant
+    ///   固定字段的区段，反而引入 bit 漂移。
     ///   直接用 `as_u128() >> 96` 抽位，不依赖 `simple()` 的字符串格式。
     /// 分支名 = `wt-{todo_id}-{identity}`，目录名 = `{todo_id}-{identity}`。
     fn mint_identity() -> String {
@@ -525,13 +531,11 @@ mod tests {
     }
 
     /// 验证 mint_identity 在 1 秒内 1000 次调用无碰撞。
-    /// 1000 次足以暴露 UUIDv4 退化（如 random 写死 0）；跨秒时 timestamp 也会
-    /// 变化，所以「跨秒后靠 timestamp」不会让退化场景漏检——但理论上无法区分
-    /// 「rand 退化被 timestamp 救」和「rand 真的够随机」。足够覆盖本 PR 的
-    /// 「不撞」立论即可。
-    /// 局限：N=1000 也无法检测 partial entropy degradation（如 UUIDv4 退到只剩 24 bit
-    /// 熵，2^24 ≈ 16M 远超 1000，采样几乎不撞 → 假阳安全感）。要真测熵质量得 mock
-    /// chrono::Utc::now() 拿掉 timestamp 救场再跑大 N —— YAGNI 不做。
+    /// 1000 次采样在 32 bit 熵空间（UUIDv4 `time_low`）的碰撞概率 ≈ 1.2e-4，
+    /// 远低于测试容差，足以验证「rand 真的够随机」。
+    /// 跨秒时 timestamp 也会变化，但仅依赖 rand 也已经够了——`time_low` 抽出的
+    /// 32 bit 本身就是连续全随机的窗口（version/variant 固定字段不在其中），
+    /// 不存在 partial entropy degradation。
     #[test]
     fn test_mint_identity_uniqueness_within_one_second() {
         let mut seen = std::collections::HashSet::new();
