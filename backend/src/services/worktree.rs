@@ -66,6 +66,13 @@ pub enum WorktreeError {
 /// 表达"这是 worktree 相关操作"，未来加 metrics/tracing 接入也好挂。
 pub struct WorktreeService;
 
+/// `dir_and_branch` helper 的返回值。私有 struct，只在 worktree 模块内部用，
+/// 故不暴露 `Clone` / `Debug` 等 trait 派生，保持 API 表面积最小（YAGNI）。
+struct WorktreeNames {
+    dir: String,
+    branch: String,
+}
+
 /// 给同步 git 命令加超时边界。
 ///
 /// 之所以自己包一层而不直接 `cmd.output()`：
@@ -229,10 +236,11 @@ impl WorktreeService {
         let identity = Self::mint_identity();
         // 分支名提前到这里构造：exists() 命中时 warn 需要把孤儿分支路径一起打出，
         // 便于操作者直接定位并手动清理（git worktree remove + git branch -D）。
-        let branch_name = format!("wt-{}-{}", todo_id, &identity);
+        // 走 helper 统一生成，避免「wt-」前缀在两处字符串字面量复制漂移。
+        let names = Self::dir_and_branch(todo_id, &identity);
         let worktree_dir = PathBuf::from(project_path)
             .join(WORKTREE_ROOT_DIR)
-            .join(format!("{}-{}", todo_id, &identity));
+            .join(&names.dir);
         if worktree_dir.exists() {
             // 同名目录已存在（典型场景：上一轮 cleanup 未跑 / 同 todo_id 跨进程并发创建竞争）——
             // 不再静默复用：复用「脏」目录会让新执行继承上一次留下的未追踪文件 / 残留分支，
@@ -240,14 +248,19 @@ impl WorktreeService {
             // 走 `WorktreeContext::default()` 回退到原始 workspace。Err 路径至少把孤儿路径
             // 打到 warn，便于人工介入清理；不做主动 remove/branch -D 是因为同名 worktree
             // 可能属于另一条正在执行的 execution，主动回收风险大（见 review followup）。
+            // 把要拼进 warn 消息的两条字符串提到外面避免 macro 内部借用；
+            // tracing macro 的 `%expr` Display 语法只对前导 field 生效，
+            // 这里的 `dir` / `branch` 是 message 段 `{dir}` `{branch}` 占位的参数，
+            // 直接传 &str 即可，不需要 owned。
+            let dir_str = worktree_dir.display().to_string();
             warn!(
                 worktree = %worktree_dir.display(),
-                orphan_branch = %branch_name,
+                orphan_branch = %names.branch,
                 todo_id = todo_id,
                 "worktree directory already exists, aborting to let caller fall back; \
                  manual cleanup if stale: `git worktree remove --force {dir} && git branch -D {branch}`",
-                dir = worktree_dir.display().to_string(),
-                branch = branch_name.clone(),
+                dir = dir_str.as_str(),
+                branch = names.branch.as_str(),
             );
             return Err(WorktreeError::GitCommandFailed {
                 cmd: "worktree add".into(),
@@ -278,7 +291,7 @@ impl WorktreeService {
             .arg("worktree")
             .arg("add")
             .arg("-b")
-            .arg(&branch_name)
+            .arg(&names.branch)
             .arg(&worktree_dir)
             .arg(&base)
             .current_dir(project_path);
@@ -364,6 +377,16 @@ impl WorktreeService {
         let ts = now.format("%y%m%d%H%M%S").to_string();
         let rand8 = format!("{:08x}", Uuid::new_v4().as_u128() >> 96);
         format!("{}-{}", ts, rand8)
+    }
+
+    /// 由 `todo_id` + `identity` 拼出 worktree 目录名与分支名，集中维护避免漂移。
+    /// 单独抽出来不是为了性能，而是为了让「分支前缀 wt-」「目录无前缀」这种
+    /// 不对称规则只有一处事实来源——以后改命名规则只动这里。
+    fn dir_and_branch(todo_id: i64, identity: &str) -> WorktreeNames {
+        WorktreeNames {
+            dir: format!("{}-{}", todo_id, identity),
+            branch: format!("wt-{}-{}", todo_id, identity),
+        }
     }
 
     /// 探测仓库是否有任意 commit（HEAD 是否解析得到）。
@@ -530,18 +553,19 @@ mod tests {
         );
     }
 
-    /// 验证 mint_identity 在 1 秒内 1000 次调用无碰撞。
-    /// 1000 次采样在 32 bit 熵空间（UUIDv4 `time_low`）的碰撞概率 ≈ 1.2e-4，
-    /// 远低于测试容差，足以验证「rand 真的够随机」。
+    /// 验证 mint_identity 在 1 秒内 500 次调用无碰撞。
+    /// 500 次采样在 32 bit 熵空间（UUIDv4 `time_low`）的生日碰撞概率 ≈ 3e-5，
+    /// 远低于 CI 偶发噪声，不会 flake；N 选 500 而非 1000 是 review followup
+    /// 决定的——再大就接近 1e-4 量级，长时间 CI 跑会出现「本地过 CI 偶发挂」。
     /// 跨秒时 timestamp 也会变化，但仅依赖 rand 也已经够了——`time_low` 抽出的
     /// 32 bit 本身就是连续全随机的窗口（version/variant 固定字段不在其中），
     /// 不存在 partial entropy degradation。
     #[test]
     fn test_mint_identity_uniqueness_within_one_second() {
         let mut seen = std::collections::HashSet::new();
-        for _ in 0..1000 {
+        for _ in 0..500 {
             let id = WorktreeService::mint_identity();
-            assert!(seen.insert(id), "collision within 1000 calls");
+            assert!(seen.insert(id), "collision within 500 calls");
         }
     }
 
