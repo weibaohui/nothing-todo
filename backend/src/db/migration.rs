@@ -97,6 +97,7 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
     create_todos_table(db).await?;
     create_tags_tables(db).await?;
     create_execution_tables(db).await?;
+    create_execution_logs_table(db).await?;
     create_skill_invocations_table(db).await?;
     create_high_frequency_indexes(db).await?;
     create_utc_triggers(db).await?;
@@ -115,6 +116,7 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
     create_webhooks_table(db).await?;
     create_webhook_records_table(db).await?;
     create_usage_daily_stats_table(db).await?;
+    create_usage_daily_stats_trigger(db).await?;
     create_usage_model_breakdowns_table(db).await?;
     create_usage_executor_daily_stats_table(db).await?;
     create_sync_records_table(db).await?;
@@ -169,7 +171,7 @@ async fn create_tags_tables(db: &Database) -> Result<(), sea_orm::DbErr> {
     .await
 }
 
-/// execution_records + execution_logs 表 + record_id 索引。
+/// execution_records 主表(每条记录对应一次执行任务的结果/日志/状态)。
 async fn create_execution_tables(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS execution_records (
@@ -192,7 +194,11 @@ async fn create_execution_tables(db: &Database) -> Result<(), sea_orm::DbErr> {
             FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE
         )",
     )
-    .await?;
+    .await
+}
+
+/// execution_logs 表(每条日志一行,支持分页加载)+ record_id 索引。
+async fn create_execution_logs_table(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS execution_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -417,6 +423,11 @@ async fn create_feishu_group_whitelist(db: &Database) -> Result<(), sea_orm::DbE
 
 /// feishu_project_bindings 表:飞书会话 ↔ 项目目录 ↔ todo 三方绑定。
 /// `chat_id='__pending__'` 是 Web UI 创建的待绑定记录,等待飞书侧 /bind 补齐。
+///
+/// 注意:`enabled` 列虽然历史上是 hotfix 追加的兼容列,但被后续 partial unique
+/// index `idx_feishu_bindings_active` 引用(`WHERE ... AND enabled = 1`),所以必须
+/// 在建索引之前存在 —— 这里用 add_column_if_missing() 在建表后立即追加,
+/// 重复调用幂等无副作用。
 async fn create_feishu_project_bindings(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS feishu_project_bindings (
@@ -432,6 +443,14 @@ async fn create_feishu_project_bindings(db: &Database) -> Result<(), sea_orm::Db
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )",
+    )
+    .await?;
+    // 必须在 create_feishu_indexes() 之前:partial unique index 引用此列
+    add_column_if_missing(
+        db,
+        "feishu_project_bindings",
+        "enabled",
+        "ALTER TABLE feishu_project_bindings ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1",
     )
     .await
 }
@@ -572,7 +591,7 @@ async fn create_webhook_records_table(db: &Database) -> Result<(), sea_orm::DbEr
     .await
 }
 
-/// usage_daily_stats 表 + 索引 + UTC 触发器。
+/// usage_daily_stats 表 + 索引(UTC 触发器拆到独立函数,避免本函数超 30 行)。
 async fn create_usage_daily_stats_table(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS usage_daily_stats (
@@ -599,6 +618,11 @@ async fn create_usage_daily_stats_table(db: &Database) -> Result<(), sea_orm::Db
     .await?;
     db.exec("CREATE INDEX IF NOT EXISTS idx_usage_daily_stats_date ON usage_daily_stats(date)").await?;
     db.exec("CREATE INDEX IF NOT EXISTS idx_usage_daily_stats_stats_type ON usage_daily_stats(stats_type)").await?;
+    create_usage_daily_stats_trigger(db).await
+}
+
+/// usage_daily_stats 表的 UTC created_at 触发器。
+async fn create_usage_daily_stats_trigger(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TRIGGER IF NOT EXISTS set_usage_daily_stats_created_at_utc AFTER INSERT ON usage_daily_stats
          WHEN new.created_at IS NULL OR new.created_at = ''
@@ -770,10 +794,12 @@ async fn add_legacy_feishu_messages_columns(db: &Database) -> Result<(), sea_orm
 }
 
 /// 散落各表的杂项历史列(7 条):debounce_secs / enabled / session_dir / 3 列 templates / config。
+/// 散落各表的杂项历史列(6 条):debounce_secs / session_dir / 3 列 templates / config。
+/// 注:`feishu_project_bindings.enabled` 已在 create_feishu_project_bindings() 内
+/// 追加(因为 partial unique index 依赖它),此处不再重复。
 async fn add_legacy_misc_columns(db: &Database) -> Result<(), sea_orm::DbErr> {
     const COLS: &[&str] = &[
         "ALTER TABLE feishu_response_config ADD COLUMN debounce_secs INTEGER DEFAULT 20",
-        "ALTER TABLE feishu_project_bindings ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE executors ADD COLUMN session_dir TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE todo_templates ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE todo_templates ADD COLUMN source_url TEXT",
@@ -839,7 +865,125 @@ async fn add_column_with_fallback(
         );
         add_column_warn(db, fallback_sql).await;
     }
-    Ok(())}
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests for v1 split helpers (issue #675)
+// ---------------------------------------------------------------------------
+//
+// 新引入的 helper(`table_has_column` / `add_column_if_missing` / `add_column_warn`)
+// 是 v1_initial_schema 拆分后的复用基石,任何 helper 行为变化都会让
+// 整个 v1 在旧库上的兼容分支出错。这里加 5 个 fixture-driven test 把
+// 它们的 3 个核心分支钉死:
+//   1. table_has_column: 列存在 → true / 列不存在 → false / 表不存在 → false
+//   2. add_column_if_missing: 列已存在 → 跳过 / 列不存在 → ALTER 追加
+//   3. add_column_with_fallback: IF NOT EXISTS 失败 → 回退 ALTER
+
+#[cfg(test)]
+mod v1_helpers_tests {
+    use super::*;
+
+    /// 复用与 needs_fk_migration_tests 同款的 fresh_db helper,确保走完整 v1 init
+    async fn fresh_db() -> Database {
+        Database::new(":memory:")
+            .await
+            .expect(":memory: db must open")
+    }
+
+    /// 分支 1: 列存在 → true。v1 init 已经把 todos.workspace 加进去。
+    #[tokio::test]
+    async fn table_has_column_returns_true_when_column_exists() {
+        let db = fresh_db().await;
+        assert!(
+            table_has_column(&db, "todos", "workspace")
+                .await
+                .expect("probe must succeed"),
+            "todos.workspace is added by v1, must be detected"
+        );
+    }
+
+    /// 分支 2: 表上没这列 → false。用一个肯定不在 v1 表上的列名。
+    #[tokio::test]
+    async fn table_has_column_returns_false_when_column_missing() {
+        let db = fresh_db().await;
+        assert!(
+            !table_has_column(&db, "todos", "definitely_not_a_real_column_xyz")
+                .await
+                .expect("probe must succeed"),
+            "non-existent column must report false"
+        );
+    }
+
+    /// 分支 3: 表不存在 → false(PRAGMA table_info 对不存在的表返回 0 行)。
+    /// 这一点很关键:add_column_if_missing() 依赖它能优雅处理新建表前的探测场景。
+    #[tokio::test]
+    async fn table_has_column_returns_false_when_table_missing() {
+        let db = fresh_db().await;
+        assert!(
+            !table_has_column(&db, "no_such_table_xyz", "anything")
+                .await
+                .expect("probe must succeed"),
+            "non-existent table must report false (not panic)"
+        );
+    }
+
+    /// 分支 4: add_column_if_missing → 列已存在则跳过(幂等无副作用)。
+    /// 这是 v1 在已迁移库上反复启动不爆的关键。
+    #[tokio::test]
+    async fn add_column_if_missing_skips_when_column_exists() {
+        let db = fresh_db().await;
+        // todos.workspace 已经被 v1 添加;重复调用必须 no-op
+        add_column_if_missing(
+            &db,
+            "todos",
+            "workspace",
+            "ALTER TABLE todos ADD COLUMN workspace TEXT",
+        )
+        .await
+        .expect("skip must succeed");
+        // workspace 必须仍是单列(没有重复)
+        assert!(
+            table_has_column(&db, "todos", "workspace").await.unwrap(),
+            "workspace must still exist after no-op skip"
+        );
+    }
+
+    /// 分支 5: add_column_if_missing → 列不存在则追加。
+    /// 用临时表隔离,确保只在测试自身建的表上操作,不污染 v1 schema。
+    #[tokio::test]
+    async fn add_column_if_missing_adds_when_column_missing() {
+        let db = fresh_db().await;
+        db.exec("CREATE TABLE acim_probe (id INTEGER PRIMARY KEY, name TEXT)")
+            .await
+            .expect("table must create");
+        assert!(
+            !table_has_column(&db, "acim_probe", "nickname").await.unwrap(),
+            "precondition: column must be absent"
+        );
+        add_column_if_missing(
+            &db,
+            "acim_probe",
+            "nickname",
+            "ALTER TABLE acim_probe ADD COLUMN nickname TEXT",
+        )
+        .await
+        .expect("add must succeed");
+        assert!(
+            table_has_column(&db, "acim_probe", "nickname").await.unwrap(),
+            "column must be added"
+        );
+        // 再次调用必须幂等 — 不会因为 ALTER 重复列失败(否则会 panic/Err)
+        add_column_if_missing(
+            &db,
+            "acim_probe",
+            "nickname",
+            "ALTER TABLE acim_probe ADD COLUMN nickname TEXT",
+        )
+        .await
+        .expect("second call must also succeed (idempotent)");
+    }
+}
 
 // ---------------------------------------------------------------------------
 // v2: 旧 todos.rating 数据合并到 execution_records.rating
