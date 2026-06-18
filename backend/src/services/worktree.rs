@@ -14,8 +14,8 @@
 //!   3. 这部分逻辑只在前置/收尾阶段跑一次，不在 hot path，开销可以接受。
 //! - 所有同步 git 调用统一走 `run_git_with_timeout` 包装，避免在 lock / I/O hang 时
 //!   阻塞调用方线程。超时后会主动 `kill` 子进程并返回 WorktreeError::GitTimeout。
-//! - worktree 目录名格式：`<todo_id>-<unix_secs>`。`unix_secs` 选秒而不是纳秒，
-//!   避免出现同名 worktree 时仅相差几纳秒无法区分。
+//! - worktree 目录名格式：`<todo_id>-<yymmddHHMMss>-<rand4>`。用 `yymmddHHMMss`（可读时间）
+//!   + 4 位随机数（取自纳秒末 4 位）确保唯一性，避免同一秒内并发碰撞。
 //! - `cleanup_worktree` 在目录已不存在或 `git worktree remove` 失败时**不报错**：
 //!   用户手动删除或 git 元数据丢失时，让"清理"成为幂等 no-op 而非阻塞执行结果。
 
@@ -199,7 +199,7 @@ impl WorktreeService {
         Ok(())
     }
 
-    /// 基于 `<project>/.worktrees/<todo_id>-<unix_secs>/` 下创建 worktree。
+    /// 基于 `<project>/.worktrees/<todo_id>-<yymmddHHMMss>-<rand4>/` 下创建 worktree。
     ///
     /// 如果当前分支还不存在（仓库刚 init），则先建一个空 commit 避免
     /// `git worktree add` 报 "fatal: invalid reference"。
@@ -222,9 +222,14 @@ impl WorktreeService {
             self.ensure_empty_commit(project_path)?;
         }
 
-        let worktree_dir = self.worktree_path(project_path, todo_id);
+        // 生成唯一标识：`yymmddHHMMss` 格式时间戳 + 4 位随机数（使用 rand 生成），
+        // 目录名和分支名共享同一标识，确保 cleanup 时能对应。
+        let identity = Self::mint_identity();
+        let worktree_dir = PathBuf::from(project_path)
+            .join(WORKTREE_ROOT_DIR)
+            .join(format!("{}-{}", todo_id, &identity));
         if worktree_dir.exists() {
-            // 同名目录已存在（todo_id 复用 + 同一秒碰撞）——不再静默复用：
+            // 同名目录已存在（todo_id 复用 + 同一秒纳秒碰撞）——不再静默复用：
             // 复用「脏」目录会让新执行继承上一次留下的未追踪文件 / 残留分支，
             // 把问题推迟到执行末段更难排查。这里返回 Err 让上层 `resolve_worktree_context`
             // 走 `WorktreeContext::default()` 回退到原始 workspace。
@@ -255,16 +260,9 @@ impl WorktreeService {
         // 基于当前分支的 HEAD 创建 worktree，不再硬编码 "main"。
         // 当前分支名由 `current_branch` 探测得到，兼容 main/master/自定义分支。
         let base = self.current_branch(project_path)?;
-        // 分支名只允许 [a-zA-Z0-9_-]，时间戳里如果带 `:` / `.` 会触发
-        // "is not a valid branch name"，所以这里只取秒级 unix 时间。
-        let now = crate::models::utc_timestamp();
-        let sec_marker: i64 = now
-            .chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect::<String>()
-            .parse()
-            .unwrap_or(0);
-        let branch_name = format!("wt-{}-{}", todo_id, sec_marker);
+        // 分支名使用 yymmddHHMMss-随机数 格式，与目录名共享同一 identity
+        // 分支名只允许 [a-zA-Z0-9_-]，yymmddHHMMss-随机数 格式完全符合规则。
+        let branch_name = format!("wt-{}-{}", todo_id, &identity);
         let mut add_cmd = Command::new("git");
         add_cmd
             .arg("worktree")
@@ -338,11 +336,26 @@ impl WorktreeService {
     }
 
     /// worktree 目录的绝对路径（不含创建动作），便于单测与日志展示。
+    /// 格式：`<project>/.worktrees/<todo_id>-<yymmddHHMMss>-<rand4>/`。
     pub fn worktree_path(&self, project_path: &str, todo_id: i64) -> PathBuf {
-        let now = crate::models::utc_timestamp();
+        let identity = Self::mint_identity();
         PathBuf::from(project_path)
             .join(WORKTREE_ROOT_DIR)
-            .join(format!("{}-{}", todo_id, now))
+            .join(format!("{}-{}", todo_id, identity))
+    }
+
+    /// 生成 worktree 目录/分支名的唯一标识后缀。
+    ///
+    /// 格式：`<yymmddHHMMss>-<4 位随机数>`，例如 `260618043952-3815`。
+    /// - `yymmddHHMMss`：UTC 时间的紧凑可读形式，不包含 `-` `:` `.` 等非法分支名字符。
+    /// - 4 位随机数用 `rand::random` 生成，避免系统时钟精度不足导致「伪随机」问题
+    ///   （macOS 微秒级精度下 `timestamp_subsec_nanos % 10000` 永远是 0/1000/2000…）。
+    /// 分支名 = `wt-{todo_id}-{identity}`，目录名 = `{todo_id}-{identity}`。
+    fn mint_identity() -> String {
+        let now = chrono::Utc::now();
+        let ts = now.format("%y%m%d%H%M%S").to_string();
+        let random: u16 = rand::random();
+        format!("{}-{:04}", ts, random % 10000)
     }
 
     /// 探测仓库是否有任意 commit（HEAD 是否解析得到）。
@@ -497,7 +510,18 @@ mod tests {
         let svc = WorktreeService::new();
         let p = svc.worktree_path("/tmp/proj", 42);
         let s = p.to_string_lossy();
+        // 格式：.../42-<yymmddHHMMss>-<4digit>
         assert!(s.contains("/tmp/proj/.worktrees/42-"), "got: {}", s);
+        // 验证紧跟的是 yymmddHHMMss 格式（12 位数字）
+        let suffix = s.strip_prefix("/tmp/proj/.worktrees/42-").unwrap();
+        assert!(suffix.len() == 17, "expected 17 chars (12+1+4), got: '{}' (len={})", suffix, suffix.len());
+        // 格式应为 "260618043952-3815" 即 12 位数字 + 短横 + 4 位数字
+        let parts: Vec<&str> = suffix.split('-').collect();
+        assert_eq!(parts.len(), 2, "expected 2 dash-separated parts, got: {:?}", parts);
+        assert_eq!(parts[0].len(), 12, "timestamp part should be 12 chars (yymmddHHMMss)");
+        assert!(parts[0].chars().all(|c| c.is_ascii_digit()), "timestamp should be all digits");
+        assert_eq!(parts[1].len(), 4, "random part should be 4 digits");
+        assert!(parts[1].chars().all(|c| c.is_ascii_digit()), "random should be all digits");
     }
 
     /// 完整 create + cleanup 流程，验证 worktree 真的被 git 管起来。
