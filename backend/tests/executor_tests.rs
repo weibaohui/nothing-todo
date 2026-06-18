@@ -6,6 +6,7 @@ use ntd::adapters::opencode::OpencodeExecutor;
 use ntd::adapters::atomcode::AtomcodeExecutor;
 use ntd::adapters::mobilecoder::MobilecoderExecutor;
 use ntd::adapters::codex::CodexExecutor;
+use ntd::adapters::zhanlu::ZhanluExecutor;
 use ntd::models::{ParsedLogEntry, ExecutorType};
 
 #[cfg(test)]
@@ -386,6 +387,82 @@ mod opencode_executor_tests {
         let executor = OpencodeExecutor::new("opencode".to_string());
         assert!(executor.check_success(0));
         assert!(!executor.check_success(1));
+    }
+}
+
+// Issue #673: Zhanlu 测试
+// 行为与 opencode 完全一致：相同的命令行参数、相同的 JSON 输出格式、相同的退出码语义。
+#[cfg(test)]
+mod zhanlu_executor_tests {
+    use super::*;
+
+    #[test]
+    fn test_zhanlu_executor_type() {
+        let executor = ZhanluExecutor::new("zl".to_string());
+        assert_eq!(executor.executor_type(), ExecutorType::Zhanlu);
+    }
+
+    #[test]
+    fn test_zhanlu_command_args() {
+        let executor = ZhanluExecutor::new("zl".to_string());
+        let args = executor.command_args("say hello");
+        assert!(args.contains(&"--dangerously-skip-permissions".to_string()));
+        assert!(args.contains(&"--format".to_string()));
+        assert!(args.contains(&"json".to_string()));
+        assert!(args.contains(&"say hello".to_string()));
+    }
+
+    #[test]
+    fn test_zhanlu_check_success() {
+        let executor = ZhanluExecutor::new("zl".to_string());
+        assert!(executor.check_success(0));
+        assert!(!executor.check_success(1));
+    }
+
+    #[test]
+    fn test_zhanlu_supports_resume() {
+        let executor = ZhanluExecutor::new("zl".to_string());
+        assert!(executor.supports_resume());
+    }
+
+    #[test]
+    fn test_zhanlu_parse_step_start() {
+        let executor = ZhanluExecutor::new("zl".to_string());
+        let line = r#"{"type":"step_start","timestamp":1700000000000}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "step_start");
+    }
+
+    #[test]
+    fn test_zhanlu_parse_text() {
+        let executor = ZhanluExecutor::new("zl".to_string());
+        let line = r#"{"type":"text","timestamp":1700000000000,"part":{"type":"text","text":"hi from zhanlu"}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "text");
+        assert_eq!(entry.content, "hi from zhanlu");
+    }
+
+    #[test]
+    fn test_zhanlu_extract_session_id_from_hyphenated_format() {
+        // Issue #673 要求与 opencode 输出一致，所以 sessionID 也是 camelCase
+        let executor = ZhanluExecutor::new("zl".to_string());
+        let line = r#"{"type":"step-start","timestamp":1700000000000,"sessionID":"ses_zhanlu_001"}"#;
+        assert_eq!(executor.extract_session_id(line), Some("ses_zhanlu_001".to_string()));
+    }
+
+    /// 行为对齐检查：与 opencode 完全一致地解析相同的 JSON 输入，应当产出相同的 ParsedLogEntry。
+    /// 这是 Issue #673「输出 JSON 格式也一致」的端到端证据。
+    #[test]
+    fn test_zhanlu_matches_opencode_on_same_json() {
+        let opencode = OpencodeExecutor::new("opencode".to_string());
+        let zhanlu = ZhanluExecutor::new("zl".to_string());
+
+        let line = r#"{"type":"tool-use","timestamp":1700000000000,"part":{"type":"tool","tool":"bash","state":{"status":"completed","input":{"description":"echo"},"output":"ok"}}}"#;
+        let o = opencode.parse_output_line(line).unwrap();
+        let z = zhanlu.parse_output_line(line).unwrap();
+        assert_eq!(o.log_type, z.log_type);
+        assert_eq!(o.content, z.content);
+        assert_eq!(o.tool_name, z.tool_name);
     }
 }
 

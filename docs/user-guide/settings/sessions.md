@@ -40,7 +40,7 @@ Session 是 ntd 把**跨执行器的会话**统一抽象出来的视图。原先
 
 后端 `session.rs`启动时 +定期扫描这些目录，解析 jsonl文件提取元信息。
 
-> `codebuddy` / `opencode` / `mobilecoder` / `codewhale` **不**在扫描范围内（参见 `session.rs::scan_for_executors` 的 `match executor`）。原文档提到的 `cc-connect` 来源也已移除。
+> `codebuddy` / `opencode` / `mobilecoder` / `codewhale` / `zhanlu` **不**在扫描范围内（参见 `session.rs::scan_for_executors` 的 `match executor`）。原文档提到的 `cc-connect` 来源也已移除。
 >
 > **Pi 编码坑点**：pi 把 cwd 里的 `/` 替换为 `-` 并在头尾各加一个 `-` 作为项目目录名（`/Users/weibh/projects/rust/nothing-todo` → `--Users-weibh-projects-rust-nothing-todo--`）。这导致项目名里的 `-` 与分隔符不可区分（例如上例解码后会变成 `Users/weibh/projects/rust/nothing/todo`）。`scan_pi` 优先使用 JSONL 首行 `cwd` 字段，文件名解码仅作为 fallback。
 

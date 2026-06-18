@@ -10,6 +10,8 @@ export const sourceConfig: Record<string, { label: string; color: string }> = {
   'codebuddy': { label: 'CodeBuddy', color: '#f59e0b' },
   'opencode': { label: 'OpenCode', color: '#22c55e' },
   'mobilecoder': { label: 'MobileCoder', color: '#6366f1' },
+  // Issue #673: zhanlu 与 opencode 输出格式一致，使用相近色便于视觉区分
+  'zhanlu': { label: 'Zhanlu', color: '#0f766e' },
 };
 
 export function sourceTag(source: string) {

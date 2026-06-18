@@ -153,6 +153,10 @@ impl UsageStatsService {
         let opencode_entries = self.load_opencode_jsonl_entries().await;
         all_entries.extend(opencode_entries);
 
+        // Zhanlu (Issue #673) - read from session files in ~/.local/share/zhanlu/storage
+        let zhanlu_entries = self.load_zhanlu_jsonl_entries().await;
+        all_entries.extend(zhanlu_entries);
+
         // Kimi - read from wire.jsonl files
         let kimi_entries = self.load_kimi_jsonl_entries().await;
         all_entries.extend(kimi_entries);
@@ -321,6 +325,28 @@ impl UsageStatsService {
         let opencode_dir2 = home.join(".opencode");
         if opencode_dir2.exists() {
             self.load_jsonl_files_from_dir(&opencode_dir2, "opencode", &mut entries).await;
+        }
+
+        entries
+    }
+
+    /// Load entries from Zhanlu session files (Issue #673)
+    ///
+    /// Zhanlu 的 session 存储路径与 opencode 类似但路径前缀不同：
+    /// Issue 中给出的默认 session 路径是 `~/.local/share/zhanlu/storage`。
+    /// 这里直接复用 `load_jsonl_files_from_dir` 的解析逻辑，因为 Zhanlu 与 Opencode
+    /// 输出一致（Issue #673 明确要求）。
+    async fn load_zhanlu_jsonl_entries(&self) -> Vec<RawUsageEntry> {
+        let mut entries = Vec::new();
+
+        let Some(home) = dirs::home_dir() else {
+            return entries;
+        };
+
+        // Zhanlu 默认 session 路径: ~/.local/share/zhanlu/storage
+        let zhanlu_dir = home.join(".local").join("share").join("zhanlu").join("storage");
+        if zhanlu_dir.exists() {
+            self.load_jsonl_files_from_dir(&zhanlu_dir, "zhanlu", &mut entries).await;
         }
 
         entries

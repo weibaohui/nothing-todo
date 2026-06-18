@@ -36,6 +36,9 @@ pub fn executor_skills_dir_str(et: &str) -> Option<PathBuf> {
         "mobilecoder" => Some(home.join(".mobile-coder").join("skills")),
         "pi" => Some(home.join(".pi").join("skills")),
         "mimo" => Some(home.join(".local/share/mimocode").join("skills")),
+        // Zhanlu: Issue #673 新增执行器，session 路径为 ~/.local/share/zhanlu/storage，
+        // skills 目录与 session 目录同根
+        "zhanlu" => Some(home.join(".local/share/zhanlu").join("skills")),
         // agents 是只读 skill 来源：扫描但不参与执行器管理/Todo 执行
         "agents" => Some(home.join(".agents").join("skills")),
         _ => None,
@@ -125,12 +128,14 @@ fn executor_label(et: ExecutorType) -> &'static str {
         ExecutorType::Codewhale => "CodeWhale",
         ExecutorType::Pi => "Pi",
         ExecutorType::Mimo => "MiMo",
+        ExecutorType::Zhanlu => "Zhanlu",
     }
 }
 
 // 保留 ALL_EXECUTORS 供其他可能用到的代码；新代码请用 ALL_SKILL_SOURCES
+// 12 = 11 个旧执行器 + Issue #673 新增的 Zhanlu
 #[allow(dead_code)]
-const ALL_EXECUTORS: [ExecutorType; 10] = [
+const ALL_EXECUTORS: [ExecutorType; 12] = [
     ExecutorType::Claudecode,
     ExecutorType::Hermes,
     ExecutorType::Codex,
@@ -141,6 +146,8 @@ const ALL_EXECUTORS: [ExecutorType; 10] = [
     ExecutorType::Mobilecoder,
     ExecutorType::Codewhale,
     ExecutorType::Pi,
+    ExecutorType::Mimo,
+    ExecutorType::Zhanlu,
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -491,7 +498,7 @@ fn discover_skills_for_executor(et: ExecutorType) -> ExecutorSkills {
 const ALL_SKILL_SOURCES: &[&str] = &[
     "claudecode", "codebuddy", "opencode", "atomcode",
     "hermes", "kimi", "mobilecoder", "codex",
-    "pi", "mimo",
+    "pi", "mimo", "zhanlu",
     "agents",
 ];
 

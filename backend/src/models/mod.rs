@@ -780,6 +780,7 @@ pub enum ExecutorType {
     Codewhale,
     Pi,
     Mimo,
+    Zhanlu,
 }
 
 
@@ -797,6 +798,7 @@ impl ExecutorType {
             ExecutorType::Codewhale => "codewhale",
             ExecutorType::Pi => "pi",
             ExecutorType::Mimo => "mimo",
+            ExecutorType::Zhanlu => "zhanlu",
         }
     }
 }

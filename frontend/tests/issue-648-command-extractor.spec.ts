@@ -329,6 +329,8 @@ test.describe('commandExtractor — Issue #648', () => {
         opencode: mod.extractCommandsByExecutor(logs, 'opencode').length,
         mobilecoder: mod.extractCommandsByExecutor(logs, 'mobilecoder').length,
         mimo: mod.extractCommandsByExecutor(logs, 'mimo').length,
+        // Issue #673: zhanlu 与 opencode 输出格式一致，复用 Agent 协议提取
+        zhanlu: mod.extractCommandsByExecutor(logs, 'zhanlu').length,
         hermes: mod.extractCommandsByExecutor(logs, 'hermes').length,
         unknown: mod.extractCommandsByExecutor(logs, 'something-new').length,
       };
@@ -336,6 +338,7 @@ test.describe('commandExtractor — Issue #648', () => {
     expect(result.opencode).toBe(1);
     expect(result.mobilecoder).toBe(1);
     expect(result.mimo).toBe(1);
+    expect(result.zhanlu).toBe(1);
     expect(result.hermes).toBe(0);
     // 未知执行器走 Claude fallback — 上面那条日志不是 Claude 协议，应是 0
     expect(result.unknown).toBe(0);

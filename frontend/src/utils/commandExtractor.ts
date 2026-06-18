@@ -113,18 +113,19 @@ function extractClaudeCommands(logs: LogEntry[]): CommandEntry[] {
 }
 
 /**
- * Group B: Agent 协议族（opencode / mobilecoder / mimo）
+ * Group B: Agent 协议族（opencode / mobilecoder / mimo / zhanlu）
  *
  * - 单条 log_type=tool，content 含 description + output + status
  * - 由于后端 claudecode-style 工具信息存到 toolName/toolInputJson，
- *   而 opencode 等把一切都塞 content；本函数同时尝试两条路径。
+ *   而 opencode/zhanlu 等把一切都塞 content；本函数同时尝试两条路径。
+ * - Issue #673：zhanlu 与 opencode 行为/输出完全一致，复用同一套提取逻辑。
  */
 function extractAgentCommands(logs: LogEntry[]): CommandEntry[] {
   const result: CommandEntry[] = [];
   for (const log of logs) {
     if (log.type !== 'tool' || !isBashTool(log.toolName)) continue;
     const input = parseJsonSafe(log.toolInputJson);
-    // opencode 把 input/output/status 放在 part.state
+    // opencode/zhanlu 把 input/output/status 放在 part.state
     const state = (input?.state as Record<string, unknown>) || input;
     const inner = (state?.input as Record<string, unknown>) || state;
     const command = (inner?.command as string) || (inner?.description as string) || '';
@@ -515,6 +516,8 @@ export function extractCommandsByExecutor(
     case 'opencode':
     case 'mobilecoder':
     case 'mimo':
+    // Issue #673: zhanlu 与 opencode 输出 JSON 格式一致，复用 Agent 协议提取
+    case 'zhanlu':
       return extractAgentCommands(logs);
     case 'kimi':
       return extractKimiCommands(logs);
