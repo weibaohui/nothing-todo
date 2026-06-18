@@ -1431,6 +1431,12 @@ async fn create_run_execution_record(
         selected.executable_path,
         selected.command_args.join(" ")
     );
+    // DB 记录的 session_id 必须与 request.resume_session_id 保持一致：
+    //   - 首次执行（None）：写 None，真实 sid 由 stdout reader 从 Claude Code 的 system 事件解析后回写。
+    //   - resume（Some(sid)）：写原 sid。
+    // 不能用 selected.session_id_for_executor——首次执行时它是后台合成的 UUID，
+    // 直接写进 DB 会让 feishu_listener::decide_resume_session 拿合成 sid 触发 resume，
+    // 把"Invalid session ID"错误从首次执行搬到第二次。
     let record_id = match request
         .db
         .create_execution_record(NewExecutionRecord {
@@ -1439,7 +1445,7 @@ async fn create_run_execution_record(
             executor: &selected.executor_str,
             trigger_type: &request.trigger_type,
             task_id: &task_state.task_id,
-            session_id: Some(&selected.session_id_for_executor),
+            session_id: request.resume_session_id.as_deref(),
             resume_message: request.resume_message.as_deref(),
             source_todo_id: request.source_todo_id,
             source_todo_title: request.source_todo_title.as_deref(),
