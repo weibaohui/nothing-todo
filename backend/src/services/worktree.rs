@@ -14,8 +14,9 @@
 //!   3. 这部分逻辑只在前置/收尾阶段跑一次，不在 hot path，开销可以接受。
 //! - 所有同步 git 调用统一走 `run_git_with_timeout` 包装，避免在 lock / I/O hang 时
 //!   阻塞调用方线程。超时后会主动 `kill` 子进程并返回 WorktreeError::GitTimeout。
-//! - worktree 目录名格式：`<todo_id>-<unix_secs>`。`unix_secs` 选秒而不是纳秒，
-//!   避免出现同名 worktree 时仅相差几纳秒无法区分。
+//! - worktree 目录名格式：`<todo_id>-<unix_micros>`。`unix_micros` 选微秒而不是纳秒，
+//!   避免出现同名 worktree 时仅相差几纳秒无法区分；选微秒而非秒是因为同一秒内
+//!   可能并发触发多次 worktree 创建（例如同一 todo 重试 / scheduler 抖动）。
 //! - `cleanup_worktree` 在目录已不存在或 `git worktree remove` 失败时**不报错**：
 //!   用户手动删除或 git 元数据丢失时，让"清理"成为幂等 no-op 而非阻塞执行结果。
 
@@ -199,7 +200,7 @@ impl WorktreeService {
         Ok(())
     }
 
-    /// 基于 `<project>/.worktrees/<todo_id>-<unix_secs>/` 下创建 worktree。
+    /// 基于 `<project>/.worktrees/<todo_id>-<unix_micros>/` 下创建 worktree。
     ///
     /// 如果当前分支还不存在（仓库刚 init），则先建一个空 commit 避免
     /// `git worktree add` 报 "fatal: invalid reference"。
@@ -222,68 +223,148 @@ impl WorktreeService {
             self.ensure_empty_commit(project_path)?;
         }
 
-        // 用微秒级时间戳确保唯一性：同一毫秒内的多次调用也得到不同值。
-        // 目录名与分支名保持一致，均为 `{todo_id}-{timestamp}` 格式。
-        let timestamp = Self::unique_timestamp();
-        let branch_name = format!("wt-{}-{}", todo_id, timestamp);
-        let worktree_dir = self.worktree_path(project_path, todo_id, timestamp);
-
-        if worktree_dir.exists() {
-            // 同名目录已存在（todo_id 复用 + 同一秒碰撞）——不再静默复用：
-            // 复用「脏」目录会让新执行继承上一次留下的未追踪文件 / 残留分支，
-            // 把问题推迟到执行末段更难排查。这里返回 Err 让上层 `resolve_worktree_context`
-            // 走 `WorktreeContext::default()` 回退到原始 workspace。
-            warn!(
-                worktree = %worktree_dir.display(),
-                todo_id = todo_id,
-                "worktree directory already exists, aborting to let caller fall back"
-            );
-            return Err(WorktreeError::GitCommandFailed {
-                cmd: "worktree add".into(),
-                dir: project_path.to_string(),
-                stderr: format!(
-                    "worktree directory already exists: {}",
-                    worktree_dir.display()
-                ),
-            });
-        }
-
-        // 创建 .worktrees 父目录（如果还不存在）。`git worktree add` 不会自动建父目录。
-        if let Some(parent) = worktree_dir.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| WorktreeError::GitCommandFailed {
-                cmd: "create_dir_all".into(),
-                dir: parent.to_string_lossy().into_owned(),
-                stderr: e.to_string(),
-            })?;
-        }
+        // 一次性清理旧版 ISO 8601 格式的遗留 worktree 目录。
+        // 旧版本（年份作为时间戳的版本）会留下 `<todo_id>-2026-06-18T08:30:00.000Z` 这种
+        // 目录命名，本版本永远不会命中；放任不管会持续累积孤儿目录与 dangling 分支。
+        // 只清理当前 todo_id 下的目录，避免误删其他 todo 的活跃 worktree。
+        self.prune_legacy_worktrees(project_path, todo_id);
 
         // 基于当前分支的 HEAD 创建 worktree，不再硬编码 "main"。
         // 当前分支名由 `current_branch` 探测得到，兼容 main/master/自定义分支。
         let base = self.current_branch(project_path)?;
-        let mut add_cmd = Command::new("git");
-        add_cmd
-            .arg("worktree")
-            .arg("add")
-            .arg("-b")
-            .arg(&branch_name)
-            .arg(&worktree_dir)
-            .arg(&base)
-            .current_dir(project_path);
-        let out = run_git_with_timeout(add_cmd, "worktree add", project_path)?;
-        if !out.status.success() {
+
+        // 碰撞重试：同一微秒内的并发 / NTP 跳变 / 重试 race 仍可能撞到相同 timestamp，
+        // 因此在 `git worktree add` 返回 "already exists" 时换一个新 timestamp 再试。
+        // 最多 5 次；超出后让上层 fallback 到原始 workspace，不阻塞执行。
+        const MAX_ATTEMPTS: u32 = 5;
+        let mut last_err: Option<WorktreeError> = None;
+        for attempt in 1..=MAX_ATTEMPTS {
+            let (branch_name, worktree_dir) = Self::mint_worktree_identity(project_path, todo_id);
+
+            if worktree_dir.exists() {
+                // 目录先于分支存在：直接换下一个 timestamp，不调 git。
+                warn!(
+                    worktree = %worktree_dir.display(),
+                    todo_id = todo_id,
+                    attempt,
+                    "worktree directory collision, retrying with new timestamp"
+                );
+                continue;
+            }
+
+            let mut add_cmd = Command::new("git");
+            add_cmd
+                .arg("worktree")
+                .arg("add")
+                .arg("-b")
+                .arg(&branch_name)
+                .arg(&worktree_dir)
+                .arg(&base)
+                .current_dir(project_path);
+            let out = run_git_with_timeout(add_cmd, "worktree add", project_path)?;
+            if out.status.success() {
+                info!(
+                    worktree = %worktree_dir.display(),
+                    base = %base,
+                    attempt,
+                    "created git worktree for todo execution"
+                );
+                return Ok(worktree_dir.to_string_lossy().into_owned());
+            }
+
+            // 仅在「分支或目录已存在」时重试，其他错误直接返回。
             let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+            if stderr.contains("already exists") {
+                warn!(
+                    worktree = %worktree_dir.display(),
+                    attempt,
+                    stderr = %stderr,
+                    "git worktree add collision, retrying"
+                );
+                last_err = Some(WorktreeError::GitCommandFailed {
+                    cmd: "worktree add".into(),
+                    dir: project_path.to_string(),
+                    stderr,
+                });
+                continue;
+            }
             return Err(WorktreeError::GitCommandFailed {
                 cmd: "worktree add".into(),
                 dir: project_path.to_string(),
                 stderr,
             });
         }
-        info!(
-            worktree = %worktree_dir.display(),
-            base = %base,
-            "created git worktree for todo execution"
-        );
-        Ok(worktree_dir.to_string_lossy().into_owned())
+        Err(last_err.unwrap_or_else(|| WorktreeError::GitCommandFailed {
+            cmd: "worktree add".into(),
+            dir: project_path.to_string(),
+            stderr: format!(
+                "exceeded {} attempts on timestamp collision",
+                MAX_ATTEMPTS
+            ),
+        }))
+    }
+
+    /// 生成 worktree 的「目录 + 分支」命名对，确保两者共享同一 timestamp 后缀。
+    ///
+    /// 抽出来是为了让目录名模板 `<todo_id>-<timestamp>` 和分支名模板
+    /// `wt-<todo_id>-<timestamp>` 在源码上锚定在同一处；任何对命名格式的修改
+    /// 都只改这一处，避免 cleanup 阶段按字符串拼接出来的分支名找不到对应目录。
+    fn mint_worktree_identity(project_path: &str, todo_id: i64) -> (String, PathBuf) {
+        let timestamp = Self::unique_timestamp();
+        // 目录名 = 分支名去掉 "wt-" 前缀，保证两者尾部 `<todo_id>-<timestamp>` 一致。
+        let identity = format!("{}-{}", todo_id, timestamp);
+        let branch_name = format!("wt-{}", identity);
+        let worktree_dir = PathBuf::from(project_path)
+            .join(WORKTREE_ROOT_DIR)
+            .join(&identity);
+        (branch_name, worktree_dir)
+    }
+
+    /// 清理旧版 ISO 8601 格式的遗留 worktree 目录（如 `42-2026-06-18T08:30:00.000Z`）。
+    ///
+    /// 识别规则：目录名以 `<todo_id>-` 开头、且含 `T` 分隔符（ISO 8601 标志）。
+    /// 命中后用 `git worktree remove --force` 优雅清理，失败则 fallback `rm -rf`，
+    /// 保证 `git worktree prune` 不再留下 dangling 元数据。
+    /// 只清理当前 todo_id 的目录，避免误删其他 todo 的活跃 worktree。
+    fn prune_legacy_worktrees(&self, project_path: &str, todo_id: i64) {
+        let root = Path::new(project_path).join(WORKTREE_ROOT_DIR);
+        let entries = match std::fs::read_dir(&root) {
+            Ok(e) => e,
+            Err(_) => return, // 目录不存在无需清理
+        };
+        let prefix = format!("{}-", todo_id);
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            // 仅清理以 `<todo_id>-` 开头、含 `T`（ISO 8601 分隔符）的旧目录
+            if !name.starts_with(&prefix) || !name.contains('T') {
+                continue;
+            }
+            let legacy = entry.path();
+            // 先尝试 git worktree remove；失败再 rm -rf，与 cleanup_worktree 行为一致。
+            let mut rm_cmd = Command::new("git");
+            rm_cmd
+                .arg("worktree")
+                .arg("remove")
+                .arg("--force")
+                .arg(&legacy)
+                .current_dir(project_path);
+            let removed = match run_git_with_timeout(rm_cmd, "worktree remove --force (legacy)", project_path) {
+                Ok(o) => o.status.success(),
+                Err(_) => false,
+            };
+            if !removed {
+                let _ = std::fs::remove_dir_all(&legacy);
+            }
+            // 回收 git 内部的 worktree 元数据
+            let mut prune_cmd = Command::new("git");
+            prune_cmd
+                .arg("worktree")
+                .arg("prune")
+                .current_dir(project_path);
+            let _ = run_git_with_timeout(prune_cmd, "worktree prune", project_path);
+            info!(legacy = %legacy.display(), "pruned legacy ISO-format worktree");
+        }
     }
 
     /// 清理 worktree。已不存在/已被手动删除/git 元数据丢失时一律记 warn 返回 Ok(())，
@@ -568,5 +649,59 @@ mod tests {
         assert!(PathBuf::from(&wt).exists());
         // 清理避免污染 /tmp（tempdir drop 会兜底删主目录，但 worktree 在子目录）
         let _ = fs::remove_dir_all(dir.path().join(WORKTREE_ROOT_DIR));
+    }
+
+    /// 验证旧版 ISO 8601 格式目录会被 `prune_legacy_worktrees` 清理。
+    /// 模拟升级前留下的 `<todo_id>-<ISO>` 目录，调用 prune 后必须消失；
+    /// 同时确认其他 todo 的目录不会被误删。
+    #[test]
+    fn test_prune_legacy_worktrees_removes_iso_format() {
+        if StdCommand::new("git").arg("--version").output().is_err() {
+            return;
+        }
+        let dir = init_temp_repo();
+        // 给主仓库一个空 commit（worktree add 需要 HEAD 可解析）
+        let status = StdCommand::new("git")
+            .args(["commit", "--allow-empty", "-m", "init"])
+            .env("GIT_AUTHOR_NAME", "ntd")
+            .env("GIT_AUTHOR_EMAIL", "ntd@localhost")
+            .env("GIT_COMMITTER_NAME", "ntd")
+            .env("GIT_COMMITTER_EMAIL", "ntd@localhost")
+            .current_dir(dir.path())
+            .status()
+            .expect("git commit");
+        assert!(status.success());
+
+        // 在 .worktrees 下放两个遗留目录：todo_id=5 的 ISO 格式 + todo_id=8 的 ISO 格式
+        let root = dir.path().join(WORKTREE_ROOT_DIR);
+        fs::create_dir_all(&root).unwrap();
+        let legacy_self = root.join("5-2026-06-18T08:30:00.000Z");
+        let legacy_other = root.join("8-2026-06-18T08:30:00.000Z");
+        fs::create_dir_all(&legacy_self).unwrap();
+        fs::create_dir_all(&legacy_other).unwrap();
+        assert!(legacy_self.exists() && legacy_other.exists());
+
+        let svc = WorktreeService::new();
+        svc.prune_legacy_worktrees(dir.path().to_str().unwrap(), 5);
+
+        // 只清 todo_id=5 的遗留目录，todo_id=8 的保留
+        assert!(!legacy_self.exists(), "todo_id=5 legacy dir should be pruned");
+        assert!(legacy_other.exists(), "todo_id=8 legacy dir should NOT be pruned");
+
+        // 清理剩余目录避免污染
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// 验证 `mint_worktree_identity` 的目录+分支命名对保持一致。
+    /// 两者必须共享同一 `<todo_id>-<timestamp>` 尾巴，否则 cleanup 时按
+    /// 字符串推导出来的分支名找不到对应目录，会留下 dangling 元数据。
+    #[test]
+    fn test_mint_worktree_identity_keeps_branch_and_dir_in_sync() {
+        let (branch, dir) = WorktreeService::mint_worktree_identity("/tmp/proj", 42);
+        // 分支名形如 wt-42-1718695800000000，目录名形如 .../42-1718695800000000
+        assert!(branch.starts_with("wt-42-"));
+        let dir_name = dir.file_name().unwrap().to_string_lossy().into_owned();
+        // 目录名末段必须 = 分支名去掉 "wt-" 前缀
+        assert_eq!(dir_name, branch.trim_start_matches("wt-"));
     }
 }
