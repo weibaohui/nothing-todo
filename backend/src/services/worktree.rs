@@ -227,6 +227,9 @@ impl WorktreeService {
         // 目录名与分支名共享同一 identity 仅便于 `git worktree list` 人肉对账；
         // cleanup 通过 .git 文件里的 gitdir 指针定位主仓，不需要解析 identity。
         let identity = Self::mint_identity();
+        // 分支名提前到这里构造：exists() 命中时 warn 需要把孤儿分支路径一起打出，
+        // 便于操作者直接定位并手动清理（git worktree remove + git branch -D）。
+        let branch_name = format!("wt-{}-{}", todo_id, &identity);
         let worktree_dir = PathBuf::from(project_path)
             .join(WORKTREE_ROOT_DIR)
             .join(format!("{}-{}", todo_id, &identity));
@@ -234,11 +237,15 @@ impl WorktreeService {
             // 同名目录已存在（典型场景：上一轮 cleanup 未跑 / 同 todo_id 跨进程并发创建竞争）——
             // 不再静默复用：复用「脏」目录会让新执行继承上一次留下的未追踪文件 / 残留分支，
             // 把问题推迟到执行末段更难排查。这里返回 Err 让上层 `resolve_worktree_context`
-            // 走 `WorktreeContext::default()` 回退到原始 workspace。
+            // 走 `WorktreeContext::default()` 回退到原始 workspace。Err 路径至少把孤儿路径
+            // 打到 warn，便于人工介入清理；不做主动 remove/branch -D 是因为同名 worktree
+            // 可能属于另一条正在执行的 execution，主动回收风险大（见 review followup）。
             warn!(
                 worktree = %worktree_dir.display(),
+                orphan_branch = %branch_name,
                 todo_id = todo_id,
-                "worktree directory already exists, aborting to let caller fall back"
+                "worktree directory already exists, aborting to let caller fall back; \
+                 manual cleanup if stale: git worktree remove --force <dir> && git branch -D <branch>"
             );
             return Err(WorktreeError::GitCommandFailed {
                 cmd: "worktree add".into(),
@@ -262,9 +269,8 @@ impl WorktreeService {
         // 基于当前分支的 HEAD 创建 worktree，不再硬编码 "main"。
         // 当前分支名由 `current_branch` 探测得到，兼容 main/master/自定义分支。
         let base = self.current_branch(project_path)?;
-        // 分支名使用 yymmddHHMMss-随机数 格式，与目录名共享同一 identity
+        // 分支名在前面 exists() 检查之前已经构造好（用于 orphan warn），这里直接复用。
         // 分支名只允许 [a-zA-Z0-9_-]，yymmddHHMMss-随机数 格式完全符合规则。
-        let branch_name = format!("wt-{}-{}", todo_id, &identity);
         let mut add_cmd = Command::new("git");
         add_cmd
             .arg("worktree")
@@ -520,6 +526,9 @@ mod tests {
     /// 变化，所以「跨秒后靠 timestamp」不会让退化场景漏检——但理论上无法区分
     /// 「rand 退化被 timestamp 救」和「rand 真的够随机」。足够覆盖本 PR 的
     /// 「不撞」立论即可。
+    /// 局限：N=1000 也无法检测 partial entropy degradation（如 UUIDv4 退到只剩 24 bit
+    /// 熵，2^24 ≈ 16M 远超 1000，采样几乎不撞 → 假阳安全感）。要真测熵质量得 mock
+    /// chrono::Utc::now() 拿掉 timestamp 救场再跑大 N —— YAGNI 不做。
     #[test]
     fn test_mint_identity_uniqueness_within_one_second() {
         let mut seen = std::collections::HashSet::new();
@@ -552,12 +561,15 @@ mod tests {
         assert!(status.success(), "initial empty commit should succeed");
 
         let svc = WorktreeService::new();
+        // 把 todo_id 抽成局部变量，后续断言直接引用它，避免 hardcode "1" 假阳：
+        // 将来如果有人把这里改成 2/3/...，旧的断言会立刻 fail 而不是默默通过。
+        let todo_id: i64 = 1;
         let wt = svc
-            .create_worktree(dir.path().to_str().unwrap(), 1)
+            .create_worktree(dir.path().to_str().unwrap(), todo_id)
             .expect("create worktree");
         let wt_path = PathBuf::from(&wt);
         assert!(wt_path.exists(), "worktree dir should exist after create");
-        // 验证 create_worktree 产出的路径格式：<project>/.worktrees/1-<12digits>-<8hex>
+        // 验证 create_worktree 产出的路径格式：<project>/.worktrees/<todo_id>-<12digits>-<8hex>
         // 走真实生产路径，覆盖 inline 在 create_worktree 里的 format 串；
         // 替代旧版 test_worktree_path_format（用字面量、未调 mint_identity 的假阳测试）。
         let wt_name = wt_path
@@ -566,7 +578,7 @@ mod tests {
             .expect("worktree dir name utf8");
         let parts: Vec<&str> = wt_name.split('-').collect();
         assert_eq!(parts.len(), 3, "expected 3 '-'-separated parts, got: {}", wt_name);
-        assert_eq!(parts[0], "1", "todo_id 前缀不匹配, got: {}", wt_name);
+        assert_eq!(parts[0], todo_id.to_string(), "todo_id 前缀不匹配, got: {}", wt_name);
         assert_eq!(parts[1].len(), 12, "timestamp 应 12 位, got: {}", parts[1]);
         assert!(
             parts[1].chars().all(|c| c.is_ascii_digit()),
