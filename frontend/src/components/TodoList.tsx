@@ -514,7 +514,7 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
             items: [
               {
                 key: '__all__',
-                label: '全部工作区',
+                label: '全部工作空间',
                 icon: <ApartmentOutlined />,
               },
               ...projectDirectories.map(dir => ({
@@ -525,7 +525,7 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
               { type: 'divider' as const },
               {
                 key: '__manage__',
-                label: '管理工作区',
+                label: '管理工作空间',
                 icon: <SettingOutlined />,
               },
             ],
@@ -558,7 +558,7 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
               <span style={{ fontWeight: 500 }}>
                 {selectedWorkspace
                   ? projectDirectories.find(d => d.path === selectedWorkspace)?.name || selectedWorkspace
-                  : '全部工作区'
+                  : '全部工作空间'
                 }
               </span>
             </div>
