@@ -4,7 +4,7 @@
 //! with underscore-separated type names (e.g., step_start, tool_use).
 
 use std::collections::HashMap;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// MiMo agent event with underscore-separated type names (same as OpenCode)
 #[derive(Debug, Clone, Deserialize)]
@@ -47,7 +47,7 @@ pub struct MimoPart {
     pub snapshot: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MimoToolState {
     #[serde(default)]
     pub status: Option<String>,
@@ -57,7 +57,7 @@ pub struct MimoToolState {
     pub output: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MimoToolInput {
     #[serde(default)]
     pub command: Option<String>,

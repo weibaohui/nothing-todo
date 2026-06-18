@@ -216,19 +216,19 @@ impl CodeExecutor for ClaudeCodeExecutor {
     /// 从 stdout 中提取 session_id。
     /// Claude Code 的 session_id 在 system 事件的 session_id 字段中输出。
     /// 提取成功后保存到 executor 状态，供后续回写 DB 使用。
+    /// 若 line 为空或不含 session_id，则返回之前已缓存的值（handle_system 写入的）。
     fn extract_session_id(&self, line: &str) -> Option<String> {
-        if line.is_empty() {
-            return None;
-        }
-        // 解析 JSON，提取 system 事件中的 session_id
-        if let Ok(msg) = serde_json::from_str::<ClaudeMessage>(line) {
-            if let ClaudeMessage::System { session_id: Some(sid), .. } = msg {
-                // 保存到 executor 状态
-                *self.session_id.lock() = Some(sid.clone());
-                return Some(sid);
+        // 尝试从当前行解析新的 session_id
+        if !line.is_empty() {
+            if let Ok(msg) = serde_json::from_str::<ClaudeMessage>(line) {
+                if let ClaudeMessage::System { session_id: Some(sid), .. } = msg {
+                    *self.session_id.lock() = Some(sid.clone());
+                    return Some(sid);
+                }
             }
         }
-        None
+        // 回退：返回之前缓存的 session_id（由 handle_system 写入）
+        self.session_id.lock().clone()
     }
 
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {

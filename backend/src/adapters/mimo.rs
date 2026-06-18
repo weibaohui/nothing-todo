@@ -64,6 +64,8 @@ impl MimoExecutor {
     }
 
     /// tool_use: bash 工具显示 description + output，其它工具显示 tool + description。
+    /// tool_input_json 序列化完整的 part.state（含 status / input / output），
+    /// 前端 extractAgentCommands 依赖 state.status 判定命令成功/失败。
     fn handle_tool_use(
         &self,
         part: &super::mimo_event::MimoPart,
@@ -75,9 +77,10 @@ impl MimoExecutor {
         let description = part.state.as_ref()
             .and_then(|s| s.input.as_ref()?.description.clone())
             .unwrap_or_default();
-        let input_json = part.state.as_ref()
-            .and_then(|s| s.input.as_ref())
-            .map(|i| i.to_full_json());
+        // 序列化完整的 part.state（含 status / input / output），
+        // 而非仅 input；前端 extractAgentCommands 需要 state.status 判定成功/失败。
+        let state_json = part.state.as_ref()
+            .map(|s| serde_json::to_string(s).unwrap_or_default());
 
         // bash 特殊渲染：把命令输出也带上
         let content = if tool == "bash" {
@@ -90,7 +93,7 @@ impl MimoExecutor {
         };
 
         Some(helpers::with_timestamp(
-            helpers::entry_with_optional_tool("tool", content, Some(tool), input_json),
+            helpers::entry_with_optional_tool("tool", content, Some(tool), state_json),
             timestamp,
         ))
     }
