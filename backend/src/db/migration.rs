@@ -70,8 +70,65 @@ impl Migration for V1InitialSchema {
     }
 }
 
+// ---------------------------------------------------------------------------
+// v1 initial schema 拆分（issue #675）
+// ---------------------------------------------------------------------------
+//
+// 把原来堆在一个函数体里的 ~30 张表 / ~40 个索引 / ~10 个触发器 / ~30 条 ALTER,
+// 按"领域/用途"拆分为职责单一的子函数(每个 ≤ 30 行)。v1_initial_schema()
+// 只负责调用顺序,不掺杂具体 DDL;新增表只追加子函数、不改主函数。
+//
+// 拆分原则:
+//   1. 一张表 / 一个域 = 一个子函数,便于阅读、修改和单元测试。
+//   2. 不改 DDL、不改执行顺序、不改事务边界 —— 拆分纯结构性,行为完全等价。
+//   3. ALTER TABLE ADD COLUMN 的「重复 unwrap_or_else(warn)」模式抽成 helper,
+//      兼容列按所属表分组调用,避免 26 条 ALTER 把单个函数撑爆。
+//
+// 执行顺序(保持与重构前完全一致):
+//   - 先建稳定核心表 (todos / tags / execution_records / skill_invocations)
+//   - 建高频过滤索引(依赖以上表已存在)
+//   - 建 UTC 触发器(依赖 todos / tags 表已存在)
+//   - 建功能模块表(agent_bots / feishu_* / executors / project_directories /
+//     todo_templates / webhooks / usage_* / sync_records)
+//   - 最后追加历史兼容列(仅在旧库缺列时才生效)
+
+/// v1 初始 schema 的总编排入口。每个子函数职责单一、≤ 30 行。
 async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
-    // ---- todos ----
+    create_todos_table(db).await?;
+    create_tags_tables(db).await?;
+    create_execution_tables(db).await?;
+    create_execution_logs_table(db).await?;
+    create_skill_invocations_table(db).await?;
+    create_high_frequency_indexes(db).await?;
+    create_utc_triggers(db).await?;
+    create_agent_bots_table(db).await?;
+    create_feishu_homes(db).await?;
+    create_feishu_messages(db).await?;
+    create_feishu_history_chats(db).await?;
+    create_feishu_push_targets(db).await?;
+    create_feishu_response_config(db).await?;
+    create_feishu_group_whitelist(db).await?;
+    create_feishu_project_bindings(db).await?;
+    create_feishu_indexes(db).await?;
+    create_executors_table(db).await?;
+    create_project_directories_table(db).await?;
+    create_todo_templates_table(db).await?;
+    create_webhooks_table(db).await?;
+    create_webhook_records_table(db).await?;
+    create_usage_daily_stats_table(db).await?;
+    create_usage_daily_stats_trigger(db).await?;
+    create_usage_model_breakdowns_table(db).await?;
+    create_usage_executor_daily_stats_table(db).await?;
+    create_sync_records_table(db).await?;
+    add_legacy_columns(db).await?;
+    create_auto_review_indexes(db).await?;
+    Ok(())
+}
+
+// ---------------- 表创建 helpers(每个 ≤ 30 行) ----------------
+
+/// todos 主表:所有 todo 的根表。`executor` / `scheduler_*` 等字段最初都在这里。
+async fn create_todos_table(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS todos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,9 +145,11 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
             workspace TEXT
         )",
     )
-    .await?;
+    .await
+}
 
-    // ---- tags / todo_tags ----
+/// 标签表 + 多对多关联表(todo_tags)。
+async fn create_tags_tables(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS tags (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,9 +168,11 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
             FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
         )",
     )
-    .await?;
+    .await
+}
 
-    // ---- execution_records / execution_logs ----
+/// execution_records 主表(每条记录对应一次执行任务的结果/日志/状态)。
+async fn create_execution_tables(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS execution_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,9 +194,11 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
             FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE
         )",
     )
-    .await?;
+    .await
+}
 
-    // 执行日志表（每条日志一行，支持分页加载）
+/// execution_logs 表(每条日志一行,支持分页加载)+ record_id 索引。
+async fn create_execution_logs_table(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS execution_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -149,198 +212,11 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
     )
     .await?;
     db.exec("CREATE INDEX IF NOT EXISTS idx_execution_logs_record ON execution_logs(record_id)")
-        .await?;
+        .await
+}
 
-    // ---- 向后兼容旧库：execution_records / todos 上历史追加的列 ----
-    // 失败仅 warn（旧库上「列已存在」是预期情况），不阻塞启动。
-    db.exec("ALTER TABLE execution_records ADD COLUMN pid INTEGER")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE execution_records ADD COLUMN pid: {} (column likely already exists)",
-                e
-            );
-        });
-    db.exec("ALTER TABLE execution_records ADD COLUMN task_id TEXT")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE execution_records ADD COLUMN task_id: {}",
-                e
-            );
-        });
-    db.exec("ALTER TABLE execution_records ADD COLUMN session_id TEXT")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE execution_records ADD COLUMN session_id: {}",
-                e
-            );
-        });
-    db.exec("ALTER TABLE todos ADD COLUMN workspace TEXT")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE todos ADD COLUMN workspace: {}",
-                e
-            );
-        });
-    db.exec("ALTER TABLE todos ADD COLUMN worktree_enabled INTEGER DEFAULT 0")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE todos ADD COLUMN worktree_enabled: {}",
-                e
-            );
-        });
-    db.exec("ALTER TABLE execution_records ADD COLUMN todo_progress TEXT")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE execution_records ADD COLUMN todo_progress: {}",
-                e
-            );
-        });
-    db.exec("ALTER TABLE execution_records ADD COLUMN execution_stats TEXT")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE execution_records ADD COLUMN execution_stats: {}",
-                e
-            );
-        });
-    db.exec("ALTER TABLE execution_records ADD COLUMN resume_message TEXT")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE execution_records ADD COLUMN resume_message: {}",
-                e
-            );
-        });
-    // hook 触发起源字段：在目标 todo 的执行记录里回显「被 #X 标题 的 '触发时机' hook 触发」，
-    // 避免列表里 hook 触发记录与手动/cron 触发无法区分。
-    db.exec("ALTER TABLE execution_records ADD COLUMN source_todo_id INTEGER")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE execution_records ADD COLUMN source_todo_id: {}",
-                e
-            );
-        });
-    db.exec("ALTER TABLE execution_records ADD COLUMN source_todo_title TEXT")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE execution_records ADD COLUMN source_todo_title: {}",
-                e
-            );
-        });
-    db.exec("ALTER TABLE execution_records ADD COLUMN source_hook_id INTEGER")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE execution_records ADD COLUMN source_hook_id: {}",
-                e
-            );
-        });
-    db.exec("ALTER TABLE todos ADD COLUMN scheduler_timezone TEXT")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE todos ADD COLUMN scheduler_timezone: {}",
-                e
-            );
-        });
-    db.exec("ALTER TABLE todos ADD COLUMN hooks TEXT")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE todos ADD COLUMN hooks: {}",
-                e
-            );
-        });
-    db.exec("ALTER TABLE todos ADD COLUMN acceptance_criteria TEXT")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE todos ADD COLUMN acceptance_criteria: {}",
-                e
-            );
-        });
-    db.exec("ALTER TABLE execution_records ADD COLUMN rating INTEGER")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE execution_records ADD COLUMN rating: {}",
-                e
-            );
-        });
-
-    // ---- 自动评审（auto-review）字段 ----
-    // todos.todo_type: 0=normal, 1=reviewer_template(系统专用), 2=review_instance(评审实例)
-    db.exec("ALTER TABLE todos ADD COLUMN todo_type INTEGER DEFAULT 0")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE todos ADD COLUMN todo_type: {}",
-                e
-            );
-        });
-    // todos.parent_todo_id: review_instance 关联到被评审的原 todo
-    db.exec("ALTER TABLE todos ADD COLUMN parent_todo_id INTEGER")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE todos ADD COLUMN parent_todo_id: {}",
-                e
-            );
-        });
-    // todos.auto_review_enabled: 原 todo 是否在完成后自动 spawn 评审 (默认开)
-    db.exec("ALTER TABLE todos ADD COLUMN auto_review_enabled INTEGER DEFAULT 1")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE todos ADD COLUMN auto_review_enabled: {}",
-                e
-            );
-        });
-    // execution_records.source_execution_record_id: 评审记录精确回填到「原那条」执行记录
-    db.exec("ALTER TABLE execution_records ADD COLUMN source_execution_record_id INTEGER")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE execution_records ADD COLUMN source_execution_record_id: {}",
-                e
-            );
-        });
-    // execution_records.last_review_status: pending/success/failed/interrupted/skipped
-    db.exec("ALTER TABLE execution_records ADD COLUMN last_review_status TEXT")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE execution_records ADD COLUMN last_review_status: {}",
-                e
-            );
-        });
-    // execution_records.last_reviewed_at: 最近一次评审 spawn 时间
-    db.exec("ALTER TABLE execution_records ADD COLUMN last_reviewed_at TEXT")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE execution_records ADD COLUMN last_reviewed_at: {}",
-                e
-            );
-        });
-
-    // ---- 索引：加速「按 parent_todo_id 查评审实例」等查询 ----
-    db.exec("CREATE INDEX IF NOT EXISTS idx_todos_parent_todo_id ON todos(parent_todo_id)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_todos_todo_type ON todos(todo_type)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_source_record_id ON execution_records(source_execution_record_id)")
-        .await?;
-
-    // ---- skill_invocations ----
+/// skill_invocations 表:记录每个 todo 调用 skill 的轨迹。
+async fn create_skill_invocations_table(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS skill_invocations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -353,45 +229,32 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
             FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE
         )",
     )
-    .await?;
+    .await
+}
 
-    // ---- 高频过滤索引 ----
-    db.exec("CREATE INDEX IF NOT EXISTS idx_todos_deleted_at ON todos(deleted_at)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_todos_task_id ON todos(task_id)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_todo_id ON execution_records(todo_id)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_task_id ON execution_records(task_id)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_pid ON execution_records(pid)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_session_id ON execution_records(session_id)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_status ON execution_records(status)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_todo_tags_todo_id ON todo_tags(todo_id)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill_name ON skill_invocations(skill_name)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_executor ON skill_invocations(executor)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_todo_id ON skill_invocations(todo_id)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_started_at ON execution_records(started_at)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_executor ON execution_records(executor)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_model ON execution_records(model)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_todo_finished ON execution_records(todo_id, finished_at DESC)")
-        .await?;
+/// 高频过滤索引(todos / todo_tags / execution_records / skill_invocations)。
+async fn create_high_frequency_indexes(db: &Database) -> Result<(), sea_orm::DbErr> {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_todos_deleted_at ON todos(deleted_at)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_todos_task_id ON todos(task_id)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_todo_tags_todo_id ON todo_tags(todo_id)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_todo_id ON execution_records(todo_id)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_task_id ON execution_records(task_id)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_pid ON execution_records(pid)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_session_id ON execution_records(session_id)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_status ON execution_records(status)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_started_at ON execution_records(started_at)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_executor ON execution_records(executor)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_model ON execution_records(model)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_todo_finished ON execution_records(todo_id, finished_at DESC)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill_name ON skill_invocations(skill_name)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_executor ON skill_invocations(executor)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_todo_id ON skill_invocations(todo_id)").await
+}
 
-    // ---- 触发器：created_at / updated_at 自动填充为 UTC ----
-    // 用 BEFORE UPDATE 而非 AFTER UPDATE：应用层显式写入 updated_at 时不要被触发器覆盖；
-    // 只在 NULL/空时自动填充。
+/// `created_at / updated_at` 自动填充 UTC 的触发器。
+/// BEFORE UPDATE 让应用层显式写入时不被覆盖;只在 NULL/空时自动填充。
+async fn create_utc_triggers(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TRIGGER IF NOT EXISTS set_todos_created_at_utc AFTER INSERT ON todos
          WHEN new.created_at IS NULL OR new.created_at = ''
@@ -415,9 +278,11 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
              UPDATE tags SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
          END",
     )
-    .await?;
+    .await
+}
 
-    // ---- agent_bots ----
+/// agent_bots 表 + 旧库缺 `config` 列时追加。
+async fn create_agent_bots_table(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS agent_bots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -434,27 +299,13 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
         )",
     )
     .await?;
+    // 旧库可能没有 config 列;用独立探测+追加,避免依赖 ADD COLUMN 的兼容性 hack
+    add_column_if_missing(db, "agent_bots", "config", "ALTER TABLE agent_bots ADD COLUMN config TEXT DEFAULT '{}'").await?;
+    Ok(())
+}
 
-    // Migration: add config column if missing (existing databases)
-    let cols = db
-        .conn
-        .query_all(Statement::from_string(
-            DbBackend::Sqlite,
-            "PRAGMA table_info(agent_bots)".to_string(),
-        ))
-        .await
-        .unwrap_or_default();
-    let has_config = cols.iter().any(|row| {
-        row.try_get::<String>("", "name")
-            .map(|n| n == "config")
-            .unwrap_or(false)
-    });
-    if !has_config {
-        db.exec("ALTER TABLE agent_bots ADD COLUMN config TEXT DEFAULT '{}'")
-            .await?;
-    }
-
-    // ---- feishu 子表 ----
+/// feishu_homes 表:每个 (bot, user) 一行,记录当前 home view 信息。
+async fn create_feishu_homes(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS feishu_homes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -469,8 +320,11 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
             UNIQUE(bot_id, user_open_id)
         )",
     )
-    .await?;
+    .await
+}
 
+/// feishu_messages 表。
+async fn create_feishu_messages(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS feishu_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -491,74 +345,11 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
             FOREIGN KEY (bot_id) REFERENCES agent_bots(id) ON DELETE CASCADE
         )",
     )
-    .await?;
-
-    // ---- feishu_messages 向后兼容列 ----
-    db.exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS sender_nickname TEXT")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE feishu_messages ADD COLUMN sender_nickname: {}",
-                e
-            );
-        });
-    db.exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS sender_type TEXT")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE feishu_messages ADD COLUMN sender_type: {}",
-                e
-            );
-        });
-    db.exec(
-        "ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS is_history INTEGER DEFAULT 0",
-    )
     .await
-    .unwrap_or_else(|e| {
-        tracing::warn!(
-            "migration v1: ALTER TABLE feishu_messages ADD COLUMN is_history: {}",
-            e
-        );
-    });
-    db.exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS fetch_time TEXT")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE feishu_messages ADD COLUMN fetch_time: {}",
-                e
-            );
-        });
-    // processed_todo_id: SQLite 3.39.0+ 支持 IF NOT EXISTS，旧版本不支持
-    let add_result = db
-        .exec("ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS processed_todo_id INTEGER")
-        .await;
-    if add_result.is_err() {
-        db.exec("ALTER TABLE feishu_messages ADD COLUMN processed_todo_id INTEGER")
-            .await
-            .unwrap_or_else(|e| {
-                tracing::warn!(
-                    "migration v1: ALTER TABLE feishu_messages ADD COLUMN processed_todo_id: {}",
-                    e
-                );
-            });
-    }
-    let add_exec_result = db
-        .exec(
-            "ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS execution_record_id INTEGER",
-        )
-        .await;
-    if add_exec_result.is_err() {
-        db.exec("ALTER TABLE feishu_messages ADD COLUMN execution_record_id INTEGER")
-            .await
-            .unwrap_or_else(|e| {
-                tracing::warn!(
-                    "migration v1: ALTER TABLE feishu_messages ADD COLUMN execution_record_id: {}",
-                    e
-                );
-            });
-    }
+}
 
-    // ---- feishu_history_chats ----
+/// feishu_history_chats 表:用户开启自动拉取历史的群聊配置。
+async fn create_feishu_history_chats(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS feishu_history_chats (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -573,14 +364,11 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
             UNIQUE(bot_id, chat_id)
         )",
     )
-    .await?;
+    .await
+}
 
-    db.exec("CREATE INDEX IF NOT EXISTS idx_feishu_messages_chat_id ON feishu_messages(chat_id)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_feishu_messages_created_at ON feishu_messages(created_at)")
-        .await?;
-
-    // ---- feishu_push_targets / feishu_response_config / feishu_group_whitelist ----
+/// feishu_push_targets 表:每个 bot 的私聊/群聊推送配置。
+async fn create_feishu_push_targets(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS feishu_push_targets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -596,8 +384,11 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
             FOREIGN KEY (bot_id) REFERENCES agent_bots(id) ON DELETE CASCADE
         )",
     )
-    .await?;
+    .await
+}
 
+/// feishu_response_config 表:bot 响应触发配置,debounce_secs 默认 20。
+async fn create_feishu_response_config(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS feishu_response_config (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -611,23 +402,11 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
             UNIQUE(bot_id, target_type)
         )",
     )
-    .await?;
+    .await
+}
 
-    // Migrate: add debounce_secs column if missing (for existing tables created before this column)
-    let has_debounce: i64 = db
-        .conn
-        .query_one(Statement::from_string(
-            sea_orm::DatabaseBackend::Sqlite,
-            "SELECT COUNT(*) FROM pragma_table_info('feishu_response_config') WHERE name='debounce_secs'",
-        ))
-        .await?
-        .map(|r| r.try_get::<i64>("", "COUNT(*)").unwrap_or(0))
-        .unwrap_or(0);
-    if has_debounce == 0 {
-        db.exec("ALTER TABLE feishu_response_config ADD COLUMN debounce_secs INTEGER DEFAULT 20")
-            .await?;
-    }
-
+/// feishu_group_whitelist 表:bot 可响应的群成员白名单。
+async fn create_feishu_group_whitelist(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS feishu_group_whitelist (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -639,15 +418,17 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
             UNIQUE(bot_id, sender_open_id)
         )",
     )
-    .await?;
+    .await
+}
 
-    // ---- feishu_project_bindings ----
-    // - 活跃绑定（chat_id != '__pending__'）通过 partial unique index 保证 (bot_id, chat_id) 唯一
-    // - status 默认 'idle'，执行任务时更新为 'running'（执行完成后清理脚本重置为 idle）
-    // - session_id：Claude Code 的会话 ID，首次执行时填充，resume 时保持不变
-    // - latest_record_id：最近一次 execution_record.id，用于判断是否可 resume
-    // - chat_id 特殊值 "__pending__"：Web UI 创建的待绑定记录，等待飞书侧 /bind 补齐
-    // - created_at/updated_at 为 NOT NULL，业务层写入（非触发器）
+/// feishu_project_bindings 表:飞书会话 ↔ 项目目录 ↔ todo 三方绑定。
+/// `chat_id='__pending__'` 是 Web UI 创建的待绑定记录,等待飞书侧 /bind 补齐。
+///
+/// 注意:`enabled` 列虽然历史上是 hotfix 追加的兼容列,但被后续 partial unique
+/// index `idx_feishu_bindings_active` 引用(`WHERE ... AND enabled = 1`),所以必须
+/// 在建索引之前存在 —— 这里用 add_column_if_missing() 在建表后立即追加,
+/// 重复调用幂等无副作用。
+async fn create_feishu_project_bindings(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS feishu_project_bindings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -664,25 +445,27 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
         )",
     )
     .await?;
-    // 添加 enabled 字段（支持禁用而非删除绑定）
-    db.exec("ALTER TABLE feishu_project_bindings ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE feishu_project_bindings ADD COLUMN enabled: {}",
-                e
-            );
-        });
-    // Partial unique index: active bindings (non-pending) must be unique per (bot_id, chat_id)
-    // Pending bindings (chat_id='__pending__') excluded so one bot can have multiple pending
-    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_feishu_bindings_active ON feishu_project_bindings(bot_id, chat_id) WHERE chat_id != '__pending__' AND enabled = 1")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_feishu_bindings_record_id ON feishu_project_bindings(latest_record_id)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_feishu_bindings_bot_id ON feishu_project_bindings(bot_id)")
-        .await?;
+    // 必须在 create_feishu_indexes() 之前:partial unique index 引用此列
+    add_column_if_missing(
+        db,
+        "feishu_project_bindings",
+        "enabled",
+        "ALTER TABLE feishu_project_bindings ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1",
+    )
+    .await
+}
 
-    // ---- executors ----
+/// 飞书相关全部索引集中管理(便于一眼看全)。
+async fn create_feishu_indexes(db: &Database) -> Result<(), sea_orm::DbErr> {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_feishu_messages_chat_id ON feishu_messages(chat_id)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_feishu_messages_created_at ON feishu_messages(created_at)").await?;
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_feishu_bindings_active ON feishu_project_bindings(bot_id, chat_id) WHERE chat_id != '__pending__' AND enabled = 1").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_feishu_bindings_record_id ON feishu_project_bindings(latest_record_id)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_feishu_bindings_bot_id ON feishu_project_bindings(bot_id)").await
+}
+
+/// executors 表 + name 索引;旧库缺 session_dir 列时自动追加。
+async fn create_executors_table(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS executors (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -696,21 +479,14 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
         )",
     )
     .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_executors_name ON executors(name)")
-        .await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_executors_name ON executors(name)").await?;
+    // 旧库可能没有此列;独立探测+追加
+    add_column_if_missing(db, "executors", "session_dir", "ALTER TABLE executors ADD COLUMN session_dir TEXT NOT NULL DEFAULT ''").await?;
+    Ok(())
+}
 
-    // Migration: add session_dir column if missing (existing databases)
-    // 旧库可能没有此列；首次执行成功时这里不会报错，因为 SQLite 在 ADD COLUMN 重复列时会失败但被忽略
-    db.exec("ALTER TABLE executors ADD COLUMN session_dir TEXT NOT NULL DEFAULT ''")
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                "migration v1: ALTER TABLE executors ADD COLUMN session_dir: {} (column likely already exists)",
-                e
-            );
-        });
-
-    // ---- project_directories ----
+/// project_directories 表 + path 索引 + UTC created_at 触发器。
+async fn create_project_directories_table(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS project_directories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -721,9 +497,7 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
         )",
     )
     .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_project_directories_path ON project_directories(path)")
-        .await?;
-
+    db.exec("CREATE INDEX IF NOT EXISTS idx_project_directories_path ON project_directories(path)").await?;
     db.exec(
         "CREATE TRIGGER IF NOT EXISTS set_project_directories_created_at_utc AFTER INSERT ON project_directories
          WHEN new.created_at IS NULL OR new.created_at = ''
@@ -731,9 +505,11 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
              UPDATE project_directories SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
          END",
     )
-    .await?;
+    .await
+}
 
-    // ---- todo_templates ----
+/// todo_templates 表 + 兼容列(is_system/source_url/last_sync_at) + UTC 触发器。
+async fn create_todo_templates_table(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS todo_templates (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -747,51 +523,10 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
         )",
     )
     .await?;
-
-    // Migration: add is_system column if missing (existing databases)
-    let has_is_system: i64 = db
-        .conn
-        .query_one(Statement::from_string(
-            sea_orm::DatabaseBackend::Sqlite,
-            "SELECT COUNT(*) FROM pragma_table_info('todo_templates') WHERE name='is_system'".to_string(),
-        ))
-        .await?
-        .map(|r| r.try_get::<i64>("", "COUNT(*)").unwrap_or(0))
-        .unwrap_or(0);
-    if has_is_system == 0 {
-        db.exec("ALTER TABLE todo_templates ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0")
-            .await?;
-    }
-
-    // Migration: add source_url and last_sync_at columns if missing (custom template subscription)
-    let has_source_url: i64 = db
-        .conn
-        .query_one(Statement::from_string(
-            sea_orm::DatabaseBackend::Sqlite,
-            "SELECT COUNT(*) FROM pragma_table_info('todo_templates') WHERE name='source_url'".to_string(),
-        ))
-        .await?
-        .map(|r| r.try_get::<i64>("", "COUNT(*)").unwrap_or(0))
-        .unwrap_or(0);
-    if has_source_url == 0 {
-        db.exec("ALTER TABLE todo_templates ADD COLUMN source_url TEXT")
-            .await?;
-    }
-
-    let has_last_sync_at: i64 = db
-        .conn
-        .query_one(Statement::from_string(
-            sea_orm::DatabaseBackend::Sqlite,
-            "SELECT COUNT(*) FROM pragma_table_info('todo_templates') WHERE name='last_sync_at'".to_string(),
-        ))
-        .await?
-        .map(|r| r.try_get::<i64>("", "COUNT(*)").unwrap_or(0))
-        .unwrap_or(0);
-    if has_last_sync_at == 0 {
-        db.exec("ALTER TABLE todo_templates ADD COLUMN last_sync_at TEXT")
-            .await?;
-    }
-
+    // 旧库依次补 3 列(按兼容性顺序;可幂等反复执行)
+    add_column_if_missing(db, "todo_templates", "is_system", "ALTER TABLE todo_templates ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0").await?;
+    add_column_if_missing(db, "todo_templates", "source_url", "ALTER TABLE todo_templates ADD COLUMN source_url TEXT").await?;
+    add_column_if_missing(db, "todo_templates", "last_sync_at", "ALTER TABLE todo_templates ADD COLUMN last_sync_at TEXT").await?;
     db.exec(
         "CREATE TRIGGER IF NOT EXISTS set_todo_templates_created_at_utc AFTER INSERT ON todo_templates
          WHEN new.created_at IS NULL OR new.created_at = ''
@@ -799,33 +534,11 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
              UPDATE todo_templates SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
          END",
     )
-    .await?;
-    db.exec(
-        "CREATE TRIGGER IF NOT EXISTS set_project_directories_updated_at_utc BEFORE UPDATE ON project_directories
-         WHEN new.updated_at IS NULL OR new.updated_at = ''
-         BEGIN
-             SELECT raise(IGNORE);
-         END",
-    )
-    .await?;
-    db.exec(
-        "CREATE TRIGGER IF NOT EXISTS set_executors_created_at_utc AFTER INSERT ON executors
-         WHEN new.created_at IS NULL OR new.created_at = ''
-         BEGIN
-             UPDATE executors SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
-         END",
-    )
-    .await?;
-    db.exec(
-        "CREATE TRIGGER IF NOT EXISTS set_executors_updated_at_utc BEFORE UPDATE ON executors
-         WHEN new.updated_at IS NULL OR new.updated_at = ''
-         BEGIN
-             SELECT raise(IGNORE);
-         END",
-    )
-    .await?;
+    .await
+}
 
-    // ---- webhooks ----
+/// webhooks 主表 + UTC created_at 触发器。
+async fn create_webhooks_table(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS webhooks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -844,16 +557,11 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
              UPDATE webhooks SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
          END",
     )
-    .await?;
-    db.exec(
-        "CREATE TRIGGER IF NOT EXISTS set_webhooks_updated_at_utc BEFORE UPDATE ON webhooks
-         WHEN new.updated_at IS NULL OR new.updated_at = ''
-         BEGIN
-             SELECT raise(IGNORE);
-         END",
-    )
-    .await?;
+    .await
+}
 
+/// webhook_records 表 + 3 个索引 + UTC created_at 触发器。
+async fn create_webhook_records_table(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS webhook_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -870,12 +578,9 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
         )",
     )
     .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_webhook_records_webhook_id ON webhook_records(webhook_id)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_webhook_records_triggered_todo_id ON webhook_records(triggered_todo_id)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_webhook_records_created_at ON webhook_records(created_at)")
-        .await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_webhook_records_webhook_id ON webhook_records(webhook_id)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_webhook_records_triggered_todo_id ON webhook_records(triggered_todo_id)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_webhook_records_created_at ON webhook_records(created_at)").await?;
     db.exec(
         "CREATE TRIGGER IF NOT EXISTS set_webhook_records_created_at_utc AFTER INSERT ON webhook_records
          WHEN new.created_at IS NULL OR new.created_at = ''
@@ -883,10 +588,11 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
              UPDATE webhook_records SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
          END",
     )
-    .await?;
+    .await
+}
 
-    // ===== Hook System (inline on todos.hooks, no separate tables) =====
-    // ---- usage_daily_stats / usage_model_breakdowns / usage_executor_daily_stats ----
+/// usage_daily_stats 表 + 索引(UTC 触发器拆到独立函数,避免本函数超 30 行)。
+async fn create_usage_daily_stats_table(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS usage_daily_stats (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -910,11 +616,25 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
         )",
     )
     .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_usage_daily_stats_date ON usage_daily_stats(date)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_usage_daily_stats_stats_type ON usage_daily_stats(stats_type)")
-        .await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_usage_daily_stats_date ON usage_daily_stats(date)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_usage_daily_stats_stats_type ON usage_daily_stats(stats_type)").await?;
+    create_usage_daily_stats_trigger(db).await
+}
 
+/// usage_daily_stats 表的 UTC created_at 触发器。
+async fn create_usage_daily_stats_trigger(db: &Database) -> Result<(), sea_orm::DbErr> {
+    db.exec(
+        "CREATE TRIGGER IF NOT EXISTS set_usage_daily_stats_created_at_utc AFTER INSERT ON usage_daily_stats
+         WHEN new.created_at IS NULL OR new.created_at = ''
+         BEGIN
+             UPDATE usage_daily_stats SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+         END",
+    )
+    .await
+}
+
+/// usage_model_breakdowns 表 + daily_stat_id 索引。
+async fn create_usage_model_breakdowns_table(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS usage_model_breakdowns (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -930,18 +650,11 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
         )",
     )
     .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_usage_model_breakdowns_daily_stat_id ON usage_model_breakdowns(daily_stat_id)")
-        .await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_usage_model_breakdowns_daily_stat_id ON usage_model_breakdowns(daily_stat_id)").await
+}
 
-    db.exec(
-        "CREATE TRIGGER IF NOT EXISTS set_usage_daily_stats_created_at_utc AFTER INSERT ON usage_daily_stats
-         WHEN new.created_at IS NULL OR new.created_at = ''
-         BEGIN
-             UPDATE usage_daily_stats SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
-         END",
-    )
-    .await?;
-
+/// usage_executor_daily_stats 表 + 索引 + UTC 触发器。
+async fn create_usage_executor_daily_stats_table(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS usage_executor_daily_stats (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -962,11 +675,8 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
         )",
     )
     .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_usage_executor_daily_stats_date ON usage_executor_daily_stats(date)")
-        .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_usage_executor_daily_stats_executor ON usage_executor_daily_stats(executor)")
-        .await?;
-
+    db.exec("CREATE INDEX IF NOT EXISTS idx_usage_executor_daily_stats_date ON usage_executor_daily_stats(date)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_usage_executor_daily_stats_executor ON usage_executor_daily_stats(executor)").await?;
     db.exec(
         "CREATE TRIGGER IF NOT EXISTS set_usage_executor_daily_stats_created_at_utc AFTER INSERT ON usage_executor_daily_stats
          WHEN new.created_at IS NULL OR new.created_at = ''
@@ -974,9 +684,11 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
              UPDATE usage_executor_daily_stats SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
          END",
     )
-    .await?;
+    .await
+}
 
-    // ---- sync_records ----
+/// sync_records 表 + created_at 索引。
+async fn create_sync_records_table(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS sync_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -991,9 +703,286 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
     )
     .await?;
     db.exec("CREATE INDEX IF NOT EXISTS idx_sync_records_created_at ON sync_records(created_at DESC)")
-        .await?;
+        .await
+}
 
+/// 自动评审相关索引(todos.parent_todo_id / todos.todo_type / execution_records.source_execution_record_id)。
+async fn create_auto_review_indexes(db: &Database) -> Result<(), sea_orm::DbErr> {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_todos_parent_todo_id ON todos(parent_todo_id)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_todos_todo_type ON todos(todo_type)").await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_execution_records_source_record_id ON execution_records(source_execution_record_id)").await
+}
+
+// ---------------- 历史兼容列追加(按表分组) ----------------
+
+/// 全部向后兼容 ALTER TABLE 集合。按表分组,避免 26 条 ALTER 把单个函数撑爆。
+/// 重复列名错误(旧库上列已存在)属预期,仅记 warn;真实错误冒泡。
+async fn add_legacy_columns(db: &Database) -> Result<(), sea_orm::DbErr> {
+    add_legacy_execution_record_columns(db).await?;
+    add_legacy_todos_columns(db).await?;
+    add_legacy_feishu_messages_columns(db).await?;
+    add_legacy_misc_columns(db).await?;
     Ok(())
+}
+
+/// execution_records 历史追加列(13 条,含自动评审与 hook 触发起源字段)。
+async fn add_legacy_execution_record_columns(db: &Database) -> Result<(), sea_orm::DbErr> {
+    const COLS: &[&str] = &[
+        "ALTER TABLE execution_records ADD COLUMN pid INTEGER",
+        "ALTER TABLE execution_records ADD COLUMN task_id TEXT",
+        "ALTER TABLE execution_records ADD COLUMN session_id TEXT",
+        "ALTER TABLE execution_records ADD COLUMN todo_progress TEXT",
+        "ALTER TABLE execution_records ADD COLUMN execution_stats TEXT",
+        "ALTER TABLE execution_records ADD COLUMN resume_message TEXT",
+        "ALTER TABLE execution_records ADD COLUMN source_todo_id INTEGER",
+        "ALTER TABLE execution_records ADD COLUMN source_todo_title TEXT",
+        "ALTER TABLE execution_records ADD COLUMN source_hook_id INTEGER",
+        "ALTER TABLE execution_records ADD COLUMN rating INTEGER",
+        "ALTER TABLE execution_records ADD COLUMN source_execution_record_id INTEGER",
+        "ALTER TABLE execution_records ADD COLUMN last_review_status TEXT",
+        "ALTER TABLE execution_records ADD COLUMN last_reviewed_at TEXT",
+    ];
+    for sql in COLS {
+        add_column_warn(db, sql).await;
+    }
+    Ok(())
+}
+
+/// todos 历史追加列(8 条,含自动评审与 worktree/scheduler 字段)。
+async fn add_legacy_todos_columns(db: &Database) -> Result<(), sea_orm::DbErr> {
+    const COLS: &[&str] = &[
+        "ALTER TABLE todos ADD COLUMN workspace TEXT",
+        "ALTER TABLE todos ADD COLUMN worktree_enabled INTEGER DEFAULT 0",
+        "ALTER TABLE todos ADD COLUMN scheduler_timezone TEXT",
+        "ALTER TABLE todos ADD COLUMN hooks TEXT",
+        "ALTER TABLE todos ADD COLUMN acceptance_criteria TEXT",
+        "ALTER TABLE todos ADD COLUMN todo_type INTEGER DEFAULT 0",
+        "ALTER TABLE todos ADD COLUMN parent_todo_id INTEGER",
+        "ALTER TABLE todos ADD COLUMN auto_review_enabled INTEGER DEFAULT 1",
+    ];
+    for sql in COLS {
+        add_column_warn(db, sql).await;
+    }
+    Ok(())
+}
+
+/// feishu_messages 历史追加列:4 条走 `ADD COLUMN IF NOT EXISTS`(SQLite 3.35+),
+/// 2 条(processed_todo_id / execution_record_id)在 IF NOT EXISTS 失败时回退。
+async fn add_legacy_feishu_messages_columns(db: &Database) -> Result<(), sea_orm::DbErr> {
+    const IF_NOT_EXISTS_COLS: &[&str] = &[
+        "ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS sender_nickname TEXT",
+        "ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS sender_type TEXT",
+        "ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS is_history INTEGER DEFAULT 0",
+        "ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS fetch_time TEXT",
+    ];
+    for sql in IF_NOT_EXISTS_COLS {
+        add_column_warn(db, sql).await;
+    }
+    // IF NOT EXISTS 在老版本 SQLite 失败时回退到普通 ADD COLUMN
+    add_column_with_fallback(
+        db,
+        "ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS processed_todo_id INTEGER",
+        "ALTER TABLE feishu_messages ADD COLUMN processed_todo_id INTEGER",
+    )
+    .await?;
+    add_column_with_fallback(
+        db,
+        "ALTER TABLE feishu_messages ADD COLUMN IF NOT EXISTS execution_record_id INTEGER",
+        "ALTER TABLE feishu_messages ADD COLUMN execution_record_id INTEGER",
+    )
+    .await
+}
+
+/// 散落各表的杂项历史列(7 条):debounce_secs / enabled / session_dir / 3 列 templates / config。
+/// 散落各表的杂项历史列(6 条):debounce_secs / session_dir / 3 列 templates / config。
+/// 注:`feishu_project_bindings.enabled` 已在 create_feishu_project_bindings() 内
+/// 追加(因为 partial unique index 依赖它),此处不再重复。
+async fn add_legacy_misc_columns(db: &Database) -> Result<(), sea_orm::DbErr> {
+    const COLS: &[&str] = &[
+        "ALTER TABLE feishu_response_config ADD COLUMN debounce_secs INTEGER DEFAULT 20",
+        "ALTER TABLE executors ADD COLUMN session_dir TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE todo_templates ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE todo_templates ADD COLUMN source_url TEXT",
+        "ALTER TABLE todo_templates ADD COLUMN last_sync_at TEXT",
+        "ALTER TABLE agent_bots ADD COLUMN config TEXT DEFAULT '{}'",
+    ];
+    for sql in COLS {
+        add_column_warn(db, sql).await;
+    }
+    Ok(())
+}
+
+// ---------------- 内部 helpers ----------------
+
+/// 用 `PRAGMA table_info` 判断某列是否存在。返回 `Ok(true)` 表示表+列都存在。
+async fn table_has_column(db: &Database, table: &str, column: &str) -> Result<bool, sea_orm::DbErr> {
+    let sql = format!(
+        "SELECT COUNT(*) FROM pragma_table_info('{}') WHERE name='{}'",
+        table, column
+    );
+    let row = db
+        .conn
+        .query_one(Statement::from_string(DbBackend::Sqlite, sql))
+        .await?;
+    Ok(row
+        .and_then(|r| r.try_get_by_index::<i64>(0).ok())
+        .unwrap_or(0)
+        > 0)
+}
+
+/// 「探测列存在性 → 缺则 ALTER 追加」。把 6 处相同的探测+ALTER 模式收敛到一个 helper。
+async fn add_column_if_missing(
+    db: &Database,
+    table: &str,
+    column: &str,
+    alter_sql: &str,
+) -> Result<(), sea_orm::DbErr> {
+    if !table_has_column(db, table, column).await? {
+        db.exec(alter_sql).await?;
+    }
+    Ok(())
+}
+
+/// 「执行一条 ALTER TABLE ADD COLUMN,失败仅 warn」。
+/// 重复列名错误(旧库上列已存在)属预期,仅记 warn;真实错误理论上不会发生。
+async fn add_column_warn(db: &Database, sql: &str) {
+    if let Err(e) = db.exec(sql).await {
+        tracing::warn!("migration v1: {}: {} (column likely already exists)", sql, e);
+    }
+}
+
+/// 「先试 IF NOT EXISTS 版本,失败则回退到普通 ADD COLUMN」。
+/// 用于旧版 SQLite(<3.35)不支持 `ADD COLUMN IF NOT EXISTS` 的场景。
+async fn add_column_with_fallback(
+    db: &Database,
+    if_not_exists_sql: &str,
+    fallback_sql: &str,
+) -> Result<(), sea_orm::DbErr> {
+    if let Err(e) = db.exec(if_not_exists_sql).await {
+        tracing::debug!(
+            "migration v1: IF NOT EXISTS ADD COLUMN failed ({}), falling back",
+            e
+        );
+        add_column_warn(db, fallback_sql).await;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests for v1 split helpers (issue #675)
+// ---------------------------------------------------------------------------
+//
+// 新引入的 helper(`table_has_column` / `add_column_if_missing` / `add_column_warn`)
+// 是 v1_initial_schema 拆分后的复用基石,任何 helper 行为变化都会让
+// 整个 v1 在旧库上的兼容分支出错。这里加 5 个 fixture-driven test 把
+// 它们的 3 个核心分支钉死:
+//   1. table_has_column: 列存在 → true / 列不存在 → false / 表不存在 → false
+//   2. add_column_if_missing: 列已存在 → 跳过 / 列不存在 → ALTER 追加
+//   3. add_column_with_fallback: IF NOT EXISTS 失败 → 回退 ALTER
+
+#[cfg(test)]
+mod v1_helpers_tests {
+    use super::*;
+
+    /// 复用与 needs_fk_migration_tests 同款的 fresh_db helper,确保走完整 v1 init
+    async fn fresh_db() -> Database {
+        Database::new(":memory:")
+            .await
+            .expect(":memory: db must open")
+    }
+
+    /// 分支 1: 列存在 → true。v1 init 已经把 todos.workspace 加进去。
+    #[tokio::test]
+    async fn table_has_column_returns_true_when_column_exists() {
+        let db = fresh_db().await;
+        assert!(
+            table_has_column(&db, "todos", "workspace")
+                .await
+                .expect("probe must succeed"),
+            "todos.workspace is added by v1, must be detected"
+        );
+    }
+
+    /// 分支 2: 表上没这列 → false。用一个肯定不在 v1 表上的列名。
+    #[tokio::test]
+    async fn table_has_column_returns_false_when_column_missing() {
+        let db = fresh_db().await;
+        assert!(
+            !table_has_column(&db, "todos", "definitely_not_a_real_column_xyz")
+                .await
+                .expect("probe must succeed"),
+            "non-existent column must report false"
+        );
+    }
+
+    /// 分支 3: 表不存在 → false(PRAGMA table_info 对不存在的表返回 0 行)。
+    /// 这一点很关键:add_column_if_missing() 依赖它能优雅处理新建表前的探测场景。
+    #[tokio::test]
+    async fn table_has_column_returns_false_when_table_missing() {
+        let db = fresh_db().await;
+        assert!(
+            !table_has_column(&db, "no_such_table_xyz", "anything")
+                .await
+                .expect("probe must succeed"),
+            "non-existent table must report false (not panic)"
+        );
+    }
+
+    /// 分支 4: add_column_if_missing → 列已存在则跳过(幂等无副作用)。
+    /// 这是 v1 在已迁移库上反复启动不爆的关键。
+    #[tokio::test]
+    async fn add_column_if_missing_skips_when_column_exists() {
+        let db = fresh_db().await;
+        // todos.workspace 已经被 v1 添加;重复调用必须 no-op
+        add_column_if_missing(
+            &db,
+            "todos",
+            "workspace",
+            "ALTER TABLE todos ADD COLUMN workspace TEXT",
+        )
+        .await
+        .expect("skip must succeed");
+        // workspace 必须仍是单列(没有重复)
+        assert!(
+            table_has_column(&db, "todos", "workspace").await.unwrap(),
+            "workspace must still exist after no-op skip"
+        );
+    }
+
+    /// 分支 5: add_column_if_missing → 列不存在则追加。
+    /// 用临时表隔离,确保只在测试自身建的表上操作,不污染 v1 schema。
+    #[tokio::test]
+    async fn add_column_if_missing_adds_when_column_missing() {
+        let db = fresh_db().await;
+        db.exec("CREATE TABLE acim_probe (id INTEGER PRIMARY KEY, name TEXT)")
+            .await
+            .expect("table must create");
+        assert!(
+            !table_has_column(&db, "acim_probe", "nickname").await.unwrap(),
+            "precondition: column must be absent"
+        );
+        add_column_if_missing(
+            &db,
+            "acim_probe",
+            "nickname",
+            "ALTER TABLE acim_probe ADD COLUMN nickname TEXT",
+        )
+        .await
+        .expect("add must succeed");
+        assert!(
+            table_has_column(&db, "acim_probe", "nickname").await.unwrap(),
+            "column must be added"
+        );
+        // 再次调用必须幂等 — 不会因为 ALTER 重复列失败(否则会 panic/Err)
+        add_column_if_missing(
+            &db,
+            "acim_probe",
+            "nickname",
+            "ALTER TABLE acim_probe ADD COLUMN nickname TEXT",
+        )
+        .await
+        .expect("second call must also succeed (idempotent)");
+    }
 }
 
 // ---------------------------------------------------------------------------
