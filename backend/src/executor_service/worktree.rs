@@ -19,7 +19,7 @@ use crate::services::worktree::WorktreeService;
 /// - `record_path`: 回写到 execution_records.worktree_path 的值（None=无需记录）。
 /// - `auto_cleanup`: 终态时是否需要调用 WorktreeService::cleanup_worktree。
 #[derive(Debug, Clone, Default)]
-pub struct WorktreeContext {
+pub(crate) struct WorktreeContext {
     pub effective_workspace: Option<String>,
     pub record_path: Option<String>,
     pub auto_cleanup: bool,
@@ -29,7 +29,7 @@ pub struct WorktreeContext {
 ///
 /// 不在 `WorktreeContext` 内持有数据库句柄——这是个**纯异步查询**函数，方便在
 /// run_todo_execution 主路径上独立调用并把结果 move 进 spawn 闭包。
-pub async fn resolve_worktree_context(db: &Database, todo: &Option<Todo>) -> WorktreeContext {
+pub(crate) async fn resolve_worktree_context(db: &Database, todo: &Option<Todo>) -> WorktreeContext {
     // 没有 todo（被 hook 删除）/ 没有 workspace 关联项目目录——不启用 worktree
     let Some(t) = todo.as_ref() else {
         return WorktreeContext::default();
@@ -70,7 +70,7 @@ pub async fn resolve_worktree_context(db: &Database, todo: &Option<Todo>) -> Wor
 ///
 /// 这一步不在 `resolve_worktree_context` 内做，因为该函数不持有 record_id；
 /// 调用方在拿到 `create_execution_record` 返回的 id 之后再回填。
-pub async fn record_worktree_path(db: &Database, record_id: i64, path: Option<&str>) {
+pub(crate) async fn record_worktree_path(db: &Database, record_id: i64, path: Option<&str>) {
     if let Some(p) = path {
         if let Err(e) = db.update_execution_record_worktree_path(record_id, p).await {
             tracing::warn!(record_id, error = ?e, "failed to persist worktree_path");
@@ -81,7 +81,7 @@ pub async fn record_worktree_path(db: &Database, record_id: i64, path: Option<&s
 /// 执行结束后清理 worktree（如果启用了 auto_cleanup）。
 ///
 /// `WorktreeError` 不会出现：本服务把失败映射成 warn，不再向上抛。
-pub fn cleanup_worktree_if_needed(ctx: &WorktreeContext) {
+pub(crate) fn cleanup_worktree_if_needed(ctx: &WorktreeContext) {
     if !ctx.auto_cleanup {
         return;
     }
@@ -101,7 +101,7 @@ pub fn cleanup_worktree_if_needed(ctx: &WorktreeContext) {
 /// - 位置约束：必须放在 `--session-id` / `--resume` 之前，否则 Claude Code / Hermes
 ///   在 resume session 时不会触发 worktree 初始化。
 ///   没找到这些开关时 append 到末尾，依然能让 Claude Code 自动管理 worktree。
-pub fn apply_worktree_flag(
+pub(crate) fn apply_worktree_flag(
     command_args: &mut Vec<String>,
     exec_type: ExecutorType,
     worktree_enabled: bool,
@@ -126,7 +126,7 @@ pub fn apply_worktree_flag(
 
 /// 使用 command-group 安全地杀死进程树
 /// command-group 会自动创建进程组，kill() 时会杀死整个进程组
-pub async fn kill_process_tree(child: &mut command_group::AsyncGroupChild) {
+pub(crate) async fn kill_process_tree(child: &mut command_group::AsyncGroupChild) {
     if let Err(e) = child.kill().await {
         tracing::warn!("Failed to kill process group: {}", e);
     }

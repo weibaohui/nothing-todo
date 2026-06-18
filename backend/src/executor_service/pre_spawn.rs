@@ -21,6 +21,7 @@ use crate::task_manager::TaskManager;
 
 use super::ExecutionResult;
 use super::RunTodoExecutionRequest;
+use super::log_capture::send_event;
 use super::worktree::apply_worktree_flag;
 
 /// 选择执行器类型。优先级：调用方显式 `req_executor` > todo 存储的 `todo_executor` > 默认值。
@@ -30,7 +31,7 @@ use super::worktree::apply_worktree_flag;
 ///
 /// 不返回 `Result`，因为解析失败是预期内的"软"行为，调用方直接走默认分支即可。
 /// 把 warn 日志集中在这里，避免顶级函数里出现散落的 `tracing::warn!` 解释为什么降级。
-pub fn resolve_executor_type(req_executor: Option<&str>, todo_executor: Option<&str>) -> ExecutorType {
+pub(crate) fn resolve_executor_type(req_executor: Option<&str>, todo_executor: Option<&str>) -> ExecutorType {
     // 显式请求 > 存储值 > 默认。三层 or_else 形成优先级链。
     req_executor
         .and_then(|exec| {
@@ -55,7 +56,7 @@ pub fn resolve_executor_type(req_executor: Option<&str>, todo_executor: Option<&
 /// 僵尸 = 数据库标记 running，但 `task_manager` 里查不到对应 task（多半是上一次
 /// daemon 重启 / 异常退出遗留的脏数据）。这种记录不算"占用并发配额"，否则 daemon
 /// 重启后所有 todo 都会被并发上限挡死。
-pub async fn count_active_running_for_todo(
+pub(crate) async fn count_active_running_for_todo(
     task_manager: &TaskManager,
     db: &Database,
     todo_id: i64,
@@ -83,7 +84,7 @@ pub async fn count_active_running_for_todo(
 
 /// 并发上限拒接：仅发 Finished 事件 + 移除 task。
 /// 不调 `finish_todo_execution` —— todo 状态没变过，DB 里还是上一态。
-pub async fn reject_concurrency_limit(
+pub(crate) async fn reject_concurrency_limit(
     task_manager: &TaskManager,
     tx: &broadcast::Sender<ExecEvent>,
     task_id: &str,
@@ -120,7 +121,7 @@ pub async fn reject_concurrency_limit(
 }
 
 /// 没有可用 executor：发 Finished + finish_todo_execution（DB 回滚 todo 到非 running）。
-pub async fn reject_no_executor(
+pub(crate) async fn reject_no_executor(
     db: &Database,
     task_manager: &TaskManager,
     tx: &broadcast::Sender<ExecEvent>,
@@ -156,7 +157,7 @@ pub async fn reject_no_executor(
 
 /// 创建 execution_record 失败：finish_todo_execution + 移除 task。
 /// 不发 Finished 事件 —— 没记录 id，前端无从关联；只清理内存 task。
-pub async fn reject_create_record_failure(
+pub(crate) async fn reject_create_record_failure(
     db: &Database,
     task_manager: &TaskManager,
     task_id: &str,
@@ -175,7 +176,7 @@ pub async fn reject_create_record_failure(
 /// `start_todo_execution` 失败：发 Output/Finished 事件 + 写 record 为 Failed 状态 +
 /// finish_todo_execution + 移除 task。返回的 `record_id` 仍是 `Some`，
 /// 让调用方可以基于 record_id 后续追查失败记录。
-pub async fn reject_start_todo_failure(
+pub(crate) async fn reject_start_todo_failure(
     db: &Database,
     tx: &broadcast::Sender<ExecEvent>,
     task_manager: &TaskManager,
@@ -227,19 +228,16 @@ pub async fn reject_start_todo_failure(
     }
 }
 
-// ====== 触发 Output / Finished 事件的 helper ======
-
-/// 触发 `Output` 事件的 helper：忽略 send 失败（无订阅者 = 没人想看，不算错误）。
-pub(crate) fn send_event(tx: &broadcast::Sender<ExecEvent>, event: ExecEvent) {
-    let _ = tx.send(event);
-}
+// `send_event` helper 复用自 `super::log_capture::send_event` —— 同一 helper 在两个
+// 模块里重复定义过（pre_spawn.rs 与 log_capture.rs），review CRITICAL #2 指出后，
+// 统一从 log_capture 引用；这里保留注释以表明此处刻意不重新定义。
 
 /// Stage 1 步骤 5 产物：executor 选择 + command 构造。
 ///
 /// 决策顺序：显式 req_executor > todo.executor > registry default。命令构造
 /// 用 `command_args_with_session` 处理 resume / 非 resume 分支，再用
 /// [`apply_worktree_flag`] 给 claude_code / hermes 加 worktree 参数。
-pub struct SelectedExecutor {
+pub(crate) struct SelectedExecutor {
     pub executor: Arc<dyn CodeExecutor>,
     pub command_args: Vec<String>,
     pub executable_path: String,
@@ -251,7 +249,7 @@ pub struct SelectedExecutor {
 /// Stage 1 步骤 5：选定 executor 并构造 command argv。
 ///
 /// 失败时返回 reject_no_executor 的 ExecutionResult，调用方据此 short-circuit。
-pub async fn select_executor_and_build_command(
+pub(crate) async fn select_executor_and_build_command(
     request: &RunTodoExecutionRequest,
     todo: &Option<crate::models::Todo>,
     message: &str,
@@ -338,7 +336,7 @@ async fn persist_executor_choice(db: &Database, todo_id: i64, executor_str: &str
 ///
 /// record_id 是 stage 1 唯一需要数据库写的字段。失败时走 reject_create_record_failure
 /// 把 todo 标回非 running 并清理 task，调用方拿到 ExecutionResult 直接返回给前端。
-pub async fn create_run_execution_record(
+pub(crate) async fn create_run_execution_record(
     request: RunTodoExecutionRequest,
     task_state: super::types::TaskState,
     todo: Option<crate::models::Todo>,
@@ -418,7 +416,7 @@ async fn create_record_or_reject(
 /// `chain` 在 `fire_pre_execution_hook_if_needed` 还要用，所以提前 clone 出来。
 /// 占位符替换只在编排阶段有效——executor 看到的 message 与 stage 2 写入
 /// execution_record.command 的字符串一致。
-pub fn substitute_message_placeholders(
+pub(crate) fn substitute_message_placeholders(
     request: &super::RunTodoExecutionRequest,
 ) -> super::types::SubstitutedContext {
     let message = request
@@ -433,7 +431,7 @@ pub fn substitute_message_placeholders(
 }
 
 /// Stage 1 步骤 4a：如果 todo 已存在，校验并发限制。todo 为 None 时跳过。
-pub async fn enforce_concurrency_limit(
+pub(crate) async fn enforce_concurrency_limit(
     request: &super::RunTodoExecutionRequest,
     todo: Option<crate::models::Todo>,
     max_concurrent: u32,
@@ -471,7 +469,7 @@ pub async fn enforce_concurrency_limit(
 
 /// Stage 1 步骤 4b：Fire before_execution hooks synchronously — block until all
 /// pre-flight targets finish. todo 为 None 时跳过（todo 已被删）。
-pub async fn fire_pre_execution_hook_if_needed(
+pub(crate) async fn fire_pre_execution_hook_if_needed(
     request: &super::RunTodoExecutionRequest,
     todo: &Option<crate::models::Todo>,
     chain: Vec<i64>,

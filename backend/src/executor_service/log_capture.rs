@@ -30,7 +30,7 @@ pub(crate) fn send_event(tx: &broadcast::Sender<ExecEvent>, event: ExecEvent) {
 /// 启动一个 stderr reader 任务：逐行读 stderr -> 经 executor 解析 -> 推入 LogFlusher。
 ///
 /// 返回 `None` 表示 executor 子进程根本没暴露 stderr（少见，比如某些 mock executor）。
-pub fn spawn_stderr_reader<R>(
+pub(crate) fn spawn_stderr_reader<R>(
     stderr_handle: Option<R>,
     executor: Arc<dyn CodeExecutor>,
     log_flusher: Arc<LogFlusher>,
@@ -70,7 +70,7 @@ where
 ///   2. 解析 `todo_progress` 时除写库外还要发 `TodoProgress` 事件（前端实时进度条）；
 ///   3. 每 10 行 或 工具调用时扫一遍 buffer 计算 stats，emit `ExecutionStats`。
 /// 这三件事没法再下沉到 LogFlusher（一个是 DB 写，一个是 progress 事件），所以留在这里。
-pub fn spawn_stdout_reader<R>(
+pub(crate) fn spawn_stdout_reader<R>(
     stdout_handle: Option<R>,
     executor: Arc<dyn CodeExecutor>,
     db: Arc<Database>,
@@ -240,7 +240,7 @@ async fn compute_execution_stats(
 ///
 /// `SO`/`SE` 两个泛型分别对应 stdout/stderr handle 的真实类型（tokio 的 ChildStdout
 /// 和 ChildStderr 是两个不同类型，没法合并成一个 `R`）。
-pub async fn setup_log_capture_pipeline<SO, SE>(
+pub(crate) async fn setup_log_capture_pipeline<SO, SE>(
     stdout_handle: Option<SO>,
     stderr_handle: Option<SE>,
     executor: Arc<dyn CodeExecutor>,
@@ -293,7 +293,7 @@ where
 ///
 /// `log_flusher` 接 `Arc<LogFlusher>` 而不是 `&LogFlusher`，因为 `finalize` 的签名
 /// 是 `async fn finalize(self: Arc<Self>)`，需要拿所有权才能走完 drain 流程。
-pub async fn drain_readers_and_flush(
+pub(crate) async fn drain_readers_and_flush(
     child: &mut command_group::AsyncGroupChild,
     stdout_task: Option<JoinHandle<()>>,
     stderr_task: Option<JoinHandle<()>>,
@@ -324,7 +324,7 @@ pub async fn drain_readers_and_flush(
 ///
 /// `log_flusher` 接 `Arc<LogFlusher>` 而不是 `&LogFlusher`，因为 `finalize` 的签名
 /// 是 `fn finalize(self: Arc<Self>)`——必须 move 走 Arc 才能在内部触发 flush 收尾。
-pub async fn flush_and_extract_result(
+pub(crate) async fn flush_and_extract_result(
     log_flusher: Arc<LogFlusher>,
     flush_timer: JoinHandle<()>,
     db: &Arc<Database>,
@@ -344,7 +344,7 @@ pub async fn flush_and_extract_result(
 ///
 /// 单次遍历日志，计算 tool_calls、conversation_turns、thinking_count。
 /// 如果 executor 提供了自己的 tool_calls_count，则使用 executor 的值（更准确）。
-pub fn extract_execution_stats(
+pub(crate) fn extract_execution_stats(
     logs: &[ParsedLogEntry],
     executor_tool_calls: Option<u64>,
 ) -> crate::models::ExecutionStats {
@@ -375,7 +375,7 @@ pub fn extract_execution_stats(
 ///
 /// 子进程已自然退出，stdout/stderr 管道已关闭；reader 协程会在管道 EOF 时自然
 /// 退出。`let _ = handle.await` 故意忽略 JoinError（reader panic 不影响主流程）。
-pub async fn await_readers(
+pub(crate) async fn await_readers(
     stdout_task: Option<JoinHandle<()>>,
     stderr_task: Option<JoinHandle<()>>,
 ) {

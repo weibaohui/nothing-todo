@@ -33,7 +33,7 @@ use super::worktree::{
 use super::{ExecutionResult, RunTodoExecutionRequest};
 
 // Re-export types from types module for sub-modules.
-pub use super::types::{SubstitutedContext, TaskState};
+pub(crate) use super::types::{SubstitutedContext, TaskState};
 
 /// Stage 1: 把 request 拆解并完成「executor 选定 + record 创建」前所有同步/异步检查。
 ///
@@ -42,7 +42,7 @@ pub use super::types::{SubstitutedContext, TaskState};
 ///
 /// 拆解思路：6 个独立子职责分别抽到 helper（substitute / register / concurrency /
 /// hook / executor / record），顶层只负责串联；每个 helper 函数 ≤30 行。
-pub async fn prepare_execution_state(
+pub(crate) async fn prepare_execution_state(
     request: RunTodoExecutionRequest,
 ) -> Result<PreparedExecution, ExecutionResult> {
     // 1) 占位符替换 + 拆解 request 字段。
@@ -67,7 +67,7 @@ pub async fn prepare_execution_state(
 ///
 /// Issue #506：用 RAII guard 注册 task，确保即便后续路径 panic/早返回忘了
 /// remove，sender 也会被 guard drop 时清理。
-pub async fn register_task_and_load_todo(
+pub(crate) async fn register_task_and_load_todo(
     request: &RunTodoExecutionRequest,
 ) -> Result<TaskState, ExecutionResult> {
     let task_id = Uuid::new_v4().to_string();
@@ -101,7 +101,7 @@ pub async fn register_task_and_load_todo(
 /// Stage 1 步骤 3：从 config 读 max_concurrent + timeout_secs。
 ///
 /// config lock 释放后两个值就各自独立可用，避免后续代码块带 lock。
-pub fn read_runtime_config(request: &RunTodoExecutionRequest) -> (u32, u64) {
+pub(crate) fn read_runtime_config(request: &RunTodoExecutionRequest) -> (u32, u64) {
     let cfg = request.config.read().unwrap();
     (cfg.max_concurrent_todos, cfg.execution_timeout_secs)
 }
@@ -110,7 +110,7 @@ pub fn read_runtime_config(request: &RunTodoExecutionRequest) -> (u32, u64) {
 ///
 /// 失败路径包括 start_todo_execution：失败时必须先清理已创建的 worktree，再返回
 /// reject 路径的 ExecutionResult，避免「未启动成功」的执行记录与 worktree 残留错位。
-pub async fn start_todo_and_prepare_spawn(
+pub(crate) async fn start_todo_and_prepare_spawn(
     prepared: PreparedExecution,
 ) -> Result<SpawnInputs, ExecutionResult> {
     let worktree_ctx = resolve_worktree_context(&prepared.request.db, &prepared.todo).await;
@@ -147,7 +147,7 @@ pub async fn start_todo_and_prepare_spawn(
 
 /// 在 TaskManager 注册本次执行的任务信息（task_id / todo_id / executor 类型），
 /// WebSocket 同步会从这里取最新 title + logs。
-pub async fn register_websocket_task_info(
+pub(crate) async fn register_websocket_task_info(
     prepared: &PreparedExecution,
     todo_title: &str,
     executor_spawn: &Arc<dyn CodeExecutor>,
@@ -171,7 +171,7 @@ pub async fn register_websocket_task_info(
 /// 之所以是独立 helper：spawn 闭包内多处需要 `todo_title: String`（emit event、
 /// TaskInfo 注册、feishu 推送），抽出来后调用方都走同一处 title 解析逻辑，
 /// 不必在每处重复 `todo.as_ref().map(...)`。
-pub fn extract_todo_title(todo: &Option<Todo>) -> String {
+pub(crate) fn extract_todo_title(todo: &Option<Todo>) -> String {
     todo.as_ref().map(|t| t.title.clone()).unwrap_or_default()
 }
 
@@ -180,7 +180,7 @@ pub fn extract_todo_title(todo: &Option<Todo>) -> String {
 /// start_todo_execution 失败必须先 cleanup worktree：worktree 已在 stage 2 入口
 /// 创建并写入 record_path，若启用了 auto_cleanup 不在这里清理会留下孤儿 worktree
 /// 目录/分支与「未启动成功」的执行记录错位。
-pub async fn start_todo_or_cleanup(
+pub(crate) async fn start_todo_or_cleanup(
     prepared: &PreparedExecution,
     worktree_ctx: &WorktreeContext,
 ) -> Result<(), ExecutionResult> {
@@ -216,7 +216,7 @@ pub async fn start_todo_or_cleanup(
 /// 实际的 select! / match 逻辑放在 [`super::spawn_lifecycle::run_spawned_executor_task`] 里，
 /// 这样 spawn 闭包退化为单行 `async move { run_spawned_executor_task(...).await }`，
 /// 编排与执行两段清晰分离。
-pub async fn dispatch_spawned_executor_task(spawned: SpawnInputs) -> ExecutionResult {
+pub(crate) async fn dispatch_spawned_executor_task(spawned: SpawnInputs) -> ExecutionResult {
     let task_id_return = spawned.prepared.task_id.clone();
     let record_id = spawned.prepared.record_id;
 

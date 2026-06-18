@@ -38,7 +38,7 @@ use super::types::{SpawnContext, SpawnRuntime};
 /// 该函数由 `dispatch_spawned_executor_task` 通过 `tokio::spawn` 调用，是 fire-and-forget
 /// 子任务的真正实现。设计上与重构前的闭包体逐位等价——所有副作用（emit event、写 DB、
 /// fire hook、清理 worktree）都按原顺序保留。
-pub async fn run_spawned_executor_task(spawned: super::types::SpawnInputs) {
+pub(crate) async fn run_spawned_executor_task(spawned: super::types::SpawnInputs) {
     // 编排流程：构建 runtime → 启动子进程 → 等待 outcome → dispatch。
     let execution_start = std::time::Instant::now();
     let mut runtime = move_into_runtime(spawned);
@@ -75,7 +75,7 @@ pub async fn run_spawned_executor_task(spawned: super::types::SpawnInputs) {
 /// 启动子进程；spawn 失败时清理 worktree 并触发 spawn failure 路径，返回 `None`。
 ///
 /// 返回 `Option` 让调用点用 `let ... else { return; }` 早退，省去 match/Err 分支。
-pub async fn try_spawn_executor_child(
+pub(crate) async fn try_spawn_executor_child(
     runtime: &SpawnRuntime,
 ) -> Option<command_group::AsyncGroupChild> {
     match spawn_executor_child(runtime) {
@@ -102,7 +102,7 @@ pub async fn try_spawn_executor_child(
 
 /// `group_spawn` 失败时的清理：发 Output/Finished 事件 + finish_todo_execution + remove task。
 #[allow(clippy::too_many_arguments)]
-pub async fn handle_spawn_failure(
+pub(crate) async fn handle_spawn_failure(
     db: &Database,
     tx: &broadcast::Sender<ExecEvent>,
     task_manager: &TaskManager,
@@ -145,7 +145,7 @@ pub async fn handle_spawn_failure(
 /// 关 stdin 是必须的：不少 executor 在执行完后会再读一次 stdin，没有 EOF 就会 hang。
 /// PID 写库是为了后续 cancel / status 查询能定位进程；child.id() == None 表示
 /// 进程已退出（race），跳过写库即可。
-pub async fn save_child_pid_and_close_stdin(
+pub(crate) async fn save_child_pid_and_close_stdin(
     child: &mut command_group::AsyncGroupChild,
     db: &Database,
     record_id: i64,
@@ -164,7 +164,7 @@ pub async fn save_child_pid_and_close_stdin(
 ///
 /// workspace 设置为 `cmd.current_dir`，但仅在 todo 指定 workspace 时生效——
 /// 没设 workspace 的 todo 让 executor 用 daemon 当前目录即可。
-pub fn build_executor_command(
+pub(crate) fn build_executor_command(
     executable_path: &str,
     command_args: &[String],
     workspace: Option<&str>,
@@ -182,7 +182,7 @@ pub fn build_executor_command(
 
 /// `build_executor_command` + `group_spawn` 两步合一：argv 已就绪，直接
 /// 创建进程组让 kill 时能整组杀，避免留下 zombie 子进程。
-pub fn spawn_executor_child(
+pub(crate) fn spawn_executor_child(
     runtime: &SpawnRuntime,
 ) -> Result<command_group::AsyncGroupChild, std::io::Error> {
     let mut cmd = build_executor_command(
@@ -194,7 +194,7 @@ pub fn spawn_executor_child(
 }
 
 /// 把 stdout/stderr handle 拆出来，连同 db/tx 一起喂给 `setup_log_capture_pipeline`。
-pub async fn setup_log_capture_pipeline_for(
+pub(crate) async fn setup_log_capture_pipeline_for(
     runtime: &SpawnRuntime,
     child: &mut command_group::AsyncGroupChild,
 ) -> (
@@ -221,7 +221,7 @@ pub async fn setup_log_capture_pipeline_for(
 ///
 /// 把 timeout_sleep 的 pin 留在 helper 内。cancel_rx 通过 `runtime.prepared.cancel_rx`
 /// 借用，避免 SpawnRuntime 顶层冗余 cancel_rx 字段。
-pub async fn await_run_outcome_with_timeout(
+pub(crate) async fn await_run_outcome_with_timeout(
     runtime: &mut SpawnRuntime,
     child: &mut command_group::AsyncGroupChild,
 ) -> super::types::RunOutcome {
@@ -239,7 +239,7 @@ pub async fn await_run_outcome_with_timeout(
 ///
 /// 先把 `prepared` 整体下沉到本地变量（避开 `spawned.prepared.cancel_rx` 与
 /// `prepared: spawned.prepared` 同时部分 move 触发 E0382）。
-pub fn move_into_runtime(spawned: super::types::SpawnInputs) -> SpawnRuntime {
+pub(crate) fn move_into_runtime(spawned: super::types::SpawnInputs) -> SpawnRuntime {
     let prepared = spawned.prepared;
     SpawnRuntime {
         db: prepared.request.db.clone(),
@@ -263,7 +263,7 @@ pub fn move_into_runtime(spawned: super::types::SpawnInputs) -> SpawnRuntime {
 
 /// 把超时换算成 `Pin<Box<Sleep>>`。`execution_timeout_secs == 0` 表示禁用超时，
 /// 此时返回「永久 sleep」的 future，select! 永远不命中该分支。
-pub fn configure_timeout_sleep(
+pub(crate) fn configure_timeout_sleep(
     execution_timeout_secs: u64,
 ) -> std::pin::Pin<Box<tokio::time::Sleep>> {
     let timeout_enabled = execution_timeout_secs > 0;
@@ -281,7 +281,7 @@ pub fn configure_timeout_sleep(
 ///
 /// `biased;` 让取消分支优先于超时分支，避免「按 timeout_secs 比较大、但用户已经
 /// 点了取消」的请求被超时路径抢走（issue #606 提到的边界 case）。
-pub async fn await_run_outcome(
+pub(crate) async fn await_run_outcome(
     cancel_rx: &mut tokio::sync::mpsc::Receiver<()>,
     timeout_sleep: &mut std::pin::Pin<Box<tokio::time::Sleep>>,
     execution_timeout_secs: u64,
@@ -301,7 +301,7 @@ pub async fn await_run_outcome(
 /// 拆分为 3 个 dispatch_* helper + 1 个 match wrapper；每个 helper 只负责本分支的
 /// 参数组装与路径调用，match 本身退化为纯枚举映射。
 #[allow(clippy::too_many_arguments)]
-pub async fn dispatch_outcome(
+pub(crate) async fn dispatch_outcome(
     outcome: super::types::RunOutcome,
     child: &mut command_group::AsyncGroupChild,
     stdout_task: Option<JoinHandle<()>>,
@@ -454,7 +454,7 @@ async fn dispatch_completed(
 
 /// 取消分支：kill 进程组 → drain readers → handle_cancellation_branch → cleanup worktree。
 #[allow(clippy::too_many_arguments)]
-pub async fn run_cancellation_path(
+pub(crate) async fn run_cancellation_path(
     child: &mut command_group::AsyncGroupChild,
     stdout_task: Option<JoinHandle<()>>,
     stderr_task: Option<JoinHandle<()>>,
@@ -492,7 +492,7 @@ pub async fn run_cancellation_path(
 
 /// 超时分支：kill → drain → handle_timeout_branch → cleanup worktree。
 #[allow(clippy::too_many_arguments)]
-pub async fn run_timeout_path(
+pub(crate) async fn run_timeout_path(
     child: &mut command_group::AsyncGroupChild,
     stdout_task: Option<JoinHandle<()>>,
     stderr_task: Option<JoinHandle<()>>,
@@ -535,7 +535,7 @@ pub async fn run_timeout_path(
 /// 解析 result → persist record → finalize_normal_completion → cleanup worktree」
 /// 整条完成路径抽到一个函数，让 `run_spawned_executor_task` 的 match 分支只剩下
 /// kill + drain + 调对应 helper 的骨架。
-pub async fn handle_completed_branch(
+pub(crate) async fn handle_completed_branch(
     status: std::io::Result<std::process::ExitStatus>,
     stdout_task: Option<JoinHandle<()>>,
     stderr_task: Option<JoinHandle<()>>,
@@ -563,7 +563,7 @@ pub async fn handle_completed_branch(
 
 /// 把 `ExitStatus` 翻译成「exit_code + success」。executor 子类自行决定什么
 /// exit code 算成功（claude_code 把 0 当成功，hermes 把 0/1 之外的都当失败等）。
-pub fn resolve_exit_outcome(
+pub(crate) fn resolve_exit_outcome(
     status: &std::io::Result<std::process::ExitStatus>,
     executor: &dyn CodeExecutor,
 ) -> (i32, bool) {
@@ -578,7 +578,7 @@ pub fn resolve_exit_outcome(
 /// persist_completion_record + finalize_normal_completion 二合一：
 ///
 /// 把原本散落在 handle_completed_branch 末尾的 21 参数 finalize 调用收口到一个 helper。
-pub async fn persist_and_finalize_completion(
+pub(crate) async fn persist_and_finalize_completion(
     ctx: &SpawnContext,
     success: bool,
     exit_code: i32,

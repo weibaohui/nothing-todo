@@ -24,7 +24,7 @@ use super::RunTodoExecutionRequest;
 ///
 /// 设计取舍：把 `RunTodoExecutionRequest` 整段嵌入 `request` 字段而不是平铺。
 /// 平铺需要 14 个字段二次声明；嵌入只需 1 个字段，添加 request 字段时只动 1 处。
-pub struct PreparedExecution {
+pub(crate) struct PreparedExecution {
     /// 入参 request。Stage 2 / Stage 3 仍会读到 todo_id / chain / trigger_type 等。
     pub request: RunTodoExecutionRequest,
     /// RAII guard for task registry；必须 move 进 spawn 子任务，否则 drop 时会误删 sender。
@@ -50,7 +50,7 @@ pub struct PreparedExecution {
 /// 准备 move 进 spawn 子任务的全部数据。
 ///
 /// 嵌入 `prepared` 而不是平铺 stage 1 的 14 个字段；新加 stage 1 字段时只动 1 处。
-pub struct SpawnInputs {
+pub(crate) struct SpawnInputs {
     pub prepared: PreparedExecution,
     pub todo_title: String,
     pub executor_spawn: Arc<dyn CodeExecutor>,
@@ -65,7 +65,7 @@ pub struct SpawnInputs {
 ///
 /// `cancel_rx` / `task_guard` 不在此结构下沉：仍由 `prepared: PreparedExecution` 持有，
 /// 通过 `runtime.prepared.cancel_rx` / `runtime.prepared.task_guard` 访问。
-pub struct SpawnRuntime {
+pub(crate) struct SpawnRuntime {
     pub db: Arc<Database>,
     pub tx: broadcast::Sender<ExecEvent>,
     pub task_manager: Arc<crate::task_manager::TaskManager>,
@@ -91,7 +91,7 @@ pub struct SpawnRuntime {
 /// 之前 23 个位置参数 + `#[allow(clippy::too_many_arguments)]` 是 Long Parameter
 /// List 坏味道的复发。改成结构体传参后调用方写 SpawnContext { ... } 字面量 22
 /// 行，但 handle_completed_branch 函数体能缩到 < 30 行真正符合 CLAUDE.md。
-pub struct SpawnContext {
+pub(crate) struct SpawnContext {
     pub db: Arc<Database>,
     pub tx: broadcast::Sender<ExecEvent>,
     pub task_manager: Arc<crate::task_manager::TaskManager>,
@@ -114,14 +114,14 @@ pub struct SpawnContext {
 
 /// select! 三种终态枚举，避免在三个分支里各重复「杀进程 + drain + finalize」
 /// 清理模板。child 仍由调用方持有，可继续调 kill_process_tree。
-pub enum RunOutcome {
+pub(crate) enum RunOutcome {
     Cancelled,
     TimedOut,
     Completed(std::io::Result<std::process::ExitStatus>),
 }
 
 /// Stage 1 步骤 1：在 `request` 上做 message 占位符替换，并返回替换后的 message。
-pub struct SubstitutedContext {
+pub(crate) struct SubstitutedContext {
     pub message: String,
     pub chain: Vec<i64>,
 }
@@ -130,7 +130,7 @@ pub struct SubstitutedContext {
 ///
 /// Issue #506：用 RAII guard 注册 task，确保即便后续路径 panic/早返回忘了
 /// remove，sender 也会被 guard drop 时清理。
-pub struct TaskState {
+pub(crate) struct TaskState {
     pub task_id: String,
     pub task_guard: crate::task_manager::TaskGuard,
     pub cancel_rx: tokio::sync::mpsc::Receiver<()>,

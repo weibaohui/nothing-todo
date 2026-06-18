@@ -44,7 +44,7 @@ fn review_runtime() -> &'static tokio::runtime::Runtime {
 /// 实现: 由于 `run_auto_review_inner` 内部需要 await `run_todo_execution`（后者会
 /// 进一步 spawn）—— 整个 future 不是 Send —— 必须在独立 runtime 上 block_on.
 #[allow(clippy::too_many_arguments)]
-pub async fn run_auto_review(
+pub(crate) async fn run_auto_review(
     db: Arc<Database>,
     executor_registry: Arc<crate::adapters::ExecutorRegistry>,
     tx: broadcast::Sender<ExecEvent>,

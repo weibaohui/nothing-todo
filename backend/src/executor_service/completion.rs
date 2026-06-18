@@ -32,7 +32,7 @@ use super::log_capture::send_event;
 /// - executor 不经过 update_todo handler（status 是 db 层直接改的），
 ///   这里是唯一能 observe "Running -> terminal" 转换的地方；
 /// - 抽出来之后 hook fire 和 `db.finish_todo_execution` 顺序可以独立测试。
-pub fn fire_completion_hooks(
+pub(crate) fn fire_completion_hooks(
     todo: Option<&Todo>,
     todo_id: i64,
     success: bool,
@@ -73,7 +73,7 @@ pub fn fire_completion_hooks(
 /// - 不同 executor 自己报的 duration 可能与"spawn 到 child.wait 返回"的实际耗时不一致；
 /// - UI / 日志需要的是真实墙钟时间，而不是 executor 内部估算。
 /// - usage 为 `None` 时构造一个全 0 + wall-clock duration 的占位，保证 DB 列一定有值。
-pub fn apply_wall_clock_duration(
+pub(crate) fn apply_wall_clock_duration(
     usage: Option<ExecutionUsage>,
     execution_start: std::time::Instant,
 ) -> Option<ExecutionUsage> {
@@ -98,7 +98,7 @@ pub fn apply_wall_clock_duration(
 ///
 /// 这两条信息是前端"执行已开始"的视觉信号：Started 用来切 tab / 滚动日志区，
 /// info 日志用来让用户的"日志空"状态立刻出现一行，避免疑惑是否卡住。
-pub fn emit_started_event(
+pub(crate) fn emit_started_event(
     tx: &broadcast::Sender<ExecEvent>,
     task_id: &str,
     todo_id: i64,
@@ -131,7 +131,7 @@ pub fn emit_started_event(
 /// `run_todo_execution` 的 `RunOutcome::Completed` 分支）。这里再把"全量日志"以
 /// `remaining_logs` 传入会触发 [`crate::db::Database::update_execution_record`] 的
 /// `insert_execution_logs` 分支，导致每条日志被插两次（issue #653）。因此固定传 `"[]"`。
-pub async fn persist_completion_record(
+pub(crate) async fn persist_completion_record(
     db: &Database,
     executor: &dyn CodeExecutor,
     record_id: i64,
@@ -172,7 +172,7 @@ pub async fn persist_completion_record(
 ///
 /// 部分 executor（如 hermes）不在 stdout 中暴露 tool call，但内部已经累积了
 /// todo_progress —— 这里给它们一个补 push 的口子。
-pub async fn emit_post_execution_todo_progress(
+pub(crate) async fn emit_post_execution_todo_progress(
     db: &Database,
     tx: &broadcast::Sender<ExecEvent>,
     executor: &dyn CodeExecutor,
@@ -204,7 +204,7 @@ pub async fn emit_post_execution_todo_progress(
 /// `log_flusher.finalize()` 把残余 buffer 一次性入库；再传全量日志会触发
 /// `update_execution_record` 的 `insert_execution_logs` 分支重复插入（issue #653）。
 #[allow(clippy::too_many_arguments)]
-pub async fn handle_cancellation_branch(
+pub(crate) async fn handle_cancellation_branch(
     db: &Database,
     tx: &broadcast::Sender<ExecEvent>,
     task_manager: &TaskManager,
@@ -258,7 +258,7 @@ pub async fn handle_cancellation_branch(
 
 /// timeout 分支末段：写 DB（failed + 包含超时常量文案） + 发 Output/Finished 事件 + remove task。
 #[allow(clippy::too_many_arguments)]
-pub async fn handle_timeout_branch(
+pub(crate) async fn handle_timeout_branch(
     db: &Database,
     tx: &broadcast::Sender<ExecEvent>,
     task_manager: &TaskManager,
@@ -317,7 +317,7 @@ pub async fn handle_timeout_branch(
 /// auto-review 仅在 `trigger_type != "auto_review"` 时启动（防止评审实例自身再触发评审）；
 /// 钩子 fire 在 finish 之后调用，符合"rating gate 要求评审完成后再触发"的语义。
 #[allow(clippy::too_many_arguments)]
-pub async fn finalize_normal_completion(
+pub(crate) async fn finalize_normal_completion(
     db: Arc<Database>,
     executor_registry: Arc<crate::adapters::ExecutorRegistry>,
     tx: broadcast::Sender<ExecEvent>,
@@ -448,7 +448,7 @@ fn emit_completion_events(
 /// 使用 hours for >=60 min, days for >=24 h to keep the output readable.
 /// 精度取舍：只精确到分钟级别（秒数只在 <60s 时显示），后端 timeout 精度
 /// 为秒级，分钟以上的秒数误差在 UI 上无感知差异。
-pub fn format_timeout_secs(secs: u64) -> String {
+pub(crate) fn format_timeout_secs(secs: u64) -> String {
     let total_min = secs / 60;
     let remaining_secs = secs % 60;
     if remaining_secs == 0 {

@@ -13,14 +13,14 @@
 //!
 //! 各子模块可独立单测；本文件只在「公共 API + 编排骨架」级别保留代码。
 
-pub mod auto_review;
-pub mod completion;
-pub mod log_capture;
-pub mod pre_spawn;
-pub mod spawn_lifecycle;
-pub mod stages;
-pub mod types;
-pub mod worktree;
+pub(crate) mod auto_review;
+pub(crate) mod completion;
+pub(crate) mod log_capture;
+pub(crate) mod pre_spawn;
+pub(crate) mod spawn_lifecycle;
+pub(crate) mod stages;
+pub(crate) mod types;
+pub(crate) mod worktree;
 
 use std::sync::Arc;
 use tokio::sync::broadcast;
