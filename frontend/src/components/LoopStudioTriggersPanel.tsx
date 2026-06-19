@@ -5,7 +5,7 @@
 // 已存在的触发器可点击行名进入编辑/删除。
 //
 // 触发器类型: manual | cron | webhook | feishu_message | feishu_command
-//            | todo_completed | todo_state_changed | tag_added
+//            | todo_completed | todo_state_changed
 
 import { useState, useCallback, useMemo } from 'react';
 import {
@@ -16,7 +16,6 @@ import {
   Input,
   Select,
   Switch,
-  Tag,
   Tooltip,
 } from 'antd';
 import {
@@ -82,12 +81,6 @@ export const TRIGGER_META: Record<string, { icon: React.ReactNode; label: string
     label: 'Todo 状态变更',
     desc: '任意 todo 状态变化时触发',
     configHint: '{"from":"pending","to":"completed"}',
-  },
-  tag_added: {
-    icon: <Tag />,
-    label: '标签新增',
-    desc: 'todo 被打标签时触发',
-    configHint: '{"tag_id":1}',
   },
 };
 
@@ -253,13 +246,13 @@ export function LoopTriggersPanel({ loopId, triggers, onChanged }: Props) {
     );
   };
 
-  // 8 种 trigger type 全部展示 (manual / cron / webhook / feishu_message / feishu_command / todo_completed / todo_state_changed / tag_added)
+  // 7 种 trigger type 全部展示 (manual / cron / webhook / feishu_message / feishu_command / todo_completed / todo_state_changed)
   const allTypes = Object.keys(TRIGGER_META);
 
   return (
     <div className="loop-triggers-panel">
       <div style={{ marginBottom: 12, fontSize: 12, color: 'var(--color-text-secondary, #475569)' }}>
-        触发条件决定 loop 在何时被启动 · 当前已启用 {triggers.filter(t => t.enabled).length} / 共 {triggers.length} 条
+        触发条件决定 loop 在何时被启动 · 当前已启用 {triggers.filter(t => t.enabled).length} / 共 {allTypes.length} 条
       </div>
 
       {/* 不再单独显示 Empty 状态, 下方 8 行就是「可启用项」, 已足够表达空态语义 */}

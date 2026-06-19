@@ -12,20 +12,18 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Skeleton, App as AntApp, Button, Space, Tooltip, Popconfirm, Empty,
-  Modal, Form, Input, ColorPicker, Collapse, Select,
+  Modal, Form, Input, ColorPicker, Collapse, Select, Switch,
 } from 'antd';
 import {
   ThunderboltOutlined,
   CopyOutlined,
   DeleteOutlined,
-  PlayCircleOutlined,
-  PauseCircleOutlined,
   EditOutlined,
 } from '@ant-design/icons';
 import * as dbLoops from '@/utils/database/loops';
 import * as db from '@/utils/database';
 import type { LoopDetail, UpdateLoopRequest } from '@/types/loop';
-import { LoopTriggersPanel } from './LoopStudioTriggersPanel';
+import { LoopTriggersPanel, TRIGGER_META } from './LoopStudioTriggersPanel';
 import { LoopStagesPanel } from './LoopStudioStagesPanel';
 import { LoopHooksPanel } from './LoopStudioHooksPanel';
 import { LoopExecutionsPanel } from './LoopStudioExecutionsPanel';
@@ -157,13 +155,6 @@ export function LoopDetailPanel({
           <Tooltip title="复制">
             <Button size="small" icon={<CopyOutlined />} onClick={onDuplicate} />
           </Tooltip>
-          <Tooltip title={detail.status === 'enabled' ? '暂停' : '启用'}>
-            <Button
-              size="small"
-              icon={detail.status === 'enabled' ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
-              onClick={onToggleStatus}
-            />
-          </Tooltip>
           <Button size="small" icon={<EditOutlined />} onClick={handleOpenEdit}>编辑</Button>
           <Popconfirm
             title="删除 loop"
@@ -183,22 +174,26 @@ export function LoopDetailPanel({
       {/* Section: 基本信息 — 3 列布局, 与参考设计一致 */}
       <DetailSection title="基本信息">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-          <DetailField label="状态" value={
-            <span style={{
-              display: 'inline-block', padding: '2px 10px', borderRadius: 10,
-              background: detail.status === 'enabled'
-                ? 'var(--color-success-bg, #f0fdf4)'
-                : detail.status === 'paused'
-                  ? 'var(--color-warning-bg, #fffbeb)'
-                  : 'var(--color-bg-hover, #f1f5f9)',
-              color: detail.status === 'enabled'
-                ? 'var(--color-success, #22c55e)'
-                : detail.status === 'paused'
-                  ? 'var(--color-warning, #f59e0b)'
-                  : 'var(--color-text-tertiary, #94a3b8)',
-              fontSize: 12, fontWeight: 500,
-            }}>
-              {detail.status === 'enabled' ? '已启用' : detail.status === 'paused' ? '已暂停' : '草稿'}
+          <DetailField label="启用状态" value={
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Switch
+                checked={detail.status === 'enabled'}
+                onChange={(checked) => {
+                  if (checked !== (detail.status === 'enabled')) {
+                    onToggleStatus();
+                  }
+                }}
+              />
+              <span style={{
+                fontSize: 12, fontWeight: 500,
+                color: detail.status === 'enabled'
+                  ? 'var(--color-success, #22c55e)'
+                  : detail.status === 'paused'
+                    ? 'var(--color-warning, #f59e0b)'
+                    : 'var(--color-text-tertiary, #94a3b8)',
+              }}>
+                {detail.status === 'enabled' ? '已启用' : detail.status === 'paused' ? '已暂停' : '草稿'}
+              </span>
             </span>
           } />
           <DetailField label="关联工作空间" value={detail.workspace || <EmptyValue />} />
@@ -208,7 +203,7 @@ export function LoopDetailPanel({
       {/* Section: 触发条件 — 内联 toggle 列表 */}
       <DetailSection title="触发条件" extra={
         <span style={{ fontSize: 11, color: 'var(--color-text-tertiary, #94a3b8)' }}>
-          决定 loop 在何时被启动 · {detail.triggers.filter(t => t.enabled).length} / {detail.triggers.length} 已启用
+          决定 loop 在何时被启动 · {detail.triggers.filter(t => t.enabled).length} / {Object.keys(TRIGGER_META).length} 已启用
         </span>
       }>
         <LoopTriggersPanel
