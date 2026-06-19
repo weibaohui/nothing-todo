@@ -142,11 +142,16 @@ impl LoopScheduler {
     ) -> Result<(), String> {
         let cfg: serde_json::Value = serde_json::from_str(&t.config)
             .map_err(|e| format!("config parse: {}", e))?;
+        // 优先读前端新字段 `expr` / `tz`,兼容老数据 `cron` / `timezone`
         let cron_expr = cfg
-            .get("cron")
+            .get("expr")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| "missing cron field".to_string())?;
-        let tz_str = cfg.get("timezone").and_then(|v| v.as_str());
+            .or_else(|| cfg.get("cron").and_then(|v| v.as_str()))
+            .ok_or_else(|| "missing expr/cron field".to_string())?;
+        let tz_str = cfg
+            .get("tz")
+            .and_then(|v| v.as_str())
+            .or_else(|| cfg.get("timezone").and_then(|v| v.as_str()));
         let schedule = cron::Schedule::from_str(cron_expr)
             .map_err(|e| format!("invalid cron '{}': {}", cron_expr, e))?;
         // 计算下次触发时间

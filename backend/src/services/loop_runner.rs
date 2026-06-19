@@ -129,16 +129,12 @@ impl LoopRunner {
                 .await
             {
                 error!("loop_runner: run failed: {}", e);
-                // 终态化 loop execution
+                // 错误路径不能硬写 (0, 0) —— 中间 stage 已经把真实进度 increment 进 DB,
+                // 字面 0/0 会把已完成 stage 计数抹掉, 改用 preserve_counters 只动 status。
                 let _ = this2_for_err
                     .ctx
                     .db
-                    .finish_loop_execution(
-                        loop_execution_id,
-                        "failed",
-                        0,
-                        0,
-                    )
+                    .finish_loop_execution_preserve_counters(loop_execution_id, "failed")
                     .await;
             }
         });
@@ -288,7 +284,9 @@ impl LoopRunner {
                         .await
                         .map_err(|e| e.to_string())?;
                     failed += 1;
-                    last_failed_record = None;
+                    // 失败 stage 也要写 last_failed_record, 否则 skip_on_source_failed
+                    // 检查 is_some() 时漏掉 todo 缺失/启动失败两类 fail-mode
+                    last_failed_record = Some(stage_exec.id);
                     let _ = self
                         .ctx
                         .db
@@ -317,7 +315,8 @@ impl LoopRunner {
                         .await
                         .map_err(|e| e.to_string())?;
                     failed += 1;
-                    last_failed_record = None;
+                    // 同上, 启动失败也标 last_failed_record
+                    last_failed_record = Some(stage_exec.id);
                     let _ = self
                         .ctx
                         .db
@@ -376,7 +375,11 @@ impl LoopRunner {
             if effective_stage_status == "success" {
                 completed += 1;
                 last_failed_record = None;
-                last_completed_rating = record_rating;
+                // 只在有真实 rating 时更新, None (评审未完成) 不能把上一轮的 rating 抹掉,
+                // 否则后续 stage 的 rating gate 会用 None 误判 skip
+                if let Some(r) = record_rating {
+                    last_completed_rating = Some(r);
+                }
                 let _ = self
                     .ctx
                     .db

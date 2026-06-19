@@ -74,12 +74,16 @@ impl LoopTriggerDispatcher {
         for t in triggers {
             let cfg: serde_json::Value =
                 serde_json::from_str(&t.config).unwrap_or_default();
-            if cfg
+            // webhook_id 兼容两种形态: i64 直接读; 字符串 parse 兜底
+            let cfg_id = cfg
                 .get("webhook_id")
                 .and_then(|v| v.as_i64())
-                .map(|id| id == webhook_id)
-                .unwrap_or(false)
-            {
+                .or_else(|| {
+                    cfg.get("webhook_id")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse::<i64>().ok())
+                });
+            if cfg_id.map(|id| id == webhook_id).unwrap_or(false) {
                 let meta = serde_json::json!({
                     "webhook_id": webhook_id,
                     "body": body.unwrap_or(""),

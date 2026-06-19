@@ -235,7 +235,18 @@ pub async fn update_trigger(
 ) -> Result<impl IntoResponse, AppError> {
     models::validate_trigger_type(&req.trigger_type)
         .map_err(AppError::BadRequest)?;
-    state.db.get_trigger(tid).await?.ok_or(AppError::NotFound)?;
+    // 校验前移: 先确认 trigger 属于 path 上的 loop, 再动 DB / scheduler,
+    // 避免攻击/误用把 trigger 改挂到错误 loop 后副作用已落库
+    let existing = state
+        .db
+        .get_trigger(tid)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    if existing.loop_id != loop_id {
+        return Err(AppError::BadRequest(
+            "trigger 不属于该 loop".to_string(),
+        ));
+    }
     state
         .db
         .update_trigger(tid, &req.trigger_type, &req.config, req.enabled, req.priority)
@@ -249,11 +260,6 @@ pub async fn update_trigger(
         .get_trigger(tid)
         .await?
         .ok_or(AppError::NotFound)?;
-    if updated.loop_id != loop_id {
-        return Err(AppError::BadRequest(
-            "trigger 不属于该 loop".to_string(),
-        ));
-    }
     Ok(ApiResponse::ok(LoopTriggerDto::from(updated)))
 }
 
@@ -494,12 +500,29 @@ pub async fn update_hook(
             "hook 不属于该 loop".to_string(),
         ));
     }
+    // 跟 create_hook 对齐的 3 段校验: target_todo 存在、pre/post_stage 必须有
+    // source_stage_id、source_stage 属于本 loop
+    state
+        .db
+        .get_todo(req.target_todo_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::BadRequest(format!("target todo #{} 不存在", req.target_todo_id))
+        })?;
     if matches!(req.hook_position.as_str(), "pre_stage" | "post_stage")
         && req.source_stage_id.is_none()
     {
         return Err(AppError::BadRequest(
             "pre_stage / post_stage 必须指定 source_stage_id".to_string(),
         ));
+    }
+    if let Some(sid) = req.source_stage_id {
+        let stage = state.db.get_stage(sid).await?.ok_or(AppError::NotFound)?;
+        if stage.loop_id != loop_id {
+            return Err(AppError::BadRequest(
+                "source_stage 不属于该 loop".to_string(),
+            ));
+        }
     }
     state
         .db

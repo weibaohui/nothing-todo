@@ -1024,17 +1024,32 @@ impl Database {
     }
 
     /// 把专家降级为事项。
-    /// 若该 todo 正被 loop_stages 引用，禁止降级（返回错误，避免破坏环路引用一致性）。
+    /// 若该 todo 正被 loop_stages 或 loop_hooks 引用，禁止降级（返回错误，避免破坏环路引用一致性）。
+    /// 只查 stage 会漏掉 hook 单独引用, hook 触发时仍按 expert.prompt 启动 executor
+    /// 但前端 list_experts 已经按 kind=expert 过滤掉了, 出现 UI 与实际行为漂移。
     pub async fn demote_to_item(&self, id: i64) -> Result<(), String> {
         // 校验是否被 loop_stages 引用
-        let in_use = crate::db::entity::loop_stages::Entity::find()
+        let stage_ref = crate::db::entity::loop_stages::Entity::find()
             .filter(crate::db::entity::loop_stages::Column::TodoId.eq(id))
             .one(&self.conn)
             .await
             .map_err(|e| e.to_string())?;
-        if in_use.is_some() {
+        if stage_ref.is_some() {
             return Err(format!(
                 "todo #{} is referenced by loop_stages, cannot demote to item",
+                id
+            ));
+        }
+        // 同样校验是否被 loop_hooks 引用 (pre_loop / post_loop / pre_stage / post_stage
+        // 任何一种 hook_position 都会让目标 todo 在 loop 触发时被启动)
+        let hook_ref = crate::db::entity::loop_hooks::Entity::find()
+            .filter(crate::db::entity::loop_hooks::Column::TargetTodoId.eq(id))
+            .one(&self.conn)
+            .await
+            .map_err(|e| e.to_string())?;
+        if hook_ref.is_some() {
+            return Err(format!(
+                "todo #{} is referenced by loop_hooks, cannot demote to item",
                 id
             ));
         }

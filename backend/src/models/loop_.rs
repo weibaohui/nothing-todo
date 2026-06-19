@@ -425,10 +425,19 @@ pub struct UpdateHookRequest {
 }
 
 /// 触发器类型的辅助校验。
+///
+/// 当前仅放行「真有人在调 dispatcher」的 3 种类型,其余 5 种(feishu_message /
+/// feishu_command / todo_completed / todo_state_changed / tag_added)的
+/// dispatcher 还没有 caller,接受写入但永不触发,会让用户在 UI 上误以为已生效。
+/// 等 caller 接入后再扩白名单。
 pub fn validate_trigger_type(t: &str) -> Result<(), String> {
     match t {
-        "manual" | "cron" | "webhook" | "feishu_message" | "feishu_command"
-        | "todo_completed" | "todo_state_changed" | "tag_added" => Ok(()),
+        "manual" | "cron" | "webhook" => Ok(()),
+        "feishu_message" | "feishu_command" | "todo_completed"
+        | "todo_state_changed" | "tag_added" => Err(format!(
+            "trigger_type '{}' 暂时未启用:dispatcher 还在等 caller,等接入后再放开",
+            t
+        )),
         _ => Err(format!("未知的 trigger_type: {}", t)),
     }
 }

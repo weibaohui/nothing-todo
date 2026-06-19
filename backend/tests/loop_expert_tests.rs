@@ -314,3 +314,57 @@ async fn duplicate_loop_remaps_hook_source_stage_id() {
     let original_hooks = db.list_hooks_by_loop(loop_id).await.unwrap();
     assert_eq!(original_hooks.len(), 2);
 }
+
+// =====================================================================
+// demote_to_item: 被 loop_hooks 引用时也应拒绝, 防止 kind 漂移
+// =====================================================================
+
+#[tokio::test]
+async fn demote_to_item_rejects_when_loop_hook_references_todo() {
+    let db = setup_db().await;
+
+    // 专家 T 被 loop_hooks 的 target_todo_id 引用 (而非 loop_stages)
+    let todo_id = create_todo(&db, "专家 T").await;
+    db.promote_to_expert(todo_id).await.unwrap();
+
+    let loop_id = create_loop(&db, "L").await;
+    let _post_loop_hook = db
+        .create_hook(
+            loop_id,
+            "post_loop",
+            None,
+            todo_id, // 引用专家 T
+            false,
+            true,
+            None,
+            "skip",
+        )
+        .await
+        .unwrap();
+
+    // 降级应被拒绝 (loop_hooks 引用)
+    let err = db.demote_to_item(todo_id).await.unwrap_err();
+    assert!(
+        err.contains("loop_hooks"),
+        "错误信息应指出被 loop_hooks 引用, 实际: {}",
+        err
+    );
+
+    // 验证 kind 仍是 expert (没被偷偷改掉)
+    let t = db.get_todo(todo_id).await.unwrap().unwrap();
+    assert_eq!(t.kind, "expert");
+}
+
+#[tokio::test]
+async fn demote_to_item_succeeds_when_no_loop_reference() {
+    let db = setup_db().await;
+
+    // 独立专家 (无 loop_stages / loop_hooks 引用)
+    let todo_id = create_todo(&db, "独立专家").await;
+    db.promote_to_expert(todo_id).await.unwrap();
+
+    // 降级应成功
+    db.demote_to_item(todo_id).await.unwrap();
+    let t = db.get_todo(todo_id).await.unwrap().unwrap();
+    assert_eq!(t.kind, "item");
+}

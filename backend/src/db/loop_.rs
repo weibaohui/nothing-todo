@@ -649,6 +649,28 @@ impl Database {
         Ok(())
     }
 
+    /// 终态化 loop execution 但保留 DB 中已有的 completed/failed 计数。
+    ///
+    /// 适用于错误路径: runner 在跑阶段时已经 increment_loop_execution_counters 把真实计数
+    /// 累加进 DB, 错误回调拿不到 in-memory 累计值, 硬写 0/0 会把真实进度抹掉。
+    /// 这里只覆写 status / finished_at, 计数原样保留。
+    pub async fn finish_loop_execution_preserve_counters(
+        &self,
+        id: i64,
+        status: &str,
+    ) -> Result<(), sea_orm::DbErr> {
+        let now = crate::models::utc_timestamp();
+        let existing = loop_executions::Entity::find_by_id(id).one(&self.conn).await?;
+        if let Some(c) = existing {
+            let mut am: loop_executions::ActiveModel = c.into();
+            am.status = ActiveValue::Set(status.to_string());
+            am.finished_at = ActiveValue::Set(Some(now));
+            // 故意不 SET completed_stages / failed_stages, 保留原值
+            am.update(&self.conn).await?;
+        }
+        Ok(())
+    }
+
     pub async fn increment_loop_execution_counters(
         &self,
         id: i64,
