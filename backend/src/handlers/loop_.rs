@@ -23,17 +23,15 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::db::entity::{loop_executions, loop_hooks, loop_stage_executions, loop_stages, loop_triggers};
-use crate::handlers::{ApiJson, AppError, AppState};
+use crate::handlers::{AppError, AppState};
 use crate::models::{
     self,
     ApiResponse, CreateHookRequest, CreateLoopRequest, CreateStageRequest, CreateTriggerRequest,
     LoopDetail, LoopDto, LoopExecutionDetail, LoopExecutionDto, LoopHookDto, LoopListItem,
-    LoopStageDto, LoopStageExecutionDto, LoopTriggerDto, ReorderStagesRequest,
+    LoopStageDto, LoopTriggerDto, ReorderStagesRequest,
     UpdateHookRequest, UpdateLoopRequest, UpdateLoopStatusRequest, UpdateStageRequest,
     UpdateTriggerRequest,
 };
-use crate::services::loop_scheduler::LoopScheduler;
 
 const DEFAULT_PAGE_LIMIT: u64 = 20;
 const MAX_PAGE_LIMIT: u64 = 100;
@@ -588,7 +586,7 @@ pub async fn get_execution(
 // ====== 路由表 ======
 
 pub fn loop_routes() -> axum::Router<AppState> {
-    use axum::routing::{delete, get, post, put};
+    use axum::routing::{get, post, put};
     axum::Router::new()
         .route("/api/loops", get(list_loops).post(create_loop))
         .route("/api/loops/{id}", get(get_loop).put(update_loop).delete(delete_loop))
