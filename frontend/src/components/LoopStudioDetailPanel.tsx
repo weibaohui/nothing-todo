@@ -116,8 +116,9 @@ export function LoopDetailPanel({
       setEditing(false);
       reload();
       onChanged();
-    } catch {
-      // ignore: 表单错误会显示
+    } catch (e) {
+      // 后端调用失败时给用户反馈，而不是静默失败
+      message.error('保存失败，请重试');
     } finally {
       setSaving(false);
     }
