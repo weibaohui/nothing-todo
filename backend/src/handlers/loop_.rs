@@ -11,8 +11,6 @@
 //! - `/api/loops/{id}/stages`              GET / POST
 //! - `/api/loops/{id}/stages/reorder`      POST(批量重排)
 //! - `/api/loops/{id}/stages/{sid}`        PUT / DELETE
-//! - `/api/loops/{id}/hooks`               GET / POST
-//! - `/api/loops/{id}/hooks/{hid}`         DELETE
 //! - `/api/loops/{id}/executions`          GET(运行历史,分页)
 //! - `/api/loops/{id}/executions/{eid}`    GET(单次执行详情)
 use axum::{
@@ -26,10 +24,10 @@ use serde::Deserialize;
 use crate::handlers::{AppError, AppState};
 use crate::models::{
     self,
-    ApiResponse, CreateHookRequest, CreateLoopRequest, CreateStageRequest, CreateTriggerRequest,
-    LoopDetail, LoopDto, LoopExecutionDetail, LoopExecutionDto, LoopHookDto, LoopListItem,
+    ApiResponse, CreateLoopRequest, CreateStageRequest, CreateTriggerRequest,
+    LoopDetail, LoopDto, LoopExecutionDetail, LoopExecutionDto, LoopListItem,
     LoopStageDto, LoopTriggerDto, ReorderStagesRequest,
-    UpdateHookRequest, UpdateLoopRequest, UpdateLoopStatusRequest, UpdateStageRequest,
+    UpdateLoopRequest, UpdateLoopStatusRequest, UpdateStageRequest,
     UpdateTriggerRequest,
 };
 
@@ -68,7 +66,7 @@ pub async fn create_loop(
     Ok((StatusCode::CREATED, ApiResponse::ok(LoopDto::from(created))))
 }
 
-/// GET /api/loops/{id} — 完整详情(loop + triggers + stages + hooks + todos)
+/// GET /api/loops/{id} — 完整详情(loop + triggers + stages + todos)
 pub async fn get_loop(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -110,7 +108,7 @@ pub async fn update_loop(
     Ok(ApiResponse::ok(LoopDto::from(updated)))
 }
 
-/// DELETE /api/loops/{id} — 删 loop（CASCADE 删 triggers/stages/hooks）
+/// DELETE /api/loops/{id} — 删 loop（CASCADE 删 triggers/stages）
 pub async fn delete_loop(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -414,113 +412,6 @@ pub async fn reorder_stages(
     Ok(ApiResponse::ok(()))
 }
 
-// ====== Hooks ======
-
-pub async fn list_hooks(
-    State(state): State<AppState>,
-    Path(loop_id): Path<i64>,
-) -> Result<impl IntoResponse, AppError> {
-    let hooks = state.db.list_hooks_by_loop(loop_id).await?;
-    let dtos: Vec<LoopHookDto> = hooks.into_iter().map(Into::into).collect();
-    Ok(ApiResponse::ok(dtos))
-}
-
-pub async fn create_hook(
-    State(state): State<AppState>,
-    Path(loop_id): Path<i64>,
-    Json(req): Json<CreateHookRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    models::validate_hook_position(&req.hook_position)
-        .map_err(AppError::BadRequest)?;
-    state.db.get_loop(loop_id).await?.ok_or(AppError::NotFound)?;
-    state
-        .db
-        .get_todo(req.target_todo_id)
-        .await?
-        .ok_or_else(|| {
-            AppError::BadRequest(format!("target todo #{} 不存在", req.target_todo_id))
-        })?;
-    // pre_stage / post_stage 必须有 source_stage_id
-    if matches!(req.hook_position.as_str(), "pre_stage" | "post_stage")
-        && req.source_stage_id.is_none()
-    {
-        return Err(AppError::BadRequest(
-            "pre_stage / post_stage 必须指定 source_stage_id".to_string(),
-        ));
-    }
-    if let Some(sid) = req.source_stage_id {
-        let stage = state.db.get_stage(sid).await?.ok_or(AppError::NotFound)?;
-        if stage.loop_id != loop_id {
-            return Err(AppError::BadRequest(
-                "source_stage 不属于该 loop".to_string(),
-            ));
-        }
-    }
-    let created = state
-        .db
-        .create_hook(
-            loop_id,
-            &req.hook_position,
-            req.source_stage_id,
-            req.target_todo_id,
-            req.skip_if_missing,
-            req.enabled,
-            req.min_rating,
-            &req.unrated_policy,
-        )
-        .await?;
-    Ok((
-        StatusCode::CREATED,
-        ApiResponse::ok(LoopHookDto::from(created)),
-    ))
-}
-
-pub async fn update_hook(
-    State(state): State<AppState>,
-    Path((loop_id, hid)): Path<(i64, i64)>,
-    Json(req): Json<UpdateHookRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    models::validate_hook_position(&req.hook_position)
-        .map_err(AppError::BadRequest)?;
-    let hook = state.db.get_hook(hid).await?.ok_or(AppError::NotFound)?;
-    if hook.loop_id != loop_id {
-        return Err(AppError::BadRequest(
-            "hook 不属于该 loop".to_string(),
-        ));
-    }
-    if matches!(req.hook_position.as_str(), "pre_stage" | "post_stage")
-        && req.source_stage_id.is_none()
-    {
-        return Err(AppError::BadRequest(
-            "pre_stage / post_stage 必须指定 source_stage_id".to_string(),
-        ));
-    }
-    state
-        .db
-        .update_hook(
-            hid,
-            &req.hook_position,
-            req.source_stage_id,
-            req.target_todo_id,
-            req.skip_if_missing,
-            req.enabled,
-            req.min_rating,
-            &req.unrated_policy,
-        )
-        .await?;
-    let updated = state.db.get_hook(hid).await?.ok_or(AppError::NotFound)?;
-    Ok(ApiResponse::ok(LoopHookDto::from(updated)))
-}
-
-pub async fn delete_hook(
-    State(state): State<AppState>,
-    Path((_loop_id, hid)): Path<(i64, i64)>,
-) -> Result<impl IntoResponse, AppError> {
-    state.db.get_hook(hid).await?.ok_or(AppError::NotFound)?;
-    state.db.delete_hook(hid).await?;
-    Ok(ApiResponse::ok(()))
-}
-
 // ====== Executions ======
 
 #[derive(Debug, Deserialize)]
@@ -599,11 +490,6 @@ pub fn loop_routes() -> axum::Router<AppState> {
         .route(
             "/api/loops/{id}/stages/{sid}",
             put(update_stage).delete(delete_stage),
-        )
-        .route("/api/loops/{id}/hooks", get(list_hooks).post(create_hook))
-        .route(
-            "/api/loops/{id}/hooks/{hid}",
-            put(update_hook).delete(delete_hook),
         )
         .route("/api/loops/{id}/executions", get(list_executions))
         .route("/api/loops/{id}/executions/{eid}", get(get_execution))

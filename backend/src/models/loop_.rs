@@ -387,46 +387,12 @@ pub struct ReorderStagesRequest {
     pub ordered_ids: Vec<i64>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct CreateHookRequest {
-    /// pre_loop | post_loop | pre_stage | post_stage
-    pub hook_position: String,
-    pub source_stage_id: Option<i64>,
-    pub target_todo_id: i64,
-    #[serde(default)]
-    pub skip_if_missing: bool,
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    #[serde(default)]
-    pub min_rating: Option<i32>,
-    #[serde(default = "default_unrated_policy")]
-    pub unrated_policy: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct UpdateHookRequest {
-    pub hook_position: String,
-    pub source_stage_id: Option<i64>,
-    pub target_todo_id: i64,
-    pub skip_if_missing: bool,
-    pub enabled: bool,
-    pub min_rating: Option<i32>,
-    pub unrated_policy: String,
-}
-
 /// 触发器类型的辅助校验。
 pub fn validate_trigger_type(t: &str) -> Result<(), String> {
     match t {
         "manual" | "cron" | "webhook" | "feishu_message" | "feishu_command"
         | "todo_completed" | "todo_state_changed" | "tag_added" => Ok(()),
         _ => Err(format!("未知的 trigger_type: {}", t)),
-    }
-}
-
-pub fn validate_hook_position(p: &str) -> Result<(), String> {
-    match p {
-        "pre_loop" | "post_loop" | "pre_stage" | "post_stage" => Ok(()),
-        _ => Err(format!("未知的 hook_position: {}", p)),
     }
 }
 
@@ -481,16 +447,6 @@ pub fn trigger_type_icon(t: &str) -> &'static str {
         "todo_state_changed" => "sync",
         "tag_added" => "tag",
         _ => "trigger",
-    }
-}
-
-pub fn hook_position_icon(p: &str) -> &'static str {
-    match p {
-        "pre_loop" => "left",
-        "post_loop" => "right",
-        "pre_stage" => "up",
-        "post_stage" => "down",
-        _ => "branch",
     }
 }
 
