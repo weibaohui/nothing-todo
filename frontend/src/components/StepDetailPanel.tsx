@@ -278,7 +278,7 @@ export function StepDetailPanel({ stepId, onStepUpdated }: StepDetailPanelProps)
             <div style={{ marginBottom: 8, fontWeight: 600, fontSize: 14 }}>颜色</div>
             <ColorPicker
               value={editColor}
-              onChange={(c) => setEditColor(c.toHexString())}
+              onChange={(c: any) => setEditColor(c?.toHexString?.() ?? c)}
               showText
               format="hex"
             />
