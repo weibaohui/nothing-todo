@@ -67,7 +67,7 @@ mod tag_tests {
     /// tag 与 todo 的多对多关系：
     ///   add_todo_tag 重复调用是幂等的；set_todo_tags 会先清空再重建集合。
     /// 选用先 add 再 set 的组合：这是前端表单"打标签 → 整体提交"的真实场景。
-    /// 通过 db.conn() + todo_tags Entity 直查关联表来真正断言事务级语义,
+    /// 通过 db._conn_raw() + todo_tags Entity 直查关联表来真正断言事务级语义,
     /// 而非仅看 add_todo_tag / set_todo_tags 的返回 Ok。
     #[tokio::test]
     async fn test_todo_tag_associations_and_set_replaces() {
@@ -83,7 +83,7 @@ mod tag_tests {
             async move {
                 todo_tags::Entity::find()
                     .filter(todo_tags::Column::TodoId.eq(todo_id))
-                    .all(db.conn())
+                    .all(db._conn_raw())
                     .await
                     .unwrap()
             }
@@ -139,7 +139,7 @@ mod tag_tests {
             color: ActiveValue::Set(None),
             ..Default::default()
         })
-        .exec(db.conn())
+        .exec(db._conn_raw())
         .await
         .unwrap();
 
@@ -148,6 +148,43 @@ mod tag_tests {
         assert_eq!(backups[0].name, "legacy");
         // color 是 String,不应当是 None —— 即使 DB 里是 NULL 也得给空串兜底
         assert_eq!(backups[0].color, "");
+    }
+
+    /// get_tags 的 NULL-color 分支：与 get_tag_backups 共用同一段
+    /// `m.color.unwrap_or_default()` 的 NULL 兜底逻辑（见 backend/src/db/tag.rs），
+    /// 单独覆盖 get_tags 路径,避免某天只改其中一处忘了另一处。
+    /// PR #682 评审 CRITICAL #2 指出：原 test_tag_crud_main_path 走 create_tag
+    /// 永远走 Some(color) 分支,NULL 路径到不了;改用 ActiveValue::Set(None) 直插
+    /// 才是真正覆盖 NULL 兜底的写法。
+    #[tokio::test]
+    async fn test_get_tags_handles_null_color() {
+        let db = setup_db().await;
+        // 正常色 + NULL 色 各插一条,确认两条都被读到、且 NULL 那条返回空串而非 None/panic
+        db.create_tag("painted", "#aabbcc").await.unwrap();
+        tags::Entity::insert(tags::ActiveModel {
+            name: ActiveValue::Set("legacy".to_string()),
+            color: ActiveValue::Set(None),
+            ..Default::default()
+        })
+        .exec(db._conn_raw())
+        .await
+        .unwrap();
+
+        let tags_out = db.get_tags().await.unwrap();
+        assert_eq!(tags_out.len(), 2, "正常色与 NULL 色 tag 都应被读到");
+
+        let legacy = tags_out
+            .iter()
+            .find(|t| t.name == "legacy")
+            .expect("NULL 色 legacy tag 必须在返回列表里");
+        // 与 get_tag_backups 行为一致：NULL → 空串,而非 None / panic
+        assert_eq!(legacy.color, "", "get_tags 必须给 NULL color 兜底成空串");
+
+        let painted = tags_out
+            .iter()
+            .find(|t| t.name == "painted")
+            .expect("正常色 painted tag 必须在返回列表里");
+        assert_eq!(painted.color, "#aabbcc", "正常色必须原样保留");
     }
 
     /// get_tag_backups 的"正常路径"对照：create_tag 写 Some(color) 时,
@@ -328,8 +365,20 @@ mod agent_bot_tests {
         let bot_after = db.get_agent_bot(bot_id).await.unwrap().unwrap();
         assert_eq!(bot_after.config, r#"{"k":"v"}"#);
 
-        // update 一个不存在的 id 必须是 no-op,不报错
+        // update 一个不存在的 id 必须是 no-op:
+        // 1) 不能报错(走静默 no-op 路径)
+        // 2) 不能凭空插入幽灵行(get_agent_bot 仍返回 None)
+        // 3) 不能影响已有行(原 bot_id 的 config 仍是上一步写入的 {"k":"v"})
         db.update_agent_bot_config(99999, "{}").await.unwrap();
+        assert!(
+            db.get_agent_bot(99999).await.unwrap().is_none(),
+            "update 幽灵 id 不应凭空插入行"
+        );
+        let bot_unchanged = db.get_agent_bot(bot_id).await.unwrap().unwrap();
+        assert_eq!(
+            bot_unchanged.config, r#"{"k":"v"}"#,
+            "update 幽灵 id 不应影响其他 bot 的 config"
+        );
     }
 
     /// 非 feishu 类型的 bot 不应触发 response config 自动建表 —— 这条是"不能误创建"
@@ -417,10 +466,31 @@ mod executor_config_tests {
         assert!(!after2.enabled, "未指定 enabled 不应被恢复");
         assert_eq!(after2.display_name, original_display_name);
 
-        // 不存在的 name 必须是 no-op,不报错
+        // 不存在的 name 必须是 no-op:
+        // 1) 不能报错(走静默 no-op 路径)
+        // 2) 不能凭空插入幽灵行(get_executor_by_name 仍返回 None)
+        // 3) 不能影响已有行(原 target.name 的 path 仍是上一步写入的 /usr/bin/cc-new)
+        let before_ghost = db.get_executors().await.unwrap().len();
         db.update_executor("totally-ghost-executor", Some("/x"), None, None, None)
             .await
             .unwrap();
+        assert!(
+            db.get_executor_by_name("totally-ghost-executor")
+                .await
+                .unwrap()
+                .is_none(),
+            "update 幽灵 name 不应凭空插入行"
+        );
+        assert_eq!(
+            db.get_executors().await.unwrap().len(),
+            before_ghost,
+            "update 幽灵 name 不应改变总行数"
+        );
+        let target_unchanged = db.get_executor_by_name(&target.name).await.unwrap().unwrap();
+        assert_eq!(
+            target_unchanged.path, "/usr/bin/cc-new",
+            "update 幽灵 name 不应影响其他行的 path"
+        );
     }
 
     /// get_executor_by_name 是 name→config 的唯一查询入口,缺失时返回 None,
@@ -493,7 +563,7 @@ mod executor_config_tests {
             session_dir: ActiveValue::Set(String::new()),
             ..Default::default()
         })
-        .exec(db.conn())
+        .exec(db._conn_raw())
         .await
         .unwrap();
 

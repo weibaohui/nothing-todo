@@ -59,7 +59,14 @@ pub struct Database {
 impl Database {
     /// 暴露内部连接，仅供集成测试绕过 create_tag / create_todo 等包装函数直接构造边界数据（如 NULL color）使用。
     /// 生产代码不应该调用 —— 业务逻辑统一走 db 下的领域方法。
-    pub fn conn(&self) -> &DatabaseConnection {
+    ///
+    /// 加 `#[doc(hidden)]` + 改名 `_raw` 后缀是为了让 IDE 自动补全里
+    /// `db.` 之后不再把"通用原始 conn"作为首选 —— PR #682 评审 HIGH #3
+    /// 关注的"通用原始 conn 转义口"反模式；仍以 `pub` 暴露给 `backend/tests/`
+    /// 集成测试 crate 用，但走显式 `_conn_raw` 命名警示调用方这是
+    /// "最后手段"接口，新 handler 不应再走这条路。
+    #[doc(hidden)]
+    pub fn _conn_raw(&self) -> &DatabaseConnection {
         &self.conn
     }
 }
