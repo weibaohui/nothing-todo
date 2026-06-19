@@ -125,7 +125,7 @@ pub async fn delete_loop(
     // 先把 cron trigger 从 scheduler 移除
     let triggers = state.db.list_triggers_by_loop(id).await?;
     for t in triggers.iter().filter(|t| t.trigger_type == "cron") {
-        if let Some(sched) = state.loop_scheduler.as_ref() {
+        if let Some(sched) = state.loop_scheduler.get() {
             sched.remove_cron_trigger(t.id).await;
         }
     }
@@ -144,7 +144,7 @@ pub async fn update_loop_status(
     state.db.get_loop(id).await?.ok_or(AppError::NotFound)?;
     state.db.update_loop_status(id, &req.status).await?;
     // status 变化时刷新 cron 调度：draft/paused 不应继续触发
-    if let Some(sched) = state.loop_scheduler.as_ref() {
+    if let Some(sched) = state.loop_scheduler.get() {
         let _ = sched.reload_all().await;
     }
     let updated = state.db.get_loop(id).await?.ok_or(AppError::NotFound)?;
@@ -162,7 +162,7 @@ pub async fn duplicate_loop(
         .await?
         .ok_or(AppError::NotFound)?;
     // 复制后的 loop 是 draft,如包含 cron trigger,要 reload scheduler
-    if let Some(sched) = state.loop_scheduler.as_ref() {
+    if let Some(sched) = state.loop_scheduler.get() {
         let _ = sched.reload_all().await;
     }
     Ok((StatusCode::CREATED, ApiResponse::ok(LoopDto::from(new_loop))))
@@ -218,7 +218,7 @@ pub async fn create_trigger(
         .await?;
     // 若是 cron trigger 且启用,注册到 scheduler
     if created.trigger_type == "cron" && created.enabled == 1 {
-        if let Some(sched) = state.loop_scheduler.as_ref() {
+        if let Some(sched) = state.loop_scheduler.get() {
             let _ = sched.upsert_cron_trigger(created.id).await;
         }
     }
@@ -241,7 +241,7 @@ pub async fn update_trigger(
         .update_trigger(tid, &req.trigger_type, &req.config, req.enabled, req.priority)
         .await?;
     // 重新同步 cron scheduler
-    if let Some(sched) = state.loop_scheduler.as_ref() {
+    if let Some(sched) = state.loop_scheduler.get() {
         let _ = sched.upsert_cron_trigger(tid).await;
     }
     let updated = state
@@ -262,7 +262,7 @@ pub async fn delete_trigger(
     Path((_loop_id, tid)): Path<(i64, i64)>,
 ) -> Result<impl IntoResponse, AppError> {
     state.db.get_trigger(tid).await?.ok_or(AppError::NotFound)?;
-    if let Some(sched) = state.loop_scheduler.as_ref() {
+    if let Some(sched) = state.loop_scheduler.get() {
         sched.remove_cron_trigger(tid).await;
     }
     state.db.delete_trigger(tid).await?;

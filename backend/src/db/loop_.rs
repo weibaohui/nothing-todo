@@ -153,41 +153,46 @@ impl Database {
         }
 
         // 复制 stages (按原 order 写入,新 order 自动递增)
+        // 同时维护 old_stage_id -> new_stage_id 映射,后续复制 hooks 时需要重写
+        // source_stage_id,避免指向旧 loop 的 stage id 导致 post_stage 钩子静默失效。
         let stages = self.list_stages_by_loop(source_id).await?;
+        let mut stage_id_map: std::collections::HashMap<i64, i64> =
+            std::collections::HashMap::with_capacity(stages.len());
         for s in stages {
-            self.create_stage(
-                new_loop.id,
-                &s.name,
-                &s.description,
-                s.todo_id,
-                &s.run_mode,
-                s.skip_on_source_failed != 0,
-                s.min_rating,
-                &s.unrated_policy,
-                s.enabled != 0,
-            )
-            .await?;
+            let new_stage = self
+                .create_stage(
+                    new_loop.id,
+                    &s.name,
+                    &s.description,
+                    s.todo_id,
+                    &s.run_mode,
+                    s.skip_on_source_failed != 0,
+                    s.min_rating,
+                    &s.unrated_policy,
+                    s.enabled != 0,
+                )
+                .await?;
+            stage_id_map.insert(s.id, new_stage.id);
         }
 
-        // 复制 hooks
+        // 复制 hooks: source_stage_id 需用新 loop 的 stage id 重写
+        // 若原 source_stage_id 找不到映射 (例如 NULL 指向 post_loop 全局钩子),保留 None。
         let hooks = self.list_hooks_by_loop(source_id).await?;
         for h in hooks {
-            // 注意: 复制 hooks 时 source_stage_id 需要映射到新 loop 的 stage id
-            // 因为 create_hook 不接受 source_stage_id 参数,这里直接走 SQL
-            let now = crate::models::utc_timestamp();
-            let am = loop_hooks::ActiveModel {
-                loop_id: ActiveValue::Set(new_loop.id),
-                hook_position: ActiveValue::Set(h.hook_position),
-                source_stage_id: ActiveValue::Set(h.source_stage_id),
-                target_todo_id: ActiveValue::Set(h.target_todo_id),
-                skip_if_missing: ActiveValue::Set(h.skip_if_missing),
-                enabled: ActiveValue::Set(h.enabled),
-                min_rating: ActiveValue::Set(h.min_rating),
-                unrated_policy: ActiveValue::Set(h.unrated_policy),
-                created_at: ActiveValue::Set(Some(now)),
-                ..Default::default()
-            };
-            am.insert(&self.conn).await?;
+            let remapped_source_stage_id = h
+                .source_stage_id
+                .and_then(|old_id| stage_id_map.get(&old_id).copied());
+            self.create_hook(
+                new_loop.id,
+                &h.hook_position,
+                remapped_source_stage_id,
+                h.target_todo_id,
+                h.skip_if_missing != 0,
+                h.enabled != 0,
+                h.min_rating,
+                &h.unrated_policy,
+            )
+            .await?;
         }
 
         Ok(Some(new_loop))

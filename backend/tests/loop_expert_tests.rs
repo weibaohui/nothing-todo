@@ -194,3 +194,123 @@ async fn count_loop_stages_reflects_stage_changes() {
     db.delete_stage(s1).await.unwrap();
     assert_eq!(db.count_loop_stages_using_todo(todo_id).await.unwrap(), 1);
 }
+
+// =====================================================================
+// duplicate_loop: hooks 的 source_stage_id 必须重映射到新 loop 的 stage id
+// =====================================================================
+
+#[tokio::test]
+async fn duplicate_loop_remaps_hook_source_stage_id() {
+    let db = setup_db().await;
+
+    // 真实建出 todo,让 hook.target_todo_id / stage.todo_id 的 FK 合法。
+    // 内存库 autoincrement 从 1 开始,先建一个 todo 即可拿到合法 id。
+    let target_todo_id = create_todo(&db, "target").await;
+
+    // 原 loop: 2 个 stage + 1 个 post_stage hook (绑定 stage_1)
+    let loop_id = create_loop(&db, "源 loop").await;
+    let stage_1 = db
+        .create_stage(
+            loop_id,
+            "stage_1",
+            "",
+            target_todo_id,
+            "sequential",
+            false,
+            None,
+            "skip",
+            true,
+        )
+        .await
+        .unwrap();
+    let _stage_2 = db
+        .create_stage(
+            loop_id,
+            "stage_2",
+            "",
+            target_todo_id,
+            "sequential",
+            false,
+            None,
+            "skip",
+            true,
+        )
+        .await
+        .unwrap();
+    let _hook_on_stage_1 = db
+        .create_hook(
+            loop_id,
+            "post_stage",
+            Some(stage_1.id),
+            target_todo_id,
+            false,
+            true,
+            None,
+            "skip",
+        )
+        .await
+        .unwrap();
+    // 全局 post_loop 钩子 (source_stage_id = None),必须保留 None
+    let hook_global = db
+        .create_hook(
+            loop_id,
+            "post_loop",
+            None,
+            target_todo_id,
+            false,
+            true,
+            None,
+            "skip",
+        )
+        .await
+        .unwrap();
+
+    // 复制 loop
+    let new_loop = db.duplicate_loop(loop_id).await.unwrap().unwrap();
+    let new_hooks = db.list_hooks_by_loop(new_loop.id).await.unwrap();
+
+    // 断言: 新 loop 的 2 个 hook 全部复制,数量正确
+    assert_eq!(new_hooks.len(), 2);
+
+    // 断言: 绑定 stage_1 的 hook.source_stage_id 必须指向新 loop 的 stage,
+    // 不能继续指向旧 loop 的 stage_1.id (这会触发阶段后置钩子时静默失效)
+    let new_stage_ids: Vec<i64> = db
+        .list_stages_by_loop(new_loop.id)
+        .await
+        .unwrap()
+        .iter()
+        .map(|s| s.id)
+        .collect();
+    let remapped = new_hooks
+        .iter()
+        .find(|h| h.id != hook_global.id && h.target_todo_id == target_todo_id)
+        .expect("复制后应能找到原 post_stage hook");
+    let new_source = remapped
+        .source_stage_id
+        .expect("post_stage hook 的 source_stage_id 必填,不能变 None");
+    assert!(
+        new_stage_ids.contains(&new_source),
+        "新 hook 的 source_stage_id={} 必须指向新 loop 的 stage (候选: {:?}),不能继续指向旧 loop 的 stage_1.id={}",
+        new_source,
+        new_stage_ids,
+        stage_1.id,
+    );
+    assert_ne!(
+        new_source, stage_1.id,
+        "复制后 source_stage_id 不能等于原 loop 的 stage id"
+    );
+
+    // 断言: 全局钩子 source_stage_id 仍为 None
+    let global_new = new_hooks
+        .iter()
+        .find(|h| h.hook_position == "post_loop")
+        .expect("应能找到复制后的 post_loop 钩子");
+    assert!(
+        global_new.source_stage_id.is_none(),
+        "post_loop 全局钩子的 source_stage_id 必须保持 None"
+    );
+
+    // 断言: 复制不影响原 loop
+    let original_hooks = db.list_hooks_by_loop(loop_id).await.unwrap();
+    assert_eq!(original_hooks.len(), 2);
+}

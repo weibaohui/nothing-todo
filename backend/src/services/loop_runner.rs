@@ -31,6 +31,39 @@ use crate::executor_service::{run_todo_execution_with_params, RunTodoExecutionRe
 use crate::hooks::HookService;
 use crate::service_context::ServiceContext;
 
+/// rating gate 决策：基于 min_rating 与实际 rating 比较的二元结果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RatingGateAction {
+    /// gate 通过 (rating >= min_rating 或没设阈值),照常执行
+    Continue,
+    /// gate 未通过,policy == "skip",应跳过 stage / hook
+    Skip,
+}
+
+/// 评估 rating gate 决策。
+///
+/// - 未配置 `min_rating`: 一律 Continue
+/// - 配置了 `min_rating`:
+///   - `unrated_policy == "skip"` 且 `rating < min_rating` → Skip
+///   - 其余情况 (含未评分) → Continue
+///
+/// "continue" 与其他未知值都被当作 "通过",避免把未知策略误杀成跳过。
+fn check_rating_gate(
+    min_rating: Option<i32>,
+    unrated_policy: &str,
+    record_rating: Option<i32>,
+) -> RatingGateAction {
+    let Some(threshold) = min_rating else {
+        return RatingGateAction::Continue;
+    };
+    let actual = record_rating.unwrap_or(0);
+    if actual < threshold && unrated_policy == "skip" {
+        RatingGateAction::Skip
+    } else {
+        RatingGateAction::Continue
+    }
+}
+
 /// LoopRunner 依赖：与现有 HookService 共享一个 spawn-friendly 结构。
 pub struct LoopRunner {
     ctx: ServiceContext,
@@ -160,6 +193,8 @@ impl LoopRunner {
             .map_err(|e| e.to_string())?;
 
         // 3. fire pre_loop hooks
+        // pre_loop 没有任何前序 stage 可作 rating 比对, 一律传 None, 由 hook 自身
+        // min_rating 与 unrated_policy 决定是否跳过。
         let pre_loop_hooks = self
             .ctx
             .db
@@ -167,13 +202,16 @@ impl LoopRunner {
             .await
             .map_err(|e| e.to_string())?;
         for h in pre_loop_hooks {
-            let _ = self.fire_single_loop_hook(&h, &loop_).await;
+            let _ = self.fire_single_loop_hook(&h, &loop_, None).await;
         }
 
         // 4. 顺序遍历 stages
         let mut completed: i32 = 0;
         let mut failed: i32 = 0;
         let mut last_failed_record: Option<i64> = None;
+        // 上一轮 stage 的 rating, pre_stage hook 触发时作为 gate 比对基准;
+        // skip 与 failed 不更新 (失败的 stage 没有可信 rating)。
+        let mut last_completed_rating: Option<i32> = None;
         for (idx, stage) in stages.iter().enumerate() {
             // 若上一阶段失败且当前 stage 设置了 skip_on_source_failed,则跳过
             if last_failed_record.is_some() && stage.skip_on_source_failed != 0 {
@@ -201,11 +239,15 @@ impl LoopRunner {
                 .list_hooks_by_loop_and_position(loop_id, "pre_stage")
                 .await
                 .map_err(|e| e.to_string())?;
+            // pre_stage 在 stage 启动前 fire, 没有"当前 stage 的 rating"可参考,
+            // 沿用上一轮 stage 的 rating (None 表示还没有 stage 完成)。
             for h in pre_stage_hooks.iter().filter(|h| h.source_stage_id == Some(stage.id)) {
-                let _ = self.fire_single_loop_hook(h, &loop_).await;
+                let _ = self.fire_single_loop_hook(h, &loop_, last_completed_rating).await;
             }
 
             // 4b. 启动 stage execution
+            // 先以 "pending" 落库,再由 mark_stage_execution_started 一次性
+            // 切到 "running" 并写 started_at;避免两次都写 status="running" 的冗余 UPDATE。
             let stage_exec = self
                 .ctx
                 .db
@@ -213,7 +255,7 @@ impl LoopRunner {
                     loop_execution_id,
                     stage.id,
                     stage.todo_id,
-                    "running",
+                    "pending",
                 )
                 .await
                 .map_err(|e| e.to_string())?;
@@ -295,30 +337,59 @@ impl LoopRunner {
                 }
             };
 
+            // 4e-extra. 应用 rating gate:
+            //   - record 的 rating < stage.min_rating 且 policy == "skip"
+            //     → 把 stage 标记为 "skipped", 不计入 completed/failed, 也不 fire post hooks
+            //   - policy == "continue" 或 rating 满足: 维持原 stage_status 走原流程
+            //   - 评分缺失 (None) 视作 0, 与 unrated_policy 一起决定是否 skip
+            let record_rating = self
+                .ctx
+                .db
+                .get_execution_record(record_id)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|r| r.rating);
+            let gate = check_rating_gate(stage.min_rating, &stage.unrated_policy, record_rating);
+            let effective_stage_status = if gate == RatingGateAction::Skip {
+                info!(
+                    "loop_runner: stage #{} skipped by rating gate (rating={:?} < min={:?})",
+                    stage.id, record_rating, stage.min_rating
+                );
+                "skipped".to_string()
+            } else {
+                stage_status.clone()
+            };
+
             // 4e. 写回 stage execution
-            let final_stage_status = stage_status.clone();
             self.ctx
                 .db
                 .finish_stage_execution(
                     stage_exec.id,
-                    &final_stage_status,
+                    &effective_stage_status,
                     Some(record_id),
                     None,
                 )
                 .await
                 .map_err(|e| e.to_string())?;
 
-            if stage_status == "success" {
+            if effective_stage_status == "success" {
                 completed += 1;
                 last_failed_record = None;
+                last_completed_rating = record_rating;
                 let _ = self
                     .ctx
                     .db
                     .increment_loop_execution_counters(loop_execution_id, 1, 0)
                     .await;
+            } else if effective_stage_status == "skipped" {
+                // rating gate 跳过: 不计入 completed/failed,也不污染 last_failed_record
+                // last_failed_record 保持上一轮的值,这样 skip_on_source_failed 仍能反映真实失败
+                // 也不更新 last_completed_rating, skip 的 stage 不应影响后续 hook gate
             } else {
                 failed += 1;
                 last_failed_record = Some(record_id);
+                // 失败 stage 的 rating 不可信 (评审未完成或被拒), 不更新
                 let _ = self
                     .ctx
                     .db
@@ -326,19 +397,26 @@ impl LoopRunner {
                     .await;
             }
 
-            // 4f. post_stage hooks（不论成功失败都 fire,gate 由 hook 自身处理）
-            let post_stage_hooks = self
-                .ctx
-                .db
-                .list_post_stage_hooks(loop_id, stage.id)
-                .await
-                .map_err(|e| e.to_string())?;
-            for h in post_stage_hooks {
-                let _ = self.fire_single_loop_hook(&h, &loop_).await;
+            // 4f. post_stage hooks（gate skip 时不 fire,避免对"被跳过"的 stage 触发钩子）
+            if gate == RatingGateAction::Skip {
+                // skip 后直接进入下一轮,不发 post hooks
+            } else {
+                let post_stage_hooks = self
+                    .ctx
+                    .db
+                    .list_post_stage_hooks(loop_id, stage.id)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                for h in post_stage_hooks {
+                    let _ = self.fire_single_loop_hook(&h, &loop_, record_rating).await;
+                }
             }
         }
 
         // 5. fire post_loop hooks
+        // post_loop 的 rating gate 沿用最后执行 stage 的 rating;
+        // 没有"最后 stage"的概念(可能全部 skip),无 stage 时不传 rating, 由 hook 自身
+        // min_rating 决定 — None 表示继续。
         let post_loop_hooks = self
             .ctx
             .db
@@ -346,7 +424,7 @@ impl LoopRunner {
             .await
             .map_err(|e| e.to_string())?;
         for h in post_loop_hooks {
-            let _ = self.fire_single_loop_hook(&h, &loop_).await;
+            let _ = self.fire_single_loop_hook(&h, &loop_, None).await;
         }
 
         // 6. 计算最终 status
@@ -411,14 +489,16 @@ impl LoopRunner {
     }
 
     /// 订阅 broadcast 等待指定 record_id 的 Finished 事件。
-    /// timeout 24h 防止长跑任务永久挂住 loop。
+    /// timeout 4h 防止长跑任务永久挂住 loop;
+    /// 太长会让 broadcast Lagged 漏消息后无法恢复,太短会误杀正常长任务。
     ///
     /// broadcast 事件本身不带 record_id,这里在收到 Finished 后用 record_id 反查
     /// execution_records 状态:若本 record 还未到终态,继续等下一个 Finished;
     /// 多 loop 并发时,别人的 Finished 不会误判为本 record 完成。
     async fn wait_for_stage_finish(&self, record_id: i64) -> Result<String, String> {
         let mut rx = self.tx.subscribe();
-        let wait_timeout = Duration::from_secs(24 * 60 * 60);
+        // 4h 远高于一般 todo 执行,既能兜底 hung executor 也不会误杀正常长任务
+        let wait_timeout = Duration::from_secs(4 * 60 * 60);
         let result = timeout(wait_timeout, async {
             loop {
                 match rx.recv().await {
@@ -445,7 +525,16 @@ impl LoopRunner {
                     | Ok(crate::handlers::ExecEvent::ExecutionStats { .. })
                     | Ok(crate::handlers::ExecEvent::ReviewStatusChanged { .. })
                     | Ok(crate::handlers::ExecEvent::Sync { .. }) => continue,
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    // Lagged 表示订阅者跟不上 channel 发送速度,事件被丢弃。
+                    // 静默 continue 会让上层误以为一切正常,但 Finished 可能正好被吞,
+                    // 最终靠 timeout 兜底显式失败 —— 比静默挂住更安全。
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        warn!(
+                            "loop_runner: broadcast lagged, dropped {} events while waiting for record #{}; continuing",
+                            skipped, record_id
+                        );
+                        continue;
+                    }
                     Err(broadcast::error::RecvError::Closed) => {
                         return Err("broadcast channel closed".to_string());
                     }
@@ -459,18 +548,37 @@ impl LoopRunner {
             // 外层 Ok 是 timeout 没到,内层是 waiter 自己返回的结果
             Ok(inner) => inner,
             Err(_) => Err(format!(
-                "stage execution (record #{}) timeout after 24h",
+                "stage execution (record #{}) timeout after 4h",
                 record_id
             )),
         }
     }
 
     /// 触发单个 loop hook（fire-and-forget,不阻塞 loop 主流程）。
+    ///
+    /// `record_rating` 是触发该 hook 所在位置的 stage rating 上下文:
+    /// - post_stage: 当前 stage 的 record rating
+    /// - pre_stage: 上一轮 stage 的 record rating (None 表示尚无完成 stage)
+    /// - pre_loop / post_loop: 一律传 None
+    ///
+    /// 在 spawn target todo 之前先应用 hook 自身的 min_rating + unrated_policy gate;
+    /// gate 决定 Skip 时,记 warn 后直接 return,避免对未达标 stage 触发下游 todo。
     async fn fire_single_loop_hook(
         &self,
         h: &crate::db::entity::loop_hooks::Model,
         _loop_: &crate::db::entity::loops::Model,
+        record_rating: Option<i32>,
     ) -> Result<(), String> {
+        // hook 自身的 rating gate
+        if check_rating_gate(h.min_rating, &h.unrated_policy, record_rating)
+            == RatingGateAction::Skip
+        {
+            warn!(
+                "loop_runner: hook #{} (position={}) skipped by rating gate (rating={:?} < min={:?})",
+                h.id, h.hook_position, record_rating, h.min_rating
+            );
+            return Ok(());
+        }
         // 简化版: 复用 hooks::service 的 fire_for_todo 行为
         // 创建一个对应 target_todo 的执行,把 source 设成 loop
         let target = self

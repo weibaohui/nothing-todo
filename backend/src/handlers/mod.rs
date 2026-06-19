@@ -46,8 +46,13 @@ pub struct AppState {
     pub feishu_listener: Arc<FeishuListener>,
     pub feishu_push_mutator: broadcast::Sender<crate::services::feishu_push::PushConfigUpdate>,
     pub hook_service: Arc<HookService>,
-    /// Loop Studio: 独立 cron 调度器（None 表示 loop 功能未启用或初始化失败）
-    pub loop_scheduler: Option<Arc<crate::services::loop_scheduler::LoopScheduler>>,
+    /// Loop Studio: 独立 cron 调度器。
+    /// 改用 `Arc<OnceCell<...>>` 是为了让 `LoopScheduler::start` (async) 能在
+    /// `tokio::spawn` 后台启动, 避免 `block_in_place + block_on` 在 current_thread
+    /// runtime 单元测试场景下 panic (issue H1)。start 完成后 cell 才有值,
+    /// 调用方继续用 `state.loop_scheduler.get()` 取 `Option<&Arc<...>>`,
+    /// 行为与原来的 `Option<...>` 字段一致。
+    pub loop_scheduler: Arc<tokio::sync::OnceCell<Arc<crate::services::loop_scheduler::LoopScheduler>>>,
     /// Loop Studio: 触发器分发器（None 同上）
     pub loop_trigger_dispatcher: Option<Arc<crate::services::loop_trigger::LoopTriggerDispatcher>>,
     /// Loop Studio: loop runner（手动触发 / dispatcher / cron 都通过它启动执行）
@@ -1033,8 +1038,10 @@ fn build_app_state(
     ensure_reviewer_template_blocking(&db);
 
     // ====== Loop Studio 三件套初始化 ======
-    // 用 block_in_place + Handle::block_on 走 sync 路径做 async DB 调用；
-    // 这三件套是「可选能力」,初始化失败不阻塞 daemon 启动,只把 Option 置 None。
+    // 这三件套是「可选能力」,初始化失败不阻塞 daemon 启动,只把 cell 留空。
+    // scheduler 的实际启动 (LoopScheduler::start 是 async) 改为在
+    // init_loop_studio_services 内部 tokio::spawn 异步完成, AppState 拿到
+    // 一个 OnceCell, start 完成后 cell 被填充,调用方继续按 Option 风格取用。
     let (loop_runner, loop_trigger_dispatcher, loop_scheduler) =
         init_loop_studio_services(ctx.clone(), hook_service.clone(), tx.clone());
 
@@ -1056,8 +1063,12 @@ fn build_app_state(
 
 /// 初始化 Loop Studio 三件套：runner / dispatcher / scheduler。
 ///
-/// 全部失败容忍：返回 `None` 让 AppState 标记为「loop 功能不可用」,handler
+/// 全部失败容忍：返回的 `OnceCell` 留空表示「loop 功能未启用或初始化失败」,handler
 /// 在被调用时返回 503 风格错误。daemon 启动不因 loop 故障而被拖垮。
+///
+/// scheduler 的实际启动 (async) 用 `tokio::spawn` 推到后台执行;若 build_app_state
+/// 在 current_thread runtime (单元测试场景) 被调用,也不会因 `block_in_place +
+/// block_on` 限制 panic (issue H1)。
 fn init_loop_studio_services(
     ctx: ServiceContext,
     hook_service: Arc<crate::hooks::HookService>,
@@ -1065,7 +1076,7 @@ fn init_loop_studio_services(
 ) -> (
     Option<Arc<crate::services::loop_runner::LoopRunner>>,
     Option<Arc<crate::services::loop_trigger::LoopTriggerDispatcher>>,
-    Option<Arc<crate::services::loop_scheduler::LoopScheduler>>,
+    Arc<tokio::sync::OnceCell<Arc<crate::services::loop_scheduler::LoopScheduler>>>,
 ) {
     use crate::services::loop_runner::LoopRunner;
     use crate::services::loop_trigger::LoopTriggerDispatcher;
@@ -1076,23 +1087,32 @@ fn init_loop_studio_services(
         runner.clone(),
         ctx.clone(),
     ));
-    // scheduler 启动时需要 DB 读 + 启动后台 task,这里 block_in_place
-    let scheduler_res = tokio::task::block_in_place(|| {
-        let handle = tokio::runtime::Handle::current();
-        handle.block_on(crate::services::loop_scheduler::LoopScheduler::start(
-            ctx.db.clone(),
-            runner.clone(),
-        ))
-    });
-    let scheduler = match scheduler_res {
-        Ok(s) => Some(s),
-        Err(e) => {
-            tracing::error!("loop_scheduler start failed: {}", e);
-            None
+    // scheduler 启动是 async; 用 tokio::spawn 推到后台, 把结果填进 OnceCell,
+    // build_app_state (sync) 立即返回, 避免在 current_thread runtime 下
+    // block_in_place + block_on panic。
+    let scheduler_cell: Arc<
+        tokio::sync::OnceCell<Arc<crate::services::loop_scheduler::LoopScheduler>>,
+    > = Arc::new(tokio::sync::OnceCell::new());
+    let cell_for_task = scheduler_cell.clone();
+    let db_for_task = ctx.db.clone();
+    let runner_for_task = runner.clone();
+    tokio::spawn(async move {
+        match crate::services::loop_scheduler::LoopScheduler::start(
+            db_for_task,
+            runner_for_task,
+        )
+        .await
+        {
+            Ok(sched) => {
+                let _ = cell_for_task.set(sched);
+            }
+            Err(e) => {
+                tracing::error!("loop_scheduler start failed: {}", e);
+            }
         }
-    };
-    // 即使 scheduler 失败,runner / dispatcher 仍可用（手动触发仍可工作）
-    (Some(runner), Some(dispatcher), scheduler)
+    });
+    // 即使 scheduler 尚未启动,runner / dispatcher 仍可用（手动触发仍可工作）
+    (Some(runner), Some(dispatcher), scheduler_cell)
 }
 
 /// 后台任务：启动所有已启用的飞书 bot。失败仅记录日志，不影响主流程。
@@ -1922,7 +1942,7 @@ mod app_state_config_helpers_tests {
             feishu_push_mutator,
             hook_service,
             // 测试用最小 AppState 不需要 loop 服务
-            loop_scheduler: None,
+            loop_scheduler: Arc::new(tokio::sync::OnceCell::new()),
             loop_trigger_dispatcher: None,
             loop_runner: None,
         }
