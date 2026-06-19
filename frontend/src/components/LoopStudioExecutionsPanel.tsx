@@ -15,9 +15,7 @@ import {
   MinusCircleOutlined,
   ReloadOutlined,
   HistoryOutlined,
-  LinkOutlined,
   StarOutlined,
-  WarningOutlined,
 } from '@ant-design/icons';
 import * as dbLoops from '@/utils/database/loops';
 import type { LoopExecutionDto, LoopExecutionDetail } from '@/types/loop';
