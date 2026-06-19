@@ -24,7 +24,7 @@ interface PromoteToExpertButtonProps {
   todoTitle: string;
 }
 
-/** 行内的「晋级专家」按钮, 点击打开 confirm modal。阻止冒泡避免触发 row click。 */
+/** 行内的「晋级」按钮, 点击打开 confirm modal。阻止冒泡避免触发 row click。 */
 function PromoteTriggerButton({ todoTitle, onClick }: { todoTitle: string; onClick: (e: React.MouseEvent) => void }) {
   return (
     <Button
@@ -34,7 +34,7 @@ function PromoteTriggerButton({ todoTitle, onClick }: { todoTitle: string; onCli
       onClick={onClick}
       aria-label={`将「${todoTitle}」晋级为专家`}
     >
-      晋级专家
+      晋级
     </Button>
   );
 }

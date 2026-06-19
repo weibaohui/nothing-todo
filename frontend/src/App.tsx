@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { ConfigProvider, Layout, App as AntApp } from 'antd';
-import { PlusOutlined, ThunderboltOutlined, CloseOutlined } from '@ant-design/icons';
+import { useState, useEffect, useCallback } from 'react';
+import { ConfigProvider, Layout, App as AntApp, message } from 'antd';
+import { PlusOutlined, ThunderboltOutlined, CloseOutlined, LeftOutlined } from '@ant-design/icons';
 import { AppProvider, useApp } from './hooks/useApp';
 import { useIsMobile } from './hooks/useIsMobile';
 import { useExecutionEvents } from './hooks/useExecutionEvents';
@@ -17,6 +17,8 @@ import { TodoDrawer } from './components/TodoDrawer';
 import { SmartCreateModal } from './components/SmartCreateModal';
 import { ExpertList } from './components/ExpertList';
 import { LoopStudio } from './components/LoopStudio';
+import { LoopDetailPanel } from './components/LoopStudioDetailPanel';
+import * as dbLoops from './utils/database/loops';
 import { EXECUTION_PANEL, SIDEBAR_WIDTH } from './constants';
 import * as db from './utils/database';
 import type { Config } from './types';
@@ -33,6 +35,8 @@ function AppContent() {
   const [smartCreateOpen, setSmartCreateOpen] = useState(false);
   const [fabExpanded, setFabExpanded] = useState(false);
   const [appConfig, setAppConfig] = useState<Config | null>(null);
+  // 从左侧环路列表选中某个 loop 时记录其 id，右侧面板展示 LoopDetailPanel
+  const [selectedLoopId, setSelectedLoopId] = useState<number | null>(null);
   const isMobile = useIsMobile();
 
   const [panelCollapsed, setPanelCollapsed] = useState(() => {
@@ -66,10 +70,18 @@ function AppContent() {
 
   const handleSelectTodo = (todoId: string | number | null) => {
     if (todoId != null) {
+      // 选中 todo 时清除 loop 选择，避免右侧面板显示冲突
+      setSelectedLoopId(null);
       dispatch({ type: 'SELECT_TODO', payload: Number(todoId) });
       selectTodo(Number(todoId));
     }
   };
+
+  // 从左侧环路列表选中一个 loop，在右侧展示 LoopDetailPanel
+  const handleSelectLoop = useCallback((loopId: number) => {
+    setSelectedLoopId(loopId);
+    setSelectedPanel('detail');
+  }, [setSelectedPanel]);
 
   const handleSmartCreateSubmitted = () => {
     db.getAllTodos().then(todos => {
@@ -161,6 +173,7 @@ function AppContent() {
               onShowExperts={() => { clearSelection(); showView('experts'); }}
               onShowLoop={() => { clearSelection(); showView('loop'); }}
               onShowSettings={() => { clearSelection(); showView('settings'); }}
+              onSelectLoop={handleSelectLoop}
             />
           </div>
 
@@ -178,6 +191,60 @@ function AppContent() {
               <TodoDetail
                 onBack={isMobile ? backToList : undefined}
               />
+            ) : selectedLoopId !== null ? (
+              // 从左侧环路列表选中某个 loop，右侧展示 LoopDetailPanel；
+              // 借用一个轻量容器提供 overflow:auto + 返回按钮。
+              <div style={{ height: '100%', overflow: 'auto' }}>
+                {isMobile && (
+                  <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--color-border, #e2e8f0)' }}>
+                    <button
+                      onClick={() => setSelectedLoopId(null)}
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', gap: 4,
+                        color: 'var(--color-text-secondary, #475569)', fontSize: 14,
+                      }}
+                    >
+                      <LeftOutlined /> 返回
+                    </button>
+                  </div>
+                )}
+                <LoopDetailPanel
+                  loopId={selectedLoopId}
+                  onTrigger={async () => {
+                    try {
+                      const res = await dbLoops.triggerLoop(selectedLoopId);
+                      message.success(`已触发 (execution #${res.execution_id})`);
+                    } catch { /* ignore */ }
+                  }}
+                  onDuplicate={async () => {
+                    try {
+                      await dbLoops.duplicateLoop(selectedLoopId);
+                      message.success('已复制');
+                    } catch { /* ignore */ }
+                  }}
+                  onDelete={async () => {
+                    try {
+                      await dbLoops.deleteLoop(selectedLoopId);
+                      message.success('已删除');
+                      setSelectedLoopId(null);
+                    } catch { /* ignore */ }
+                  }}
+                  onToggleStatus={async () => {
+                    try {
+                      const loops = await dbLoops.listLoops();
+                      const loop = loops.find(l => l.id === selectedLoopId);
+                      if (!loop) return;
+                      const next = loop.status === 'enabled' ? 'paused' : 'enabled';
+                      await dbLoops.updateLoopStatus(selectedLoopId, { status: next } as any);
+                      message.success(`已${next === 'enabled' ? '启用' : '暂停'}`);
+                    } catch { /* ignore */ }
+                  }}
+                  onChanged={() => {
+                    // detail 变更后，如果左侧有 LoopStudio 也通知刷新
+                  }}
+                />
+              </div>
             ) : activeView === 'settings' ? (
               <SettingsPage onBack={isMobile ? backToList : undefined} />
             ) : activeView === 'memorial' ? (
