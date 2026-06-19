@@ -306,9 +306,9 @@ function AppContent() {
                       await dbLoops.deleteLoop(selectedLoopId);
                       message.success('已删除');
                       setSelectedLoopId(null);
+                      setLoopUpdateCount(c => c + 1);
                     } catch (err) {
-                      // 删除失败时给用户反馈，避免静默吞掉错误
-                      message.error(`删除失败: ${err instanceof Error ? err.message : '未知错误'}`);
+                      message.error('删除失败，环路可能正在被引用');
                     }
                   }}
                   onToggleStatus={async () => {
