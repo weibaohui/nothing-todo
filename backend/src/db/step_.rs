@@ -1,6 +1,6 @@
 use sea_orm::{
     ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
-    QuerySelect, Statement,
+    Statement,
 };
 
 use crate::db::entity::steps;
@@ -113,7 +113,7 @@ impl Database {
         color: Option<&str>,
     ) -> Result<(), sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
-        let sql = if let Some(c) = color {
+        let sql = if color.is_some() {
             "UPDATE steps SET title = ?1, prompt = ?2, executor = ?3, acceptance_criteria = ?4, color = ?5, updated_at = ?6 WHERE id = ?7"
         } else {
             "UPDATE steps SET title = ?1, prompt = ?2, executor = ?3, acceptance_criteria = ?4, updated_at = ?5 WHERE id = ?6"

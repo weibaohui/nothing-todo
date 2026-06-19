@@ -25,7 +25,7 @@ use crate::services::loop_trigger::LoopTriggerDispatcher;
 /// 内存中的 cron 调度项。
 #[derive(Debug, Clone)]
 struct CronEntry {
-    trigger_id: i64,
+    _trigger_id: i64,
     loop_id: i64,
     schedule: cron::Schedule,
     /// 已经在内存中记下的「下次触发时间」,轮询时只 fire 那些已到期的。
@@ -171,7 +171,7 @@ impl LoopScheduler {
         entries.insert(
             t.id,
             CronEntry {
-                trigger_id: t.id,
+                _trigger_id: t.id,
                 loop_id: t.loop_id,
                 schedule,
                 next_run_at,

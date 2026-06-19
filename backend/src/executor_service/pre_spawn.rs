@@ -237,6 +237,7 @@ pub(crate) async fn reject_start_todo_failure(
 /// 决策顺序：显式 req_executor > todo.executor > registry default。命令构造
 /// 用 `command_args_with_session` 处理 resume / 非 resume 分支，再用
 /// [`apply_worktree_flag`] 给 claude_code / hermes 加 worktree 参数。
+#[allow(dead_code)]
 pub(crate) struct SelectedExecutor {
     pub executor: Arc<dyn CodeExecutor>,
     pub command_args: Vec<String>,

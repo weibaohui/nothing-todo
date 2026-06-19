@@ -290,7 +290,7 @@ pub async fn create_stage(
     }
     state.db.get_loop(loop_id).await?.ok_or(AppError::NotFound)?;
     // Loop 编排的「节点」必须是环节（来自 steps 表）。
-    let target = state
+    state
         .db
         .get_step(req.todo_id)
         .await?
@@ -343,7 +343,7 @@ pub async fn update_stage(
     }
     // 与 create_stage 一致: 切换 todo_id 时也必须指向有效的步骤。
     if req.todo_id != stage.todo_id {
-        let target = state
+        state
             .db
             .get_step(req.todo_id)
             .await?

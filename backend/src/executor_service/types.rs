@@ -24,6 +24,7 @@ use super::RunTodoExecutionRequest;
 ///
 /// 设计取舍：把 `RunTodoExecutionRequest` 整段嵌入 `request` 字段而不是平铺。
 /// 平铺需要 14 个字段二次声明；嵌入只需 1 个字段，添加 request 字段时只动 1 处。
+#[allow(dead_code)]
 pub(crate) struct PreparedExecution {
     /// 入参 request。Stage 2 / Stage 3 仍会读到 todo_id / chain / trigger_type 等。
     pub request: RunTodoExecutionRequest,
