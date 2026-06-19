@@ -15,6 +15,8 @@ import { SettingsPage } from './components/SettingsPage';
 import { ExecutionPanel } from './components/ExecutionPanel';
 import { TodoDrawer } from './components/TodoDrawer';
 import { SmartCreateModal } from './components/SmartCreateModal';
+import { ExpertList } from './components/ExpertList';
+import { LoopStudio } from './components/LoopStudio';
 import { EXECUTION_PANEL, SIDEBAR_WIDTH } from './constants';
 import * as db from './utils/database';
 import type { Config } from './types';
@@ -156,6 +158,8 @@ function AppContent() {
               onShowDashboard={() => { clearSelection(); showView('dashboard'); }}
               onShowMemorial={() => { clearSelection(); showView('memorial'); }}
               onShowRelationMap={() => { clearSelection(); showView('relation'); }}
+              onShowExperts={() => { clearSelection(); showView('experts'); }}
+              onShowLoop={() => { clearSelection(); showView('loop'); }}
               onShowSettings={() => { clearSelection(); showView('settings'); }}
             />
           </div>
@@ -180,6 +184,10 @@ function AppContent() {
               <MemorialBoard onBack={isMobile ? backToList : undefined} />
             ) : activeView === 'relation' ? (
               <RelationMap onBack={isMobile ? backToList : undefined} />
+            ) : activeView === 'experts' ? (
+              <ExpertList onBack={isMobile ? backToList : undefined} />
+            ) : activeView === 'loop' ? (
+              <LoopStudio onBack={isMobile ? backToList : undefined} />
             ) : (
               <Dashboard onBack={isMobile ? backToList : undefined} />
             )}
