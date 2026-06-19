@@ -44,6 +44,7 @@ pub(super) fn all_migrations() -> Vec<Box<dyn Migration>> {
         Box::new(V5ProjectDirectoryWorktree),
         Box::new(V6TodoKind),
         Box::new(V7LoopStudio),
+        Box::new(V8LoopWorkspace),
     ]
 }
 
@@ -1954,4 +1955,39 @@ mod v7_loop_studio_tests {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// v8: loops 表加 workspace 列 (用于关联工作空间)
+// ---------------------------------------------------------------------------
+
+/// v8 迁移：为 `loops` 表添加 `workspace` 列，替换原来的 product/repo/branch 字段。
+///
+/// 设计动机：
+/// - Loop 不再需要独立的产品/仓库/分支字段，改为关联工作空间（与 todo 共用同一套 workspace 体系）。
+/// - 旧字段 product/repo/branch 在 v7 建的表中仍存在，但 v8 不删它们（避免数据丢失）；
+///   新库的 DDL 已直接使用 workspace 替代。
+///
+/// 升级策略：
+/// - 新库: v7 DDL 已经直接定义 `workspace TEXT`，而非 product/repo/branch，v8 ALTER 会被静默跳过。
+/// - 旧库: ALTER TABLE 加 workspace 列，保留旧列不动。
+pub(super) struct V8LoopWorkspace;
+
+#[async_trait]
+impl Migration for V8LoopWorkspace {
+    fn version(&self) -> i64 {
+        8
+    }
+    fn name(&self) -> &'static str {
+        "loop_workspace"
+    }
+
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        v8_loop_workspace(db).await
+    }
+}
+
+async fn v8_loop_workspace(db: &Database) -> Result<(), sea_orm::DbErr> {
+    add_column_warn(db, "ALTER TABLE loops ADD COLUMN workspace TEXT").await;
+    Ok(())
 }
