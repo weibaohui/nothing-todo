@@ -1193,11 +1193,10 @@ fn todo_routes() -> Router<AppState> {
         .route("/api/todos/{id}/summary", get(execution::get_execution_summary))
         .route("/api/todos/{id}/scheduler", put(scheduler::update_scheduler))
         .route("/api/todos/recent-completed", get(todo::get_recent_completed_todos))
-        // 环节相关：promote / demote 走 todo 路径,因为它们本质是修改 todo.kind
+        // 环节相关：promote 复制到 steps 表,原 todo 保留
         .route("/api/todos/{id}/promote", post(todo::promote_todo_to_step))
-        .route("/api/todos/{id}/demote", post(todo::demote_todo_to_item))
         .route("/api/todos/{id}", get(todo::get_todo).put(todo::update_todo).delete(todo::delete_todo))
-        // 环节专用：list / candidates / 单查,语义上独立于 todo CRUD
+        // 环节专用：list / candidates / 单查,数据来自独立的 steps 表
         .route("/api/steps", get(todo::list_steps))
         .route("/api/steps/candidates", get(todo::list_step_candidates))
         .route("/api/steps/{id}", get(todo::get_step))

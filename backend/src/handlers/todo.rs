@@ -7,8 +7,8 @@ use crate::db::TodoUpdate;
 use crate::handlers::{ApiJson, AppError, AppState};
 use crate::hooks::models::HookContext;
 use crate::models::{
-    utc_timestamp, ApiResponse, CreateTodoRequest, RecentCompletedTodo, Todo, UpdateTagsRequest,
-    UpdateTodoRequest,
+    utc_timestamp, ApiResponse, CreateTodoRequest, RecentCompletedTodo, StepDto, Todo,
+    UpdateTagsRequest, UpdateTodoRequest,
 };
 
 /// Validate cron expression, return helpful error for invalid ones
@@ -354,74 +354,66 @@ pub async fn get_recent_completed_todos(
 // - GET    /api/steps                    列出所有环节 + 各自的 loop 引用计数
 // - GET    /api/steps/:id                单个环节详情
 // - GET    /api/steps/candidates         loop 编辑器选环节用的精简候选列表
-// - POST   /api/todos/:id/promote          事项 → 环节
-// - POST   /api/todos/:id/demote           环节 → 事项（被 loop 引用时拒绝）
+// - POST   /api/todos/:id/promote          事项 → 环节（复制到 steps 表，原 todo 保留）
+// （demote 已移除：环节是独立实体，不能降级）
 
 /// GET /api/steps — 列出所有环节,带"被哪些 loop 用"复用度计数
 pub async fn list_steps(
     State(state): State<AppState>,
-) -> Result<ApiResponse<Vec<crate::models::StepSummary>>, AppError> {
-    Ok(ApiResponse::ok(state.db.list_steps_with_usage().await?))
+) -> Result<ApiResponse<Vec<StepDto>>, AppError> {
+    let rows = state.db.list_steps_with_usage_pure().await?;
+    let items = rows
+        .into_iter()
+        .map(|(s, count)| StepDto::from(s).with_usage(count))
+        .collect();
+    Ok(ApiResponse::ok(items))
 }
 
-/// GET /api/steps/candidates — loop 编辑器选环节用,字段与 Todo 一致
+/// GET /api/steps/candidates — loop 编辑器选环节用
 pub async fn list_step_candidates(
     State(state): State<AppState>,
-) -> Result<ApiResponse<Vec<Todo>>, AppError> {
-    Ok(ApiResponse::ok(state.db.list_step_candidates().await?))
+) -> Result<ApiResponse<Vec<StepDto>>, AppError> {
+    let rows = state.db.list_steps_with_usage_pure().await?;
+    let items = rows
+        .into_iter()
+        .map(|(s, count)| StepDto::from(s).with_usage(count))
+        .collect();
+    Ok(ApiResponse::ok(items))
 }
 
 /// GET /api/steps/:id — 单个环节详情,带 loop 引用计数
 pub async fn get_step(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> Result<ApiResponse<crate::models::StepSummary>, AppError> {
+) -> Result<ApiResponse<StepDto>, AppError> {
+    let s = state
+        .db
+        .get_step(id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let used_by_loop_stage_count = state.db.count_loop_stages_using_step(id).await?;
+    Ok(ApiResponse::ok(StepDto::from(s).with_usage(used_by_loop_stage_count)))
+}
+
+/// POST /api/todos/:id/promote — 事项提升为环节（复制数据到 steps 表，原 todo 保留）
+pub async fn promote_todo_to_step(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<ApiResponse<StepDto>, AppError> {
     let todo = state
         .db
         .get_todo(id)
         .await?
         .ok_or(AppError::NotFound)?;
-    // 必须是 step,否则返回 404
-    if todo.kind != "step" {
-        return Err(AppError::NotFound);
-    }
-    let used_by_loop_stage_count = state.db.count_loop_stages_using_todo(id).await?;
-    Ok(ApiResponse::ok(crate::models::StepSummary {
-        used_by_loop_stage_count,
-        todo,
-    }))
-}
-
-/// POST /api/todos/:id/promote — 事项提升为环节
-pub async fn promote_todo_to_step(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-) -> Result<ApiResponse<()>, AppError> {
-    // 校验 todo 存在,否则 404
-    state
+    let step = state
         .db
-        .get_todo(id)
-        .await?
-        .ok_or(AppError::NotFound)?;
-    state.db.promote_to_step(id).await?;
-    Ok(ApiResponse::ok(()))
-}
-
-/// POST /api/todos/:id/demote — 环节降级为事项
-pub async fn demote_todo_to_item(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-) -> Result<ApiResponse<()>, AppError> {
-    // 校验 todo 存在,否则 404
-    state
-        .db
-        .get_todo(id)
-        .await?
-        .ok_or(AppError::NotFound)?;
-    state
-        .db
-        .demote_to_item(id)
-        .await
-        .map_err(AppError::BadRequest)?;
-    Ok(ApiResponse::ok(()))
+        .create_step(
+            &todo.title,
+            &todo.prompt,
+            todo.executor.as_deref(),
+            todo.acceptance_criteria.as_deref(),
+            Some(todo.id),
+        )
+        .await?;
+    Ok(ApiResponse::ok(StepDto::from(step)))
 }

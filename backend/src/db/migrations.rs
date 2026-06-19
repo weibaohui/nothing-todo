@@ -77,6 +77,14 @@ pub const ALL_MIGRATIONS: &[Migration] = &[
              回填 loop_stages 引用的 todo 为 'step'。这是底层抽象, 不破坏现有数据。",
         statements: TODO_KIND_STATEMENTS,
     },
+    Migration {
+        version: 4,
+        name: "independent_steps",
+        description:
+            "环节独立为 steps 表: 创建新表, 从 todos 复制数据; \
+             后续 promote 写入 steps 表而非改 kind。",
+        statements: INDEPENDENT_STEPS_STATEMENTS,
+    },
 ];
 
 /// All DDL for the initial schema (extracted from the previous monolithic
@@ -676,6 +684,36 @@ const TODO_KIND_STATEMENTS: &[&str] = &[
     "ALTER TABLE todos ADD COLUMN kind TEXT NOT NULL DEFAULT 'item'",
     "UPDATE todos SET kind = 'step' WHERE id IN (SELECT DISTINCT todo_id FROM loop_stages)",
     "CREATE INDEX IF NOT EXISTS idx_todos_kind ON todos(kind)",
+];
+
+/// v4 — 环节独立为 steps 表。
+///
+/// 环节不再作为 todo 的一个 kind，而是独立的 steps 表，
+/// 仅保留标题、提示词、执行器、验收标准字段，去除 hook/定时/门禁等 todo 专属属性。
+/// 从 todo 升级时复制数据到 steps 表，原 todo 保留。
+const INDEPENDENT_STEPS_STATEMENTS: &[&str] = &[
+    "CREATE TABLE IF NOT EXISTS steps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        prompt TEXT NOT NULL DEFAULT '',
+        executor TEXT,
+        acceptance_criteria TEXT,
+        source_todo_id INTEGER,
+        created_at TEXT,
+        updated_at TEXT,
+        FOREIGN KEY (source_todo_id) REFERENCES todos(id) ON DELETE SET NULL
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_steps_source_todo ON steps(source_todo_id)",
+    "CREATE TRIGGER IF NOT EXISTS set_steps_created_at_utc AFTER INSERT ON steps
+     WHEN new.created_at IS NULL OR new.created_at = ''
+     BEGIN
+         UPDATE steps SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+     END",
+    "CREATE TRIGGER IF NOT EXISTS set_steps_updated_at_utc AFTER UPDATE ON steps
+     WHEN new.updated_at IS NULL OR new.updated_at = ''
+     BEGIN
+         UPDATE steps SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+     END",
 ];
 
 /// SQL to create the `schema_version` meta table. Idempotent.

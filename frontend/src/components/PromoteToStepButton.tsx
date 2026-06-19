@@ -1,16 +1,7 @@
 // 「升级为环节」按钮 + 确认 Modal。
 //
-// 放在 todo 行内 (TodoList), 只在 kind !== 'step' 时显示,
-// 因为已经升级过的 todo 不需要重复升级, 环节视图里通常走降级路径。
-//
-// 为什么不直接走环节新建流程: 现实场景中, 用户往往先在一个 todo 上把 prompt /
-// 验收标准 / 工作空间打磨好, 然后才意识到「我以后还要复用」。升级路径比从头新建
-// 更自然, 也保留了原 todo 的全部历史 (执行记录、tag、调度配置)。
-//
-// 文件结构拆 3 块, 让每个组件函数体 < 30 行:
-// - PromoteTriggerButton: 行内的升级按钮 (presentational)
-// - PromoteConfirmModal:  二次确认弹窗 (presentational)
-// - PromoteToStepButton: 拥有状态与副作用的容器, 组合前两者
+// 放在 todo 行内 (TodoList), 复制 todo 的 title/prompt/executor/acceptance_criteria
+// 到 steps 表, 原 todo 保留, 不改变原 todo 的任何属性。
 
 import { useState } from 'react';
 import { Button, Modal, App } from 'antd';
@@ -44,17 +35,12 @@ function PromoteModalBody({ todoTitle }: { todoTitle: string }) {
   return (
     <>
       <p style={{ marginTop: 0 }}>
-        将 <b>「{todoTitle}」</b> 从「事项」提升为「环节」, 之后可在
-        <b> 环路编排 (Loop Studio) </b>中作为可复用的执行单元被任意 loop 引用。
+        将 <b>「{todoTitle}」</b> 的标题、提示词、执行器、验收标准复制到环节表,
+        之后可在 <b>环路编排 (Loop Studio) </b>中作为可复用的执行单元被任意 loop 引用。
       </p>
-      <p style={{ color: 'var(--color-text-secondary)' }}>升级后典型用法:</p>
-      <ul style={{ color: 'var(--color-text-secondary)', paddingLeft: 20, marginTop: 4 }}>
-        <li>在 Loop Studio 新建 loop, 直接把此环节加入执行队列</li>
-        <li>被多个 loop 共享, 触发时顺序复用同一份 prompt 与配置</li>
-      </ul>
       <p style={{ color: 'var(--color-warning)', fontSize: 12, marginBottom: 0 }}>
-        提示: 此操作会保留 todo 的全部历史 (执行记录 / tag / 调度), 但
-        <b> 升级后此 todo 不再出现在「事项」过滤下</b>, 如需恢复可在「环节」列表降级。
+        提示: 原 todo <b>不受影响</b>, 仍保留在「事项」列表中, 可继续使用。
+        环节是独立实体, 创建后不能降级。
       </p>
     </>
   );

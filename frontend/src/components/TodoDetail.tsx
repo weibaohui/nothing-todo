@@ -9,7 +9,6 @@ import { parseLogsToMessages } from './ChatView';
 import { BREAKPOINTS, EXPORT } from '@/constants';
 import * as db from '@/utils/database';
 import { promoteTodoToStep } from '@/utils/database/steps';
-import { demoteTodoToItem } from '@/utils/database/steps';
 import { conversationToYaml } from '@/utils/markdown';
 import { getExecutorOption } from '@/types';
 import type { ExecutionRecord, LogEntry } from '@/types';
@@ -287,18 +286,7 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
     }
   }, [selectedTodo, dispatch, message]);
 
-  // 降级为事项
-  const handleDemoteToItem = useCallback(async () => {
-    if (!selectedTodo) return;
-    try {
-      await demoteTodoToItem(selectedTodo.id);
-      message.success(`「${selectedTodo.title}」已降级为事项`);
-      const todos = await db.getAllTodos();
-      dispatch({ type: 'SET_TODOS', payload: todos });
-    } catch {
-      // ignore
-    }
-  }, [selectedTodo, dispatch, message]);
+  // 降级已移除：环节是独立实体，不能降级
 
   const handleDelete = async () => {
     if (!selectedTodo) return;
@@ -377,7 +365,6 @@ export function TodoDetail({ onBack }: { onBack?: () => void }) {
         onExecute={handleExecute}
         onStatusChange={handleStatusChange}
         onPromoteToStep={handlePromoteToStep}
-        onDemoteToItem={handleDemoteToItem}
       />
 
       {/* Execution History */}

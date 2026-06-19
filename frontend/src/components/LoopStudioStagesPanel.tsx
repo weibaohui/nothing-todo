@@ -19,7 +19,7 @@ import {
 import * as dbLoops from '@/utils/database/loops';
 import * as dbSteps from '@/utils/database/steps';
 import type { LoopStageDto, CreateStageRequest } from '@/types/loop';
-import type { Todo } from '@/types';
+import type { StepSummary } from '@/types';
 
 interface StagesPanelProps {
   loopId: number;
@@ -34,7 +34,7 @@ export function LoopStagesPanel({ loopId, stages, onChanged }: StagesPanelProps)
   const [modalOpen, setModalOpen] = useState(false);
   const [editingStage, setEditingStage] = useState<LoopStageDto | null>(null);
   const [saving, setSaving] = useState(false);
-  const [candidates, setCandidates] = useState<Todo[]>([]);
+  const [candidates, setCandidates] = useState<StepSummary[]>([]);
   const [form] = Form.useForm<CreateStageRequest & { todo_title: string }>();
 
   // Hover 状态（显示删除按钮）
@@ -160,7 +160,7 @@ export function LoopStagesPanel({ loopId, stages, onChanged }: StagesPanelProps)
     }
   }, [dragIndex, stages, loopId, onChanged]);
 
-  // 选择 todo 后自动填充 name
+  // 选择 step 后自动填充 name
   const handleTodoChange = useCallback((todo_id: number) => {
     const selected = candidates.find(c => c.id === todo_id);
     if (selected) {

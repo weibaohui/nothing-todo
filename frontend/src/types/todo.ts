@@ -32,10 +32,18 @@ export interface Todo {
   kind?: 'item' | 'step';
 }
 
-/** 环节视图 — 在 Todo 基础上叠加"被多少个 loop 引用"复用度指标. */
-export interface StepSummary extends Todo {
-  /** 被多少个 loop stage 引用; 0 = 没有任何 loop 在用(孤儿环节). */
+/** 环节 — 从 todo 提升而来的独立实体，不再寄生在 Todo 上。 */
+export interface StepSummary {
+  id: number;
+  title: string;
+  prompt: string;
+  executor?: string;
+  acceptance_criteria?: string | null;
+  source_todo_id?: number;
+  /** 被多少个 loop stage 引用 */
   used_by_loop_stage_count: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Tag {

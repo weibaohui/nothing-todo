@@ -1,24 +1,23 @@
-// 环节（kind=step）相关 API 客户端。
+// 环节（steps 表）相关 API 客户端。
 //
-// 设计与 todo CRUD 共享底层（todos.kind 列），但语义独立：
+// 环节是独立实体，不再寄生在 todos 表上：
 // - GET /api/steps              列出环节 + 各自的 loop 引用计数
 // - GET /api/steps/candidates   loop 编辑器选环节用的精简候选
 // - GET /api/steps/:id          单个环节详情 + 引用计数
-// - POST /api/todos/:id/promote   事项 → 环节
-// - POST /api/todos/:id/demote    环节 → 事项（被 loop 引用时拒绝）
+// - POST /api/todos/:id/promote   事项 → 环节（复制到 steps 表，原 todo 保留）
 //
-// 后端位于 handlers/todo.rs，实现走 db/todo.rs 的 list_steps / promote_to_step 等。
+// 后端位于 handlers/todo.rs。
 
 import { api, unwrap } from './client';
-import type { StepSummary, Todo } from '@/types';
+import type { StepSummary } from '@/types';
 
-/** 列出所有环节 + 各自的 loop stage 引用计数（按 updated_at 倒序）。 */
+/** 列出所有环节 + 各自的 loop stage 引用计数。 */
 export async function listSteps(): Promise<StepSummary[]> {
   return unwrap(await api.get('/api/steps'));
 }
 
-/** loop 编辑器选环节用的精简候选列表（字段与 Todo 一致, 无 used_by 计数）。 */
-export async function listStepCandidates(): Promise<Todo[]> {
+/** loop 编辑器选环节用的精简候选列表。 */
+export async function listStepCandidates(): Promise<StepSummary[]> {
   return unwrap(await api.get('/api/steps/candidates'));
 }
 
@@ -27,12 +26,7 @@ export async function getStep(id: number): Promise<StepSummary> {
   return unwrap(await api.get(`/api/steps/${id}`));
 }
 
-/** 事项提升为环节。返回 void, 失败抛 ApiError。 */
-export async function promoteTodoToStep(id: number): Promise<void> {
-  await api.post(`/api/todos/${id}/promote`, {});
-}
-
-/** 环节降级为事项。被 loop_stages 引用时后端返回 400。 */
-export async function demoteTodoToItem(id: number): Promise<void> {
-  await api.post(`/api/todos/${id}/demote`, {});
+/** 事项提升为环节。复制数据到 steps 表，原 todo 保留。返回新建的 StepSummary。 */
+export async function promoteTodoToStep(id: number): Promise<StepSummary> {
+  return unwrap(await api.post(`/api/todos/${id}/promote`, {}));
 }

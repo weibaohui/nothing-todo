@@ -1,13 +1,9 @@
-// 环节管理页面（kind=step）。
+// 环节管理页面。
 //
-// 设计要点：
-// - 与 TodoList 共享底层数据（todos.kind 列），但语义独立：这里只看 kind=step 的子集。
-// - 复用 TodoCard 之类的渲染组件不可行（TodoList 用的是整列平铺，跟纪念板卡片不同），
-//   这里采用列表 + 操作按钮的紧凑布局，强调"被哪些 loop 引用"这一复用度指标。
-// - 内联新建环节：点击 "+ 新建环节" 弹出 modal，要求 title + prompt + executor，
-//   保存后立即出现在列表里。复用现有 createTodo 但后端默认 kind=item，
-//   所以保存成功后立刻调用 promote 接口把 kind 改为 'step'，避免双 round-trip 时的中间态问题。
-// - 降级：仅当 used_by_loop_stage_count === 0 时允许 demote，且要求二次确认。
+// 环节是独立实体，数据来自 steps 表。
+// - 列出所有环节 + 被哪些 loop 引用的复用度指标
+// - 内联新建环节：创建 todo 后 promote 到 steps 表（原 todo 保留）
+// - 不再支持降级：环节是独立实体，不能回退为事项
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
@@ -21,7 +17,6 @@ import {
   Select,
   Tooltip,
   App as AntApp,
-  Popconfirm,
 } from 'antd';
 import {
   LeftOutlined,
@@ -30,7 +25,6 @@ import {
   SearchOutlined,
   ThunderboltOutlined,
   ApartmentOutlined,
-  DeleteOutlined,
 } from '@ant-design/icons';
 import * as db from '@/utils/database';
 import * as dbSteps from '@/utils/database/steps';
@@ -139,19 +133,7 @@ export function StepList({ onBack }: StepListProps) {
     [form, message, reload],
   );
 
-  // 降级：先看是否被 loop 引用, 再走 demote 接口
-  const handleDemote = useCallback(
-    async (step: StepSummary) => {
-      try {
-        await dbSteps.demoteTodoToItem(step.id);
-        message.success(`「${step.title}」已降级为事项`);
-        reload();
-      } catch {
-        // axios 拦截器弹错
-      }
-    },
-    [message, reload],
-  );
+  // 降级已移除：环节是独立实体，不能降级
 
   return (
     <div className="step-list-page">
@@ -207,11 +189,7 @@ export function StepList({ onBack }: StepListProps) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {filtered.map(step => (
-              <StepCard
-                key={step.id}
-                step={step}
-                onDemote={handleDemote}
-              />
+              <StepCard key={step.id} step={step} />
             ))}
           </div>
         )}
@@ -267,14 +245,7 @@ export function StepList({ onBack }: StepListProps) {
 }
 
 // 单个环节卡片
-function StepCard({
-  step,
-  onDemote,
-}: {
-  step: StepSummary;
-  onDemote: (e: StepSummary) => void;
-}) {
-  const canDemote = step.used_by_loop_stage_count === 0;
+function StepCard({ step }: { step: StepSummary }) {
   return (
     <Card
       size="small"
@@ -311,27 +282,6 @@ function StepCard({
               <span style={{ marginLeft: 4, fontSize: 12 }}>{step.executor}</span>
             </Tooltip>
           )}
-          <Popconfirm
-            title="降级为事项"
-            description={
-              canDemote
-                ? '确定将此环节降级为事项?降级后不会被任何 loop 引用'
-                : '该环节正被 loop 引用,无法降级'
-            }
-            okButtonProps={{ disabled: !canDemote }}
-            onConfirm={() => onDemote(step)}
-          >
-            <Button
-              type="text"
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-              disabled={!canDemote}
-              aria-label="降级为事项"
-            >
-              降级为事项
-            </Button>
-          </Popconfirm>
         </div>
       }
     >

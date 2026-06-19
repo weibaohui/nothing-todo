@@ -15,6 +15,7 @@ pub mod loop_stages;
 pub mod loop_triggers;
 pub mod loops;
 pub mod project_directories;
+pub mod steps;
 pub mod sync_records;
 pub mod tags;
 pub mod todo_tags;
