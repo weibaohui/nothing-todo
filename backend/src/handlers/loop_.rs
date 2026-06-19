@@ -261,7 +261,7 @@ pub async fn delete_trigger(
     Ok(ApiResponse::ok(()))
 }
 
-// ====== Stages ======
+// ====== Steps ======
 
 pub async fn list_loop_steps(
     State(state): State<AppState>,

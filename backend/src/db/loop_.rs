@@ -267,7 +267,7 @@ impl Database {
         Ok(())
     }
 
-    // ====== Loop Stages ======
+    // ====== Loop Steps ======
 
     pub async fn list_loop_steps_by_loop(
         &self,
@@ -500,7 +500,7 @@ impl Database {
         Ok(())
     }
 
-    // ====== Loop Stage Executions ======
+    // ====== Loop Step Executions ======
 
     pub async fn create_loop_step_execution(
         &self,
