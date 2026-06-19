@@ -73,8 +73,8 @@ pub const ALL_MIGRATIONS: &[Migration] = &[
         version: 3,
         name: "todo_kind",
         description:
-            "区分事项 vs 环节: todos 加 kind 列 ('item'|'expert'), 默认 'item'; \
-             回填 loop_stages 引用的 todo 为 'expert'。这是底层抽象, 不破坏现有数据。",
+            "区分事项 vs 环节: todos 加 kind 列 ('item'|'step'), 默认 'item'; \
+             回填 loop_stages 引用的 todo 为 'step'。这是底层抽象, 不破坏现有数据。",
         statements: TODO_KIND_STATEMENTS,
     },
 ];
@@ -689,17 +689,17 @@ const LOOP_STUDIO_STATEMENTS: &[&str] = &[
 /// 设计动机：
 /// - 一次性 todo 是「事项」，循环复用的 todo 是「环节（Agent）」；
 /// - 环路编排应当只引用环节，不应误选一次性事项；
-/// - 同一张 todos 表承载两种语义，靠 `kind` 列区分，避免新建 experts 表的迁移成本；
-/// - `expert` 与 `item` 在存储层完全等价（prompt/executor/tag_ids 都共用），只是用法不同。
+/// - 同一张 todos 表承载两种语义，靠 `kind` 列区分，避免新建 steps 表的迁移成本；
+/// - `step` 与 `item` 在存储层完全等价（prompt/executor/tag_ids 都共用），只是用法不同。
 ///
 /// 升级策略：
 /// - 加列：`ALTER TABLE todos ADD COLUMN kind TEXT NOT NULL DEFAULT 'item'`
-/// - 回填：把当前已经被 loop_stages 引用的 todo 标记为 'expert'，
+/// - 回填：把当前已经被 loop_stages 引用的 todo 标记为 'step'，
 ///   未被引用的保持默认 'item'；
 /// - 加索引：`(kind)` 用于环节/事项过滤查询。
 const TODO_KIND_STATEMENTS: &[&str] = &[
     "ALTER TABLE todos ADD COLUMN kind TEXT NOT NULL DEFAULT 'item'",
-    "UPDATE todos SET kind = 'expert' WHERE id IN (SELECT DISTINCT todo_id FROM loop_stages)",
+    "UPDATE todos SET kind = 'step' WHERE id IN (SELECT DISTINCT todo_id FROM loop_stages)",
     "CREATE INDEX IF NOT EXISTS idx_todos_kind ON todos(kind)",
 ];
 

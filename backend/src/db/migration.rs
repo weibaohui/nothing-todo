@@ -1688,19 +1688,19 @@ async fn v5_project_directory_worktree(db: &Database) -> Result<(), sea_orm::DbE
 // ---------------------------------------------------------------------------
 
 /// v6 迁移：为 todos 表增加 `kind` 列, 区分一次性事项('item')和
-/// 可被 loop 编排复用的环节('expert')。
+/// 可被 loop 编排复用的环节('step')。
 ///
 /// 设计动机：
 /// - 一次性 todo 是「事项」，循环复用的 todo 是「环节（Agent）」；
 /// - 环路编排的节点只应引用环节，引用一次性事项会污染"循环复用"语义；
-/// - 同一张 todos 表承载两种语义, 靠 `kind` 列区分; 避免新建 experts 表的
+/// - 同一张 todos 表承载两种语义, 靠 `kind` 列区分; 避免新建 steps 表的
 ///   schema 迁移 + 跨表 JOIN 成本。
 ///
 /// 升级策略：
 /// - 新库: v1 的 CREATE TABLE 已经包含 `kind` 列, v6 ALTER 在 v1 之后跑会
 ///   触发 "duplicate column name", 与历史 add_legacy_*_columns 同样的 warn-skip 模式;
 /// - 旧库: ALTER TABLE 加列, 默认 'item'; 把被 loop_stages 引用的 todo
-///   标记为 'expert', 避免环路失效;
+///   标记为 'step', 避免环路失效;
 /// - 加 `(kind)` 索引支持按 kind 过滤。
 pub(super) struct V6TodoKind;
 
@@ -1721,13 +1721,13 @@ impl Migration for V6TodoKind {
 async fn v6_todo_kind(db: &Database) -> Result<(), sea_orm::DbErr> {
     // 1) 加列, 旧库上没有 kind 列时生效; 新库已由 v1 CREATE TABLE 包含, 静默跳过
     add_column_warn(db, "ALTER TABLE todos ADD COLUMN kind TEXT NOT NULL DEFAULT 'item'").await;
-    // 2) 回填: 被 loop_stages 引用的 todo 升级为 expert
+    // 2) 回填: 被 loop_stages 引用的 todo 升级为 step
     // loop_stages 表不一定存在 (旧库, 或 fresh 跑 v1 没建), 探测一下避免 UPDATE 失败
     if table_has_column(db, "todos", "kind").await?
         && table_exists(db, "loop_stages").await?
     {
         db.exec(
-            "UPDATE todos SET kind = 'expert' \
+            "UPDATE todos SET kind = 'step' \
              WHERE id IN (SELECT DISTINCT todo_id FROM loop_stages)",
         )
         .await?;
