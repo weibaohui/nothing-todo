@@ -1,12 +1,15 @@
 // 环节详情面板 + 编辑功能。
+// 编辑交互与 TodoDrawer 一致：Drawer 右侧滑出，字段布局对齐 todo 编辑页。
 
 import { useEffect, useState, useCallback } from 'react';
 import {
-  Skeleton, Empty, Tag, Descriptions, Button, Modal, Form, Input, Select, App as AntApp,
+  Skeleton, Empty, Tag, Descriptions, Button, Drawer, Input, Divider, App as AntApp,
 } from 'antd';
 import { ApartmentOutlined, ThunderboltOutlined, EditOutlined } from '@ant-design/icons';
+import { ExecutorPicker } from './todo-drawer/ExecutorPicker';
 import * as dbSteps from '@/utils/database/steps';
 import type { StepSummary } from '@/types';
+import { EXECUTORS } from '@/types';
 import { formatRelativeTime } from '@/utils/datetime';
 
 interface StepDetailPanelProps {
@@ -19,7 +22,12 @@ export function StepDetailPanel({ stepId }: StepDetailPanelProps) {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form] = Form.useForm<{ title: string; prompt: string; executor?: string; acceptance_criteria?: string }>();
+
+  // 编辑表单状态（与 TodoDrawer 对齐）
+  const [editTitle, setEditTitle] = useState('');
+  const [editPrompt, setEditPrompt] = useState('');
+  const [editExecutor, setEditExecutor] = useState('');
+  const [editAcceptanceCriteria, setEditAcceptanceCriteria] = useState('');
 
   const loadStep = useCallback(() => {
     setLoading(true);
@@ -33,24 +41,22 @@ export function StepDetailPanel({ stepId }: StepDetailPanelProps) {
 
   const handleOpenEdit = useCallback(() => {
     if (!step) return;
-    form.setFieldsValue({
-      title: step.title,
-      prompt: step.prompt,
-      executor: step.executor || undefined,
-      acceptance_criteria: step.acceptance_criteria || undefined,
-    });
+    setEditTitle(step.title);
+    setEditPrompt(step.prompt);
+    setEditExecutor(step.executor || '');
+    setEditAcceptanceCriteria(step.acceptance_criteria || '');
     setEditing(true);
-  }, [step, form]);
+  }, [step]);
 
   const handleSave = useCallback(async () => {
-    const values = await form.validateFields();
+    if (!editTitle.trim()) { message.error('标题不能为空'); return; }
     setSaving(true);
     try {
       const updated = await dbSteps.updateStep(stepId, {
-        title: values.title.trim(),
-        prompt: values.prompt ?? '',
-        executor: values.executor ?? null,
-        acceptance_criteria: values.acceptance_criteria ?? null,
+        title: editTitle.trim(),
+        prompt: editPrompt,
+        executor: editExecutor || null,
+        acceptance_criteria: editAcceptanceCriteria || null,
       });
       setStep(updated);
       message.success('环节已更新');
@@ -60,7 +66,7 @@ export function StepDetailPanel({ stepId }: StepDetailPanelProps) {
     } finally {
       setSaving(false);
     }
-  }, [form, stepId, message]);
+  }, [editTitle, editPrompt, editExecutor, editAcceptanceCriteria, stepId, message]);
 
   if (loading) {
     return <Skeleton active style={{ padding: 24 }} />;
@@ -70,53 +76,18 @@ export function StepDetailPanel({ stepId }: StepDetailPanelProps) {
   }
 
   return (
-    <div style={{ padding: '20px 24px' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-        <h2 style={{ margin: 0, fontSize: 18, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-text, #0f172a)' }}>
-          {step.title}
-        </h2>
-        <span style={{ color: 'var(--color-text-tertiary, #94a3b8)', fontSize: 12, fontFamily: 'monospace' }}>#{step.id}</span>
-        <Button size="small" icon={<EditOutlined />} onClick={handleOpenEdit}>编辑</Button>
-      </div>
+    <>
+      <div style={{ padding: '20px 24px' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+          <h2 style={{ margin: 0, fontSize: 18, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-text, #0f172a)' }}>
+            {step.title}
+          </h2>
+          <span style={{ color: 'var(--color-text-tertiary, #94a3b8)', fontSize: 12, fontFamily: 'monospace' }}>#{step.id}</span>
+          <Button size="small" icon={<EditOutlined />} onClick={handleOpenEdit}>编辑</Button>
+        </div>
 
-      {/* 基本信息 */}
-      <section style={{
-        background: 'var(--color-bg-elevated, #ffffff)',
-        border: '1px solid var(--color-border, #e2e8f0)',
-        borderRadius: 8,
-        padding: 16,
-        marginBottom: 12,
-      }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text, #0f172a)', marginBottom: 12 }}>基本信息</div>
-        <Descriptions column={2} size="small" bordered={false}>
-          <Descriptions.Item label="执行器">
-            {step.executor ? (
-              <span><ThunderboltOutlined style={{ color: '#fa8c16', marginRight: 4 }} />{step.executor}</span>
-            ) : (
-              <span style={{ color: 'var(--color-text-tertiary, #94a3b8)' }}>未指派</span>
-            )}
-          </Descriptions.Item>
-          <Descriptions.Item label="复用次数">
-            <Tag icon={<ApartmentOutlined />} color={step.used_by_loop_stage_count > 0 ? 'purple' : 'default'}>
-              {step.used_by_loop_stage_count}
-            </Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="来源事项">
-            {step.source_todo_id ? (
-              <span>#<code>{step.source_todo_id}</code></span>
-            ) : (
-              <span style={{ color: 'var(--color-text-tertiary, #94a3b8)' }}>—</span>
-            )}
-          </Descriptions.Item>
-          <Descriptions.Item label="更新于">
-            {step.updated_at ? formatRelativeTime(step.updated_at) : '—'}
-          </Descriptions.Item>
-        </Descriptions>
-      </section>
-
-      {/* 验收标准 */}
-      {step.acceptance_criteria && (
+        {/* 基本信息 */}
         <section style={{
           background: 'var(--color-bg-elevated, #ffffff)',
           border: '1px solid var(--color-border, #e2e8f0)',
@@ -124,74 +95,131 @@ export function StepDetailPanel({ stepId }: StepDetailPanelProps) {
           padding: 16,
           marginBottom: 12,
         }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text, #0f172a)', marginBottom: 8 }}>验收标准</div>
-          <div style={{ fontSize: 13, color: 'var(--color-text-secondary, #475569)', whiteSpace: 'pre-wrap' }}>
-            {step.acceptance_criteria}
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text, #0f172a)', marginBottom: 12 }}>基本信息</div>
+          <Descriptions column={2} size="small" bordered={false}>
+            <Descriptions.Item label="执行器">
+              {step.executor ? (
+                <span><ThunderboltOutlined style={{ color: '#fa8c16', marginRight: 4 }} />{step.executor}</span>
+              ) : (
+                <span style={{ color: 'var(--color-text-tertiary, #94a3b8)' }}>未指派</span>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="复用次数">
+              <Tag icon={<ApartmentOutlined />} color={step.used_by_loop_stage_count > 0 ? 'purple' : 'default'}>
+                {step.used_by_loop_stage_count}
+              </Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="来源事项">
+              {step.source_todo_id ? (
+                <span>#<code>{step.source_todo_id}</code></span>
+              ) : (
+                <span style={{ color: 'var(--color-text-tertiary, #94a3b8)' }}>—</span>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="更新于">
+              {step.updated_at ? formatRelativeTime(step.updated_at) : '—'}
+            </Descriptions.Item>
+          </Descriptions>
+        </section>
+
+        {/* 验收标准 */}
+        {step.acceptance_criteria && (
+          <section style={{
+            background: 'var(--color-bg-elevated, #ffffff)',
+            border: '1px solid var(--color-border, #e2e8f0)',
+            borderRadius: 8,
+            padding: 16,
+            marginBottom: 12,
+          }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text, #0f172a)', marginBottom: 8 }}>验收标准</div>
+            <div style={{ fontSize: 13, color: 'var(--color-text-secondary, #475569)', whiteSpace: 'pre-wrap' }}>
+              {step.acceptance_criteria}
+            </div>
+          </section>
+        )}
+
+        {/* Prompt */}
+        <section style={{
+          background: 'var(--color-bg-elevated, #ffffff)',
+          border: '1px solid var(--color-border, #e2e8f0)',
+          borderRadius: 8,
+          padding: 16,
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text, #0f172a)', marginBottom: 8 }}>提示词 (Prompt)</div>
+          <div style={{
+            fontSize: 13, color: 'var(--color-text-secondary, #475569)',
+            background: 'var(--color-bg-secondary, #f8fafc)',
+            padding: 12, borderRadius: 6, whiteSpace: 'pre-wrap',
+            lineHeight: 1.6,
+          }}>
+            {step.prompt || <span style={{ color: 'var(--color-text-tertiary, #94a3b8)' }}>无提示词</span>}
           </div>
         </section>
-      )}
+      </div>
 
-      {/* Prompt */}
-      <section style={{
-        background: 'var(--color-bg-elevated, #ffffff)',
-        border: '1px solid var(--color-border, #e2e8f0)',
-        borderRadius: 8,
-        padding: 16,
-      }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text, #0f172a)', marginBottom: 8 }}>提示词 (Prompt)</div>
-        <div style={{
-          fontSize: 13, color: 'var(--color-text-secondary, #475569)',
-          background: 'var(--color-bg-secondary, #f8fafc)',
-          padding: 12, borderRadius: 6, whiteSpace: 'pre-wrap',
-          lineHeight: 1.6,
-        }}>
-          {step.prompt || <span style={{ color: 'var(--color-text-tertiary, #94a3b8)' }}>无提示词</span>}
-        </div>
-      </section>
-
-      {/* 编辑 Modal */}
-      <Modal
+      {/* 编辑 Drawer — 与 TodoDrawer 对齐的样式和交互 */}
+      <Drawer
         title="编辑环节"
         open={editing}
-        onCancel={() => setEditing(false)}
-        onOk={handleSave}
-        okText="保存"
-        cancelText="取消"
-        confirmLoading={saving}
-        width={560}
+        onClose={() => setEditing(false)}
+        width={600}
+        placement="right"
         destroyOnClose
+        styles={{ body: { padding: 0 } }}
+        extra={
+          <Button type="primary" loading={saving} onClick={handleSave}>
+            保存
+          </Button>
+        }
       >
-        <Form form={form} layout="vertical">
-          <Form.Item label="名称" name="title" rules={[{ required: true, message: '名称必填' }]}>
-            <Input maxLength={100} />
-          </Form.Item>
-          <Form.Item label="执行器" name="executor">
-            <Select
-              allowClear
-              placeholder="选择执行器"
-              options={[
-                { label: 'claudecode', value: 'claudecode' },
-                { label: 'codebuddy', value: 'codebuddy' },
-                { label: 'opencode', value: 'opencode' },
-                { label: 'atomcode', value: 'atomcode' },
-                { label: 'hermes', value: 'hermes' },
-                { label: 'kimi', value: 'kimi' },
-                { label: 'codex', value: 'codex' },
-                { label: 'codewhale', value: 'codewhale' },
-                { label: 'pi', value: 'pi' },
-                { label: 'mimo', value: 'mimo' },
-                { label: 'zhanlu', value: 'zhanlu' },
-              ]}
+        {/* 标题 */}
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border-light)' }}>
+          <Input
+            value={editTitle}
+            onChange={e => setEditTitle(e.target.value)}
+            placeholder="环节标题"
+            style={{ fontSize: 16, fontWeight: 600, padding: '8px 12px' }}
+          />
+        </div>
+
+        {/* 滚动内容 */}
+        <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
+          {/* 执行器 */}
+          <ExecutorPicker
+            executor={editExecutor}
+            executorOptions={EXECUTORS}
+            onChange={setEditExecutor}
+          />
+
+          <Divider style={{ margin: '8px 0 16px' }} />
+
+          {/* Prompt */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 8, fontWeight: 600, fontSize: 14 }}>提示词 (Prompt)</div>
+            <Input.TextArea
+              value={editPrompt}
+              onChange={e => setEditPrompt(e.target.value)}
+              placeholder="描述这个环节能做什么..."
+              rows={8}
+              style={{ resize: 'vertical' }}
             />
-          </Form.Item>
-          <Form.Item label="提示词 (Prompt)" name="prompt" tooltip="描述这个环节能做什么">
-            <Input.TextArea rows={6} maxLength={4000} placeholder="提示词内容" />
-          </Form.Item>
-          <Form.Item label="验收标准" name="acceptance_criteria" tooltip="判断执行结果是否满足预期的标准">
-            <Input.TextArea rows={3} maxLength={2000} placeholder="验收标准（可选）" />
-          </Form.Item>
-        </Form>
-      </Modal>
-    </div>
+          </div>
+
+          <Divider style={{ margin: '8px 0 16px' }} />
+
+          {/* 验收标准 */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 8, fontWeight: 600, fontSize: 14 }}>验收标准</div>
+            <Input.TextArea
+              value={editAcceptanceCriteria}
+              onChange={e => setEditAcceptanceCriteria(e.target.value)}
+              placeholder="描述完成该环节需要满足的条件..."
+              rows={3}
+              style={{ resize: 'vertical' }}
+            />
+          </div>
+        </div>
+      </Drawer>
+    </>
   );
 }
