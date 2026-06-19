@@ -57,7 +57,7 @@ function StepInfoSection({ step }: { step: StepSummary }) {
 
 // 通用文本展示区段：用于 Prompt 和验收标准的展示，
 // 接受标题和内容，统一处理空值显示，减少重复代码
-function TextDisplaySection({ title, content }: { title: string; content: string | null }) {
+function TextDisplaySection({ title, content }: { title: string; content: string | null | undefined }) {
   return (
     <section style={sectionStyle}>
       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text, #0f172a)', marginBottom: 8 }}>{title}</div>
