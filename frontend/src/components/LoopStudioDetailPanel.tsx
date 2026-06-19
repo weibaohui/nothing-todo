@@ -5,7 +5,7 @@
 // - 基本信息: 启用 Switch + 工作空间
 // - 执行环节: 横向卡片列表（按顺序执行）, 最重要放在最前
 // - 触发条件: 默认折叠, 仅展示已启用/共多少摘要
-// - 钩子 / 执行历史: 折叠区, 默认收起 (不常用)
+// - 执行历史: 折叠区, 默认收起 (不常用)
 //
 // (对齐 LoopDto 的可编辑字段)。
 
@@ -25,7 +25,6 @@ import * as db from '@/utils/database';
 import type { LoopDetail, UpdateLoopRequest } from '@/types/loop';
 import { LoopTriggersPanel, TRIGGER_META } from './LoopStudioTriggersPanel';
 import { LoopStagesPanel } from './LoopStudioStagesPanel';
-import { LoopHooksPanel } from './LoopStudioHooksPanel';
 import { LoopExecutionsPanel } from './LoopStudioExecutionsPanel';
 
 interface LoopDetailPanelProps {
@@ -158,7 +157,7 @@ export function LoopDetailPanel({
           <Button size="small" icon={<EditOutlined />} onClick={handleOpenEdit}>编辑</Button>
           <Popconfirm
             title="删除 loop"
-            description="将级联删除 triggers/stages/hooks,无法恢复"
+            description="将级联删除 triggers/stages,无法恢复"
             okType="danger"
             onConfirm={onDelete}
           >
@@ -178,10 +177,10 @@ export function LoopDetailPanel({
             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Switch
                 checked={detail.status === 'enabled'}
-                onChange={(checked) => {
-                  if (checked !== (detail.status === 'enabled')) {
-                    onToggleStatus();
-                  }
+                onChange={() => {
+                  onToggleStatus();
+                  // 切换后立即刷新详情, 让 Switch 和状态文字同步更新
+                  setTimeout(() => { reload(); onChanged(); }, 100);
                 }}
               />
               <span style={{
@@ -250,24 +249,11 @@ export function LoopDetailPanel({
         />
       </div>
 
-      {/* 折叠区: 钩子 + 执行历史, 默认收起 (不常用, 避免首屏信息过载) */}
+      {/* 折叠区: 执行历史, 默认收起 */}
       <Collapse
         ghost
         style={{ marginTop: 8 }}
         items={[
-          {
-            key: 'hooks',
-            label: <span style={{ fontSize: 14, fontWeight: 600 }}>钩子 ({detail.hooks.length})</span>,
-            children: (
-              <LoopHooksPanel
-                loopId={loopId}
-                hooks={detail.hooks}
-                stages={detail.stages}
-                todoMap={detail.todo_map}
-                onChanged={() => { reload(); onChanged(); }}
-              />
-            ),
-          },
           {
             key: 'executions',
             label: <span style={{ fontSize: 14, fontWeight: 600 }}>执行历史</span>,
