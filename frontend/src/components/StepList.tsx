@@ -13,6 +13,12 @@ import * as dbSteps from '@/utils/database/steps';
 import { formatRelativeTime } from '@/utils/datetime';
 import { StepDetailPanel } from './StepDetailPanel';
 import type { StepSummary, Todo } from '@/types';
+import { EXECUTORS } from '@/types';
+
+// 执行器选项：直接从全局 EXECUTORS 常量派生，避免重复维护
+const executorOptions = EXECUTORS
+  .filter(e => e.value !== 'agents') // agents 不是可选执行器
+  .map(e => ({ label: e.label, value: e.value }));
 
 interface StepListProps {
   onBack?: () => void;
@@ -34,7 +40,7 @@ export function StepList({ onBack }: StepListProps) {
   const [creating, setCreating] = useState(false);
   // 当前选中的环节 id（右侧展示详情）
   const [selectedStepId, setSelectedStepId] = useState<number | null>(null);
-  const [executorOptions, setExecutorOptions] = useState<{ label: string; value: string }[]>([]);
+
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -50,21 +56,7 @@ export function StepList({ onBack }: StepListProps) {
 
   useEffect(() => { reload(); }, [reload]);
 
-  useEffect(() => {
-    setExecutorOptions([
-      { label: 'claudecode', value: 'claudecode' },
-      { label: 'codebuddy', value: 'codebuddy' },
-      { label: 'opencode', value: 'opencode' },
-      { label: 'atomcode', value: 'atomcode' },
-      { label: 'hermes', value: 'hermes' },
-      { label: 'kimi', value: 'kimi' },
-      { label: 'codex', value: 'codex' },
-      { label: 'codewhale', value: 'codewhale' },
-      { label: 'pi', value: 'pi' },
-      { label: 'mimo', value: 'mimo' },
-      { label: 'zhanlu', value: 'zhanlu' },
-    ]);
-  }, []);
+
 
   // 默认选中第一个（如果有）
   useEffect(() => {

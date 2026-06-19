@@ -16,7 +16,7 @@ import { ExecutionPanel } from './components/ExecutionPanel';
 import { TodoDrawer } from './components/TodoDrawer';
 import { SmartCreateModal } from './components/SmartCreateModal';
 import { StepList } from './components/StepList';
-import { StepDetailPanel } from './components/StepDetailPanel';
+import { StepDetailPanel } from '@/components/StepDetailPanel';
 import { LoopDetailPanel } from './components/LoopStudioDetailPanel';
 import * as dbLoops from './utils/database/loops';
 import { EXECUTION_PANEL, SIDEBAR_WIDTH } from './constants';
@@ -82,15 +82,18 @@ function AppContent() {
       const todoId = params.get('todo');
       const loopId = params.get('loop');
       if (todoId) {
-        // useViewState handles todo selection; just clear loop
+        // useViewState handles todo selection; just clear loop and step
         setSelectedLoopId(null);
+        setSelectedStepId(null);
       } else if (loopId) {
         setSelectedLoopId(Number(loopId));
+        setSelectedStepId(null); // 清除旧的 Step 面板
         setSelectedPanel('detail');
         dispatch({ type: 'SELECT_TODO', payload: null });
         clearSelection();
       } else {
         setSelectedLoopId(null);
+        setSelectedStepId(null); // 清除旧的 Step 面板
       }
     };
     window.addEventListener('popstate', onPopState);
@@ -99,8 +102,9 @@ function AppContent() {
 
   const handleSelectTodo = (todoId: string | number | null) => {
     if (todoId != null) {
-      // 选中 todo 时清除 loop 选择，避免右侧面板显示冲突
+      // 选中 todo 时清除 loop 和 step 选择，避免右侧面板显示冲突
       setSelectedLoopId(null);
+      setSelectedStepId(null);
       dispatch({ type: 'SELECT_TODO', payload: Number(todoId) });
       selectTodo(Number(todoId));
     }
@@ -280,20 +284,29 @@ function AppContent() {
                     try {
                       const res = await dbLoops.triggerLoop(selectedLoopId);
                       message.success(`已触发 (execution #${res.execution_id})`);
-                    } catch { /* ignore */ }
+                    } catch (err) {
+                      // 触发失败时给用户反馈，避免静默吞掉错误
+                      message.error(`触发失败: ${err instanceof Error ? err.message : '未知错误'}`);
+                    }
                   }}
                   onDuplicate={async () => {
                     try {
                       await dbLoops.duplicateLoop(selectedLoopId);
                       message.success('已复制');
-                    } catch { /* ignore */ }
+                    } catch (err) {
+                      // 复制失败时给用户反馈，避免静默吞掉错误
+                      message.error(`复制失败: ${err instanceof Error ? err.message : '未知错误'}`);
+                    }
                   }}
                   onDelete={async () => {
                     try {
                       await dbLoops.deleteLoop(selectedLoopId);
                       message.success('已删除');
                       setSelectedLoopId(null);
-                    } catch { /* ignore */ }
+                    } catch (err) {
+                      // 删除失败时给用户反馈，避免静默吞掉错误
+                      message.error(`删除失败: ${err instanceof Error ? err.message : '未知错误'}`);
+                    }
                   }}
                   onToggleStatus={async () => {
                     try {
@@ -303,7 +316,10 @@ function AppContent() {
                       const next = loop.status === 'enabled' ? 'paused' : 'enabled';
                       await dbLoops.updateLoopStatus(selectedLoopId, { status: next } as any);
                       message.success(`已${next === 'enabled' ? '启用' : '暂停'}`);
-                    } catch { /* ignore */ }
+                    } catch (err) {
+                      // 状态切换失败时给用户反馈，避免静默吞掉错误
+                      message.error(`状态切换失败: ${err instanceof Error ? err.message : '未知错误'}`);
+                    }
                   }}
                   onChanged={() => {
                     // detail 变更后，如果左侧有 LoopStudio 也通知刷新

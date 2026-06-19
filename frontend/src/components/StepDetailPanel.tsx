@@ -6,10 +6,10 @@ import {
   Skeleton, Empty, Tag, Descriptions, Button, Drawer, Input, Divider, ColorPicker, App as AntApp,
 } from 'antd';
 import { ApartmentOutlined, ThunderboltOutlined, EditOutlined } from '@ant-design/icons';
-import { ExecutorPicker } from './todo-drawer/ExecutorPicker';
-import { PromptEditor } from './todo-drawer/PromptEditor';
-import { SkillSelector } from './todo-drawer/SkillSelector';
-import { TemplateModal } from './todo-drawer/TemplateModal';
+import { ExecutorPicker } from '@/components/todo-drawer/ExecutorPicker';
+import { PromptEditor } from '@/components/todo-drawer/PromptEditor';
+import { SkillSelector } from '@/components/todo-drawer/SkillSelector';
+import { TemplateModal } from '@/components/todo-drawer/TemplateModal';
 import * as dbSteps from '@/utils/database/steps';
 import * as db from '@/utils/database';
 import type { StepSummary, SkillMeta, ExecutorSkills, TodoTemplate } from '@/types';
