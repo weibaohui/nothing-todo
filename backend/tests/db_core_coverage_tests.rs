@@ -19,6 +19,8 @@
 
 use ntd::config::ExecutorPaths;
 use ntd::db::Database;
+use ntd::db::entity::tags;
+use sea_orm::{ActiveValue, EntityTrait};
 use std::collections::HashMap;
 
 // 共用的内存数据库初始化函数：与 db/mod.rs 内置测试保持一致。
@@ -97,9 +99,18 @@ mod tag_tests {
     #[tokio::test]
     async fn test_get_tag_backups_handles_null_color() {
         let db = setup_db().await;
-        // 直接插入一行 color=NULL 的 tag,模拟历史脏数据。
-        let id = db.create_tag("legacy", "").await.unwrap();
-        assert!(id > 0);
+        // 直插一行 color=NULL 的 tag,模拟历史脏数据：
+        // create_tag 永远会包成 Some(...),所以这里走 entity 层用 ActiveValue::Set(None)
+        // 才能真正覆盖 get_tag_backups 的 unwrap_or_default 分支。
+        // 注意列有 DEFAULT '#1890ff',用 ActiveValue::NotSet 会被默认值填上而不是 NULL。
+        tags::Entity::insert(tags::ActiveModel {
+            name: ActiveValue::Set("legacy".to_string()),
+            color: ActiveValue::Set(None),
+            ..Default::default()
+        })
+        .exec(db.conn())
+        .await
+        .unwrap();
 
         let backups = db.get_tag_backups().await.unwrap();
         assert_eq!(backups.len(), 1);

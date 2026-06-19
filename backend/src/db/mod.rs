@@ -57,6 +57,14 @@ pub struct Database {
 }
 
 impl Database {
+    /// 暴露内部连接，仅供集成测试绕过 create_tag / create_todo 等包装函数直接构造边界数据（如 NULL color）使用。
+    /// 生产代码不应该调用 —— 业务逻辑统一走 db 下的领域方法。
+    pub fn conn(&self) -> &DatabaseConnection {
+        &self.conn
+    }
+}
+
+impl Database {
     /// Open database connection (async).
     /// path: database file path or ":memory:".
     pub async fn new(path: &str) -> Result<Self, sea_orm::DbErr> {

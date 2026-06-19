@@ -193,6 +193,8 @@ mod claude_code_executor_tests {
         let args = executor.command_args_with_session("continue", Some("session123"), false);
         assert!(!args.contains(&"--session-id".to_string()));
         assert!(!args.contains(&"--resume".to_string()));
+        // 旧 session 值本身也不能漏到 args 里 —— 防止后续回读时把 stale id 误当成新会话。
+        assert!(!args.contains(&"session123".to_string()));
         assert!(args.contains(&"continue".to_string()), "原始 message 必须出现在 args 里");
     }
 
