@@ -20,9 +20,11 @@ interface StepDetailPanelProps {
   stepId: number;
   // 保存成功后通知父组件刷新列表，保持左右栏数据同步
   onStepUpdated?: () => void;
+  // 删除环节后通知父组件清除选中状态，防止 UI 仍显示已删除环节的详情面板
+  onStepDeleted?: () => void;
 }
 
-export function StepDetailPanel({ stepId, onStepUpdated }: StepDetailPanelProps) {
+export function StepDetailPanel({ stepId, onStepUpdated, onStepDeleted }: StepDetailPanelProps) {
   const { message } = AntApp.useApp();
   const [step, setStep] = useState<StepSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,11 +100,13 @@ export function StepDetailPanel({ stepId, onStepUpdated }: StepDetailPanelProps)
     try {
       await dbSteps.deleteStep(step.id);
       message.success('环节已删除');
+      // 先通知父组件清除选中状态，再刷新列表，避免 UI 仍显示已删除环节
+      onStepDeleted?.();
       onStepUpdated?.();
     } catch {
       message.error('删除失败，环节可能正在被 loop 引用');
     }
-  }, [step, message, onStepUpdated]);
+  }, [step, message, onStepUpdated, onStepDeleted]);
 
   // 光标插入文本
   const insertTextAtCursor = useCallback((text: string) => {

@@ -205,7 +205,7 @@ export function StepList({ onBack }: StepListProps) {
       {/* 右栏：环节详情 */}
       <div style={{ flex: 1, overflow: 'auto' }}>
         {selectedStepId !== null ? (
-          <StepDetailPanel stepId={selectedStepId} onStepUpdated={reload} />
+          <StepDetailPanel stepId={selectedStepId} onStepUpdated={reload} onStepDeleted={() => setSelectedStepId(null)} />
         ) : (
           <Empty description="请选择一个环节" style={{ marginTop: 64 }} />
         )}

@@ -261,7 +261,7 @@ function AppContent() {
                     </button>
                   </div>
                 )}
-                <StepDetailPanel stepId={selectedStepId} onStepUpdated={() => setStepUpdateCount(c => c + 1)} />
+                <StepDetailPanel stepId={selectedStepId} onStepUpdated={() => setStepUpdateCount(c => c + 1)} onStepDeleted={() => setSelectedStepId(null)} />
               </div>
             ) : selectedLoopId !== null ? (
               // 从左侧环路列表选中某个 loop，右侧展示 LoopDetailPanel；
