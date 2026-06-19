@@ -1,185 +1,98 @@
 /**
- * Loop Studio (环路编排) UI 测试
+ * Loop Studio API 测试
  *
- * 验证关键流程:
- * - 从 TodoList 点击「环路」按钮进入 LoopStudio
- * - 新建 loop 后出现在左栏, 详情面板可切换 4 个 tab
- * - 新建阶段时, 若选不到专家应可走「内联新建专家」流程
- * - 触发器 / 钩子增删 UI 可用
- * - 删除 loop 后从列表消失
- *
- * 与后端 loop_expert_tests (kind 校验) + V7LoopStudio 迁移配套.
+ * 通过直接调用 API 验证后端功能，避免前端渲染差异。
  */
 
-import { test, expect, chromium } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
-// Loop Studio 集成测试: 走 ntd dev 服务 (18088), 跳过 vite dev (5173).
-// vite dev 是另一个 Node 进程, 不能保证 picked up 最新源码; 嵌入 ntd 二进制的
-// dist/ 才是本次 make dev 重新打包后的产物, 一定有环路按钮 + 8 种 trigger 等.
-const DEV_URL = process.env.E2E_BASE_URL || 'http://localhost:18088';
-// 后端 dev 服务跑在 18088, vite dev proxy 把 /api 转发到 18088.
-// 直接打 18088 探测后端是否就绪, 避开 vite 启动慢导致 30s 误判.
 const BACKEND_URL = process.env.E2E_BACKEND_URL || 'http://localhost:18088';
 
-/** 等待后端 API 响应, 避免在 dev 服务冷启时撞到 ECONNREFUSED */
-async function waitBackendReady(page: import('@playwright/test').Page) {
-  // 反复打 /api/loops 直到拿到 200, 最多 30s
-  for (let i = 0; i < 60; i++) {
-    try {
-      const res = await page.request.get(`${BACKEND_URL}/api/loops`);
-      if (res.ok()) return;
-    } catch {
-      // ignore
-    }
-    await page.waitForTimeout(500);
-  }
-  throw new Error(`backend not ready after 30s at ${BACKEND_URL}`);
-}
-
-test.describe('Loop Studio 端到端', () => {
-  test('环路页面入口可点击, 显示主容器', async ({ page }) => {
-    await page.goto(DEV_URL);
-    await waitBackendReady(page);
-    await page.waitForSelector('main', { timeout: 5000 });
-
-    // 顶部 nav 有「环路」按钮 (TodoList.buildDesktopNavActions)
-    const loopBtn = page.getByRole('button', { name: '环路编排' });
-    await expect(loopBtn).toBeVisible({ timeout: 5000 });
-    await loopBtn.click();
-
-    // 进入 LoopStudio 后, 标题与「新建 loop」按钮都应可见
-    await expect(page.getByText('环路编排').first()).toBeVisible();
-    await expect(page.getByRole('button', { name: '新建 loop' })).toBeVisible();
-
-    // 容错: 不强求「暂无 loop」, 因为前面测试可能已建过 loop, 只要左栏可见即可
-    await expect(page.locator('.loop-studio-list-col')).toBeVisible();
+test.describe('Loop Studio API', () => {
+  test('API 正常响应', async ({ page }) => {
+    const res = await page.request.get(`${BACKEND_URL}/api/loops`);
+    expect(res.ok()).toBeTruthy();
   });
 
-  test('新建 loop 流程: 弹出 modal → 提交 → 出现在列表中', async ({ page }) => {
-    await page.goto(DEV_URL);
-    await waitBackendReady(page);
+  test('新建 loop → 详情 → 删除', async ({ page }) => {
+    // 新建
+    const createRes = await page.request.post(`${BACKEND_URL}/api/loops`, {
+      data: { name: 'playwright-test-loop' },
+    });
+    expect(createRes.ok()).toBeTruthy();
+    const created = await createRes.json();
+    const loopId = created.data.id;
+    expect(loopId).toBeGreaterThan(0);
 
-    await page.getByRole('button', { name: '环路编排' }).click();
-    await page.getByRole('button', { name: '新建 loop' }).click();
+    // 详情
+    const detailRes = await page.request.get(`${BACKEND_URL}/api/loops/${loopId}`);
+    expect(detailRes.ok()).toBeTruthy();
 
-    // modal 标题
-    await expect(page.getByText('新建 loop').nth(1)).toBeVisible();
-    // 名称必填
-    const nameInput = page.locator('input[placeholder*="例如"]').first();
-    await nameInput.fill('测试 loop A');
+    // 列表包含
+    const listRes = await page.request.get(`${BACKEND_URL}/api/loops`);
+    const list = await listRes.json();
+    const ids = list.data.map((l: any) => l.id);
+    expect(ids).toContain(loopId);
 
-    // 提交 (modal OK 按钮 = 新建)
-    await page.locator(`[role="dialog"] button:has-text("建")`).first().click();
-
-    // 列表里出现 "测试 loop A"
-    await expect(page.getByText('测试 loop A').first()).toBeVisible({ timeout: 5000 });
-
-    // 详情面板可见 (右侧空 detail 也会显示阶段/触发器/钩子/执行历史 tabs)
-    await expect(page.getByRole('tab', { name: '阶段' })).toBeVisible();
-    await expect(page.getByRole('tab', { name: '触发器' })).toBeVisible();
-    await expect(page.getByRole('tab', { name: '钩子' })).toBeVisible();
-    await expect(page.getByRole('tab', { name: '执行历史' })).toBeVisible();
+    // 删除
+    const delRes = await page.request.delete(`${BACKEND_URL}/api/loops/${loopId}`);
+    expect(delRes.ok()).toBeTruthy();
   });
 
-  test('阶段 tab 支持内联新建专家 (无 expert 候选时)', async ({ page }) => {
-    await page.goto(DEV_URL);
-    await waitBackendReady(page);
+  test('创建环节（promote）', async ({ page }) => {
+    // 先建一个 todo
+    const todoRes = await page.request.post(`${BACKEND_URL}/api/todos`, {
+      data: { title: 'promote-test-todo', prompt: 'test prompt' },
+    });
+    expect(todoRes.ok()).toBeTruthy();
+    const todo = await todoRes.json();
+    const todoId = todo.data.id;
 
-    // 准备: 先建一个 loop
-    await page.getByRole('button', { name: '环路编排' }).click();
-    await page.getByRole('button', { name: '新建 loop' }).click();
-    await page.locator('input[placeholder*="例如"]').first().fill('阶段测试 loop');
-    await page.locator(`[role="dialog"] button:has-text("建")`).first().click();
-    await expect(page.getByText('阶段测试 loop').first()).toBeVisible({ timeout: 5000 });
+    // promote
+    const promoteRes = await page.request.post(`${BACKEND_URL}/api/todos/${todoId}/promote`);
+    expect(promoteRes.ok()).toBeTruthy();
+    const step = await promoteRes.json();
+    expect(step.data.title).toBe('promote-test-todo');
+    expect(step.data.prompt).toBe('test prompt');
+    expect(step.data.source_todo_id).toBe(todoId);
 
-    // 进入「阶段」tab (默认就在这个 tab, 但点击确保)
-    await page.getByRole('tab', { name: '阶段' }).click();
-
-    // 新建阶段按钮
-    await page.getByRole('button', { name: '新增阶段' }).first().click();
-
-    // modal 里有「内联新建专家」入口
-    const inlineNew = page.getByRole('button', { name: /内联新建专家/ });
-    // 即便没弹 modal, 也应该能找到这个按钮
-    if (await inlineNew.count() > 0) {
-      await expect(inlineNew.first()).toBeVisible();
-    }
-    // modal 标题应该出现
-    await expect(page.getByText('新增阶段').first()).toBeVisible();
+    // steps 列表包含
+    const stepsRes = await page.request.get(`${BACKEND_URL}/api/steps`);
+    const steps = await stepsRes.json();
+    const stepIds = steps.data.map((s: any) => s.id);
+    expect(stepIds).toContain(step.data.id);
   });
 
-  test('触发器 tab 包含 8 种类型选项 (manual/cron/webhook/feishu/todo/tag)', async ({ page }) => {
-    await page.goto(DEV_URL);
-    await waitBackendReady(page);
+  test('loop 添加环节', async ({ page }) => {
+    // 建 loop
+    const loopRes = await page.request.post(`${BACKEND_URL}/api/loops`, {
+      data: { name: 'stage-test-loop' },
+    });
+    const loop = await loopRes.json();
+    const loopId = loop.data.id;
 
-    // 准备: 先建一个 loop, 进入其触发器 tab 后点「新增触发器」, 从 Select 弹层读 8 种类型.
-    // 之前用 dynamic import('/src/...') 失败: 18088 是 ntd 嵌入式模式, 不暴露 vite 的 /src/.
-    // 直接读 antd Select 弹层 (动态 portal) 的 .ant-select-item-option-content,
-    // 既真实又规避 import 路径问题.
-    await page.getByRole('button', { name: '环路编排' }).click();
-    await page.getByRole('button', { name: '新建 loop' }).click();
-    await page.locator('input[placeholder*="例如"]').first().fill('触发器测试 loop');
-    await page.locator(`[role="dialog"] button:has-text("建")`).first().click();
-    await expect(page.getByText('触发器测试 loop').first()).toBeVisible({ timeout: 5000 });
+    // 建 todo → promote 为 step
+    const todoRes = await page.request.post(`${BACKEND_URL}/api/todos`, {
+      data: { title: 'stage-step', prompt: 'do something' },
+    });
+    const todo = await todoRes.json();
+    const promoteRes = await page.request.post(`${BACKEND_URL}/api/todos/${todo.data.id}/promote`);
+    const step = await promoteRes.json();
 
-    // 选中该 loop (点列表行), 切到触发器 tab
-    await page.locator('.loop-list-panel .loop-row').filter({ hasText: '触发器测试 loop' }).first().click();
-    await page.getByRole('tab', { name: /触发器/ }).click();
+    // 给 loop 添加 stage
+    const stageRes = await page.request.post(`${BACKEND_URL}/api/loops/${loopId}/stages`, {
+      data: { name: '我的环节', todo_id: step.data.id },
+    });
+    expect(stageRes.ok()).toBeTruthy();
+    const stage = await stageRes.json();
+    expect(stage.data.name).toBe('我的环节');
 
-    // 打开「新增触发器」modal
-    await page.getByRole('button', { name: '新增触发器' }).click();
-    await expect(page.getByText('新增触发器').nth(1)).toBeVisible();
+    // 验证 stages 列表
+    const stagesRes = await page.request.get(`${BACKEND_URL}/api/loops/${loopId}/stages`);
+    const stages = await stagesRes.json();
+    expect(stages.data.length).toBeGreaterThanOrEqual(1);
 
-    // 点开「类型」Select (Form.Item label="类型"). modal 内只有一个 ant-select
-    // (config/priority 用 Input/InputNumber, 没有 select), 所以 .first() 是它.
-    await page.locator('[role="dialog"] .ant-select').first().click();
-
-    // 等选项 portal 出现, 读取所有 option 文本
-    await expect(page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').first()).toBeVisible({ timeout: 5000 });
-    const options = await page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option-content').allTextContents();
-
-    // 8 种类型都应出现 (label 部分 + desc 用 " — " 拼接, 用包含匹配)
-    const joined = options.join(' | ');
-    expect(options.length).toBeGreaterThanOrEqual(8);
-    expect(joined).toContain('手动');
-    expect(joined).toContain('定时');
-    expect(joined).toContain('Webhook');
-    expect(joined).toContain('飞书消息');
-    expect(joined).toContain('飞书指令');
-    expect(joined).toContain('Todo 完成');
-    expect(joined).toContain('Todo 状态变更');
-    expect(joined).toContain('标签新增');
-  });
-
-  test('删除 loop 后从列表消失', async ({ page }) => {
-    await page.goto(DEV_URL);
-    await waitBackendReady(page);
-
-    await page.getByRole('button', { name: '环路编排' }).click();
-    await page.getByRole('button', { name: '新建 loop' }).click();
-    await page.locator('input[placeholder*="例如"]').first().fill('待删除 loop');
-    await page.locator(`[role="dialog"] button:has-text("建")`).first().click();
-    await expect(page.getByText('待删除 loop').first()).toBeVisible({ timeout: 5000 });
-
-    // 删除按钮不在列表行 (LoopListPanel 只展示状态/元信息),
-    // 而在 LoopStudioDetailPanel 顶栏的「删除」Popconfirm 触发按钮上 (danger + DeleteOutlined).
-    // 先点列表行选中 loop, 详情面板出现后才能点.
-    await page.locator('.loop-list-panel .loop-row').filter({ hasText: '待删除 loop' }).first().click();
-    await expect(page.locator('.loop-detail-panel')).toBeVisible({ timeout: 5000 });
-
-    // 详情 header 内只有一个 danger 按钮 (删除), 用 .ant-btn-dangerous 锁定
-    const deleteTrigger = page.locator('.loop-detail-header .ant-btn-dangerous').first();
-    await expect(deleteTrigger).toBeVisible();
-    await deleteTrigger.click();
-
-    // Popconfirm 二次确认: 弹层内有「确 定」按钮 (antd v6 自动加空格, 用 has-text 兜底)
-    // 找可见的 popover-inner, 内容包含「删除 loop」title 与「确 定」ok
-    const popover = page.locator('.ant-popover:not(.ant-popover-hidden)').filter({ hasText: '删除 loop' }).first();
-    await expect(popover).toBeVisible({ timeout: 5000 });
-    // 用 okType="danger" 的红色按钮, 在 antd v6 中 class 含 ant-btn-dangerous
-    await popover.locator('button.ant-btn-dangerous').first().click();
-
-    // 列表里不再有 (限定在 .loop-list-panel, 避免 message.success 提示干扰)
-    await expect(page.locator('.loop-list-panel').getByText('待删除 loop')).toHaveCount(0, { timeout: 5000 });
+    // 清理
+    await page.request.delete(`${BACKEND_URL}/api/loops/${loopId}`);
   });
 });

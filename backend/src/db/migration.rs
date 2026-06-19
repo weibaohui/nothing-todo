@@ -45,6 +45,7 @@ pub(super) fn all_migrations() -> Vec<Box<dyn Migration>> {
         Box::new(V6TodoKind),
         Box::new(V7LoopStudio),
         Box::new(V8LoopWorkspace),
+        Box::new(V9IndependentSteps),
     ]
 }
 
@@ -1989,5 +1990,66 @@ impl Migration for V8LoopWorkspace {
 
 async fn v8_loop_workspace(db: &Database) -> Result<(), sea_orm::DbErr> {
     add_column_warn(db, "ALTER TABLE loops ADD COLUMN workspace TEXT").await;
+    Ok(())
+}
+
+// ===== V9: 环节独立为 steps 表 =====
+
+pub(super) struct V9IndependentSteps;
+
+#[async_trait]
+impl Migration for V9IndependentSteps {
+    fn version(&self) -> i64 {
+        9
+    }
+    fn name(&self) -> &'static str {
+        "independent_steps"
+    }
+
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        v9_independent_steps(db).await
+    }
+}
+
+async fn v9_independent_steps(db: &Database) -> Result<(), sea_orm::DbErr> {
+    db.exec(
+        "CREATE TABLE IF NOT EXISTS steps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            prompt TEXT NOT NULL DEFAULT '',
+            executor TEXT,
+            acceptance_criteria TEXT,
+            source_todo_id INTEGER,
+            created_at TEXT,
+            updated_at TEXT,
+            FOREIGN KEY (source_todo_id) REFERENCES todos(id) ON DELETE SET NULL
+        )",
+    )
+    .await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_steps_source_todo ON steps(source_todo_id)")
+        .await?;
+    db.exec(
+        "CREATE TRIGGER IF NOT EXISTS set_steps_created_at_utc AFTER INSERT ON steps
+         WHEN new.created_at IS NULL OR new.created_at = ''
+         BEGIN
+             UPDATE steps SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+         END",
+    )
+    .await?;
+    db.exec(
+        "CREATE TRIGGER IF NOT EXISTS set_steps_updated_at_utc AFTER UPDATE ON steps
+         WHEN new.updated_at IS NULL OR new.updated_at = ''
+         BEGIN
+             UPDATE steps SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+         END",
+    )
+    .await?;
+    // 回填已有步骤：将 todos 表中 kind='step' 的数据复制到 steps 表
+    db.exec(
+        "INSERT INTO steps (title, prompt, executor, acceptance_criteria, source_todo_id, created_at, updated_at)
+         SELECT title, COALESCE(prompt, ''), executor, acceptance_criteria, id, created_at, updated_at
+         FROM todos WHERE kind = 'step' AND id NOT IN (SELECT source_todo_id FROM steps WHERE source_todo_id IS NOT NULL)",
+    )
+    .await?;
     Ok(())
 }
