@@ -357,7 +357,6 @@ mod agent_bot_tests {
 #[cfg(test)]
 mod executor_config_tests {
     use super::*;
-    use ntd::adapters::EXECUTORS;
 
     /// get_enabled_executors 必须严格按 enabled=true 过滤,
     /// 这条路径是执行器派发(spawn_lifecycle)选择的真实来源 —— 错了就
@@ -435,9 +434,9 @@ mod executor_config_tests {
             .await
             .unwrap()
             .is_none());
-        // 真实存在的执行器应当查得到 —— 硬编码 "claudecode" 比"EXECUTORS 中任一"
-        // 的循环断言可读性更好,且与 test_migrate_from_config_only_runs_when_empty
-        // 使用的常量保持一致。
+        // 真实存在的执行器应当查得到 —— 硬编码 "claudecode" 比循环
+        // 断言失败信号更明确: 一旦 seed 后 EXECUTORS 任意一项被中途
+        // 改 enabled=false,循环断言仍可命中剩余项,从而掩盖目标名错配。
         assert!(db
             .get_executor_by_name("claudecode")
             .await
@@ -450,8 +449,8 @@ mod executor_config_tests {
     ///   - DB 多了一个代码里没有的执行器 → 自动禁用(enabled=false)
     /// 这条是"零运维"的契约测试 —— 升级二进制后,新增的执行器自动可用,
     /// 被废弃的执行器自动关闭,不需要手动改数据库。
-    /// 由于 db.conn 是 pub(super),无法在 crate 外注入"代码里没有"的执行器,
-    /// 这里只验证可观测的子集: 幂等 + 启用过滤不被破坏。
+    /// 本测试只覆盖幂等 + enabled 集合稳定; "禁用"分支见
+    /// test_sync_new_executors_disables_removed_executors。
     #[tokio::test]
     async fn test_sync_new_executors_is_idempotent_after_seed() {
         let db = setup_db().await;
