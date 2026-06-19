@@ -16,6 +16,7 @@ import { ExecutionPanel } from './components/ExecutionPanel';
 import { TodoDrawer } from './components/TodoDrawer';
 import { SmartCreateModal } from './components/SmartCreateModal';
 import { StepList } from './components/StepList';
+import { StepDetailPanel } from './components/StepDetailPanel';
 import { LoopDetailPanel } from './components/LoopStudioDetailPanel';
 import * as dbLoops from './utils/database/loops';
 import { EXECUTION_PANEL, SIDEBAR_WIDTH } from './constants';
@@ -36,6 +37,8 @@ function AppContent() {
   const [appConfig, setAppConfig] = useState<Config | null>(null);
   // 从左侧环路列表选中某个 loop 时记录其 id，右侧面板展示 LoopDetailPanel
   const [selectedLoopId, setSelectedLoopId] = useState<number | null>(null);
+  // 从左侧环节列表选中某个 step 时记录其 id，右侧面板展示 StepDetailPanel
+  const [selectedStepId, setSelectedStepId] = useState<number | null>(null);
   const isMobile = useIsMobile();
 
   const [panelCollapsed, setPanelCollapsed] = useState(() => {
@@ -108,11 +111,21 @@ function AppContent() {
     dispatch({ type: 'SELECT_TODO', payload: null });
     clearSelection();
     setSelectedLoopId(loopId);
+    setSelectedStepId(null);
     setSelectedPanel('detail');
     // 更新 URL，支持浏览器前进/后退导航
     const params = new URLSearchParams();
     params.set('loop', String(loopId));
     window.history.pushState(null, '', `/?${params.toString()}`);
+  }, [dispatch, clearSelection, setSelectedPanel]);
+
+  // 从左侧环节列表选中一个 step，在右侧展示 StepDetailPanel
+  const handleSelectStep = useCallback((stepId: number) => {
+    dispatch({ type: 'SELECT_TODO', payload: null });
+    clearSelection();
+    setSelectedStepId(stepId);
+    setSelectedLoopId(null);
+    setSelectedPanel('detail');
   }, [dispatch, clearSelection, setSelectedPanel]);
 
   const handleSmartCreateSubmitted = () => {
@@ -203,6 +216,7 @@ function AppContent() {
               onShowMemorial={() => { clearSelection(); showView('memorial'); }}
               onShowRelationMap={() => { clearSelection(); showView('relation'); }}
               onShowSteps={() => { clearSelection(); showView('steps'); }}
+              onSelectStep={handleSelectStep}
               onShowSettings={() => { clearSelection(); showView('settings'); }}
               onSelectLoop={handleSelectLoop}
             />
@@ -222,6 +236,24 @@ function AppContent() {
               <TodoDetail
                 onBack={isMobile ? backToList : undefined}
               />
+            ) : selectedStepId !== null ? (
+              <div style={{ height: '100%', overflow: 'auto' }}>
+                {isMobile && (
+                  <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--color-border, #e2e8f0)' }}>
+                    <button
+                      onClick={() => setSelectedStepId(null)}
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', gap: 4,
+                        color: 'var(--color-text-secondary, #475569)', fontSize: 14,
+                      }}
+                    >
+                      <LeftOutlined /> 返回
+                    </button>
+                  </div>
+                )}
+                <StepDetailPanel stepId={selectedStepId} />
+              </div>
             ) : selectedLoopId !== null ? (
               // 从左侧环路列表选中某个 loop，右侧展示 LoopDetailPanel；
               // 借用一个轻量容器提供 overflow:auto + 返回按钮。

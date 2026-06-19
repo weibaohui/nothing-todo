@@ -12,6 +12,8 @@ import { ExecutorBadge } from './ExecutorBadge';
 import { LoopListPanel } from './LoopStudioListPanel';
 import type { LoopListItem } from '@/types/loop';
 import * as dbLoops from '@/utils/database/loops';
+import * as dbSteps from '@/utils/database/steps';
+import type { StepSummary } from '@/types';
 import { formatRelativeTime } from '@/utils/datetime';
 
 interface TodoListProps {
@@ -24,6 +26,7 @@ interface TodoListProps {
   onShowSteps?: () => void;
   onShowSettings?: () => void;
   onSelectLoop?: (loopId: number) => void;
+  onSelectStep?: (stepId: number) => void;
 }
 
 function SkeletonRow() {
@@ -73,7 +76,8 @@ function buildDesktopNavActions(
   ].filter(action => typeof action.onClick === 'function');
 }
 
-export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, onShowDashboard, onShowMemorial, onShowRelationMap, onShowSteps, onShowSettings, onSelectLoop }: TodoListProps) {
+export function TodoList(props: TodoListProps) {
+  const { onOpenCreateModal, onOpenSmartCreate, onSelectTodo, onShowDashboard, onShowMemorial, onShowRelationMap, onShowSettings, onSelectLoop, onSelectStep } = props;
   const { state, dispatch } = useApp();
   const { themeMode, toggleTheme } = useTheme();
   const { todos, selectedTodoId, selectedTagId, selectedWorkspace, tags } = state;
@@ -82,11 +86,16 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
   // 搜索关键字状态，用于按标题或提示词过滤 todo 列表
   const [searchKeyword, setSearchKeyword] = useState('');
   // 列表模式：'item' = 事项, 'step' = 环节, 'loop' = 环路
-  const [listMode, setListMode] = useState<'item' | 'loop'>(() => {
+  const [listMode, setListMode] = useState<'item' | 'step' | 'loop'>(() => {
     const saved = localStorage.getItem('ntd_list_mode');
-    if (saved === 'item' || saved === 'loop') return saved;
+    if (saved === 'item' || saved === 'step' || saved === 'loop') return saved;
     return 'item';
   });
+  // 环节列表数据（只在 listMode === 'step' 时使用）
+  const [stepList, setStepList] = useState<StepSummary[]>([]);
+  const [stepLoading, setStepLoading] = useState(false);
+  // 当前选中的 step id（高亮选中状态）
+  const [selectedStepId, setSelectedStepId] = useState<number | null>(null);
   // 环路列表数据（只在 listMode === 'loop' 时使用）
   const [loopList, setLoopList] = useState<LoopListItem[]>([]);
   const [loopLoading, setLoopLoading] = useState(false);
@@ -117,8 +126,17 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
     return () => window.removeEventListener('projectDirectoryAdded', handleDirAdded); // 清理：卸载时移除监听
   }, [reloadProjectDirectories]);
 
-  // 当列表切换到「环路」时，自动加载 loop 列表；
-  // 切换到「事项」或「环节」时不做额外操作。
+  // 当列表切换到「环节」时，自动加载 step 列表
+  useEffect(() => {
+    if (listMode !== 'step') return;
+    setStepLoading(true);
+    dbSteps.listSteps()
+      .then(setStepList)
+      .catch(() => setStepList([]))
+      .finally(() => setStepLoading(false));
+  }, [listMode]);
+
+  // 当列表切换到「环路」时，自动加载 loop 列表
   useEffect(() => {
     if (listMode !== 'loop') return;
     setLoopLoading(true);
@@ -134,6 +152,8 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
   }, [listMode]);
 
   const filteredTodos = useMemo(() => {
+    // 步骤模式下不需要过滤 todo（左侧渲染步骤列表）
+    if (listMode === 'step') return [];
     // 环路模式下不需要过滤 todo（左侧渲染环路列表）
     if (listMode === 'loop') return [];
 
@@ -516,7 +536,7 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
       </div>
 
       {/* 搜索框：环路模式下隐藏，loop 列表有自己的过滤 */}
-      {listMode !== 'loop' && (
+      {listMode === 'item' && (
         <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--color-border-light)' }}>
           <Input
             placeholder="搜索标题或提示词..."
@@ -535,14 +555,7 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
           block
           size="small"
           value={listMode}
-          onChange={(v) => {
-            if (v === 'step') {
-              // 环节已有独立路由/页面，直接导航过去
-              onShowSteps?.();
-              return;
-            }
-            setListMode(v as 'item' | 'loop');
-          }}
+          onChange={(v) => setListMode(v as 'item' | 'step' | 'loop')}
           options={[
             { label: '事项', value: 'item' },
             { label: '环节', value: 'step' },
@@ -552,7 +565,7 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
       </div>
 
       {/* 标签过滤：环路模式下不显示，loop 不按 tag 过滤 */}
-      {listMode !== 'loop' && tags.length > 0 && (
+      {listMode === 'item' && tags.length > 0 && (
         <div className="tag-filter-bar">
           <button
             className={`tag-chip ${selectedTagId === null ? 'active' : ''}`}
@@ -574,8 +587,82 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
         </div>
       )}
 
-      {/* 环路列表：在 listMode === 'loop' 时用 LoopListPanel 替代 todo 列表 */}
-      {listMode === 'loop' ? (
+      {/* 环节列表：在 listMode === 'step' 时显示步骤列表 */}
+      {listMode === 'step' ? (
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 8 }}>
+          {stepLoading ? (
+            <Skeleton active style={{ padding: 16 }} />
+          ) : stepList.length === 0 ? (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={
+                <span style={{ fontSize: 13 }}>
+                  暂无环节<br />
+                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary, #94a3b8)' }}>
+                    在事项详情中点击"升级为环节"
+                  </span>
+                </span>
+              }
+              style={{ marginTop: 32 }}
+            />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {stepList.map(step => (
+                <div
+                  key={step.id}
+                  onClick={() => {
+                    setSelectedStepId(step.id);
+                    onSelectStep?.(step.id);
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { setSelectedStepId(step.id); onSelectStep?.(step.id); }}}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
+                    background: selectedStepId === step.id
+                      ? 'var(--color-primary-bg, #f0f9ff)'
+                      : 'transparent',
+                    border: selectedStepId === step.id
+                      ? '1px solid var(--color-primary, #0891b2)'
+                      : '1px solid transparent',
+                    transition: 'background 200ms',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (selectedStepId !== step.id) e.currentTarget.style.background = 'var(--color-bg-hover, #f1f5f9)';
+                  }}
+                  onMouseLeave={(e) => {
+                    if (selectedStepId !== step.id) e.currentTarget.style.background = 'transparent';
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontWeight: 500, fontSize: 13,
+                      color: 'var(--color-text, #0f172a)',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {step.title}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-tertiary, #94a3b8)', marginTop: 2 }}>
+                      <ApartmentOutlined style={{ marginRight: 4 }} />{step.used_by_loop_stage_count} 引用
+                    </div>
+                  </div>
+                  {step.executor && (
+                    <span style={{
+                      fontSize: 10, padding: '1px 6px', borderRadius: 4,
+                      background: 'var(--color-bg-hover, #f1f5f9)',
+                      color: 'var(--color-text-tertiary, #94a3b8)',
+                      whiteSpace: 'nowrap', flexShrink: 0,
+                    }}>
+                      <ThunderboltOutlined /> {step.executor}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : listMode === 'loop' ? (
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           {loopLoading ? (
             <Skeleton active style={{ padding: 16 }} />
