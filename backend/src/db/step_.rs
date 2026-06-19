@@ -1,6 +1,6 @@
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
-    QuerySelect, Set,
+    ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, Statement,
 };
 
 use crate::db::entity::steps;
@@ -30,17 +30,30 @@ impl Database {
         source_todo_id: Option<i64>,
     ) -> Result<steps::Model, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
-        let am = steps::ActiveModel {
-            title: Set(title.to_string()),
-            prompt: Set(prompt.to_string()),
-            executor: Set(executor.map(|s| s.to_string())),
-            acceptance_criteria: Set(acceptance_criteria.map(|s| s.to_string())),
-            source_todo_id: Set(source_todo_id),
-            created_at: Set(Some(now.clone())),
-            updated_at: Set(Some(now)),
-            ..Default::default()
-        };
-        am.insert(&self.conn).await
+        let sql = "INSERT INTO steps (title, prompt, executor, acceptance_criteria, source_todo_id, created_at, updated_at) \
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
+        self.conn
+            .execute(Statement::from_sql_and_values(
+                sea_orm::DbBackend::Sqlite,
+                sql,
+                [
+                    title.to_string().into(),
+                    prompt.to_string().into(),
+                    executor.map(|s| s.to_string()).into(),
+                    acceptance_criteria.map(|s| s.to_string()).into(),
+                    source_todo_id.into(),
+                    now.clone().into(),
+                    now.into(),
+                ],
+            ))
+            .await?;
+
+        // 查回刚插入的行（last_insert_rowid 在多线程下不可靠，用 order desc + limit 1）
+        Ok(steps::Entity::find()
+            .order_by_desc(steps::Column::Id)
+            .one(&self.conn)
+            .await?
+            .expect("freshly inserted step should exist"))
     }
 
     /// 统计某个 step 被多少 loop stage 引用。
@@ -49,7 +62,6 @@ impl Database {
         step_id: i64,
     ) -> Result<i64, sea_orm::DbErr> {
         use crate::db::entity::loop_stages;
-        use sea_orm::EntityTrait;
         Ok(loop_stages::Entity::find()
             .filter(loop_stages::Column::TodoId.eq(step_id))
             .count(&self.conn)
@@ -62,7 +74,6 @@ impl Database {
         step_ids: &[i64],
     ) -> Result<std::collections::HashMap<i64, i64>, sea_orm::DbErr> {
         use crate::db::entity::loop_stages;
-        use sea_orm::{EntityTrait, QueryFilter};
         let mut map = std::collections::HashMap::new();
         for id in step_ids {
             let count = loop_stages::Entity::find()
