@@ -2,9 +2,9 @@
 //
 // 对齐参考设计: 详情面板分成上下分段:
 // - Header: 标题 + 操作 (触发/复制/启用暂停/编辑/删除)
-// - 基本信息: 3 列 (状态 / 产品 / 仓库分支)
-// - 触发条件: 内联 toggle 列表 (8 种类型一行一条)
-// - 执行环节: 关联的 todo 列表（按顺序执行）
+// - 基本信息: 启用 Switch + 工作空间
+// - 执行环节: 横向卡片列表（按顺序执行）, 最重要放在最前
+// - 触发条件: 默认折叠, 仅展示已启用/共多少摘要
 // - 钩子 / 执行历史: 折叠区, 默认收起 (不常用)
 //
 // (对齐 LoopDto 的可编辑字段)。
@@ -200,19 +200,6 @@ export function LoopDetailPanel({
         </div>
       </DetailSection>
 
-      {/* Section: 触发条件 — 内联 toggle 列表 */}
-      <DetailSection title="触发条件" extra={
-        <span style={{ fontSize: 11, color: 'var(--color-text-tertiary, #94a3b8)' }}>
-          决定 loop 在何时被启动 · {detail.triggers.filter(t => t.enabled).length} / {Object.keys(TRIGGER_META).length} 已启用
-        </span>
-      }>
-        <LoopTriggersPanel
-          loopId={loopId}
-          triggers={detail.triggers}
-          onChanged={() => { reload(); onChanged(); }}
-        />
-      </DetailSection>
-
       {/* 执行环节: 横向卡片布局 */}
       <DetailSection title="执行环节" extra={
         <span style={{ fontSize: 11, color: 'var(--color-text-tertiary, #94a3b8)' }}>
@@ -225,6 +212,43 @@ export function LoopDetailPanel({
           onChanged={() => { reload(); onChanged(); }}
         />
       </DetailSection>
+
+      {/* 触发条件: 默认折叠, 仅展示摘要计数 */}
+      <div style={{
+        background: 'var(--color-bg-elevated, #ffffff)',
+        border: '1px solid var(--color-border, #e2e8f0)',
+        borderRadius: 8,
+        marginBottom: 12,
+        overflow: 'hidden',
+      }}>
+        <Collapse
+          ghost
+          expandIconPosition="end"
+          defaultActiveKey={[]}
+          items={[
+            {
+              key: 'triggers',
+              label: (
+                <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text, #0f172a)' }}>
+                  触发条件
+                  <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-text-tertiary, #94a3b8)', marginLeft: 8 }}>
+                    {detail.triggers.filter(t => t.enabled).length} / {Object.keys(TRIGGER_META).length} 已启用
+                  </span>
+                </span>
+              ),
+              children: (
+                <div style={{ paddingTop: 4 }}>
+                  <LoopTriggersPanel
+                    loopId={loopId}
+                    triggers={detail.triggers}
+                    onChanged={() => { reload(); onChanged(); }}
+                  />
+                </div>
+              ),
+            },
+          ]}
+        />
+      </div>
 
       {/* 折叠区: 钩子 + 执行历史, 默认收起 (不常用, 避免首屏信息过载) */}
       <Collapse
