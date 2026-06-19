@@ -1,19 +1,17 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useApp } from '@/hooks/useApp';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { Button, Dropdown, Empty, Tooltip, Input, Segmented, Skeleton, Popconfirm } from 'antd';
+import { Button, Dropdown, Empty, Tooltip, Input, Segmented, Skeleton } from 'antd';
 import type { MenuProps } from 'antd';
-import { PlusOutlined, ThunderboltOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, ReadOutlined, SettingOutlined, SunOutlined, MoonOutlined, ApartmentOutlined, FolderOpenOutlined, MoreOutlined, SearchOutlined, DownOutlined, ExperimentOutlined } from '@ant-design/icons';
+import { PlusOutlined, ThunderboltOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, ReadOutlined, SettingOutlined, SunOutlined, MoonOutlined, ApartmentOutlined, FolderOpenOutlined, MoreOutlined, SearchOutlined, DownOutlined } from '@ant-design/icons';
 import { useTheme } from '@/hooks/useTheme';
 import { StatusPicker } from './StatusPicker';
 import * as db from '@/utils/database';
 import type { ProjectDirectory, Todo } from '@/types';
 import { ExecutorBadge } from './ExecutorBadge';
-import { PromoteToStepButton } from './PromoteToStepButton';
 import { LoopListPanel } from './LoopStudioListPanel';
 import type { LoopListItem } from '@/types/loop';
 import * as dbLoops from '@/utils/database/loops';
-import { demoteTodoToItem } from '@/utils/database/steps';
 import { formatRelativeTime } from '@/utils/datetime';
 
 interface TodoListProps {
@@ -265,33 +263,6 @@ export function TodoList({ onOpenCreateModal, onOpenSmartCreate, onSelectTodo, o
                 <span style={{ color: '#999', marginRight: 4, fontSize: 13 }}>#{todo.id}</span>{todo.title}
               </div>
               <ExecutorBadge executor={todo.executor || 'claudecode'} />
-              {/* 升级/降级入口: 事项行显示"升级为环节", 环节行显示"降级为事项" */}
-              {(todo.kind ?? 'item') === 'step' ? (
-                <Popconfirm
-                  title="降级为事项"
-                  description="确定将此环节降级为事项？降级后不会被任何 loop 引用"
-                  onConfirm={async () => {
-                    try {
-                      await demoteTodoToItem(todo.id);
-                      dispatch({ type: 'UPDATE_TODO', payload: { ...todo as any, kind: 'item' } });
-                      // 刷新全量列表确保一致
-                      const todos = await db.getAllTodos();
-                      dispatch({ type: 'SET_TODOS', payload: todos });
-                    } catch { /* interceptor 会弹错 */ }
-                  }}
-                >
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<ExperimentOutlined />}
-                    aria-label={`将「${todo.title}」降级为事项`}
-                  >
-                    降级为事项
-                  </Button>
-                </Popconfirm>
-              ) : (
-                <PromoteToStepButton todoId={todo.id} todoTitle={todo.title} />
-              )}
             </div>
             {todo.prompt && (
               <div className="todo-item-desc">

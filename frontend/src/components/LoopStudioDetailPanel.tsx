@@ -12,7 +12,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Skeleton, App as AntApp, Button, Space, Tooltip, Popconfirm, Empty,
-  Modal, Form, Input, ColorPicker, Collapse,
+  Modal, Form, Input, ColorPicker, Collapse, Select,
 } from 'antd';
 import {
   ThunderboltOutlined,
@@ -23,6 +23,7 @@ import {
   EditOutlined,
 } from '@ant-design/icons';
 import * as dbLoops from '@/utils/database/loops';
+import * as db from '@/utils/database';
 import type { LoopDetail, UpdateLoopRequest } from '@/types/loop';
 import { LoopTriggersPanel } from './LoopStudioTriggersPanel';
 import { LoopHooksPanel } from './LoopStudioHooksPanel';
@@ -52,6 +53,8 @@ export function LoopDetailPanel({
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<UpdateLoopRequest>();
+  // 工作空间下拉选项
+  const [workspaceOptions, setWorkspaceOptions] = useState<{ label: string; value: string }[]>([]);
 
   // 加载完整 detail, 子面板变更后也要重新拉以保持最新
   const reload = useCallback(() => {
@@ -75,6 +78,15 @@ export function LoopDetailPanel({
   }, [loopId, form, message]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  // 加载工作空间列表供下拉选择
+  useEffect(() => {
+    db.getProjectDirectories()
+      .then(dirs => setWorkspaceOptions(
+        dirs.map(d => ({ label: d.name || d.path, value: d.path }))
+      ))
+      .catch(() => { /* 静默 */ });
+  }, []);
 
   // 打开编辑 modal
   const handleOpenEdit = useCallback(() => {
@@ -293,7 +305,13 @@ export function LoopDetailPanel({
             <Input.TextArea rows={2} maxLength={500} />
           </Form.Item>
           <Form.Item label="关联工作空间" name="workspace" tooltip="此 loop 所属的工作空间">
-            <Input placeholder="例如:/workspace/my-project" maxLength={200} />
+            <Select
+              allowClear
+              placeholder="选择工作空间"
+              options={workspaceOptions}
+              showSearch
+              optionFilterProp="label"
+            />
           </Form.Item>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Form.Item label="颜色" name="color" getValueFromEvent={(c) => c?.toHexString?.() ?? c}>
