@@ -18,6 +18,7 @@ import { formatRelativeTime } from '@/utils/datetime';
 
 interface StepDetailPanelProps {
   stepId: number;
+  // 保存成功后通知父组件刷新列表，保持左右栏数据同步
   onStepUpdated?: () => void;
 }
 
@@ -141,13 +142,15 @@ export function StepDetailPanel({ stepId, onStepUpdated }: StepDetailPanelProps)
       setStep(updated);
       message.success('环节已更新');
       setEditing(false);
+      // 通知父组件刷新列表，保持左栏数据同步
       onStepUpdated?.();
     } catch {
-      // ignore
+      // 保存失败时给用户明确反馈，而不是静默吞掉错误
+      message.error('保存失败，请重试');
     } finally {
       setSaving(false);
     }
-  }, [editTitle, editPrompt, editExecutor, editColor, editAcceptanceCriteria, stepId, message]);
+  }, [editTitle, editPrompt, editExecutor, editColor, editAcceptanceCriteria, stepId, message, onStepUpdated]);
 
   if (loading) {
     return <Skeleton active style={{ padding: 24 }} />;

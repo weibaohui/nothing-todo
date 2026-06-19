@@ -25,7 +25,7 @@ async fn create_todo(db: &Database, title: &str) -> i64 {
 
 // 工具: 构造一个 loop, 返回 loop_id
 async fn create_loop(db: &Database, name: &str) -> i64 {
-    db.create_loop(name, "", "", "", "", "#722ed1", "loop")
+    db.create_loop(name, "", None, "#722ed1", "loop")
         .await
         .unwrap()
         .id
