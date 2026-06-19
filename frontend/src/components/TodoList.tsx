@@ -28,6 +28,7 @@ interface TodoListProps {
   onSelectLoop?: (loopId: number) => void;
   onSelectStep?: (stepId: number) => void;
   stepUpdateCount?: number;
+  loopUpdateCount?: number;
 }
 
 function SkeletonRow() {
@@ -78,7 +79,7 @@ function buildDesktopNavActions(
 }
 
 export function TodoList(props: TodoListProps) {
-  const { onOpenCreateModal, onOpenSmartCreate, onSelectTodo, onShowDashboard, onShowMemorial, onShowRelationMap, onShowSettings, onSelectLoop, onSelectStep, stepUpdateCount } = props;
+  const { onOpenCreateModal, onOpenSmartCreate, onSelectTodo, onShowDashboard, onShowMemorial, onShowRelationMap, onShowSettings, onSelectLoop, onSelectStep, stepUpdateCount, loopUpdateCount } = props;
   const { state, dispatch } = useApp();
   const { themeMode, toggleTheme } = useTheme();
   const { todos, selectedTodoId, selectedTagId, selectedWorkspace, tags } = state;
@@ -137,7 +138,7 @@ export function TodoList(props: TodoListProps) {
       .finally(() => setStepLoading(false));
   }, [listMode, stepUpdateCount]);
 
-  // 当列表切换到「环路」时，自动加载 loop 列表
+  // 当列表切换到「环路」时，自动加载 loop 列表；或环路变更时刷新
   useEffect(() => {
     if (listMode !== 'loop') return;
     setLoopLoading(true);
@@ -145,7 +146,7 @@ export function TodoList(props: TodoListProps) {
       .then(setLoopList)
       .catch(() => setLoopList([]))
       .finally(() => setLoopLoading(false));
-  }, [listMode]);
+  }, [listMode, loopUpdateCount]);
 
   // 持久化列表模式到 localStorage
   useEffect(() => {

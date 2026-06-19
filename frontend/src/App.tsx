@@ -40,6 +40,8 @@ function AppContent() {
   // ���左侧环节列表选中某个 step 时记录其 id，右侧面板展示 StepDetailPanel
   const [selectedStepId, setSelectedStepId] = useState<number | null>(null);
   const [stepUpdateCount, setStepUpdateCount] = useState(0);
+  // 环路变更计数，驱动左侧 loop 列表刷新
+  const [loopUpdateCount, setLoopUpdateCount] = useState(0);
   const isMobile = useIsMobile();
 
   const [panelCollapsed, setPanelCollapsed] = useState(() => {
@@ -223,6 +225,7 @@ function AppContent() {
               onShowSteps={() => { clearSelection(); showView('steps'); }}
               onSelectStep={handleSelectStep}
               stepUpdateCount={stepUpdateCount}
+              loopUpdateCount={loopUpdateCount}
               onShowSettings={() => { clearSelection(); showView('settings'); }}
               onSelectLoop={handleSelectLoop}
             />
@@ -322,7 +325,7 @@ function AppContent() {
                     }
                   }}
                   onChanged={() => {
-                    // detail 变更后，如果左侧有 LoopStudio 也通知刷新
+                    setLoopUpdateCount(c => c + 1);
                   }}
                 />
               </div>
