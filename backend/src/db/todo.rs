@@ -945,10 +945,10 @@ impl Database {
             .collect())
     }
 
-    // ====== 环节（kind=expert）相关 CRUD ======
+    // ====== 环节（kind=step）相关 CRUD ======
     //
     // 设计与 v3 migration 对齐：todos.kind 列区分事项与环节。
-    // 这里只读 kind='expert' 的子集，loop_stages 强校验只能引用环节。
+    // 这里只读 kind='step' 的子集，loop_stages 强校验只能引用环节。
 
     /// 按 kind 列过滤列出 todo。供 TodoList 前端 filter 用（事项 / 环节 / 全部）。
     pub async fn list_todos_by_kind(&self, kind: &str) -> Result<Vec<Todo>, sea_orm::DbErr> {
@@ -969,7 +969,7 @@ impl Database {
             .collect())
     }
 
-    /// 列出所有环节（kind='expert' 且未删除），按更新时间倒序。
+    /// 列出所有环节（kind='step' 且未删除），按更新时间倒序。
     pub async fn list_steps(&self) -> Result<Vec<Todo>, sea_orm::DbErr> {
         let models = todos::Entity::find()
             .filter(todos::Column::DeletedAt.is_null())
@@ -988,7 +988,7 @@ impl Database {
             .collect())
     }
 
-    /// 列出可被 loop stage 选择的环节候选（kind='expert' 且未删除），
+    /// 列出可被 loop stage 选择的环节候选（kind='step' 且未删除），
     /// 字段精简（id/title/executor/prompt），供 loop 编辑器下拉框使用。
     pub async fn list_step_candidates(&self) -> Result<Vec<Todo>, sea_orm::DbErr> {
         // 与 list_steps 同样的过滤条件,字段也由 Todo DTO 决定,
@@ -996,7 +996,7 @@ impl Database {
         self.list_steps().await
     }
 
-    /// 把事项提升为环节。仅当目标 todo 当前不是 expert 时生效（幂等）。
+    /// 把事项提升为环节。仅当目标 todo 当前不是 step 时生效（幂等）。
     /// 返回是否真的发生了状态变更。
     pub async fn promote_to_step(&self, id: i64) -> Result<bool, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();

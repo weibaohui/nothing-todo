@@ -1,7 +1,7 @@
-//! Loop Studio + 环节(kind=expert)集成测试。
-//!
+//! Loop Studio + 环节(kind=step)集成测试。 
+//! 
 //! 覆盖：
-//! - v6 migration: todos 加 kind 列, 默认 'item'; 被 loop_stages 引用回填为 'expert'
+//! - v6 migration: todos 加 kind 列, 默认 'item'; 被 loop_stages 引用回填为 'step'
 //! - promote_todo_to_step: 把 'item' 升为 'step'
 //! - demote_todo_to_item: 'step' → 'item'; 被 loop_stages 引用时必须拒绝
 //! - count_loop_stages_using_todo: 被引用次数与 stage 增删保持一致

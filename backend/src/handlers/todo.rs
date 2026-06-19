@@ -29,7 +29,7 @@ pub async fn get_todos(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<TodoListQuery>,
 ) -> Result<ApiResponse<Vec<Todo>>, AppError> {
-    // kind=item / kind=expert / kind=all(默认) 三种过滤。
+    // kind=item / kind=step / kind=all(默认) 三种过滤。
     // 保持向后兼容：未传参时返回所有 todo。
     let todos = match params.kind.as_deref() {
         Some("item") => state.db.list_todos_by_kind("item").await?,
@@ -348,7 +348,7 @@ pub async fn get_recent_completed_todos(
     ))
 }
 
-// ====== 环节管理（kind=expert）======
+// ====== 环节管理（kind=step）======
 //
 // 路由：
 // - GET    /api/steps                    列出所有环节 + 各自的 loop 引用计数
@@ -381,7 +381,7 @@ pub async fn get_step(
         .get_todo(id)
         .await?
         .ok_or(AppError::NotFound)?;
-    // 必须是 expert,否则返回 404
+    // 必须是 step,否则返回 404
     if todo.kind != "step" {
         return Err(AppError::NotFound);
     }
