@@ -307,6 +307,7 @@ function AppContent() {
                       message.success('已删除');
                       setSelectedLoopId(null);
                       setLoopUpdateCount(c => c + 1);
+                      setSelectedPanel('list');
                     } catch (err) {
                       message.error('删除失败，环路可能正在被引用');
                     }
