@@ -35,10 +35,8 @@ export interface LoopDto {
   id: number;
   name: string;
   description: string;
-  product: string;
-  repo: string;
-  branch: string;
-  status: string; // 后端字符串,前端不强枚举,留扩展
+  workspace: string | null;
+  status: string;
   color: string;
   icon: string;
   created_at: string | null;
@@ -106,9 +104,7 @@ export interface LoopDetail {
   id: number;
   name: string;
   description: string;
-  product: string;
-  repo: string;
-  branch: string;
+  workspace: string | null;
   status: string;
   color: string;
   icon: string;
@@ -126,9 +122,7 @@ export interface LoopListItem {
   id: number;
   name: string;
   description: string;
-  product: string;
-  repo: string;
-  branch: string;
+  workspace: string | null;
   status: string;
   color: string;
   icon: string;
@@ -168,9 +162,7 @@ export interface LoopExecutionListResponse {
 export interface CreateLoopRequest {
   name: string;
   description?: string;
-  product?: string;
-  repo?: string;
-  branch?: string;
+  workspace?: string | null;
   color?: string;
   icon?: string;
 }
@@ -179,9 +171,7 @@ export interface UpdateLoopRequest {
   // 后端要求全量更新, 所有字段必填
   name: string;
   description: string;
-  product: string;
-  repo: string;
-  branch: string;
+  workspace: string | null;
   color: string;
   icon: string;
 }

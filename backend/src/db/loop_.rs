@@ -38,9 +38,7 @@ impl Database {
         &self,
         name: &str,
         description: &str,
-        product: &str,
-        repo: &str,
-        branch: &str,
+        workspace: Option<&str>,
         color: &str,
         icon: &str,
     ) -> Result<loops::Model, sea_orm::DbErr> {
@@ -48,9 +46,7 @@ impl Database {
         let am = loops::ActiveModel {
             name: ActiveValue::Set(name.to_string()),
             description: ActiveValue::Set(description.to_string()),
-            product: ActiveValue::Set(product.to_string()),
-            repo: ActiveValue::Set(repo.to_string()),
-            branch: ActiveValue::Set(branch.to_string()),
+            workspace: ActiveValue::Set(workspace.map(|s| s.to_string())),
             color: ActiveValue::Set(color.to_string()),
             icon: ActiveValue::Set(icon.to_string()),
             status: ActiveValue::Set("draft".to_string()),
@@ -66,9 +62,7 @@ impl Database {
         id: i64,
         name: &str,
         description: &str,
-        product: &str,
-        repo: &str,
-        branch: &str,
+        workspace: Option<&str>,
         color: &str,
         icon: &str,
     ) -> Result<(), sea_orm::DbErr> {
@@ -78,9 +72,7 @@ impl Database {
             let mut am: loops::ActiveModel = c.into();
             am.name = ActiveValue::Set(name.to_string());
             am.description = ActiveValue::Set(description.to_string());
-            am.product = ActiveValue::Set(product.to_string());
-            am.repo = ActiveValue::Set(repo.to_string());
-            am.branch = ActiveValue::Set(branch.to_string());
+            am.workspace = ActiveValue::Set(workspace.map(|s| s.to_string()));
             am.color = ActiveValue::Set(color.to_string());
             am.icon = ActiveValue::Set(icon.to_string());
             am.updated_at = ActiveValue::Set(Some(now));
@@ -131,9 +123,7 @@ impl Database {
             .create_loop(
                 &format!("{}(副本)", source.name),
                 &source.description,
-                &source.product,
-                &source.repo,
-                &source.branch,
+                source.workspace.as_deref(),
                 &source.color,
                 &source.icon,
             )
@@ -771,7 +761,7 @@ impl Database {
         &self,
     ) -> Result<Vec<LoopListRow>, sea_orm::DbErr> {
         use sea_orm::{ConnectionTrait, Statement};
-        let sql = "SELECT l.id, l.name, l.description, l.product, l.repo, l.branch, \
+        let sql = "SELECT l.id, l.name, l.description, l.workspace, \
                           l.status, l.color, l.icon, l.created_at, l.updated_at, \
                           (SELECT COUNT(*) FROM loop_triggers t WHERE t.loop_id = l.id) as trigger_count, \
                           (SELECT COUNT(*) FROM loop_stages s WHERE s.loop_id = l.id) as stage_count, \
@@ -792,9 +782,7 @@ impl Database {
                     id: row.try_get_by::<i64, _>("id")?,
                     name: row.try_get_by::<String, _>("name")?,
                     description: row.try_get_by::<String, _>("description")?,
-                    product: row.try_get_by::<String, _>("product")?,
-                    repo: row.try_get_by::<String, _>("repo")?,
-                    branch: row.try_get_by::<String, _>("branch")?,
+                    workspace: row.try_get_by::<Option<String>, _>("workspace")?,
                     status: row.try_get_by::<String, _>("status")?,
                     color: row.try_get_by::<String, _>("color")?,
                     icon: row.try_get_by::<String, _>("icon")?,

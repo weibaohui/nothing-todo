@@ -60,9 +60,7 @@ pub async fn create_loop(
         .create_loop(
             req.name.trim(),
             &req.description,
-            &req.product,
-            &req.repo,
-            &req.branch,
+            req.workspace.as_deref(),
             &req.color,
             &req.icon,
         )
@@ -103,9 +101,7 @@ pub async fn update_loop(
             id,
             req.name.trim(),
             &req.description,
-            &req.product,
-            &req.repo,
-            &req.branch,
+            req.workspace.as_deref(),
             &req.color,
             &req.icon,
         )

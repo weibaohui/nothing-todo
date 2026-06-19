@@ -13,12 +13,7 @@ pub struct Model {
     pub name: String,
     #[sea_orm(default_value = "")]
     pub description: String,
-    #[sea_orm(default_value = "")]
-    pub product: String,
-    #[sea_orm(default_value = "")]
-    pub repo: String,
-    #[sea_orm(default_value = "")]
-    pub branch: String,
+    pub workspace: Option<String>,
     /// draft | enabled | paused
     #[sea_orm(default_value = "draft")]
     pub status: String,

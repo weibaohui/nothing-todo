@@ -7,8 +7,7 @@
 // - 执行环节: 关联的 todo 列表（按顺序执行）
 // - 钩子 / 执行历史: 折叠区, 默认收起 (不常用)
 //
-// 编辑入口从 inline 改成完整 modal, 含 product / repo / branch 字段
-// (对齐 LoopDto 的 7 个可编辑字段)。
+// (对齐 LoopDto 的可编辑字段)。
 
 import { useEffect, useState, useCallback } from 'react';
 import {
@@ -63,9 +62,7 @@ export function LoopDetailPanel({
         form.setFieldsValue({
           name: d.name,
           description: d.description,
-          product: d.product,
-          repo: d.repo,
-          branch: d.branch,
+          workspace: d.workspace,
           color: d.color,
           icon: d.icon,
         });
@@ -85,9 +82,7 @@ export function LoopDetailPanel({
     form.setFieldsValue({
       name: detail.name,
       description: detail.description,
-      product: detail.product,
-      repo: detail.repo,
-      branch: detail.branch,
+      workspace: detail.workspace,
       color: detail.color,
       icon: detail.icon,
     });
@@ -103,9 +98,7 @@ export function LoopDetailPanel({
       await dbLoops.updateLoop(loopId, {
         name: values.name.trim(),
         description: values.description ?? '',
-        product: values.product ?? '',
-        repo: values.repo ?? '',
-        branch: values.branch ?? '',
+        workspace: values.workspace ?? null,
         color: colorHex,
         icon: values.icon ?? 'loop',
       });
@@ -195,12 +188,7 @@ export function LoopDetailPanel({
               {detail.status === 'enabled' ? '已启用' : detail.status === 'paused' ? '已暂停' : '草稿'}
             </span>
           } />
-          <DetailField label="产品" value={detail.product || <EmptyValue />} />
-          <DetailField label="仓库 / 分支" value={
-            detail.repo || detail.branch
-              ? <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{detail.repo || '?'}{detail.repo && detail.branch ? ' · ' : ''}<span style={{ color: 'var(--color-primary, #0891b2)' }}>{detail.branch || ''}</span></span>
-              : <EmptyValue />
-          } />
+          <DetailField label="关联工作空间" value={detail.workspace || <EmptyValue />} />
         </div>
       </DetailSection>
 
@@ -304,18 +292,10 @@ export function LoopDetailPanel({
           <Form.Item label="描述" name="description">
             <Input.TextArea rows={2} maxLength={500} />
           </Form.Item>
+          <Form.Item label="关联工作空间" name="workspace" tooltip="此 loop 所属的工作空间">
+            <Input placeholder="例如:/workspace/my-project" maxLength={200} />
+          </Form.Item>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Form.Item label="产品" name="product" tooltip="用于在 loop 列表与详情里区分不同 loop 的归属">
-              <Input placeholder="例如:电商中台" maxLength={100} />
-            </Form.Item>
-            <Form.Item label="仓库" name="repo" tooltip="关联的 git 仓库, 展示用, 不做 clone">
-              <Input placeholder="例如:order-svc.git" maxLength={200} />
-            </Form.Item>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-            <Form.Item label="分支" name="branch">
-              <Input placeholder="例如:main" maxLength={100} />
-            </Form.Item>
             <Form.Item label="颜色" name="color" getValueFromEvent={(c) => c?.toHexString?.() ?? c}>
               <ColorPicker showText format="hex" />
             </Form.Item>

@@ -98,9 +98,7 @@ pub struct LoopDto {
     pub id: i64,
     pub name: String,
     pub description: String,
-    pub product: String,
-    pub repo: String,
-    pub branch: String,
+    pub workspace: Option<String>,
     pub status: String,
     pub color: String,
     pub icon: String,
@@ -114,9 +112,7 @@ impl From<loops::Model> for LoopDto {
             id: m.id,
             name: m.name,
             description: m.description,
-            product: m.product,
-            repo: m.repo,
-            branch: m.branch,
+            workspace: m.workspace,
             status: m.status,
             color: m.color,
             icon: m.icon,
@@ -305,11 +301,7 @@ pub struct CreateLoopRequest {
     #[serde(default)]
     pub description: String,
     #[serde(default)]
-    pub product: String,
-    #[serde(default)]
-    pub repo: String,
-    #[serde(default)]
-    pub branch: String,
+    pub workspace: Option<String>,
     #[serde(default = "default_color")]
     pub color: String,
     #[serde(default = "default_icon")]
@@ -323,9 +315,7 @@ fn default_icon() -> String { "loop".to_string() }
 pub struct UpdateLoopRequest {
     pub name: String,
     pub description: String,
-    pub product: String,
-    pub repo: String,
-    pub branch: String,
+    pub workspace: Option<String>,
     pub color: String,
     pub icon: String,
 }

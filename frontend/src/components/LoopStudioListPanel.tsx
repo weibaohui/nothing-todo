@@ -145,8 +145,8 @@ function LoopCard({ loop, selected, onClick }: {
   onClick: () => void;
 }) {
   const status: LoopStatus = (loop.status as LoopStatus) ?? 'draft';
-  // 副标题优先用 product (对齐参考设计「产品」字段), 缺则降级到 description
-  const subtitle = loop.product || loop.description || '';
+  // 副标题优先用 workspace, 缺则降级到 description
+  const subtitle = loop.workspace || loop.description || '';
 
   return (
     <div
