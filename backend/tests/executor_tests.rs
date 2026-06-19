@@ -187,10 +187,12 @@ mod claude_code_executor_tests {
 
     #[test]
     fn test_claude_command_args_with_session_new() {
+        // 首次执行时不显式传 --session-id, 由 Claude Code 自己生成,
+        // 后续从 system 事件中提取真实 session_id 回写 (见 fix #668).
         let executor = ClaudeCodeExecutor::new("claude".to_string());
         let args = executor.command_args_with_session("continue", Some("session123"), false);
-        assert!(args.contains(&"--session-id".to_string()));
-        assert!(args.contains(&"session123".to_string()));
+        assert!(!args.contains(&"--session-id".to_string()));
+        assert!(!args.contains(&"session123".to_string()));
     }
 
     #[test]
