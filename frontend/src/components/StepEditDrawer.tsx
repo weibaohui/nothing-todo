@@ -192,13 +192,13 @@ function PromptSection({ form }: { form: ReturnType<typeof useEditForm> }) {
 
 // Loop 环节模板变量提示
 const LOOP_VARS = [
-  { label: '{message}', desc: '上一环节的完整输出（最常用）' },
-  { label: '{last_output}', desc: '上一环节的完整输出（同 message）' },
-  { label: '{last_conclusion}', desc: '上一环节的结论摘要' },
-  { label: '{last_step_name}', desc: '上一环节的名称' },
-  { label: '{blackboard}', desc: '全部历史执行记录（结论黑板）' },
-  { label: '{loop_execution_id}', desc: '本次 Loop 执行 ID' },
-  { label: '{loop_name}', desc: 'Loop 名称' },
+  { label: '{{message}}', desc: '上一环节的完整输出（最常用）' },
+  { label: '{{last_output}}', desc: '上一环节的完整输出（同 message）' },
+  { label: '{{last_conclusion}}', desc: '上一环节的结论摘要' },
+  { label: '{{last_step_name}}', desc: '上一环节的名称' },
+  { label: '{{blackboard}}', desc: '全部历史执行记录（结论黑板）' },
+  { label: '{{loop_execution_id}}', desc: '本次 Loop 执行 ID' },
+  { label: '{{loop_name}}', desc: 'Loop 名称' },
 ];
 
 function LoopVariableHints({ onInsert }: { onInsert: (text: string) => void }) {
