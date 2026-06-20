@@ -204,6 +204,7 @@ export interface CreateLoopRequest {
   workspace?: string | null;
   color?: string;
   icon?: string;
+  review_template_id?: number | null;
 }
 
 export interface UpdateLoopRequest {
@@ -212,6 +213,7 @@ export interface UpdateLoopRequest {
   workspace: string | null;
   color: string;
   icon: string;
+  review_template_id?: number | null;
 }
 
 export interface CreateTriggerRequest {
