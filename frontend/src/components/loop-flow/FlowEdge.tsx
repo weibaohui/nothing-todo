@@ -195,15 +195,14 @@ export function FlowEdge({
   const traced = isEdgeTraced(edge.fromId, edge.toId);
   const hasTrace = tracedStepIds.length > 0;
   const baseStyle = EDGE_STYLES[edge.type] || EDGE_STYLES['success-next'];
-  // 回环边用更显眼的样式：颜色加深、虚线步长更大、stroke 加粗，
-  // 即便被 trace 高亮压一层也能让回环一眼从其它边里跳出来。
+  // 回环是带条件的执行路径，与普通跳转同属主路径，不该用虚线暗示「次要」。
+  // 区分度只靠颜色加深（success 深绿、fail 深红）和更粗的 stroke 即可。
   const style = edge.isLoopBack ? {
     color: edge.type === 'success-goto' ? '#15803d' : '#b91c1c',
-    dash: '6,3',
+    dash: '',
     labelColor: edge.type === 'success-goto' ? '#15803d' : '#b91c1c',
   } : baseStyle;
-  // 回环边：stroke 比普通边略粗但不要喧宾夺主。1.8（默认）/ 2.5（被 trace 高亮），
-  // 配合深色 + 虚线足以区分；箭头也小一档，避免抢走步骤卡片视觉。
+  // 回环边：stroke 比普通边略粗（1.8 vs 1.5）即可，颜色已经够深无需再叠粗细差。
   const strokeWidth = edge.isLoopBack
     ? (hasTrace && traced ? 2.5 : 1.8)
     : (hasTrace && traced ? 3 : 1.5);
