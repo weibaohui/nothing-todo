@@ -298,13 +298,17 @@ export function LoopFlowGraph({
                   cx={node.x + NODE_WIDTH - 10} cy={node.y + 10} r={4}
                   fill={node.step.enabled ? '#22c55e' : '#94a3b8'}
                 />
+                {/* Index badge 放在 step 左上角（探出卡片外），
+                    不再放在 left-middle——那里正好是入边箭头落点，
+                    圆形 badge 会把箭头完全遮住。移到 top-left 后箭头在
+                    left-middle 自由落下，跟右上角的状态 dot 视觉对角呼应。 */}
                 <rect
-                  x={node.x - 12} y={node.y + NODE_HEIGHT / 2 - 10}
+                  x={node.x - 10} y={node.y - 10}
                   width={20} height={20} rx={10}
                   fill={isSelected ? '#0891b2' : '#f1f5f9'}
                 />
                 <text
-                  x={node.x - 2} y={node.y + NODE_HEIGHT / 2 + 4}
+                  x={node.x} y={node.y + 4}
                   textAnchor="middle" fontSize={11} fontWeight={700}
                   fill={isSelected ? '#ffffff' : '#64748b'}
                   style={{ fontFamily: 'monospace' }}
