@@ -496,7 +496,7 @@ impl LoopRunner {
         Ok(())
     }
 
-    /// 评分闸门：等待自动评审完成，读取 rating 与阈值比较。
+    /// 评分闸门：检查 execution_record 的 rating 与阈值比较。
     /// 返回 true = 通过，false = 未通过。
     async fn apply_rating_gate(
         &self,
@@ -504,8 +504,9 @@ impl LoopRunner {
         min_rating: i32,
         unrated_policy: &str,
     ) -> Result<bool, String> {
-        let poll_start = std::time::Instant::now();
-        let timeout = std::time::Duration::from_secs(300);
+        // 最多等 30 秒让评审完成
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(30);
         loop {
             let rec = self
                 .ctx
@@ -514,28 +515,25 @@ impl LoopRunner {
                 .await
                 .map_err(|e| e.to_string())?
                 .ok_or_else(|| format!("execution record #{} not found", record_id))?;
+
+            // 有评分直接比较
+            if let Some(rating) = rec.rating {
+                let passed = rating >= min_rating;
+                info!("rating gate: record #{} rating={} min_rating={} {}",
+                    record_id, rating, min_rating, if passed { "PASS" } else { "FAIL" });
+                return Ok(passed);
+            }
+
+            // 评审还在进行中则等待
             let review_status = rec.last_review_status.as_deref().unwrap_or("");
-            if review_status.is_empty() || review_status == "pending" {
-                if poll_start.elapsed() > timeout {
-                    warn!("rating gate: record #{} review timeout, policy={}", record_id, unrated_policy);
-                    return Ok(unrated_policy == "pass");
-                }
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            if review_status == "pending" && start.elapsed() < timeout {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 continue;
             }
-            match rec.rating {
-                Some(rating) => {
-                    let passed = rating >= min_rating;
-                    info!("rating gate: record #{} rating={} min_rating={} {}",
-                        record_id, rating, min_rating, if passed { "PASS" } else { "FAIL" });
-                    if passed { return Ok(true); }
-                    return Ok(unrated_policy == "pass");
-                }
-                None => {
-                    info!("rating gate: record #{} no rating, policy={}", record_id, unrated_policy);
-                    return Ok(unrated_policy == "pass");
-                }
-            }
+
+            // 无评分：按策略决定
+            info!("rating gate: record #{} no rating, policy={}", record_id, unrated_policy);
+            return Ok(unrated_policy == "pass");
         }
     }
 }
