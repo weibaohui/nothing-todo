@@ -177,13 +177,67 @@ function ColorSection({ value, onChange }: { value: string; onChange: (v: string
 // Prompt 编辑器区段
 function PromptSection({ form }: { form: ReturnType<typeof useEditForm> }) {
   return (
-    <PromptEditor
-      value={form.editPrompt}
-      onChange={form.setEditPrompt}
-      editorRef={form.editorRef}
-      onOpenTemplate={form.handleOpenTemplate}
-      onInsertText={form.insertTextAtCursor}
-    />
+    <>
+      <PromptEditor
+        value={form.editPrompt}
+        onChange={form.setEditPrompt}
+        editorRef={form.editorRef}
+        onOpenTemplate={form.handleOpenTemplate}
+        onInsertText={form.insertTextAtCursor}
+      />
+      <LoopVariableHints onInsert={form.insertTextAtCursor} />
+    </>
+  );
+}
+
+// Loop 环节模板变量提示
+const LOOP_VARS = [
+  { label: '{message}', desc: '上一环节的完整输出（最常用）' },
+  { label: '{last_output}', desc: '上一环节的完整输出（同 message）' },
+  { label: '{last_conclusion}', desc: '上一环节的结论摘要' },
+  { label: '{last_step_name}', desc: '上一环节的名称' },
+  { label: '{blackboard}', desc: '全部历史执行记录（结论黑板）' },
+  { label: '{loop_execution_id}', desc: '本次 Loop 执行 ID' },
+  { label: '{loop_name}', desc: 'Loop 名称' },
+];
+
+function LoopVariableHints({ onInsert }: { onInsert: (text: string) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+      <div
+        onClick={() => setExpanded(!expanded)}
+        style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 4 }}
+      >
+        <span style={{ fontWeight: 600 }}>
+          {expanded ? '▼' : '▶'} 模板变量
+        </span>
+        <span style={{ fontSize: 11, color: '#94a3b8' }}>（点击插入到提示词中）</span>
+      </div>
+      {expanded && (
+        <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {LOOP_VARS.map(v => (
+            <span
+              key={v.label}
+              onClick={() => onInsert(v.label)}
+              title={v.desc}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                padding: '2px 8px', borderRadius: 4,
+                background: '#f1f5f9', border: '1px solid #e2e8f0',
+                cursor: 'pointer', fontSize: 11, fontFamily: 'monospace',
+                transition: 'background 150ms',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#e2e8f0'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = '#f1f5f9'; }}
+            >
+              <code style={{ fontSize: 11, color: '#0891b2' }}>{v.label}</code>
+              <span style={{ fontSize: 10, color: '#94a3b8' }}>{v.desc}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
