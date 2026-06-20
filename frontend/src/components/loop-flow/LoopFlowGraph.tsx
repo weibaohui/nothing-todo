@@ -89,7 +89,7 @@ function useFlowLayout(steps: LoopStepDto[]) {
         layoutEdges.push({
           from: String(step.id), to: String(successTarget),
           label: isLoopBack
-            ? `↻ 跳回 ${name}`
+            ? `跳回 ${name}`
             : step.on_success === 'goto' ? `✅→${name}` : '',
           type: successType, fromId: step.id, toId: successTarget,
           isLoopBack,
@@ -105,14 +105,14 @@ function useFlowLayout(steps: LoopStepDto[]) {
           const targetIdx = stepIndexById.get(failTarget);
           const isLoopBack = failType === 'fail-goto'
             && targetIdx != null && targetIdx < sourceIdx;
-          // 回环边：标签写「↻ <阈值分」，阈值取自源 step 的 min_rating。
-          // 比「↻ 重试 笑话」更准——用户一眼看出「评分低于 X 就回退到上一步」，
-          // 目标 step 名出现在连线箭头上，标签聚焦在条件本身。
+          // 回环边：标签只写阈值条件（<90分），不加 ↻ 之类的前缀符号。
+          // 路径已经是向上拱的正交折线 + 红色虚线，「回环」语义靠视觉传达，
+          // 文字聚焦在「什么情况下」这一核心信息上。
           const name = targetNameOf(failTarget);
           layoutEdges.push({
             from: String(step.id), to: String(failTarget),
             label: isLoopBack
-              ? `↻ <${step.min_rating}分`
+              ? `<${step.min_rating}分`
               : step.on_rating_fail === 'goto' ? `❌→${name}`
               : step.on_rating_fail === 'skip' ? '失败→继续' : '',
             type: failType, fromId: step.id, toId: failTarget,

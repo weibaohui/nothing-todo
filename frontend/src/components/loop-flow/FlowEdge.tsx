@@ -199,14 +199,16 @@ export function FlowEdge({
   // 即便被 trace 高亮压一层也能让回环一眼从其它边里跳出来。
   const style = edge.isLoopBack ? {
     color: edge.type === 'success-goto' ? '#15803d' : '#b91c1c',
-    dash: '7,4',
+    dash: '6,3',
     labelColor: edge.type === 'success-goto' ? '#15803d' : '#b91c1c',
   } : baseStyle;
+  // 回环边：stroke 比普通边略粗但不要喧宾夺主。1.8（默认）/ 2.5（被 trace 高亮），
+  // 配合深色 + 虚线足以区分；箭头也小一档，避免抢走步骤卡片视觉。
   const strokeWidth = edge.isLoopBack
-    ? (hasTrace && traced ? 3.5 : 2.5)
+    ? (hasTrace && traced ? 2.5 : 1.8)
     : (hasTrace && traced ? 3 : 1.5);
   const opacity = hasTrace ? (traced ? 1 : 0.15) : 1;
-  const markerSize = edge.isLoopBack ? 8 : 6;
+  const markerSize = edge.isLoopBack ? 6 : 6;
   const labelW = edge.label ? getLabelWidth(edge.label) : 0;
   const midX = getEdgeMidX(edge, nodes, startX, endX);
   const midY = getEdgeMidY(edge, nodes, startY, endY);
