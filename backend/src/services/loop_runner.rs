@@ -312,6 +312,8 @@ impl LoopRunner {
                     .db
                     .increment_loop_execution_counters(loop_execution_id, 0, 1)
                     .await;
+                // 评分闸门未通过时，跳过剩余所有步骤
+                break;
             }
 
             // 4e.
