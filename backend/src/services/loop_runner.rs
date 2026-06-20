@@ -177,6 +177,8 @@ impl LoopRunner {
                         step.id,
                         step.todo_id,
                         "skipped",
+                        step.min_rating,
+                        &step.unrated_policy,
                     )
                     .await
                     .map_err(|e| e.to_string())?;
@@ -192,6 +194,8 @@ impl LoopRunner {
                     step.id,
                     step.todo_id,
                     "running",
+                    step.min_rating,
+                    &step.unrated_policy,
                 )
                 .await
                 .map_err(|e| e.to_string())?;

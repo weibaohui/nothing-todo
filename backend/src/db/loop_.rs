@@ -513,12 +513,16 @@ impl Database {
         step_id: i64,
         todo_id: i64,
         status: &str,
+        min_rating: Option<i32>,
+        unrated_policy: &str,
     ) -> Result<loop_step_executions::Model, sea_orm::DbErr> {
         let am = loop_step_executions::ActiveModel {
             loop_execution_id: ActiveValue::Set(loop_execution_id),
             step_id: ActiveValue::Set(step_id),
             todo_id: ActiveValue::Set(todo_id),
             status: ActiveValue::Set(status.to_string()),
+            min_rating: ActiveValue::Set(min_rating),
+            unrated_policy: ActiveValue::Set(Some(unrated_policy.to_string())),
             ..Default::default()
         };
         am.insert(&self.conn).await

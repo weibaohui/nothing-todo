@@ -452,20 +452,12 @@ pub async fn get_execution(
         .await?
         .map(|l| l.name)
         .unwrap_or_default();
-    // 为每个 step execution 补充 rating / unrated_policy / min_rating
+    // 为每个 step execution 补充 step_name（来自 loop_steps 表）
     let mut enriched: Vec<crate::models::LoopStepExecutionDto> = vec![];
     for se in step_execs {
         let mut dto: crate::models::LoopStepExecutionDto = se.into();
-        // 读取 execution_record 的 rating
-        if let Some(er_id) = dto.execution_record_id {
-            if let Ok(Some(rec)) = state.db.get_execution_record(er_id).await {
-                dto.rating = rec.rating;
-            }
-        }
-        // 读取 loop_step 的 unrated_policy 和 min_rating
+        // 读取 loop_step 的名称（仅用于显示）
         if let Ok(Some(ls)) = state.db.get_loop_step(dto.step_id).await {
-            dto.unrated_policy = Some(ls.unrated_policy);
-            dto.min_rating = ls.min_rating;
             dto.step_name = Some(ls.name);
         }
         enriched.push(dto);

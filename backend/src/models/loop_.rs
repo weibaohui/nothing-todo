@@ -258,9 +258,9 @@ impl From<loop_step_executions::Model> for LoopStepExecutionDto {
             started_at: m.started_at,
             finished_at: m.finished_at,
             error_message: m.error_message,
-            rating: None,
-            unrated_policy: None,
-            min_rating: None,
+            rating: m.rating,
+            unrated_policy: m.unrated_policy,
+            min_rating: m.min_rating,
             step_name: None,
         }
     }

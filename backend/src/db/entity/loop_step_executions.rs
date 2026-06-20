@@ -19,6 +19,12 @@ pub struct Model {
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
     pub error_message: Option<String>,
+    /// 执行时的评分阈值（快照，不随 loop 配置变化）
+    pub min_rating: Option<i32>,
+    /// 执行时的未达标策略（快照，不随 loop 配置变化）
+    pub unrated_policy: Option<String>,
+    /// 执行时的评审评分（快照，不随 execution_record 变化）
+    pub rating: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
