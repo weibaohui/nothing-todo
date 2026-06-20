@@ -507,6 +507,7 @@ impl Database {
         todo_id: i64,
         success: bool,
     ) -> Result<(), sea_orm::DbErr> {
+        if todo_id == 0 { return Ok(()); } // 环节独立执行
         let status = if success {
             TodoStatus::Completed
         } else {

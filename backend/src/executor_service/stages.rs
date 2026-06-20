@@ -184,6 +184,7 @@ pub(crate) async fn start_todo_or_cleanup(
     prepared: &PreparedExecution,
     worktree_ctx: &WorktreeContext,
 ) -> Result<(), ExecutionResult> {
+    if prepared.request.todo_id == 0 { return Ok(()); } // 环节独立执行
     if let Err(e) = prepared
         .request
         .db
