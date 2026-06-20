@@ -662,7 +662,6 @@ export function LoopTriggersPanel({ loopId, triggers, onChanged }: Props) {
   const [saving, setSaving] = useState(false);
   // 各 trigger type 的临时配置 JSON 值（存放自定义配置表单的内容）
   const [configJson, setConfigJson] = useState('{}');
-  const [priority, setPriority] = useState(0);
   const [form] = Form.useForm();
 
   // 按 type 分组索引已存在的 trigger（每种 type 最多 1 个）
@@ -691,20 +690,17 @@ export function LoopTriggersPanel({ loopId, triggers, onChanged }: Props) {
   const closeConfig = useCallback(() => {
     setConfiguring(null);
     setConfigJson('{}');
-    setPriority(0);
     form.resetFields();
   }, [form]);
 
   // 打开新增配置 modal（从 off 变 on）
   const openCreateConfig = useCallback((type: string) => {
-    setPriority(0);
     setConfigJson('{}');
     setConfiguring({ type, existing: null });
   }, []);
 
   // 打开编辑配置 modal（点击已存在的 trigger 行名）
   const openEditConfig = useCallback((t: LoopTriggerDto) => {
-    setPriority(t.priority);
     setConfigJson(t.config);
     setConfiguring({ type: t.trigger_type, existing: t });
   }, []);
@@ -723,7 +719,7 @@ export function LoopTriggersPanel({ loopId, triggers, onChanged }: Props) {
           trigger_type: configuring.type,
           config: configJson || '{}',
           enabled: configuring.existing.enabled,
-          priority,
+          priority: 0,
         } as UpdateTriggerRequest);
         message.success('已更新');
       } else {
@@ -731,7 +727,7 @@ export function LoopTriggersPanel({ loopId, triggers, onChanged }: Props) {
           trigger_type: configuring.type,
           config: configJson || '{}',
           enabled: true,
-          priority,
+          priority: 0,
         } as CreateTriggerRequest);
         message.success(`已添加「${TRIGGER_META[configuring.type]?.label ?? configuring.type}」触发器`);
       }
@@ -742,7 +738,7 @@ export function LoopTriggersPanel({ loopId, triggers, onChanged }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [configuring, configJson, priority, loopId, message, closeConfig, onChanged]);
+  }, [configuring, configJson, loopId, message, closeConfig, onChanged]);
 
   // 删除已有 trigger
   const handleDelete = useCallback(async (id: number) => {
@@ -885,26 +881,6 @@ export function LoopTriggersPanel({ loopId, triggers, onChanged }: Props) {
       >
         {configuring && (
           <>
-            {/* 优先级选择 — 对所有类型都可用 */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 6 }}>
-                优先级
-                <Tooltip title="数值越大越优先派发。同一 loop 的多个触发器同时命中时，取优先级最高的触发。">
-                  <EditOutlined style={{ marginLeft: 4, fontSize: 10, color: '#94a3b8' }} />
-                </Tooltip>
-              </div>
-              <Select
-                value={priority}
-                onChange={(v) => setPriority(v)}
-                style={{ width: '100%' }}
-                options={[
-                  { value: 0, label: '0（默认）' },
-                  { value: 5, label: '5' },
-                  { value: 10, label: '10（高优先级）' },
-                ]}
-              />
-            </div>
-
             {/* 专用配置区域 */}
             <div style={{
               background: '#f8fafc',
