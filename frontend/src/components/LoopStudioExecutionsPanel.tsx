@@ -7,14 +7,13 @@
 // 分页: page + limit, 简单表格不引入分页器, 改成"加载更多"按钮避免侵入式 UI
 
 import { useState, useEffect, useCallback } from 'react';
-import { App as AntApp, Button, Empty, Skeleton, Tag, Space, Tooltip, Drawer, Descriptions } from 'antd';
+import { App as AntApp, Button, Empty, Skeleton, Tag, Tooltip, Drawer, Descriptions } from 'antd';
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   LoadingOutlined,
   MinusCircleOutlined,
   ReloadOutlined,
-  HistoryOutlined,
   StarOutlined,
   ArrowRightOutlined,
 } from '@ant-design/icons';
@@ -50,7 +49,7 @@ function durationLabel(start: string, end: string | null): string {
   return `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`;
 }
 
-export function LoopExecutionsPanel({ loopId, loopName }: Props) {
+export function LoopExecutionsPanel({ loopId, loopName: _loopName }: Props) {
   const { message } = AntApp.useApp();
   const [items, setItems] = useState<LoopExecutionDto[]>([]);
   const [total, setTotal] = useState(0);
@@ -111,10 +110,9 @@ export function LoopExecutionsPanel({ loopId, loopName }: Props) {
   return (
     <div className="loop-executions-panel">
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Space>
-          <HistoryOutlined />
-          <span style={{ color: 'var(--color-text-secondary, #475569)' }}>{loopName} 的执行历史 (共 {total} 条)</span>
-        </Space>
+        <span style={{ fontSize: 12, color: 'var(--color-text-tertiary, #94a3b8)' }}>
+          共 {total} 条
+        </span>
         <Button size="small" icon={<ReloadOutlined />} onClick={() => loadPage(1)}>
           刷新
         </Button>
