@@ -100,6 +100,7 @@ pub struct LoopDto {
     pub status: String,
     pub color: String,
     pub icon: String,
+    pub review_template_id: Option<i64>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
@@ -114,6 +115,7 @@ impl From<loops::Model> for LoopDto {
             status: m.status,
             color: m.color,
             icon: m.icon,
+            review_template_id: m.review_template_id,
             created_at: m.created_at,
             updated_at: m.updated_at,
         }
@@ -295,6 +297,7 @@ pub struct CreateLoopRequest {
     pub color: String,
     #[serde(default = "default_icon")]
     pub icon: String,
+    pub review_template_id: Option<i64>,
 }
 
 fn default_color() -> String { "#722ed1".to_string() }
@@ -307,6 +310,7 @@ pub struct UpdateLoopRequest {
     pub workspace: Option<String>,
     pub color: String,
     pub icon: String,
+    pub review_template_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

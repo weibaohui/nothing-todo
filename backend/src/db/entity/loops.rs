@@ -20,6 +20,7 @@ pub struct Model {
     pub color: String,
     #[sea_orm(default_value = "loop")]
     pub icon: String,
+    pub review_template_id: Option<i64>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }

@@ -282,6 +282,7 @@ impl LoopRunner {
                         &step.unrated_policy,
                         &step_meta.prompt,
                         step_meta.acceptance_criteria.as_deref(),
+                        loop_.review_template_id,
                     )
                     .await
                     .map_err(|e| e.to_string())?;
@@ -512,6 +513,7 @@ impl LoopRunner {
         unrated_policy: &str,
         step_prompt: &str,
         step_acceptance_criteria: Option<&str>,
+        review_template_id: Option<i64>,
     ) -> Result<bool, String> {
         // 先检查是否已有评分
         let rec = self
@@ -533,8 +535,8 @@ impl LoopRunner {
         if let Some(criteria) = step_acceptance_criteria.filter(|s| !s.trim().is_empty()) {
             info!("rating gate: record #{} triggering auto-review", record_id);
             
-            // 1) 确保评审模板存在
-            let template = self.ensure_review_template().await?;
+            // 1) 获取评审模板（优先使用 loop 配置的，否则用默认模板）
+            let template = self.ensure_review_template(review_template_id).await?;
             
             // 2) 获取执行记录的 result
             let original_output = rec.result.as_deref().unwrap_or_default();
@@ -658,15 +660,22 @@ impl LoopRunner {
         Ok(unrated_policy == "pass")
     }
 
-    /// 确保评审模板 todo 存在并返回
-    async fn ensure_review_template(&self) -> Result<crate::models::Todo, String> {
+    /// 获取评审模板 todo：优先使用 loop 配置的 id，否则用默认模板
+    async fn ensure_review_template(&self, template_id: Option<i64>) -> Result<crate::models::Todo, String> {
+        // 如果 loop 指定了模板 id，直接加载
+        if let Some(tid) = template_id {
+            if let Some(t) = self.ctx.db.get_todo(tid).await.map_err(|e| format!("load template: {}", e))? {
+                return Ok(t);
+            }
+        }
+        // 回退到默认模板
         use crate::services::auto_review::{
             ensure_reviewer_template, DEFAULT_REVIEWER_PROMPT, REVIEWER_TEMPLATE_TITLE,
         };
-        let template_id = ensure_reviewer_template(
+        let default_id = ensure_reviewer_template(
             &self.ctx.db, REVIEWER_TEMPLATE_TITLE, DEFAULT_REVIEWER_PROMPT
         ).await.map_err(|e| format!("ensure review template: {}", e))?;
-        self.ctx.db.get_todo(template_id)
+        self.ctx.db.get_todo(default_id)
             .await
             .map_err(|e| format!("load template: {}", e))?
             .ok_or_else(|| "reviewer template vanished".to_string())

@@ -63,6 +63,7 @@ pub async fn create_loop(
             req.workspace.as_deref(),
             &req.color,
             &req.icon,
+            req.review_template_id,
         )
         .await?;
     Ok((StatusCode::CREATED, ApiResponse::ok(LoopDto::from(created))))
@@ -104,6 +105,7 @@ pub async fn update_loop(
             req.workspace.as_deref(),
             &req.color,
             &req.icon,
+            req.review_template_id,
         )
         .await?;
     let updated = state.db.get_loop(id).await?.ok_or(AppError::NotFound)?;

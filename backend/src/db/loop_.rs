@@ -41,6 +41,7 @@ impl Database {
         workspace: Option<&str>,
         color: &str,
         icon: &str,
+        review_template_id: Option<i64>,
     ) -> Result<loops::Model, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = loops::ActiveModel {
@@ -49,6 +50,7 @@ impl Database {
             workspace: ActiveValue::Set(workspace.map(|s| s.to_string())),
             color: ActiveValue::Set(color.to_string()),
             icon: ActiveValue::Set(icon.to_string()),
+            review_template_id: ActiveValue::Set(review_template_id),
             status: ActiveValue::Set("paused".to_string()),
             created_at: ActiveValue::Set(Some(now.clone())),
             updated_at: ActiveValue::Set(Some(now)),
@@ -65,6 +67,7 @@ impl Database {
         workspace: Option<&str>,
         color: &str,
         icon: &str,
+        review_template_id: Option<i64>,
     ) -> Result<(), sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let existing = loops::Entity::find_by_id(id).one(&self.conn).await?;
@@ -75,6 +78,7 @@ impl Database {
             am.workspace = ActiveValue::Set(workspace.map(|s| s.to_string()));
             am.color = ActiveValue::Set(color.to_string());
             am.icon = ActiveValue::Set(icon.to_string());
+            am.review_template_id = ActiveValue::Set(review_template_id);
             am.updated_at = ActiveValue::Set(Some(now));
             am.update(&self.conn).await?;
         }
@@ -126,6 +130,7 @@ impl Database {
                 source.workspace.as_deref(),
                 &source.color,
                 &source.icon,
+                source.review_template_id,
             )
             .await?;
 
@@ -677,6 +682,7 @@ impl Database {
                     status: row.try_get_by::<String, _>("status")?,
                     color: row.try_get_by::<String, _>("color")?,
                     icon: row.try_get_by::<String, _>("icon")?,
+                    review_template_id: row.try_get_by::<Option<i64>, _>("review_template_id")?,
                     created_at: row.try_get_by::<Option<String>, _>("created_at")?,
                     updated_at: row.try_get_by::<Option<String>, _>("updated_at")?,
                 },
