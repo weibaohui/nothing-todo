@@ -538,7 +538,13 @@ impl LoopRunner {
             info!("rating gate: record #{} triggering auto-review", record_id);
             
             // 1) 获取评审模板（优先使用 loop 配置的，否则用默认模板）
-            let template = self.ensure_review_template(review_template_id).await?;
+            let template = match self.ensure_review_template(review_template_id).await {
+                Ok(t) => t,
+                Err(e) => {
+                    warn!("rating gate: failed to get review template: {}", e);
+                    return Ok(unrated_policy == "pass");
+                }
+            };
             
             // 2) 获取执行记录的 result
             let original_output = rec.result.as_deref().unwrap_or_default();
