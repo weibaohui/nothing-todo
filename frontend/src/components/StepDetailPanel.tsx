@@ -87,9 +87,11 @@ const sectionStyle: React.CSSProperties = {
 
 // Prompt 内容样式：预格式化文本、浅色背景、适中行高，
 // 与验收标准区段共用基础样式，仅追加 minHeight
+// 背景使用 --color-bg-hover：暗色下为 Catppuccin Mocha 的柔和深灰 #262637，
+// 亮色 fallback #f1f5f9 保持与白色底边的轻微层次，替代未定义的 --color-bg-secondary。
 const textDisplayStyle: React.CSSProperties = {
   fontSize: 13, color: 'var(--color-text-secondary, #475569)',
-  background: 'var(--color-bg-secondary, #f8fafc)',
+  background: 'var(--color-bg-hover, #f1f5f9)',
   padding: 12, borderRadius: 6, whiteSpace: 'pre-wrap',
   lineHeight: 1.6, minHeight: 40,
 };
