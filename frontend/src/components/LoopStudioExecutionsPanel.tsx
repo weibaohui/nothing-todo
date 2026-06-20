@@ -27,7 +27,7 @@ interface Props {
   onTotalChange?: (total: number) => void;
 }
 
-const DEFAULT_PAGE_LIMIT = 20;
+const DEFAULT_PAGE_LIMIT = 5;
 
 // 状态 → 颜色 + 图标, 与 LoopListPanel.executionIcon 保持一致
 function execStatusView(status: string): { color: string; icon: React.ReactNode; label: string } {
