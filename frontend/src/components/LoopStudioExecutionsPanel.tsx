@@ -7,7 +7,7 @@
 // 分页: page + limit, 简单表格不引入分页器, 改成"加载更多"按钮避免侵入式 UI
 
 import { useState, useEffect, useCallback } from 'react';
-import { App as AntApp, Button, Empty, Skeleton, Tag, Tooltip, Drawer, Descriptions } from 'antd';
+import { App as AntApp, Button, Empty, Skeleton, Tag, Tooltip, Drawer, Descriptions, Pagination } from 'antd';
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
@@ -65,17 +65,13 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
     setLoading(true);
     dbLoops.listExecutions(loopId, { page: p, limit: DEFAULT_PAGE_LIMIT })
       .then((res) => {
-        if (p === 1) {
-          setItems(res.items);
-        } else {
-          setItems(prev => [...prev, ...res.items]);
-        }
+        setItems(res.items);
         setTotal(res.total);
         onTotalChange?.(res.total);
         setPage(p);
       })
       .catch(() => {
-        if (p === 1) setItems([]);
+        setItems([]);
       })
       .finally(() => setLoading(false));
   }, [loopId]);
@@ -102,12 +98,6 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
     }
   }, [expandedId, loopId, message]);
 
-  // 加载更多
-  const handleLoadMore = useCallback(() => {
-    if (items.length < total && !loading) {
-      loadPage(page + 1);
-    }
-  }, [items.length, total, loading, page, loadPage]);
 
   return (
     <div className="loop-executions-panel">
@@ -185,11 +175,16 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
               </div>
             );
           })}
-          {items.length < total && (
+          {total > DEFAULT_PAGE_LIMIT && (
             <div style={{ textAlign: 'center', marginTop: 12 }}>
-              <Button onClick={handleLoadMore} loading={loading}>
-                加载更多 ({items.length}/{total})
-              </Button>
+              <Pagination
+                size="small"
+                current={page}
+                total={total}
+                pageSize={DEFAULT_PAGE_LIMIT}
+                onChange={(p) => loadPage(p)}
+                showSizeChanger={false}
+              />
             </div>
           )}
         </>
