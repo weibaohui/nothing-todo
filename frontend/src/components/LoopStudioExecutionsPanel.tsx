@@ -7,13 +7,12 @@
 // 分页: page + limit, 简单表格不引入分页器, 改成"加载更多"按钮避免侵入式 UI
 
 import { useState, useEffect, useCallback } from 'react';
-import { App as AntApp, Button, Empty, Skeleton, Tag, Tooltip, Drawer, Descriptions, Pagination } from 'antd';
+import { App as AntApp, Empty, Skeleton, Tag, Tooltip, Drawer, Descriptions, Pagination } from 'antd';
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   LoadingOutlined,
   MinusCircleOutlined,
-  ReloadOutlined,
   StarOutlined,
   ArrowRightOutlined,
 } from '@ant-design/icons';
@@ -78,6 +77,14 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
 
   useEffect(() => { loadPage(1); }, [loadPage]);
 
+  // 自动轮询：当存在运行中的执行记录时，每秒刷新一次
+  const hasRunning = items.some(e => e.status === 'running');
+  useEffect(() => {
+    if (!hasRunning) return;
+    const timer = setInterval(() => { loadPage(page); }, 1000);
+    return () => clearInterval(timer);
+  }, [hasRunning, page, loadPage]);
+
   // 展开行: 拉取该 execution 的 step 详情
   const handleExpand = useCallback(async (execId: number) => {
     if (expandedId === execId) {
@@ -101,13 +108,10 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
 
   return (
     <div className="loop-executions-panel">
-      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ marginBottom: 12 }}>
         <span style={{ fontSize: 12, color: 'var(--color-text-tertiary, #94a3b8)' }}>
           共 {total} 条
         </span>
-        <Button size="small" icon={<ReloadOutlined />} onClick={() => loadPage(1)}>
-          刷新
-        </Button>
       </div>
 
       {loading && items.length === 0 ? (
