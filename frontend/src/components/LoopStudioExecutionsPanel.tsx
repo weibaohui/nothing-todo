@@ -16,6 +16,7 @@ import {
   ReloadOutlined,
   HistoryOutlined,
   StarOutlined,
+  ArrowRightOutlined,
 } from '@ant-design/icons';
 import * as dbLoops from '@/utils/database/loops';
 import type { LoopExecutionDto, LoopExecutionDetail } from '@/types/loop';
@@ -179,112 +180,101 @@ export function LoopExecutionsPanel({ loopId, loopName }: Props) {
   );
 }
 
-// 环节执行列表：纵向列表样式，点击展开详情
+// 环节执行卡片：卡片式布局 + 箭头连接展示执行顺序，每张卡展示执行详情
 function StepExecList({ stepExecs }: { stepExecs: Record<string, any>[] }) {
-  const [expandedId, setExpandedId] = useState<number | null>(null);
   if (stepExecs.length === 0) {
     return <Empty description="无环节执行记录" />;
   }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div style={{ display: 'flex', gap: 0, overflowX: 'auto', paddingBottom: 8, alignItems: 'stretch' }}>
       {stepExecs.map((s, idx) => {
         const view = execStatusView(s.status);
         const ratingPassed = s.rating != null && s.min_rating != null && s.rating >= s.min_rating;
         const duration = s.started_at ? durationLabel(s.started_at, s.finished_at) : '-';
-        const expanded = expandedId === s.id;
         return (
-          <div key={s.id} style={{
-            background: 'var(--color-bg-elevated, #ffffff)',
-            border: `1px solid ${expanded ? 'var(--color-primary, #0891b2)' : 'var(--color-border, #e2e8f0)'}`,
-            borderRadius: 8,
-            overflow: 'hidden',
-            transition: 'border-color 200ms',
-          }}>
-            {/* 摘要行 - 点击展开/收起 */}
-            <div
-              onClick={() => setExpandedId(expanded ? null : s.id)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '10px 14px', cursor: 'pointer',
-                background: expanded ? 'var(--color-bg-hover, #f8fafc)' : 'transparent',
-              }}
-            >
-              {/* 序号 + 状态图标 */}
-              {view.icon}
-              <span style={{ fontWeight: 600, fontSize: 14, minWidth: 60 }}>环节 #{idx + 1}</span>
-              <Tag color={view.color} style={{ margin: 0 }}>{s.status}</Tag>
-
-              {/* 评分 */}
-              {s.rating != null ? (
-                <span style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 3,
-                  padding: '1px 8px', borderRadius: 4, fontSize: 12,
-                  background: ratingPassed ? 'var(--color-success-bg, #f0fdf4)' : 'var(--color-error-bg, #fef2f2)',
-                  color: ratingPassed ? 'var(--color-success, #22c55e)' : 'var(--color-error, #ef4444)',
-                  fontWeight: 600,
-                }}>
-                  <StarOutlined style={{ fontSize: 10 }} /> {s.rating}
-                </span>
-              ) : (
-                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary, #94a3b8)' }}>未评审</span>
-              )}
-
-              {/* 阈值 */}
-              {s.min_rating != null && (
-                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary, #94a3b8)' }}>
-                  阈值 {s.min_rating}
-                </span>
-              )}
-
-              {/* 耗时 */}
-              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary, #94a3b8)', fontFamily: 'monospace', marginLeft: 'auto' }}>
-                {duration}
-              </span>
-            </div>
-
-            {/* 展开详情 */}
-            {expanded && (
-              <div style={{ padding: '10px 14px 14px', borderTop: '1px solid var(--color-border-light, #f1f5f9)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 20px', fontSize: 13 }}>
-                  <div><span style={{ color: 'var(--color-text-tertiary, #94a3b8)' }}>环节 ID</span> {s.step_id}</div>
-                  <div><span style={{ color: 'var(--color-text-tertiary, #94a3b8)' }}>耗时</span> {duration}</div>
-
-                  {s.rating != null && (
-                    <div>
-                      <span style={{ color: 'var(--color-text-tertiary, #94a3b8)' }}>评分 </span>
-                      <span style={{ fontWeight: 600, color: ratingPassed ? 'var(--color-success, #22c55e)' : 'var(--color-error, #ef4444)' }}>
-                        {s.rating}
-                      </span>
-                      {s.min_rating != null && (
-                        <span style={{ color: 'var(--color-text-tertiary, #94a3b8)', marginLeft: 6 }}>
-                          / 阈值 {s.min_rating} {s.rating >= s.min_rating ? '✅ 通过' : '❌ 未通过'}
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  {s.unrated_policy && (
-                    <div>
-                      <span style={{ color: 'var(--color-text-tertiary, #94a3b8)' }}>未达标策略 </span>
-                      {s.unrated_policy === 'skip' ? '跳过后续环节' : '放行'}
-                    </div>
-                  )}
-
-                  <div><span style={{ color: 'var(--color-text-tertiary, #94a3b8)' }}>开始</span> {s.started_at ? new Date(s.started_at).toLocaleString() : '-'}</div>
-                  <div><span style={{ color: 'var(--color-text-tertiary, #94a3b8)' }}>结束</span> {s.finished_at ? new Date(s.finished_at).toLocaleString() : '-'}</div>
-
-                  {s.execution_record_id && (
-                    <div><span style={{ color: 'var(--color-text-tertiary, #94a3b8)' }}>执行记录</span> #{s.execution_record_id}</div>
-                  )}
-                </div>
-
-                {s.error_message && (
-                  <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--color-error-bg, #fef2f2)', borderRadius: 6, color: 'var(--color-error, #ef4444)', fontSize: 13, lineHeight: 1.5 }}>
-                    {s.error_message}
-                  </div>
-                )}
+          <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+            {/* 箭头连接（第一项前不显示） */}
+            {idx > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', padding: '0 4px' }}>
+                <ArrowRightOutlined style={{ color: 'var(--color-text-tertiary, #94a3b8)', fontSize: 16 }} />
               </div>
             )}
+
+            {/* 执行卡片 */}
+            <div
+              style={{
+                position: 'relative',
+                width: 220, minWidth: 220,
+                background: 'var(--color-bg-elevated, #ffffff)',
+                border: `1px solid ${s.status === 'success' ? 'var(--color-success, #22c55e)' : s.status === 'failed' ? 'var(--color-error, #ef4444)' : 'var(--color-border, #e2e8f0)'}`,
+                borderRadius: 10,
+                padding: '14px 16px',
+                transition: 'box-shadow 200ms',
+                userSelect: 'none',
+              }}
+            >
+              {/* 执行序号 */}
+              <div style={{ position: 'absolute', top: 6, left: 10, fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary, #94a3b8)' }}>
+                #{idx + 1}
+              </div>
+
+              {/* 状态指示圆点 */}
+              <div style={{ position: 'absolute', top: 8, right: 10, width: 8, height: 8, borderRadius: 4, background: view.color }} />
+
+              {/* 环节名称 */}
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text, #0f172a)', marginBottom: 2, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                环节 #{s.step_id}
+              </div>
+
+              {/* 状态 + 耗时 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                {view.icon}
+                <Tag color={view.color} style={{ margin: 0, fontSize: 11 }}>{s.status}</Tag>
+                <span style={{ fontSize: 11, color: 'var(--color-text-tertiary, #94a3b8)', fontFamily: 'monospace' }}>{duration}</span>
+              </div>
+
+              {/* 评分 / 阈值 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: 4 }}>
+                {s.rating != null ? (
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 2,
+                    padding: '1px 6px', borderRadius: 4, fontSize: 12,
+                    background: ratingPassed ? 'var(--color-success-bg, #f0fdf4)' : 'var(--color-error-bg, #fef2f2)',
+                    color: ratingPassed ? 'var(--color-success, #22c55e)' : 'var(--color-error, #ef4444)',
+                    fontWeight: 600,
+                  }}>
+                    <StarOutlined style={{ fontSize: 10 }} /> {s.rating}
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 11, color: 'var(--color-text-tertiary, #94a3b8)' }}>未评审</span>
+                )}
+                {s.min_rating != null && (
+                  <span style={{ fontSize: 11, color: s.rating != null && s.rating >= s.min_rating ? 'var(--color-success, #22c55e)' : 'var(--color-error, #ef4444)' }}>
+                    {s.rating != null && (s.rating >= s.min_rating ? '✅' : '❌')} {s.min_rating}
+                  </span>
+                )}
+              </div>
+
+              {/* 策略 */}
+              {s.unrated_policy && (
+                <div style={{ fontSize: 11, color: 'var(--color-text-tertiary, #94a3b8)', marginBottom: 2 }}>
+                  策略: {s.unrated_policy === 'skip' ? '未达标跳过' : '未达标放行'}
+                </div>
+              )}
+
+              {/* 时间 */}
+              <div style={{ fontSize: 10, color: 'var(--color-text-tertiary, #94a3b8)', lineHeight: 1.5 }}>
+                开始 {s.started_at ? new Date(s.started_at).toLocaleTimeString() : '-'}
+                · 结束 {s.finished_at ? new Date(s.finished_at).toLocaleTimeString() : '-'}
+              </div>
+
+              {/* 错误 */}
+              {s.error_message && (
+                <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-error, #ef4444)', lineHeight: 1.4 }}>
+                  {s.error_message}
+                </div>
+              )}
+            </div>
           </div>
         );
       })}
