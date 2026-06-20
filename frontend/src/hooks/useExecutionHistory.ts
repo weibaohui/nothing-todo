@@ -100,6 +100,8 @@ export function useExecutionHistory({
           type: 'SET_EXECUTION_RECORDS',
           payload: { todoId: selectedTodoId, records: pageData.records },
         });
+      } else {
+        setLocalRecords(pageData.records);
       }
       setHistoryPage(pageData.page);
       setHistoryLimit(pageData.limit);
@@ -161,6 +163,8 @@ export function useExecutionHistory({
         if (cancelledRef.current) return;
         if (selectedTodoId) {
           dispatch({ type: 'SET_EXECUTION_RECORDS', payload: { todoId: selectedTodoId, records: pageData.records } });
+        } else {
+          setLocalRecords(pageData.records);
         }
         setHistoryPage(pageData.page);
         setHistoryTotal(pageData.total);
@@ -226,7 +230,8 @@ export function useExecutionHistory({
 
   // ─── Derived values ────────────────────────────────────────
 
-  const records = selectedTodoId ? (storeRecords ?? []) : [];
+  const [localRecords, setLocalRecords] = useState<ExecutionRecord[]>([]);
+  const records = selectedTodoId ? (storeRecords ?? []) : localRecords;
   const selectedHistoryRecord = selectedHistoryRecordDetail
     || (selectedHistoryRecordId ? records.find(r => r.id === selectedHistoryRecordId) || null : null);
 
