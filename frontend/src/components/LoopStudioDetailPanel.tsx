@@ -54,9 +54,7 @@ export function LoopDetailPanel({
   // 基础信息编辑 modal 开关 (替代之前的 inline 编辑)
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form] = Form.useForm<UpdateLoopRequest>();
-  // 全局限制编辑
-  const [limitsForm] = Form.useForm();
+  const [form] = Form.useForm<UpdateLoopRequest & { max_step_executions?: number; max_total_tokens?: number }>();
   // 工作空间下拉选项
   const [workspaceOptions, setWorkspaceOptions] = useState<{ label: string; value: string }[]>([]);
   // 完整的项目目录列表（用于展示详情）
@@ -80,15 +78,15 @@ export function LoopDetailPanel({
           color: d.color,
           icon: d.icon,
         });
-        // 解析 limits_config
+        // 解析 limits_config 到同一 form
         try {
           const lc = JSON.parse(d.limits_config || '{}');
-          limitsForm.setFieldsValue({
+          form.setFieldsValue({
             max_step_executions: lc.max_step_executions ?? null,
             max_total_tokens: lc.max_total_tokens ?? null,
           });
         } catch {
-          limitsForm.resetFields();
+          // 忽略解析错误
         }
       })
       .catch(() => {
@@ -138,11 +136,10 @@ export function LoopDetailPanel({
     setSaving(true);
     try {
       const colorHex = String(values.color || 'var(--color-primary, #0891b2)');
-      // 构建 limits_config
-      const limitsVals = limitsForm.getFieldsValue();
+      // 构建 limits_config（从主 form 读取）
       const limitsConfig: Record<string, any> = {};
-      if (limitsVals.max_step_executions != null) limitsConfig.max_step_executions = limitsVals.max_step_executions;
-      if (limitsVals.max_total_tokens != null) limitsConfig.max_total_tokens = limitsVals.max_total_tokens;
+      if (values.max_step_executions != null) limitsConfig.max_step_executions = values.max_step_executions;
+      if (values.max_total_tokens != null) limitsConfig.max_total_tokens = values.max_total_tokens;
 
       await dbLoops.updateLoop(loopId, {
         name: values.name.trim(),
@@ -161,7 +158,7 @@ export function LoopDetailPanel({
     } finally {
       setSaving(false);
     }
-  }, [form, limitsForm, loopId, message, reload, onChanged]);
+  }, [form, loopId, message, reload, onChanged]);
 
   if (loading && !detail) {
     return <Skeleton active style={{ padding: 24 }} />;
