@@ -13,8 +13,8 @@ pub struct Model {
     #[sea_orm(default_value = "")]
     pub description: String,
     pub workspace: Option<String>,
-    /// draft | enabled | paused
-    #[sea_orm(default_value = "draft")]
+    /// enabled | paused
+    #[sea_orm(default_value = "paused")]
     pub status: String,
     #[sea_orm(default_value = "#722ed1")]
     pub color: String,

@@ -112,7 +112,6 @@ export function LoopListPanel({ loops, selectedId, onSelect }: LoopListPanelProp
             { value: 'all', label: `全部 ${countByStatus(loops, 'all')}` },
             { value: 'enabled', label: `已启用 ${countByStatus(loops, 'enabled')}` },
             { value: 'paused', label: `已暂停 ${countByStatus(loops, 'paused')}` },
-            { value: 'draft', label: `草稿 ${countByStatus(loops, 'draft')}` },
           ]}
         />
       </div>
@@ -144,7 +143,7 @@ function LoopCard({ loop, selected, onClick }: {
   selected: boolean;
   onClick: () => void;
 }) {
-  const status: LoopStatus = (loop.status as LoopStatus) ?? 'draft';
+  const status: LoopStatus = (loop.status as LoopStatus) ?? 'paused';
   // 副标题优先用 workspace, 缺则降级到 description
   const subtitle = loop.workspace || loop.description || '';
 

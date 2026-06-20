@@ -6,7 +6,7 @@
 // - GET    /api/loops/{id}                   详情(loop + triggers + steps + todo_map)
 // - PUT    /api/loops/{id}                   全量更新基本字段
 // - DELETE /api/loops/{id}                   删除(级联清子表)
-// - PUT    /api/loops/{id}/status            切换 draft/enabled/paused
+// - PUT    /api/loops/{id}/status            切换 enabled/paused
 // - POST   /api/loops/{id}/duplicate         复制
 // - POST   /api/loops/{id}/trigger           手动触发
 // - GET/POST/PUT/DELETE /api/loops/{id}/triggers[/tid]
@@ -45,7 +45,7 @@ export async function getLoop(id: number): Promise<LoopDetail> {
   return unwrap(await api.get(`/api/loops/${id}`));
 }
 
-/** 新建 loop,后端强制 status=draft。 */
+/** 新建 loop,后端强制 status=paused。 */
 export async function createLoop(req: CreateLoopRequest): Promise<LoopListItem> {
   return unwrap(await api.post('/api/loops', req));
 }
@@ -60,7 +60,7 @@ export async function deleteLoop(id: number): Promise<void> {
   await api.delete(`/api/loops/${id}`);
 }
 
-/** 切换 loop 状态(draft/enabled/paused)。 */
+/** 切换 loop 状态(enabled/paused)。 */
 export async function updateLoopStatus(
   id: number,
   req: UpdateLoopStatusRequest,

@@ -49,7 +49,7 @@ impl Database {
             workspace: ActiveValue::Set(workspace.map(|s| s.to_string())),
             color: ActiveValue::Set(color.to_string()),
             icon: ActiveValue::Set(icon.to_string()),
-            status: ActiveValue::Set("draft".to_string()),
+            status: ActiveValue::Set("paused".to_string()),
             created_at: ActiveValue::Set(Some(now.clone())),
             updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
@@ -109,7 +109,7 @@ impl Database {
     /// 复制 loop 及其所有 trigger.step；execution 不复制。
     ///
     /// 用于 UI 的「另存为」/「复制为新版本」按钮。
-    /// 复制时 name 追加「(副本)」前缀，status 重置为 draft，
+    /// 复制时 name 追加「(副本)」前缀，status 重置为 paused，
     /// 创建时间/更新时间由 trigger 重新设置。
     pub async fn duplicate_loop(
         &self,

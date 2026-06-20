@@ -45,7 +45,7 @@ pub async fn list_loops(
     Ok(ApiResponse::ok(items))
 }
 
-/// POST /api/loops — 新建 loop,status 强制为 draft
+/// POST /api/loops — 新建 loop,status 强制为 paused
 pub async fn create_loop(
     State(state): State<AppState>,
     Json(req): Json<CreateLoopRequest>,
@@ -125,7 +125,7 @@ pub async fn delete_loop(
     Ok(ApiResponse::ok(()))
 }
 
-/// PUT /api/loops/{id}/status — 切换 draft/enabled/paused
+/// PUT /api/loops/{id}/status — 切换 enabled/paused
 pub async fn update_loop_status(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -135,7 +135,7 @@ pub async fn update_loop_status(
         .map_err(AppError::BadRequest)?;
     state.db.get_loop(id).await?.ok_or(AppError::NotFound)?;
     state.db.update_loop_status(id, &req.status).await?;
-    // status 变化时刷新 cron 调度：draft/paused 不应继续触发
+    // status 变化时刷新 cron 调度：paused 不应继续触发
     if let Some(sched) = state.loop_scheduler.as_ref() {
         let _ = sched.reload_all().await;
     }
@@ -153,7 +153,7 @@ pub async fn duplicate_loop(
         .duplicate_loop(id)
         .await?
         .ok_or(AppError::NotFound)?;
-    // 复制后的 loop 是 draft,如包含 cron trigger,要 reload scheduler
+    // 复制后的 loop 是 paused,如包含 cron trigger,要 reload scheduler
     if let Some(sched) = state.loop_scheduler.as_ref() {
         let _ = sched.reload_all().await;
     }

@@ -7,7 +7,7 @@
 //
 // 前端组件用这些类型组装 LoopStudio 页面。
 
-export type LoopStatus = 'draft' | 'enabled' | 'paused';
+export type LoopStatus = 'enabled' | 'paused';
 
 export type LoopTriggerType =
   | 'manual'

@@ -311,7 +311,7 @@ pub struct UpdateLoopRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct UpdateLoopStatusRequest {
-    /// draft | enabled | paused
+    /// enabled | paused
     pub status: String,
 }
 
@@ -387,7 +387,7 @@ pub fn validate_trigger_type(t: &str) -> Result<(), String> {
 
 pub fn validate_loop_status(s: &str) -> Result<(), String> {
     match s {
-        "draft" | "enabled" | "paused" => Ok(()),
+        "enabled" | "paused" => Ok(()),
         _ => Err(format!("未知的 loop status: {}", s)),
     }
 }
@@ -408,7 +408,6 @@ pub fn loop_status_color(status: &str) -> &'static str {
     match status {
         "enabled" => "#52c41a",
         "paused" => "#fa8c16",
-        "draft" => "#8c8c8c",
         _ => "#bfbfbf",
     }
 }
