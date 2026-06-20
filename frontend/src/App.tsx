@@ -4,7 +4,7 @@ import { PlusOutlined, ThunderboltOutlined, CloseOutlined, LeftOutlined } from '
 import { AppProvider, useApp } from './hooks/useApp';
 import { useIsMobile } from './hooks/useIsMobile';
 import { useExecutionEvents } from './hooks/useExecutionEvents';
-import { useViewState } from './hooks/useViewState';
+import { useViewState, type View } from './hooks/useViewState';
 import { ThemeProvider, useTheme } from './hooks/useTheme';
 import { TodoList } from './components/TodoList';
 import { TodoDetail } from './components/TodoDetail';
@@ -141,7 +141,15 @@ function AppContent() {
     });
   };
 
-  const handleGoToSettings = () => showView('settings');
+  // 统一导航处理：切换 view 时清空 step/loop 选择，避免旧选择抢占右侧面板
+  const handleShowView = useCallback((view: View) => {
+    setSelectedStepId(null);
+    setSelectedLoopId(null);
+    clearSelection();
+    showView(view);
+  }, [clearSelection, showView]);
+
+  const handleGoToSettings = () => handleShowView('settings');
 
   // FAB backdrop click to collapse
   const handleFabBackdropClick = () => setFabExpanded(false);
@@ -219,14 +227,14 @@ function AppContent() {
               onOpenCreateModal={() => setTodoModalOpen(true)}
               onOpenSmartCreate={() => setSmartCreateOpen(true)}
               onSelectTodo={handleSelectTodo}
-              onShowDashboard={() => { clearSelection(); showView('dashboard'); }}
-              onShowMemorial={() => { clearSelection(); showView('memorial'); }}
-              onShowRelationMap={() => { clearSelection(); showView('relation'); }}
-              onShowSteps={() => { clearSelection(); showView('steps'); }}
+              onShowDashboard={() => handleShowView('dashboard')}
+              onShowMemorial={() => handleShowView('memorial')}
+              onShowRelationMap={() => handleShowView('relation')}
+              onShowSteps={() => handleShowView('steps')}
               onSelectStep={handleSelectStep}
               stepUpdateCount={stepUpdateCount}
               loopUpdateCount={loopUpdateCount}
-              onShowSettings={() => { clearSelection(); showView('settings'); }}
+              onShowSettings={() => handleShowView('settings')}
               onSelectLoop={handleSelectLoop}
               onCreateLoop={async () => {
                 try {
