@@ -360,6 +360,14 @@ export function LoopDetailPanel({
               <Input placeholder="loop" maxLength={50} />
             </Form.Item>
           </div>
+          <Form.Item label="评审模板" name="review_template_id" tooltip="选择用于自动评审的 todo，不选则使用默认评审模板">
+            <Select
+              allowClear
+              placeholder="使用默认评审模板"
+              showSearch
+              optionFilterProp="label"
+            />
+          </Form.Item>
         </Form>
       </Modal>
     </div>
