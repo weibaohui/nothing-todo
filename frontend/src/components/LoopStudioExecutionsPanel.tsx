@@ -6,7 +6,7 @@
 //
 // 分页: page + limit, 简单表格不引入分页器, 改成"加载更多"按钮避免侵入式 UI
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { App as AntApp, Empty, Skeleton, Tag, Tooltip, Drawer, Descriptions, Pagination } from 'antd';
 import {
   CheckCircleOutlined,
@@ -78,24 +78,27 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
 
   useEffect(() => { loadPage(1); }, [loadPage]);
 
-  // WebSocket 实时事件驱动刷新：执行完成或评审状态变更时自动刷新
+  // WebSocket 实时事件驱动刷新：延迟片刻等后端写入完成后再刷新
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useExecutionEvents(useCallback(() => {
-    // 先刷新列表，再刷新展开的详情
-    dbLoops.listExecutions(loopId, { page, limit: DEFAULT_PAGE_LIMIT })
-      .then((res) => {
-        setItems(res.items);
-        setTotal(res.total);
-        onTotalChange?.(res.total);
-        // 列表刷新后再刷新展开的详情
-        if (expandedId !== null) {
-          return dbLoops.getExecution(loopId, expandedId);
-        }
-        return null;
-      })
-      .then((detail) => {
-        if (detail) setExpandedDetail(detail);
-      })
-      .catch(() => {});
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      // 先刷新列表，再刷新展开的详情
+      dbLoops.listExecutions(loopId, { page, limit: DEFAULT_PAGE_LIMIT })
+        .then((res) => {
+          setItems(res.items);
+          setTotal(res.total);
+          onTotalChange?.(res.total);
+          if (expandedId !== null) {
+            return dbLoops.getExecution(loopId, expandedId);
+          }
+          return null;
+        })
+        .then((detail) => {
+          if (detail) setExpandedDetail(detail);
+        })
+        .catch(() => {});
+    }, 800);
   }, [page, loopId, expandedId]));
 
   // 展开行: 拉取该 execution 的 step 详情
