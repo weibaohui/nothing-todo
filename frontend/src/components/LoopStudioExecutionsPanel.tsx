@@ -81,7 +81,13 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
   // WebSocket 实时事件驱动刷新：执行完成或评审状态变更时自动刷新
   useExecutionEvents(useCallback(() => {
     loadPage(page);
-  }, [page, loadPage]));
+    // 同时刷新展开的详情
+    if (expandedId !== null) {
+      dbLoops.getExecution(loopId, expandedId)
+        .then(detail => setExpandedDetail(detail))
+        .catch(() => {});
+    }
+  }, [page, loadPage, loopId, expandedId]));
 
   // 展开行: 拉取该 execution 的 step 详情
   const handleExpand = useCallback(async (execId: number) => {
