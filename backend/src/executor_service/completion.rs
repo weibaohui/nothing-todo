@@ -384,7 +384,7 @@ async fn maybe_run_auto_review(
     record_id: i64,
     trigger_type: &str,
 ) {
-    if trigger_type == "auto_review" {
+    if trigger_type == "auto_review" || todo_id == 0 {
         return;
     }
     run_auto_review(

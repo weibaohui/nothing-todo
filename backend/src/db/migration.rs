@@ -42,6 +42,11 @@ pub(super) fn all_migrations() -> Vec<Box<dyn Migration>> {
         Box::new(V3LogsToExecutionLogs),
         Box::new(V4FeishuFkCascade),
         Box::new(V5ProjectDirectoryWorktree),
+        Box::new(V6TodoKind),
+        Box::new(V7LoopStudio),
+        Box::new(V8LoopWorkspace),
+        Box::new(V9IndependentSteps),
+        Box::new(V10StepColor),
     ]
 }
 
@@ -128,6 +133,11 @@ async fn v1_initial_schema(db: &Database) -> Result<(), sea_orm::DbErr> {
 // ---------------- 表创建 helpers(每个 ≤ 30 行) ----------------
 
 /// todos 主表:所有 todo 的根表。`executor` / `scheduler_*` 等字段最初都在这里。
+///
+/// `kind` 列(事项 vs 环节)由 v6 迁移加进来; 但为了 fresh DB 一建表就拥有
+/// 该列(避免空库启动后还要跑一次 v6 兼容 ALTER), 把它直接写进 v1 DDL。
+/// 重复列错误被 v6 的 `add_column_warn` 静默吞掉, 与历史 add_legacy_*_columns
+/// 同一处理风格。
 async fn create_todos_table(db: &Database) -> Result<(), sea_orm::DbErr> {
     db.exec(
         "CREATE TABLE IF NOT EXISTS todos (
@@ -142,7 +152,8 @@ async fn create_todos_table(db: &Database) -> Result<(), sea_orm::DbErr> {
             scheduler_enabled INTEGER DEFAULT 0,
             scheduler_config TEXT,
             task_id TEXT,
-            workspace TEXT
+            workspace TEXT,
+            kind TEXT NOT NULL DEFAULT 'item'
         )",
     )
     .await
@@ -1673,4 +1684,392 @@ async fn v5_project_directory_worktree(db: &Database) -> Result<(), sea_orm::DbE
     )
     .await?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// v6: todos.kind 列 (issue #674: 事项 vs 环节区分)
+// ---------------------------------------------------------------------------
+
+/// v6 迁移：为 todos 表增加 `kind` 列, 区分一次性事项('item')和
+/// 可被 loop 编排复用的环节('step')。
+///
+/// 设计动机：
+/// - 一次性 todo 是「事项」，循环复用的 todo 是「环节（Agent）」；
+/// - 环路编排的节点只应引用环节，引用一次性事项会污染"循环复用"语义；
+/// - 同一张 todos 表承载两种语义, 靠 `kind` 列区分; 避免新建 steps 表的
+///   schema 迁移 + 跨表 JOIN 成本。
+///
+/// 升级策略：
+/// - 新库: v1 的 CREATE TABLE 已经包含 `kind` 列, v6 ALTER 在 v1 之后跑会
+///   触发 "duplicate column name", 与历史 add_legacy_*_columns 同样的 warn-skip 模式;
+/// - 旧库: ALTER TABLE 加列, 默认 'item'; 把被 loop_steps 引用的 todo
+///   标记为 'step', 避免环路失效;
+/// - 加 `(kind)` 索引支持按 kind 过滤。
+pub(super) struct V6TodoKind;
+
+#[async_trait]
+impl Migration for V6TodoKind {
+    fn version(&self) -> i64 {
+        6
+    }
+    fn name(&self) -> &'static str {
+        "todo_kind"
+    }
+
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        v6_todo_kind(db).await
+    }
+}
+
+async fn v6_todo_kind(db: &Database) -> Result<(), sea_orm::DbErr> {
+    // 1) 加列, 旧库上没有 kind 列时生效; 新库已由 v1 CREATE TABLE 包含, 静默跳过
+    add_column_warn(db, "ALTER TABLE todos ADD COLUMN kind TEXT NOT NULL DEFAULT 'item'").await;
+    // 2) 回填: 被 loop_steps 引用的 todo 升级为 step
+    // loop_steps 表不一定存在 (旧库, 或 fresh 跑 v1 没建), 探测一下避免 UPDATE 失败
+    if table_has_column(db, "todos", "kind").await?
+        && table_exists(db, "loop_steps").await?
+    {
+        db.exec(
+            "UPDATE todos SET kind = 'step' \
+             WHERE id IN (SELECT DISTINCT todo_id FROM loop_steps)",
+        )
+        .await?;
+    }
+    // 3) 加 kind 索引
+    db.exec("CREATE INDEX IF NOT EXISTS idx_todos_kind ON todos(kind)").await?;
+    Ok(())
+}
+
+/// 检测 sqlite_master 上是否有该表, 用于 v6 等「表可能不存在」场景的探测。
+async fn table_exists(db: &Database, table: &str) -> Result<bool, sea_orm::DbErr> {
+    let sql = format!(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{}'",
+        table
+    );
+    // 同 needs_fk_migration 的注入防护: 表名走白名单 (调用方都是 hardcoded 字符串).
+    debug_assert!(
+        !table.is_empty() && table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
+        "table_exists: invalid table name {table:?}"
+    );
+    let row = db
+        .conn
+        .query_one(Statement::from_string(DbBackend::Sqlite, sql))
+        .await?;
+    Ok(row
+        .and_then(|r| r.try_get_by_index::<i64>(0).ok())
+        .unwrap_or(0)
+        > 0)
+}
+
+// ---------------------------------------------------------------------------
+// v7: Loop Studio (issue #670: 把 Loop Studio DDL 迁到 runner 系统)
+// ---------------------------------------------------------------------------
+
+/// v7 迁移: 把 Loop Studio 的 6 张表 + 索引/触发器从 `db/migrations.rs`
+/// (旧版本化迁移) 搬到 runner 系统, 让所有新建内存库 (测试用) 都能跑出
+/// 完整 schema.
+///
+/// 设计动机:
+/// - 旧 `migrations.rs::run_migrations` 没被 `Database::new` 调用
+///   (issue #498 引入 runner 后取代了它), 导致测试内存库缺失
+///   loops/loop_steps/loop_hooks/loop_triggers/loop_executions/
+///   loop_step_executions 这 6 张表, 测试不得不手工建表或绕开;
+/// - 把 DDL 集中到 runner 系统后, 内存测试和真实生产 DB 走同一条
+///   迁移路径, 避免「测试通过, 生产报错」的分裂.
+///
+/// 幂等性: 所有 DDL 都带 `IF NOT EXISTS`, 重跑无害.
+pub(super) struct V7LoopStudio;
+
+#[async_trait]
+impl Migration for V7LoopStudio {
+    fn version(&self) -> i64 {
+        7
+    }
+    fn name(&self) -> &'static str {
+        "loop_studio"
+    }
+
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        v7_loop_studio(db).await
+    }
+}
+
+/// 6 张表 DDL + 索引 + 触发器. 顺序按 (loops, loop_triggers, loop_steps,
+/// loop_hooks, loop_executions, loop_step_executions), 外键引用
+/// 关系保证后续表能成功建出.
+async fn v7_loop_studio(db: &Database) -> Result<(), sea_orm::DbErr> {
+    for stmt in LOOP_STUDIO_DDL {
+        db.exec(stmt).await?;
+    }
+    Ok(())
+}
+
+/// 集中放置的 Loop Studio DDL. 之所以写成模块级 const slice 而非内联
+/// 在 v7_loop_studio 函数体里, 是为了 (1) 测试可直接复用, (2) DDL 列表
+/// 不会污染函数体长度 (CLAUDE.md 单函数 30 行限制).
+const LOOP_STUDIO_DDL: &[&str] = &[
+    // ===== loops: 环路主表 =====
+    "CREATE TABLE IF NOT EXISTS loops (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        workspace TEXT,
+        status TEXT NOT NULL DEFAULT 'draft',
+        color TEXT DEFAULT '#722ed1',
+        icon TEXT DEFAULT 'loop',
+        created_at TEXT,
+        updated_at TEXT
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_loops_status ON loops(status)",
+    "CREATE INDEX IF NOT EXISTS idx_loops_updated_at ON loops(updated_at DESC)",
+    "CREATE TRIGGER IF NOT EXISTS set_loops_created_at_utc AFTER INSERT ON loops
+     WHEN new.created_at IS NULL OR new.created_at = ''
+     BEGIN
+         UPDATE loops SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+     END",
+    "CREATE TRIGGER IF NOT EXISTS set_loops_updated_at_utc BEFORE UPDATE ON loops
+     WHEN new.updated_at IS NULL OR new.updated_at = ''
+     BEGIN
+         UPDATE loops SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+     END",
+    // ===== loop_triggers: 多类型触发器 =====
+    "CREATE TABLE IF NOT EXISTS loop_triggers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_id INTEGER NOT NULL,
+        trigger_type TEXT NOT NULL,
+        config TEXT DEFAULT '{}',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        priority INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT,
+        FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_loop_triggers_loop_id ON loop_triggers(loop_id)",
+    "CREATE INDEX IF NOT EXISTS idx_loop_triggers_type_enabled ON loop_triggers(trigger_type, enabled)",
+    "CREATE TRIGGER IF NOT EXISTS set_loop_triggers_created_at_utc AFTER INSERT ON loop_triggers
+     WHEN new.created_at IS NULL OR new.created_at = ''
+     BEGIN
+         UPDATE loop_triggers SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+     END",
+    // ===== loop_steps: 有序阶段 =====
+    "CREATE TABLE IF NOT EXISTS loop_steps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        order_index INTEGER NOT NULL DEFAULT 0,
+        todo_id INTEGER NOT NULL,
+        run_mode TEXT NOT NULL DEFAULT 'sequential',
+        skip_on_source_failed INTEGER NOT NULL DEFAULT 0,
+        min_rating INTEGER,
+        unrated_policy TEXT NOT NULL DEFAULT 'skip',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT,
+        FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+        FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE RESTRICT
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_loop_steps_loop_id ON loop_steps(loop_id)",
+    "CREATE INDEX IF NOT EXISTS idx_loop_steps_loop_order ON loop_steps(loop_id, order_index)",
+    "CREATE TRIGGER IF NOT EXISTS set_loop_steps_created_at_utc AFTER INSERT ON loop_steps
+     WHEN new.created_at IS NULL OR new.created_at = ''
+     BEGIN
+         UPDATE loop_steps SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+     END",
+    // ===== loop_hooks: 环路级 hook =====
+    "CREATE TABLE IF NOT EXISTS loop_hooks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_id INTEGER NOT NULL,
+        hook_position TEXT NOT NULL,
+        source_step_id INTEGER,
+        target_todo_id INTEGER NOT NULL,
+        skip_if_missing INTEGER NOT NULL DEFAULT 0,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        min_rating INTEGER,
+        unrated_policy TEXT NOT NULL DEFAULT 'skip',
+        created_at TEXT,
+        FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+        FOREIGN KEY (source_step_id) REFERENCES loop_steps(id) ON DELETE CASCADE,
+        FOREIGN KEY (target_todo_id) REFERENCES todos(id) ON DELETE RESTRICT
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_loop_hooks_loop_id ON loop_hooks(loop_id)",
+    "CREATE INDEX IF NOT EXISTS idx_loop_hooks_source_stage ON loop_hooks(source_step_id)",
+    "CREATE TRIGGER IF NOT EXISTS set_loop_hooks_created_at_utc AFTER INSERT ON loop_hooks
+     WHEN new.created_at IS NULL OR new.created_at = ''
+     BEGIN
+         UPDATE loop_hooks SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+     END",
+    // ===== loop_executions: 每次运行的顶层记录 =====
+    "CREATE TABLE IF NOT EXISTS loop_executions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_id INTEGER NOT NULL,
+        trigger_id INTEGER,
+        trigger_type TEXT NOT NULL,
+        trigger_meta TEXT DEFAULT '{}',
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        status TEXT NOT NULL DEFAULT 'running',
+        total_steps INTEGER NOT NULL DEFAULT 0,
+        completed_steps INTEGER NOT NULL DEFAULT 0,
+        failed_steps INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+        FOREIGN KEY (trigger_id) REFERENCES loop_triggers(id) ON DELETE SET NULL
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_loop_executions_loop_id ON loop_executions(loop_id)",
+    "CREATE INDEX IF NOT EXISTS idx_loop_executions_started_at ON loop_executions(started_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_loop_executions_status ON loop_executions(status)",
+    // ===== loop_step_executions: 每个阶段的执行 =====
+    "CREATE TABLE IF NOT EXISTS loop_step_executions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_execution_id INTEGER NOT NULL,
+        step_id INTEGER NOT NULL,
+        todo_id INTEGER NOT NULL,
+        execution_record_id INTEGER,
+        status TEXT NOT NULL DEFAULT 'pending',
+        started_at TEXT,
+        finished_at TEXT,
+        error_message TEXT,
+        FOREIGN KEY (loop_execution_id) REFERENCES loop_executions(id) ON DELETE CASCADE,
+        FOREIGN KEY (step_id) REFERENCES loop_steps(id) ON DELETE CASCADE,
+        FOREIGN KEY (execution_record_id) REFERENCES execution_records(id) ON DELETE SET NULL
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_loop_step_executions_loop_exec ON loop_step_executions(loop_execution_id)",
+    "CREATE INDEX IF NOT EXISTS idx_loop_step_executions_record ON loop_step_executions(execution_record_id)",
+];
+
+#[cfg(test)]
+mod v7_loop_studio_tests {
+    //! 验证 v7 迁移建表完整, 6 张 Loop Studio 表 + 索引都到位.
+    use super::*;
+
+    #[tokio::test]
+    async fn v7_creates_all_loop_studio_tables() {
+        let db = Database::new(":memory:").await.unwrap();
+        for table in [
+            "loops",
+            "loop_triggers",
+            "loop_steps",
+            "loop_hooks",
+            "loop_executions",
+            "loop_step_executions",
+        ] {
+            assert!(
+                table_exists(&db, table).await.unwrap(),
+                "v7 迁移后表 {table} 应当存在"
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// v8: loops 表加 workspace 列 (用于关联工作空间)
+// ---------------------------------------------------------------------------
+
+/// v8 迁移：为 `loops` 表添加 `workspace` 列，替换原来的 product/repo/branch 字段。
+///
+/// 设计动机：
+/// - Loop 不再需要独立的产品/仓库/分支字段，改为关联工作空间（与 todo 共用同一套 workspace 体系）。
+/// - 旧字段 product/repo/branch 在 v7 建的表中仍存在，但 v8 不删它们（避免数据丢失）；
+///   新库的 DDL 已直接使用 workspace 替代。
+///
+/// 升级策略：
+/// - 新库: v7 DDL 已经直接定义 `workspace TEXT`，而非 product/repo/branch，v8 ALTER 会被静默跳过。
+/// - 旧库: ALTER TABLE 加 workspace 列，保留旧列不动。
+pub(super) struct V8LoopWorkspace;
+
+#[async_trait]
+impl Migration for V8LoopWorkspace {
+    fn version(&self) -> i64 {
+        8
+    }
+    fn name(&self) -> &'static str {
+        "loop_workspace"
+    }
+
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        v8_loop_workspace(db).await
+    }
+}
+
+async fn v8_loop_workspace(db: &Database) -> Result<(), sea_orm::DbErr> {
+    add_column_warn(db, "ALTER TABLE loops ADD COLUMN workspace TEXT").await;
+    Ok(())
+}
+
+// ===== V9: 环节独立为 steps 表 =====
+
+pub(super) struct V9IndependentSteps;
+
+#[async_trait]
+impl Migration for V9IndependentSteps {
+    fn version(&self) -> i64 {
+        9
+    }
+    fn name(&self) -> &'static str {
+        "independent_steps"
+    }
+
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        v9_independent_steps(db).await
+    }
+}
+
+async fn v9_independent_steps(db: &Database) -> Result<(), sea_orm::DbErr> {
+    db.exec(
+        "CREATE TABLE IF NOT EXISTS steps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            prompt TEXT NOT NULL DEFAULT '',
+            executor TEXT,
+            acceptance_criteria TEXT,
+            source_todo_id INTEGER,
+            created_at TEXT,
+            updated_at TEXT,
+            FOREIGN KEY (source_todo_id) REFERENCES todos(id) ON DELETE SET NULL
+        )",
+    )
+    .await?;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_steps_source_todo ON steps(source_todo_id)")
+        .await?;
+    db.exec(
+        "CREATE TRIGGER IF NOT EXISTS set_steps_created_at_utc AFTER INSERT ON steps
+         WHEN new.created_at IS NULL OR new.created_at = ''
+         BEGIN
+             UPDATE steps SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+         END",
+    )
+    .await?;
+    db.exec(
+        "CREATE TRIGGER IF NOT EXISTS set_steps_updated_at_utc AFTER UPDATE ON steps
+         WHEN new.updated_at IS NULL OR new.updated_at = ''
+         BEGIN
+             UPDATE steps SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
+         END",
+    )
+    .await?;
+    // 回填已有步骤：将 todos 表中 kind='step' 的数据复制到 steps 表
+    db.exec(
+        "INSERT INTO steps (title, prompt, executor, acceptance_criteria, source_todo_id, created_at, updated_at)
+         SELECT title, COALESCE(prompt, ''), executor, acceptance_criteria, id, created_at, updated_at
+         FROM todos WHERE kind = 'step' AND id NOT IN (SELECT source_todo_id FROM steps WHERE source_todo_id IS NOT NULL)",
+    )
+    .await?;
+    Ok(())
+}
+
+// ===== V10: steps 表增加 color 列 =====
+
+pub(super) struct V10StepColor;
+
+#[async_trait]
+impl Migration for V10StepColor {
+    fn version(&self) -> i64 {
+        10
+    }
+    fn name(&self) -> &'static str {
+        "step_color"
+    }
+
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        add_column_warn(db, "ALTER TABLE steps ADD COLUMN color TEXT NOT NULL DEFAULT '#722ed1'").await;
+        Ok(())
+    }
 }

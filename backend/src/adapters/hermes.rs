@@ -27,7 +27,7 @@ fn is_hermes_banner(trimmed: &str) -> bool {
 #[derive(Clone)]
 pub struct HermesExecutor {
     base: BaseExecutor,
-    has_done: Arc<Mutex<bool>>,
+    _has_done: Arc<Mutex<bool>>,
     session_id: Arc<Mutex<Option<String>>>,
     tool_calls_count: Arc<Mutex<u64>>,
 }
@@ -36,7 +36,7 @@ impl HermesExecutor {
     pub fn new(path: String) -> Self {
         Self {
             base: BaseExecutor::new(path),
-            has_done: Arc::new(Mutex::new(false)),
+            _has_done: Arc::new(Mutex::new(false)),
             session_id: Arc::new(Mutex::new(None)),
             tool_calls_count: Arc::new(Mutex::new(0)),
         }

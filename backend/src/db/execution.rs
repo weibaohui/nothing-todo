@@ -9,7 +9,7 @@ use crate::db::Database;
 use crate::models::{ExecutionRecord, ExecutionStatus, ExecutionSummary, ExecutionUsage, ParsedLogEntry};
 
 pub struct NewExecutionRecord<'a> {
-    pub todo_id: i64,
+    pub todo_id: Option<i64>,
     pub command: &'a str,
     pub executor: &'a str,
     pub trigger_type: &'a str,
@@ -21,6 +21,10 @@ pub struct NewExecutionRecord<'a> {
     pub source_todo_id: Option<i64>,
     pub source_todo_title: Option<&'a str>,
     pub source_hook_id: Option<i64>,
+    /// 当本次执行是 loop 环节的一部分时，指向 loop_step_executions 表的 id。
+    pub loop_step_execution_id: Option<i64>,
+    /// 环节 id（指向 steps 表），环节独立执行时使用
+    pub step_id: Option<i64>,
 }
 
 pub struct UpdateExecutionRecordRequest<'a> {
@@ -39,6 +43,7 @@ pub struct UpdateExecutionRecordRequest<'a> {
 
 pub struct ExecutionRecordQuery<'a> {
     pub todo_id: Option<i64>,
+    pub step_id: Option<i64>,
     pub limit: i64,
     pub offset: i64,
     pub status: Option<&'a str>,
@@ -125,10 +130,14 @@ impl Database {
         &self,
         query: ExecutionRecordQuery<'_>,
     ) -> Result<(Vec<ExecutionRecord>, i64), sea_orm::DbErr> {
-        let base_filter = if let Some(todo_id) = query.todo_id {
-            execution_records::Column::TodoId.eq(todo_id)
-        } else {
-            execution_records::Column::TodoId.is_not_null()
+        let base_filter = match (query.todo_id, query.step_id) {
+            (Some(tid), Some(sid)) => {
+                execution_records::Column::TodoId.eq(tid)
+                    .or(execution_records::Column::StepId.eq(sid))
+            }
+            (Some(tid), None) => execution_records::Column::TodoId.eq(tid),
+            (None, Some(sid)) => execution_records::Column::StepId.eq(sid),
+            (None, None) => execution_records::Column::TodoId.is_not_null(),
         };
         let filter = match query.status {
             Some("all") | None => base_filter,
@@ -201,7 +210,7 @@ impl Database {
     ) -> Result<i64, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = execution_records::ActiveModel {
-            todo_id: ActiveValue::Set(Some(record.todo_id)),
+            todo_id: ActiveValue::Set(record.todo_id),
             command: ActiveValue::Set(Some(record.command.to_string())),
             executor: ActiveValue::Set(Some(record.executor.to_string())),
             trigger_type: ActiveValue::Set(Some(record.trigger_type.to_string())),
@@ -213,6 +222,8 @@ impl Database {
             source_todo_id: ActiveValue::Set(record.source_todo_id),
             source_todo_title: ActiveValue::Set(record.source_todo_title.map(|s| s.to_string())),
             source_hook_id: ActiveValue::Set(record.source_hook_id),
+            loop_step_execution_id: ActiveValue::Set(record.loop_step_execution_id),
+            step_id: ActiveValue::Set(record.step_id),
             ..Default::default()
         };
         let inserted = am.insert(&self.conn).await?;
