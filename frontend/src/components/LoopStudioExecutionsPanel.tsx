@@ -6,7 +6,7 @@
 //
 // 分页: page + limit, 简单表格不引入分页器, 改成"加载更多"按钮避免侵入式 UI
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { App as AntApp, Empty, Skeleton, Tag, Tooltip, Drawer, Descriptions, Pagination } from 'antd';
 import {
   CheckCircleOutlined,
@@ -98,25 +98,10 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
       .catch(() => {});
   }, [page, loopId, expandedId]);
 
-  // WebSocket 事件触发刷新
-  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // WebSocket 事件触发刷新（后端写入完成后才发事件，无需延迟）
   useExecutionEvents(useCallback(() => {
-    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-    refreshTimerRef.current = setTimeout(() => doRefresh(), 800);
+    doRefresh();
   }, [doRefresh]));
-
-  // 展开详情后轮询直到所有步骤进入终态（running → success/failed/skipped）
-  useEffect(() => {
-    if (expandedId === null) return;
-    const hasRunning = expandedDetail?.step_executions?.some((s: any) => s.status === 'running');
-    if (!hasRunning) return;
-    const timer = setInterval(() => {
-      dbLoops.getExecution(loopId, expandedId)
-        .then(detail => setExpandedDetail(detail))
-        .catch(() => {});
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [expandedId, expandedDetail, loopId]);
 
   // 展开行: 拉取该 execution 的 step 详情
   const handleExpand = useCallback(async (execId: number) => {
