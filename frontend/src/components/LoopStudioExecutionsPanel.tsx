@@ -59,6 +59,8 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [expandedDetail, setExpandedDetail] = useState<LoopExecutionDetail | null>(null);
   const [expandedLoading, setExpandedLoading] = useState(false);
+  // 强制刷新展开的 StepExecList 的 key
+  const [detailRefreshKey, setDetailRefreshKey] = useState(0);
 
   // 加载一页执行记录
   const loadPage = useCallback((p: number) => {
@@ -95,7 +97,10 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
           return null;
         })
         .then((detail) => {
-          if (detail) setExpandedDetail(detail);
+          if (detail) {
+            setExpandedDetail(detail);
+            setDetailRefreshKey(k => k + 1);
+          }
         })
         .catch(() => {});
     }, 800);
@@ -188,7 +193,7 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
                     {expandedLoading ? (
                       <Skeleton active />
                     ) : expandedDetail && expandedDetail.id === e.id ? (
-                      <StepExecList stepExecs={expandedDetail.step_executions} />
+                      <StepExecList key={detailRefreshKey} stepExecs={expandedDetail.step_executions} />
                     ) : null}
                   </div>
                 )}
