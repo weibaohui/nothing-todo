@@ -182,18 +182,13 @@ interface FlowEdgeProps {
   startY: number;
   endX: number;
   endY: number;
-  tracedStepIds: number[];
-  isEdgeTraced: (fromId: number, toId: number) => boolean;
 }
 
 // 单条边的渲染：箭头线 + 标签。回环边用白底圆角矩形包标签，
 // 让弧顶处的文字跟红色加粗虚线一起成为「回头重做」的强信号。
 export function FlowEdge({
   edge, index, nodes, startX, startY, endX, endY,
-  tracedStepIds, isEdgeTraced,
 }: FlowEdgeProps) {
-  const traced = isEdgeTraced(edge.fromId, edge.toId);
-  const hasTrace = tracedStepIds.length > 0;
   const baseStyle = EDGE_STYLES[edge.type] || EDGE_STYLES['success-next'];
   // 回环是带条件的执行路径，与普通跳转同属主路径，不该用虚线暗示「次要」。
   // 区分度只靠颜色加深（success 深绿、fail 深红）和更粗的 stroke 即可。
@@ -203,17 +198,14 @@ export function FlowEdge({
     labelColor: edge.type === 'success-goto' ? '#15803d' : '#b91c1c',
   } : baseStyle;
   // 回环边：stroke 比普通边略粗（1.8 vs 1.5）即可，颜色已经够深无需再叠粗细差。
-  const strokeWidth = edge.isLoopBack
-    ? (hasTrace && traced ? 2.5 : 1.8)
-    : (hasTrace && traced ? 3 : 1.5);
-  const opacity = hasTrace ? (traced ? 1 : 0.15) : 1;
-  const markerSize = edge.isLoopBack ? 6 : 6;
+  const strokeWidth = edge.isLoopBack ? 1.8 : 1.5;
+  const markerSize = 6;
   const labelW = edge.label ? getLabelWidth(edge.label) : 0;
   const midX = getEdgeMidX(edge, nodes, startX, endX);
   const midY = getEdgeMidY(edge, nodes, startY, endY);
 
   return (
-    <g opacity={opacity}>
+    <g>
       <defs>
         <marker
           id={`arrow-${index}`}

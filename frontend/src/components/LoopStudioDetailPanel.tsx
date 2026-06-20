@@ -61,9 +61,6 @@ export function LoopDetailPanel({
   const [projectDirs, setProjectDirs] = useState<ProjectDirectory[]>([]);
   // 执行记录总数，由 LoopExecutionsPanel 通过回调更新
   const [executionTotal, setExecutionTotal] = useState(0);
-  // 执行轨迹：选中的执行展开时高亮流程图
-  const [tracedStepIds, setTracedStepIds] = useState<number[]>([]);
-  const [tracedSequenceMap, setTracedSequenceMap] = useState<Record<number, number>>({});
 
   // 加载完整 detail, 子面板变更后也要重新拉以保持最新
   const reload = useCallback(() => {
@@ -292,8 +289,6 @@ export function LoopDetailPanel({
         <LoopStepsPanel
           loopId={loopId}
           steps={detail.steps}
-          tracedStepIds={tracedStepIds}
-          tracedSequenceMap={tracedSequenceMap}
           onChanged={() => { reload(); onChanged(); }}
         />
       </DetailSection>
@@ -362,7 +357,7 @@ export function LoopDetailPanel({
               ),
               children: (
                 <div style={{ paddingTop: 4 }}>
-                  <LoopExecutionsPanel loopId={loopId} loopName={detail.name} onTotalChange={setExecutionTotal} onExecutionTrace={(ids, seqMap) => { setTracedStepIds(ids); setTracedSequenceMap(seqMap); }} />
+                  <LoopExecutionsPanel loopId={loopId} loopName={detail.name} onTotalChange={setExecutionTotal} />
                 </div>
               ),
             },

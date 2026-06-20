@@ -28,8 +28,6 @@ import type { LayoutNode, LayoutEdge } from '@/components/loop-flow/flowTypes';
 interface FlowGraphProps {
   steps: LoopStepDto[];
   selectedStepId: number | null;
-  tracedStepIds?: number[];
-  tracedSequenceMap?: Record<number, number>;
   onSelectStep: (step: LoopStepDto) => void;
   onAddStep: () => void;
 }
@@ -182,7 +180,7 @@ function useFlowLayout(steps: LoopStepDto[]) {
 
 export function LoopFlowGraph({
   steps,
-  selectedStepId, tracedStepIds = [], tracedSequenceMap: _tracedSequenceMap = {},
+  selectedStepId,
   onSelectStep, onAddStep,
 }: FlowGraphProps) {
   const {
@@ -192,17 +190,6 @@ export function LoopFlowGraph({
   } = useFlowLayout(steps);
   // 有回环时把 dagre 内容整体下移，让顶部正交折线有画布。
   const dagreOffsetY = hasLoopBack ? LOOP_BACK_TOP_PADDING : 0;
-
-  // 判断节点/边是否在执行轨迹中。轨迹为空表示全亮。
-  const isTraced = (id: number) => tracedStepIds.length === 0 || tracedStepIds.includes(id);
-  const traceIndex = (id: number) => tracedStepIds.indexOf(id);
-  // 边在轨迹中：源和目标都出现且目标在源的下一个位置
-  const isEdgeTraced = (fromId: number, toId: number) => {
-    if (tracedStepIds.length === 0) return true;
-    const fi = tracedStepIds.indexOf(fromId);
-    const ti = tracedStepIds.indexOf(toId);
-    return fi >= 0 && ti >= 0 && ti === fi + 1;
-  };
 
   if (steps.length === 0) {
     return (
@@ -248,8 +235,6 @@ export function LoopFlowGraph({
               startY={startY}
               endX={endX}
               endY={endY}
-              tracedStepIds={tracedStepIds}
-              isEdgeTraced={isEdgeTraced}
             />
           ))}
 
@@ -259,41 +244,21 @@ export function LoopFlowGraph({
 
           {/* 真实环节节点 */}
           {nodes.map((node) => {
-            const traced = isTraced(node.id);
-            const hasTrace = tracedStepIds.length > 0;
-            const opacity = hasTrace ? (traced ? 1 : 0.3) : 1;
-            const ti = traceIndex(node.id);
             const isSelected = selectedStepId === node.id;
             return (
               <g
                 key={`node-${node.id}`}
                 onClick={() => onSelectStep(node.step)}
                 style={{ cursor: 'pointer' }}
-                opacity={opacity}
               >
                 <rect
                   x={node.x} y={node.y}
                   width={NODE_WIDTH} height={NODE_HEIGHT}
                   rx={8} ry={8}
                   fill={isSelected ? '#f0f9ff' : '#ffffff'}
-                  stroke={isSelected ? '#0891b2' : (hasTrace && traced ? '#22c55e' : '#e2e8f0')}
-                  strokeWidth={isSelected ? 2 : (hasTrace && traced ? 2 : 1)}
+                  stroke={isSelected ? '#0891b2' : '#e2e8f0'}
+                  strokeWidth={isSelected ? 2 : 1}
                 />
-                {hasTrace && traced && ti >= 0 && (
-                  <rect
-                    x={node.x + NODE_WIDTH - 28} y={node.y + NODE_HEIGHT - 18}
-                    width={22} height={14} rx={4} fill="#22c55e"
-                  />
-                )}
-                {hasTrace && traced && ti >= 0 && (
-                  <text
-                    x={node.x + NODE_WIDTH - 17} y={node.y + NODE_HEIGHT - 7}
-                    textAnchor="middle" fontSize={8} fontWeight={700} fill="#ffffff"
-                    style={{ fontFamily: 'monospace' }}
-                  >
-                    {ti + 1}
-                  </text>
-                )}
                 <circle
                   cx={node.x + NODE_WIDTH - 10} cy={node.y + 10} r={4}
                   fill={node.step.enabled ? '#22c55e' : '#94a3b8'}
@@ -318,7 +283,7 @@ export function LoopFlowGraph({
                 <text
                   x={node.x + 12} y={node.y + 22}
                   fontSize={13} fontWeight={600}
-                  fill={hasTrace && !traced ? '#cbd5e1' : '#0f172a'}
+                  fill="#0f172a"
                   style={{ fontFamily: 'system-ui' }}
                 >
                   {truncateText(node.step.name, 18)}
@@ -326,14 +291,14 @@ export function LoopFlowGraph({
                 <text
                   x={node.x + 12} y={node.y + 40}
                   fontSize={11}
-                  fill={hasTrace && !traced ? '#cbd5e1' : '#64748b'}
+                  fill="#64748b"
                 >
                   {truncateText(node.step.todo_title || `#${node.step.todo_id}`, 22)}
                 </text>
                 <text
                   x={node.x + 12} y={node.y + 56}
                   fontSize={10}
-                  fill={hasTrace && !traced ? '#e2e8f0' : '#94a3b8'}
+                  fill="#94a3b8"
                 >
                   {node.step.todo_executor || '未指派'}
                 </text>
@@ -341,7 +306,7 @@ export function LoopFlowGraph({
                   <text
                     x={node.x + NODE_WIDTH - 8} y={node.y + NODE_HEIGHT - 6}
                     textAnchor="end" fontSize={9}
-                    fill={hasTrace && !traced ? '#e2e8f0' : '#f97316'}
+                    fill="#f97316"
                     style={{ fontFamily: 'monospace' }}
                   >
                     闸门:{node.step.min_rating}
