@@ -19,6 +19,7 @@ import {
 import * as dbLoops from '@/utils/database/loops';
 import type { LoopExecutionDto, LoopExecutionDetail } from '@/types/loop';
 import { formatRelativeTime } from '@/utils/datetime';
+import { useExecutionEvents } from '@/hooks/useExecutionEvents';
 
 interface Props {
   loopId: number;
@@ -77,13 +78,10 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
 
   useEffect(() => { loadPage(1); }, [loadPage]);
 
-  // 自动轮询：当存在运行中的执行记录时，每秒刷新一次
-  const hasRunning = items.some(e => e.status === 'running');
-  useEffect(() => {
-    if (!hasRunning) return;
-    const timer = setInterval(() => { loadPage(page); }, 1000);
-    return () => clearInterval(timer);
-  }, [hasRunning, page, loadPage]);
+  // WebSocket 实时事件驱动刷新：执行完成或评审状态变更时自动刷新
+  useExecutionEvents(useCallback(() => {
+    loadPage(page);
+  }, [page, loadPage]));
 
   // 展开行: 拉取该 execution 的 step 详情
   const handleExpand = useCallback(async (execId: number) => {
