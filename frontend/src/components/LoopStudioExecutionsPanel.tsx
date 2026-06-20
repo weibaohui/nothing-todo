@@ -24,6 +24,7 @@ import { formatRelativeTime } from '@/utils/datetime';
 interface Props {
   loopId: number;
   loopName: string;
+  onTotalChange?: (total: number) => void;
 }
 
 const DEFAULT_PAGE_LIMIT = 20;
@@ -49,7 +50,7 @@ function durationLabel(start: string, end: string | null): string {
   return `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`;
 }
 
-export function LoopExecutionsPanel({ loopId, loopName: _loopName }: Props) {
+export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange }: Props) {
   const { message } = AntApp.useApp();
   const [items, setItems] = useState<LoopExecutionDto[]>([]);
   const [total, setTotal] = useState(0);
@@ -70,6 +71,7 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName }: Props) {
           setItems(prev => [...prev, ...res.items]);
         }
         setTotal(res.total);
+        onTotalChange?.(res.total);
         setPage(p);
       })
       .catch(() => {

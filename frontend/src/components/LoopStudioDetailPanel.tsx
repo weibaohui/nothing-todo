@@ -59,6 +59,8 @@ export function LoopDetailPanel({
   const [workspaceOptions, setWorkspaceOptions] = useState<{ label: string; value: string }[]>([]);
   // 完整的项目目录列表（用于展示详情）
   const [projectDirs, setProjectDirs] = useState<ProjectDirectory[]>([]);
+  // 执行记录总数，由 LoopExecutionsPanel 通过回调更新
+  const [executionTotal, setExecutionTotal] = useState(0);
 
   // 加载完整 detail, 子面板变更后也要重新拉以保持最新
   const reload = useCallback(() => {
@@ -298,11 +300,16 @@ export function LoopDetailPanel({
               label: (
                 <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text, #0f172a)' }}>
                   执行历史
+                  {executionTotal > 0 && (
+                    <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-text-tertiary, #94a3b8)', marginLeft: 8 }}>
+                      共 {executionTotal} 条
+                    </span>
+                  )}
                 </span>
               ),
               children: (
                 <div style={{ paddingTop: 4 }}>
-                  <LoopExecutionsPanel loopId={loopId} loopName={detail.name} />
+                  <LoopExecutionsPanel loopId={loopId} loopName={detail.name} onTotalChange={setExecutionTotal} />
                 </div>
               ),
             },
