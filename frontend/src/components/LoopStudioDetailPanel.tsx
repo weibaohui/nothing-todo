@@ -12,7 +12,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Skeleton, App as AntApp, Button, Space, Tooltip, Popconfirm, Empty,
-  Modal, Form, Input, ColorPicker, Collapse, Select, Switch,
+  Modal, Form, Input, InputNumber, ColorPicker, Collapse, Select, Switch,
 } from 'antd';
 import {
   ThunderboltOutlined,
@@ -55,6 +55,8 @@ export function LoopDetailPanel({
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<UpdateLoopRequest>();
+  // 全局限制编辑
+  const [limitsForm] = Form.useForm();
   // 工作空间下拉选项
   const [workspaceOptions, setWorkspaceOptions] = useState<{ label: string; value: string }[]>([]);
   // 完整的项目目录列表（用于展示详情）
@@ -75,6 +77,16 @@ export function LoopDetailPanel({
           color: d.color,
           icon: d.icon,
         });
+        // 解析 limits_config
+        try {
+          const lc = JSON.parse(d.limits_config || '{}');
+          limitsForm.setFieldsValue({
+            max_step_executions: lc.max_step_executions ?? null,
+            max_total_tokens: lc.max_total_tokens ?? null,
+          });
+        } catch {
+          limitsForm.resetFields();
+        }
       })
       .catch(() => {
         message.error('加载 loop 详情失败');
@@ -123,24 +135,30 @@ export function LoopDetailPanel({
     setSaving(true);
     try {
       const colorHex = String(values.color || 'var(--color-primary, #0891b2)');
+      // 构建 limits_config
+      const limitsVals = limitsForm.getFieldsValue();
+      const limitsConfig: Record<string, any> = {};
+      if (limitsVals.max_step_executions != null) limitsConfig.max_step_executions = limitsVals.max_step_executions;
+      if (limitsVals.max_total_tokens != null) limitsConfig.max_total_tokens = limitsVals.max_total_tokens;
+
       await dbLoops.updateLoop(loopId, {
         name: values.name.trim(),
         description: values.description ?? '',
         workspace: values.workspace ?? null,
         color: colorHex,
         icon: values.icon ?? 'loop',
+        limits_config: Object.keys(limitsConfig).length > 0 ? JSON.stringify(limitsConfig) : null,
       });
       message.success('已保存');
       setEditing(false);
       reload();
       onChanged();
     } catch (e) {
-      // 后端调用失败时给用户反馈，而不是静默失败
       message.error('保存失败，请重试');
     } finally {
       setSaving(false);
     }
-  }, [form, loopId, message, reload, onChanged]);
+  }, [form, limitsForm, loopId, message, reload, onChanged]);
 
   if (loading && !detail) {
     return <Skeleton active style={{ padding: 24 }} />;
@@ -239,7 +257,33 @@ export function LoopDetailPanel({
         </div>
       </DetailSection>
 
-      {/* 执行环节: 横向卡片布局 */}
+      {/* 全局限制 */}
+      <DetailSection title="全局限制">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+          <DetailField label="最大执行步数" value={
+            (() => {
+              try {
+                const lc = JSON.parse(detail.limits_config || '{}');
+                return lc.max_step_executions != null
+                  ? <span style={{ fontWeight: 500 }}>{lc.max_step_executions} 步</span>
+                  : <span style={{ color: '#94a3b8' }}>未限制</span>;
+              } catch { return <EmptyValue />; }
+            })()
+          } />
+          <DetailField label="最大 Token 数（预留）" value={
+            (() => {
+              try {
+                const lc = JSON.parse(detail.limits_config || '{}');
+                return lc.max_total_tokens != null
+                  ? <span style={{ fontWeight: 500 }}>{lc.max_total_tokens.toLocaleString()}</span>
+                  : <span style={{ color: '#94a3b8' }}>未限制</span>;
+              } catch { return <EmptyValue />; }
+            })()
+          } />
+        </div>
+      </DetailSection>
+
+      {/* 执行环节: DAG 流程图 */}
       <DetailSection title="执行环节" extra={
         <span style={{ fontSize: 11, color: 'var(--color-text-tertiary, #94a3b8)' }}>
           {detail.steps.length} 个环节按顺序执行
@@ -368,6 +412,20 @@ export function LoopDetailPanel({
               optionFilterProp="label"
             />
           </Form.Item>
+          {/* ── 全局限制 ── */}
+          <div style={{ fontWeight: 600, fontSize: 14, marginTop: 16, marginBottom: 12, color: '#64748b' }}>
+            全局限制
+          </div>
+          <div style={{ background: '#f8fafc', padding: 12, borderRadius: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Form.Item label="最大执行步数" name={['max_step_executions']} tooltip="超出后自动终止 Loop（留空=不限制）">
+                <InputNumber min={1} max={9999} placeholder="不限" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item label="最大 Token 数（预留）" name={['max_total_tokens']} tooltip="超出后自动终止（留空=不限制）">
+                <InputNumber min={1} max={9999999999} placeholder="不限" style={{ width: '100%' }} step={1000000} />
+              </Form.Item>
+            </div>
+          </div>
         </Form>
       </Modal>
     </div>

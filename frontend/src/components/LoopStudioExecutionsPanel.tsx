@@ -246,10 +246,15 @@ function StepExecList({ stepExecs }: { stepExecs: Record<string, any>[] }) {
         const duration = s.started_at ? durationLabel(s.started_at, s.finished_at) : '-';
         return (
           <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-            {/* 箭头连接（第一项前不显示） */}
+            {/* 箭头连接 + 跳转标注 */}
             {idx > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', padding: '0 4px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 2px' }}>
                 <ArrowRightOutlined style={{ color: 'var(--color-text-tertiary, #94a3b8)', fontSize: 16 }} />
+                {s.sequence_index != null && (
+                  <span style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'monospace', lineHeight: 1 }}>
+                    #{s.sequence_index}
+                  </span>
+                )}
               </div>
             )}
 
@@ -258,7 +263,7 @@ function StepExecList({ stepExecs }: { stepExecs: Record<string, any>[] }) {
               onClick={() => handleCardClick(s)}
               style={{
                 position: 'relative',
-                width: 220, minWidth: 220,
+                width: 240, minWidth: 240,
                 background: 'var(--color-bg-elevated, #ffffff)',
                 border: `1px solid ${s.status === 'success' ? 'var(--color-success, #22c55e)' : s.status === 'failed' ? 'var(--color-error, #ef4444)' : 'var(--color-border, #e2e8f0)'}`,
                 borderRadius: 10,
@@ -268,9 +273,10 @@ function StepExecList({ stepExecs }: { stepExecs: Record<string, any>[] }) {
                 userSelect: 'none',
               }}
             >
-              {/* 执行序号 */}
-              <div style={{ position: 'absolute', top: 6, left: 10, fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary, #94a3b8)' }}>
-                #{idx + 1}
+              {/* 黑板序号 + 执行序号 */}
+              <div style={{ position: 'absolute', top: 6, left: 10, fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary, #94a3b8)', display: 'flex', gap: 6 }}>
+                {s.sequence_index != null && <span style={{ fontFamily: 'monospace' }}>#{s.sequence_index}</span>}
+                <span style={{ fontFamily: 'monospace', color: '#cbd5e1' }}>/#{idx + 1}</span>
               </div>
 
               {/* 状态指示圆点 */}
@@ -310,15 +316,23 @@ function StepExecList({ stepExecs }: { stepExecs: Record<string, any>[] }) {
                 )}
               </div>
 
-              {/* 策略 */}
-              {s.unrated_policy && (
-                <div style={{ fontSize: 11, color: 'var(--color-text-tertiary, #94a3b8)', marginBottom: 2 }}>
-                  策略: {s.unrated_policy === 'skip' ? '未达标跳过' : '未达标放行'}
+              {/* 结论（黑板） */}
+              {s.conclusion && (
+                <div style={{
+                  marginTop: 6, padding: '6px 8px',
+                  background: '#f8fafc', borderRadius: 6,
+                  fontSize: 12, color: '#475569',
+                  lineHeight: 1.5, maxHeight: 60, overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  borderLeft: '3px solid #0891b2',
+                }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#0891b2', marginBottom: 2 }}>结论</div>
+                  {s.conclusion.length > 120 ? s.conclusion.slice(0, 120) + '…' : s.conclusion}
                 </div>
               )}
 
               {/* 时间 */}
-              <div style={{ fontSize: 10, color: 'var(--color-text-tertiary, #94a3b8)', lineHeight: 1.5 }}>
+              <div style={{ fontSize: 10, color: 'var(--color-text-tertiary, #94a3b8)', lineHeight: 1.5, marginTop: 4 }}>
                 开始 {s.started_at ? new Date(s.started_at).toLocaleTimeString() : '-'}
                 · 结束 {s.finished_at ? new Date(s.finished_at).toLocaleTimeString() : '-'}
               </div>
