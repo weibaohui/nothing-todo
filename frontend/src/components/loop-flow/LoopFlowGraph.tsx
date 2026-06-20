@@ -5,6 +5,8 @@ import type { LoopStepDto } from '@/types/loop';
 interface FlowGraphProps {
   steps: LoopStepDto[];
   selectedStepId: number | null;
+  tracedStepIds?: number[];
+  tracedSequenceMap?: Record<number, number>;
   onSelectStep: (step: LoopStepDto) => void;
   onAddStep: () => void;
 }
@@ -22,7 +24,7 @@ interface LayoutEdge {
   label: string;
   type: EdgeType;
   fromId: number;
-  toId?: number;
+  toId: number;
 }
 
 interface LayoutNode {
@@ -144,8 +146,20 @@ function useFlowLayout(steps: LoopStepDto[]) {
   }, [steps]);
 }
 
-export function LoopFlowGraph({ steps, selectedStepId, onSelectStep, onAddStep }: FlowGraphProps) {
+export function LoopFlowGraph({ steps, selectedStepId, tracedStepIds = [], tracedSequenceMap: _tracedSequenceMap = {}, onSelectStep, onAddStep }: FlowGraphProps) {
   const { nodes, edges, width, height } = useFlowLayout(steps);
+
+  // 判断节点是否在轨迹中
+  const isTraced = (id: number) => tracedStepIds.length === 0 || tracedStepIds.includes(id);
+  const traceIndex = (id: number) => tracedStepIds.indexOf(id);
+
+  // 判断边是否在轨迹中（源和目标都在 tracedStepIds 中且连续）
+  const isEdgeTraced = (fromId: number, toId: number) => {
+    if (tracedStepIds.length === 0) return true;
+    const fi = tracedStepIds.indexOf(fromId);
+    const ti = tracedStepIds.indexOf(toId);
+    return fi >= 0 && ti >= 0 && ti === fi + 1;
+  };
 
   if (steps.length === 0) {
     return (
@@ -180,8 +194,11 @@ export function LoopFlowGraph({ steps, selectedStepId, onSelectStep, onAddStep }
         {/* Edges */}
         {edges.map((edge, i) => {
           const style = EDGE_STYLES[edge.type] || EDGE_STYLES['success-next'];
+          const traced = isEdgeTraced(edge.fromId, edge.toId);
+          const hasTrace = tracedStepIds.length > 0;
+          const opacity = hasTrace ? (traced ? 1 : 0.15) : 1;
           return (
-            <g key={`edge-${i}`}>
+            <g key={`edge-${i}`} opacity={opacity}>
               {/* Arrow line */}
               <defs>
                 <marker
@@ -196,7 +213,7 @@ export function LoopFlowGraph({ steps, selectedStepId, onSelectStep, onAddStep }
                 d={buildEdgePath(edge, nodes)}
                 fill="none"
                 stroke={style.color}
-                strokeWidth={1.5}
+                strokeWidth={hasTrace && traced ? 3 : 1.5}
                 strokeDasharray={style.dash || undefined}
                 markerEnd={`url(#arrow-${i})`}
               />
@@ -218,20 +235,45 @@ export function LoopFlowGraph({ steps, selectedStepId, onSelectStep, onAddStep }
         })}
 
         {/* Nodes */}
-        {nodes.map(node => (
+        {nodes.map(node => {
+          const traced = isTraced(node.id);
+          const hasTrace = tracedStepIds.length > 0;
+          const opacity = hasTrace ? (traced ? 1 : 0.3) : 1;
+          const ti = traceIndex(node.id);
+          const isSelected = selectedStepId === node.id;
+          return (
           <g
             key={`node-${node.id}`}
             onClick={() => onSelectStep(node.step)}
             style={{ cursor: 'pointer' }}
+            opacity={opacity}
           >
             <rect
               x={node.x} y={node.y}
               width={NODE_WIDTH} height={NODE_HEIGHT}
               rx={8} ry={8}
-              fill={selectedStepId === node.id ? '#f0f9ff' : '#ffffff'}
-              stroke={selectedStepId === node.id ? '#0891b2' : '#e2e8f0'}
-              strokeWidth={selectedStepId === node.id ? 2 : 1}
+              fill={isSelected ? '#f0f9ff' : '#ffffff'}
+              stroke={isSelected ? '#0891b2' : (hasTrace && traced ? '#22c55e' : '#e2e8f0')}
+              strokeWidth={isSelected ? 2 : (hasTrace && traced ? 2 : 1)}
             />
+            {/* Traced step index badge */}
+            {hasTrace && traced && ti >= 0 && (
+              <rect
+                x={node.x + NODE_WIDTH - 28} y={node.y + NODE_HEIGHT - 18}
+                width={22} height={14} rx={4}
+                fill="#22c55e"
+              />
+            )}
+            {hasTrace && traced && ti >= 0 && (
+              <text
+                x={node.x + NODE_WIDTH - 17} y={node.y + NODE_HEIGHT - 7}
+                textAnchor="middle" fontSize={8} fontWeight={700}
+                fill="#ffffff"
+                style={{ fontFamily: 'monospace' }}
+              >
+                {ti + 1}
+              </text>
+            )}
             {/* Status dot */}
             <circle
               cx={node.x + NODE_WIDTH - 10} cy={node.y + 10} r={4}
@@ -241,12 +283,12 @@ export function LoopFlowGraph({ steps, selectedStepId, onSelectStep, onAddStep }
             <rect
               x={node.x - 12} y={node.y + NODE_HEIGHT / 2 - 10}
               width={20} height={20} rx={10}
-              fill={selectedStepId === node.id ? '#0891b2' : '#f1f5f9'}
+              fill={isSelected ? '#0891b2' : '#f1f5f9'}
             />
             <text
               x={node.x - 2} y={node.y + NODE_HEIGHT / 2 + 4}
               textAnchor="middle" fontSize={11} fontWeight={700}
-              fill={selectedStepId === node.id ? '#ffffff' : '#64748b'}
+              fill={isSelected ? '#ffffff' : '#64748b'}
               style={{ fontFamily: 'monospace' }}
             >
               {String(nodes.indexOf(node) + 1).padStart(2, '0')}
@@ -255,7 +297,7 @@ export function LoopFlowGraph({ steps, selectedStepId, onSelectStep, onAddStep }
             <text
               x={node.x + 12} y={node.y + 22}
               fontSize={13} fontWeight={600}
-              fill="#0f172a"
+              fill={hasTrace && !traced ? '#cbd5e1' : '#0f172a'}
               style={{ fontFamily: 'system-ui' }}
             >
               {truncateText(node.step.name, 18)}
@@ -264,7 +306,7 @@ export function LoopFlowGraph({ steps, selectedStepId, onSelectStep, onAddStep }
             <text
               x={node.x + 12} y={node.y + 40}
               fontSize={11}
-              fill="#64748b"
+              fill={hasTrace && !traced ? '#cbd5e1' : '#64748b'}
             >
               {truncateText(node.step.todo_title || `#${node.step.todo_id}`, 22)}
             </text>
@@ -272,7 +314,7 @@ export function LoopFlowGraph({ steps, selectedStepId, onSelectStep, onAddStep }
             <text
               x={node.x + 12} y={node.y + 56}
               fontSize={10}
-              fill="#94a3b8"
+              fill={hasTrace && !traced ? '#e2e8f0' : '#94a3b8'}
             >
               {node.step.todo_executor || '未指派'}
             </text>
@@ -281,14 +323,15 @@ export function LoopFlowGraph({ steps, selectedStepId, onSelectStep, onAddStep }
               <text
                 x={node.x + NODE_WIDTH - 8} y={node.y + NODE_HEIGHT - 6}
                 textAnchor="end" fontSize={9}
-                fill="#f97316"
+                fill={hasTrace && !traced ? '#e2e8f0' : '#f97316'}
                 style={{ fontFamily: 'monospace' }}
               >
                 闸门:{node.step.min_rating}
               </text>
             )}
           </g>
-        ))}
+          );
+        })}
       </svg>
 
       {/* Add button */}

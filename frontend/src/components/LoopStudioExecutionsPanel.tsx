@@ -25,6 +25,7 @@ interface Props {
   loopId: number;
   loopName: string;
   onTotalChange?: (total: number) => void;
+  onExecutionTrace?: (tracedStepIds: number[], sequenceMap: Record<number, number>) => void;
 }
 
 const DEFAULT_PAGE_LIMIT = 5;
@@ -50,7 +51,7 @@ function durationLabel(start: string, end: string | null): string {
   return `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`;
 }
 
-export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange }: Props) {
+export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange, onExecutionTrace }: Props) {
   const { message } = AntApp.useApp();
   const [items, setItems] = useState<LoopExecutionDto[]>([]);
   const [total, setTotal] = useState(0);
@@ -108,6 +109,7 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
     if (expandedId === execId) {
       setExpandedId(null);
       setExpandedDetail(null);
+      onExecutionTrace?.([], {});
       return;
     }
     setExpandedId(execId);
@@ -115,13 +117,24 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
     try {
       const detail = await dbLoops.getExecution(loopId, execId);
       setExpandedDetail(detail);
+      // 提取轨迹：按 sequence_index 排序的 step_id 列表
+      const sorted = [...detail.step_executions].sort(
+        (a: any, b: any) => (a.sequence_index || 0) - (b.sequence_index || 0)
+      );
+      const tracedIds = sorted.map((s: any) => s.step_id);
+      const seqMap: Record<number, number> = {};
+      sorted.forEach((s: any) => {
+        if (s.sequence_index != null) seqMap[s.step_id] = s.sequence_index;
+      });
+      onExecutionTrace?.(tracedIds, seqMap);
     } catch {
       message.error('加载执行详情失败');
       setExpandedId(null);
+      onExecutionTrace?.([], {});
     } finally {
       setExpandedLoading(false);
     }
-  }, [expandedId, loopId, message]);
+  }, [expandedId, loopId, message, onExecutionTrace]);
 
 
   return (

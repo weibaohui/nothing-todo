@@ -16,10 +16,12 @@ import { LoopFlowGraph } from '@/components/loop-flow/LoopFlowGraph';
 interface StepsPanelProps {
   loopId: number;
   steps: LoopStepDto[];
+  tracedStepIds?: number[];
+  tracedSequenceMap?: Record<number, number>;
   onChanged: () => void;
 }
 
-export function LoopStepsPanel({ loopId, steps, onChanged }: StepsPanelProps) {
+export function LoopStepsPanel({ loopId, steps, tracedStepIds, tracedSequenceMap, onChanged }: StepsPanelProps) {
   const { message } = AntApp.useApp();
 
   // Modal 状态
@@ -145,6 +147,8 @@ export function LoopStepsPanel({ loopId, steps, onChanged }: StepsPanelProps) {
       <LoopFlowGraph
         steps={steps}
         selectedStepId={editingStep?.id ?? null}
+        tracedStepIds={tracedStepIds}
+        tracedSequenceMap={tracedSequenceMap}
         onSelectStep={handleSelectStep}
         onAddStep={handleOpenAdd}
       />
