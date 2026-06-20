@@ -229,7 +229,7 @@ function StepExecList({ stepExecs }: { stepExecs: Record<string, any>[] }) {
 
               {/* 环节名称 */}
               <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text, #0f172a)', marginBottom: 2, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                环节 #{s.step_id}
+                {s.step_name || `环节 #${s.step_id}`}
               </div>
 
               {/* 状态 + 耗时 */}

@@ -73,6 +73,7 @@ export interface LoopStepExecutionDto {
   rating: number | null;
   unrated_policy: string | null;
   min_rating: number | null;
+  step_name: string | null;
 }
 
 export interface TodoSummaryForLoop {

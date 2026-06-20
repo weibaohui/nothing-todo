@@ -462,6 +462,7 @@ pub async fn get_execution(
         if let Ok(Some(ls)) = state.db.get_loop_step(dto.step_id).await {
             dto.unrated_policy = Some(ls.unrated_policy);
             dto.min_rating = ls.min_rating;
+            dto.step_name = Some(ls.name);
         }
         enriched.push(dto);
     }

@@ -240,6 +240,8 @@ pub struct LoopStepExecutionDto {
     pub unrated_policy: Option<String>,
     /// 评分阈值
     pub min_rating: Option<i32>,
+    /// 环节名称，来自 loop_steps 表
+    pub step_name: Option<String>,
 }
 
 impl From<loop_step_executions::Model> for LoopStepExecutionDto {
@@ -257,15 +259,17 @@ impl From<loop_step_executions::Model> for LoopStepExecutionDto {
             rating: None,
             unrated_policy: None,
             min_rating: None,
+            step_name: None,
         }
     }
 }
 
 impl LoopStepExecutionDto {
-    pub fn with_review(mut self, rating: Option<i32>, policy: Option<String>, threshold: Option<i32>) -> Self {
+    pub fn with_review(mut self, rating: Option<i32>, policy: Option<String>, threshold: Option<i32>, name: Option<String>) -> Self {
         self.rating = rating;
         self.unrated_policy = policy;
         self.min_rating = threshold;
+        self.step_name = name;
         self
     }
 }
