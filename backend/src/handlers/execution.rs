@@ -47,6 +47,7 @@ pub async fn get_execution_records(
         .db
         .get_execution_records(crate::db::execution::ExecutionRecordQuery {
             todo_id: query.todo_id,
+            step_id: None,
             limit,
             offset,
             status,
@@ -226,7 +227,9 @@ pub async fn execute_handler(
         source_todo_id: None,
         source_todo_title: None,
         source_hook_id: None,
-            loop_step_execution_id: None,        feishu_bot_id: None,
+            loop_step_execution_id: None,
+            step_id: None,
+            feishu_bot_id: None,
         feishu_receive_id: None,
     })
     .await;
@@ -338,6 +341,7 @@ pub async fn get_running_board(
         .db
         .get_execution_records(crate::db::execution::ExecutionRecordQuery {
             todo_id: None,
+            step_id: None,
             limit,
             offset,
             status: None,
@@ -501,7 +505,9 @@ pub async fn resume_execution_handler(
         source_todo_id: None,
         source_todo_title: None,
         source_hook_id: None,
-            loop_step_execution_id: None,        feishu_bot_id: None,
+            loop_step_execution_id: None,
+            step_id: None,
+            feishu_bot_id: None,
         feishu_receive_id: None,
     })
     .await?;
@@ -659,7 +665,9 @@ pub async fn smart_create_handler(
         source_todo_id: None,
         source_todo_title: None,
         source_hook_id: None,
-            loop_step_execution_id: None,        feishu_bot_id: None,
+            loop_step_execution_id: None,
+            step_id: None,
+            feishu_bot_id: None,
         feishu_receive_id: None,
     })
     .await?;
@@ -721,7 +729,9 @@ mod resume_session_id_tests {
             source_todo_id: None,
             source_todo_title: None,
             source_hook_id: None,
-            loop_step_execution_id: None,            rating: None,
+            loop_step_execution_id: None,
+            step_id: None,
+            rating: None,
             source_execution_record_id: None,
             last_review_status: None,
             last_reviewed_at: None,
