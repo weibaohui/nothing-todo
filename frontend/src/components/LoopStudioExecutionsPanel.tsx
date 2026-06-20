@@ -16,6 +16,7 @@ import {
   ReloadOutlined,
   HistoryOutlined,
   StarOutlined,
+  ArrowRightOutlined,
 } from '@ant-design/icons';
 import * as dbLoops from '@/utils/database/loops';
 import type { LoopExecutionDto, LoopExecutionDetail } from '@/types/loop';
@@ -179,76 +180,101 @@ export function LoopExecutionsPanel({ loopId, loopName }: Props) {
   );
 }
 
-// 环节执行卡片：以直观卡片展示每个环节的执行详情
+// 环节执行卡片：卡片式布局 + 箭头连接展示执行顺序，每张卡展示执行详情
 function StepExecList({ stepExecs }: { stepExecs: Record<string, any>[] }) {
   if (stepExecs.length === 0) {
     return <Empty description="无环节执行记录" />;
   }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 0' }}>
-      {stepExecs.map(s => {
+    <div style={{ display: 'flex', gap: 0, overflowX: 'auto', paddingBottom: 8, alignItems: 'stretch' }}>
+      {stepExecs.map((s, idx) => {
         const view = execStatusView(s.status);
         const ratingPassed = s.rating != null && s.min_rating != null && s.rating >= s.min_rating;
         const duration = s.started_at ? durationLabel(s.started_at, s.finished_at) : '-';
         return (
-          <div
-            key={s.id}
-            style={{
-              background: 'var(--color-bg-elevated, #ffffff)',
-              border: `1px solid var(--color-border, #e2e8f0)`,
-              borderRadius: 8,
-              padding: 12,
-            }}
-          >
-            {/* 第一行：状态图标 + 环节编号 + 状态标签 + 耗时 */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              {view.icon}
-              <span style={{ fontWeight: 600, fontSize: 14 }}>环节 #{s.step_id}</span>
-              <Tag color={view.color}>{s.status}</Tag>
-              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary, #94a3b8)', marginLeft: 'auto', fontFamily: 'monospace' }}>
-                {duration}
-              </span>
-            </div>
-
-            {/* 第二行：评分 / 阈值 / 策略 */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              {s.rating != null ? (
-                <span style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                  padding: '2px 8px', borderRadius: 4,
-                  background: ratingPassed ? 'var(--color-success-bg, #f0fdf4)' : 'var(--color-error-bg, #fef2f2)',
-                  color: ratingPassed ? 'var(--color-success, #22c55e)' : 'var(--color-error, #ef4444)',
-                  fontWeight: 600, fontSize: 13,
-                }}>
-                  <StarOutlined /> 评分 {s.rating}
-                </span>
-              ) : (
-                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary, #94a3b8)' }}>未评审</span>
-              )}
-              {s.min_rating != null && (
-                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary, #94a3b8)' }}>
-                  阈值 {s.min_rating}
-                  {s.rating != null && (s.rating >= s.min_rating ? ' ✅' : ' ❌')}
-                </span>
-              )}
-              {s.unrated_policy && (
-                <Tag style={{ margin: 0 }}>{s.unrated_policy === 'skip' ? '未达标跳过' : '未达标放行'}</Tag>
-              )}
-              <span style={{ fontSize: 11, color: 'var(--color-text-tertiary, #94a3b8)', marginLeft: 'auto' }}>
-                记录 #<code>{s.execution_record_id || '-'}</code>
-              </span>
-            </div>
-
-            {/* 第三行：时间 + 错误 */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 11, color: 'var(--color-text-tertiary, #94a3b8)' }}>
-              <span>开始 {s.started_at ? new Date(s.started_at).toLocaleTimeString() : '-'}</span>
-              <span>结束 {s.finished_at ? new Date(s.finished_at).toLocaleTimeString() : '-'}</span>
-            </div>
-            {s.error_message && (
-              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--color-error, #ef4444)', background: 'var(--color-error-bg, #fef2f2)', padding: '4px 8px', borderRadius: 4 }}>
-                {s.error_message}
+          <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+            {/* 箭头连接（第一项前不显示） */}
+            {idx > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', padding: '0 4px' }}>
+                <ArrowRightOutlined style={{ color: 'var(--color-text-tertiary, #94a3b8)', fontSize: 16 }} />
               </div>
             )}
+
+            {/* 执行卡片 */}
+            <div
+              style={{
+                position: 'relative',
+                width: 220, minWidth: 220,
+                background: 'var(--color-bg-elevated, #ffffff)',
+                border: `1px solid ${s.status === 'success' ? 'var(--color-success, #22c55e)' : s.status === 'failed' ? 'var(--color-error, #ef4444)' : 'var(--color-border, #e2e8f0)'}`,
+                borderRadius: 10,
+                padding: '14px 16px',
+                transition: 'box-shadow 200ms',
+                userSelect: 'none',
+              }}
+            >
+              {/* 执行序号 */}
+              <div style={{ position: 'absolute', top: 6, left: 10, fontSize: 11, fontWeight: 600, color: 'var(--color-text-tertiary, #94a3b8)' }}>
+                #{idx + 1}
+              </div>
+
+              {/* 状态指示圆点 */}
+              <div style={{ position: 'absolute', top: 8, right: 10, width: 8, height: 8, borderRadius: 4, background: view.color }} />
+
+              {/* 环节名称 */}
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text, #0f172a)', marginBottom: 2, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                环节 #{s.step_id}
+              </div>
+
+              {/* 状态 + 耗时 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                {view.icon}
+                <Tag color={view.color} style={{ margin: 0, fontSize: 11 }}>{s.status}</Tag>
+                <span style={{ fontSize: 11, color: 'var(--color-text-tertiary, #94a3b8)', fontFamily: 'monospace' }}>{duration}</span>
+              </div>
+
+              {/* 评分 / 阈值 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: 4 }}>
+                {s.rating != null ? (
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 2,
+                    padding: '1px 6px', borderRadius: 4, fontSize: 12,
+                    background: ratingPassed ? 'var(--color-success-bg, #f0fdf4)' : 'var(--color-error-bg, #fef2f2)',
+                    color: ratingPassed ? 'var(--color-success, #22c55e)' : 'var(--color-error, #ef4444)',
+                    fontWeight: 600,
+                  }}>
+                    <StarOutlined style={{ fontSize: 10 }} /> {s.rating}
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 11, color: 'var(--color-text-tertiary, #94a3b8)' }}>未评审</span>
+                )}
+                {s.min_rating != null && (
+                  <span style={{ fontSize: 11, color: s.rating != null && s.rating >= s.min_rating ? 'var(--color-success, #22c55e)' : 'var(--color-error, #ef4444)' }}>
+                    {s.rating != null && (s.rating >= s.min_rating ? '✅' : '❌')} {s.min_rating}
+                  </span>
+                )}
+              </div>
+
+              {/* 策略 */}
+              {s.unrated_policy && (
+                <div style={{ fontSize: 11, color: 'var(--color-text-tertiary, #94a3b8)', marginBottom: 2 }}>
+                  策略: {s.unrated_policy === 'skip' ? '未达标跳过' : '未达标放行'}
+                </div>
+              )}
+
+              {/* 时间 */}
+              <div style={{ fontSize: 10, color: 'var(--color-text-tertiary, #94a3b8)', lineHeight: 1.5 }}>
+                开始 {s.started_at ? new Date(s.started_at).toLocaleTimeString() : '-'}
+                · 结束 {s.finished_at ? new Date(s.finished_at).toLocaleTimeString() : '-'}
+              </div>
+
+              {/* 错误 */}
+              {s.error_message && (
+                <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-error, #ef4444)', lineHeight: 1.4 }}>
+                  {s.error_message}
+                </div>
+              )}
+            </div>
           </div>
         );
       })}
