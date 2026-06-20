@@ -243,6 +243,7 @@ fn matching_items(todo: &Todo, trigger: HookTrigger) -> Vec<&TodoHookItem> {
 async fn lookup_source_result(ctx: &ServiceContext, source_id: i64) -> Option<String> {
     let query = crate::db::execution::ExecutionRecordQuery {
         todo_id: Some(source_id),
+            step_id: None,
         limit: 1,
         offset: 0,
         status: Some("success"),
@@ -277,6 +278,7 @@ async fn lookup_latest_finished_record(
     // ORDER BY started_at DESC LIMIT 1 gives us the most recent record.
     let query = crate::db::execution::ExecutionRecordQuery {
         todo_id: Some(source_id),
+            step_id: None,
         limit: 1,
         offset: 0,
         status: Some("all"),
@@ -432,7 +434,9 @@ async fn execute_target_todo(
         source_todo_id: Some(source.id),
         source_todo_title: Some(source.title.clone()),
         source_hook_id: Some(item.id),
-        feishu_bot_id: None,
+            loop_step_execution_id: None,
+            step_id: None,
+            feishu_bot_id: None,
         feishu_receive_id: None,
     };
 
@@ -510,6 +514,8 @@ mod tests {
             source_todo_id: None,
             source_todo_title: None,
             source_hook_id: None,
+            loop_step_execution_id: None,
+            step_id: None,
             rating,
             source_execution_record_id: None,
             last_review_status: None,

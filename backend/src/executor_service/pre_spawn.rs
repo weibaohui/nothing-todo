@@ -237,6 +237,7 @@ pub(crate) async fn reject_start_todo_failure(
 /// 决策顺序：显式 req_executor > todo.executor > registry default。命令构造
 /// 用 `command_args_with_session` 处理 resume / 非 resume 分支，再用
 /// [`apply_worktree_flag`] 给 claude_code / hermes 加 worktree 参数。
+#[allow(dead_code)]
 pub(crate) struct SelectedExecutor {
     pub executor: Arc<dyn CodeExecutor>,
     pub command_args: Vec<String>,
@@ -327,6 +328,7 @@ fn build_executor_command_args(
 
 /// Update todo's executor to the one being used. 失败仅记日志，不阻断执行。
 async fn persist_executor_choice(db: &Database, todo_id: i64, executor_str: &str) {
+    if todo_id == 0 { return; } // 环节独立执行，不关联 todo
     if let Err(e) = db.update_todo_executor(todo_id, executor_str).await {
         tracing::error!("Failed to update todo executor: {}", e);
     }
@@ -386,7 +388,7 @@ async fn create_record_or_reject(
     match request
         .db
         .create_execution_record(NewExecutionRecord {
-            todo_id: request.todo_id,
+            todo_id: if request.todo_id == 0 { None } else { Some(request.todo_id) },
             command,
             executor: &selected.executor_str,
             trigger_type: &request.trigger_type,
@@ -396,6 +398,8 @@ async fn create_record_or_reject(
             source_todo_id: request.source_todo_id,
             source_todo_title: request.source_todo_title.as_deref(),
             source_hook_id: request.source_hook_id,
+            loop_step_execution_id: request.loop_step_execution_id,
+            step_id: request.step_id,
         })
         .await
     {

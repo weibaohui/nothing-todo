@@ -122,7 +122,14 @@ pub(crate) async fn start_todo_and_prepare_spawn(
     .await;
 
     start_todo_or_cleanup(&prepared, &worktree_ctx).await?;
-    let todo_title = extract_todo_title(&prepared.todo);
+    let todo_title = {
+        let t = extract_todo_title(&prepared.todo);
+        if t.is_empty() {
+            prepared.request.source_todo_title.clone().unwrap_or_default()
+        } else {
+            t
+        }
+    };
     let executor_spawn = prepared.executor.clone();
     let execution_timeout_secs = prepared.timeout_secs;
 
@@ -184,6 +191,7 @@ pub(crate) async fn start_todo_or_cleanup(
     prepared: &PreparedExecution,
     worktree_ctx: &WorktreeContext,
 ) -> Result<(), ExecutionResult> {
+    if prepared.request.todo_id == 0 { return Ok(()); } // 环节独立执行
     if let Err(e) = prepared
         .request
         .db

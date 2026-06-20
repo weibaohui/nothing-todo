@@ -105,7 +105,7 @@ pub(super) struct DerivedDashboardMetrics {
 /// 之所以抽到 dashboard 模块而不是 execution.rs：
 /// - 这些函数都是纯函数（无 DB / 无 self），放在通用模块便于单元测试；
 /// - `get_dashboard_stats` 不再被派生计算代码撑爆，主函数保持「协调」定位。
-pub fn compute_dashboard_derived(raw: &RawDashboardStats) -> DerivedDashboardMetrics {
+pub(super) fn compute_dashboard_derived(raw: &RawDashboardStats) -> DerivedDashboardMetrics {
     DerivedDashboardMetrics {
         avg_duration_ms: compute_avg_duration(raw.total_duration, raw.duration_count),
         active_days: compute_active_days(&raw.daily_executions),
@@ -121,7 +121,7 @@ pub fn compute_dashboard_derived(raw: &RawDashboardStats) -> DerivedDashboardMet
 ///
 /// 独立成函数的目的：让 `fetch_dashboard_raw_stats` 主函数只剩「并行两轮
 /// → 合并」两步，避免被 30 行的字段搬移撑爆。
-pub fn assemble_raw_dashboard_stats(base: BaseStats, dist: DistributionStats) -> RawDashboardStats {
+pub(super) fn assemble_raw_dashboard_stats(base: BaseStats, dist: DistributionStats) -> RawDashboardStats {
     let (total_todos, pending_todos, running_todos, completed_todos, failed_todos, scheduled_todos) =
         base.todo_stats;
     let (
@@ -177,7 +177,7 @@ pub fn assemble_raw_dashboard_stats(base: BaseStats, dist: DistributionStats) ->
 /// 独立成函数的目的：让 `build_dashboard_stats` 不再被 30 行的 struct literal
 /// 撑爆。`SkillsStats` / `BackupStats` 通过参数传入，
 /// `execution.rs` 负责「软失败包装」，本函数只负责「逐字段搬移」。
-pub fn assemble_dashboard_response(
+pub(super) fn assemble_dashboard_response(
     raw: RawDashboardStats,
     derived: DerivedDashboardMetrics,
     skills_stats: Option<crate::models::SkillsStats>,
