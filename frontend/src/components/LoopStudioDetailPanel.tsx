@@ -19,6 +19,7 @@ import {
   CopyOutlined,
   DeleteOutlined,
   EditOutlined,
+  PlusOutlined,
 } from '@ant-design/icons';
 import * as dbLoops from '@/utils/database/loops';
 import * as db from '@/utils/database';
@@ -33,6 +34,7 @@ interface LoopDetailPanelProps {
   onTrigger: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  onCreate: () => void;
   onToggleStatus: () => void;
   onChanged: () => void;
 }
@@ -42,6 +44,7 @@ export function LoopDetailPanel({
   onTrigger,
   onDuplicate,
   onDelete,
+  onCreate,
   onToggleStatus,
   onChanged,
 }: LoopDetailPanelProps) {
@@ -162,6 +165,7 @@ export function LoopDetailPanel({
             <Button size="small" icon={<CopyOutlined />} onClick={onDuplicate} />
           </Tooltip>
           <Button size="small" icon={<EditOutlined />} onClick={handleOpenEdit}>编辑</Button>
+          <Button size="small" icon={<PlusOutlined />} onClick={onCreate}>新建</Button>
           <Popconfirm
             title="删除 loop"
             description="将级联删除 triggers/steps,无法恢复"

@@ -310,6 +310,15 @@ function AppContent() {
                       message.error('删除失败，环路可能正在被引用');
                     }
                   }}
+                  onCreate={async () => {
+                    try {
+                      const res = await dbLoops.createLoop({ name: '新建环路', description: '' });
+                      setSelectedLoopId(res.id);
+                      setLoopUpdateCount(c => c + 1);
+                    } catch (err) {
+                      message.error('创建失败');
+                    }
+                  }}
                   onToggleStatus={async () => {
                     try {
                       const loops = await dbLoops.listLoops();
