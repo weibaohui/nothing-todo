@@ -229,21 +229,13 @@ impl LoopRunner {
             let last_conclusion_text = last_conclusion.as_deref().unwrap_or("");
             let last_step_name_text = last_step_name.as_deref().unwrap_or("");
             let enhanced_prompt = step_meta.prompt
-                // 支持双大括号 {{var}} 和单大括号 {var} 两种写法
                 .replace("{{blackboard}}", &blackboard_text)
                 .replace("{{last_output}}", last_output_text)
                 .replace("{{last_conclusion}}", last_conclusion_text)
                 .replace("{{last_step_name}}", last_step_name_text)
                 .replace("{{message}}", last_output_text)
                 .replace("{{loop_execution_id}}", &loop_execution_id.to_string())
-                .replace("{{loop_name}}", &loop_.name)
-                .replace("{blackboard}", &blackboard_text)
-                .replace("{last_output}", last_output_text)
-                .replace("{last_conclusion}", last_conclusion_text)
-                .replace("{last_step_name}", last_step_name_text)
-                .replace("{message}", last_output_text)
-                .replace("{loop_execution_id}", &loop_execution_id.to_string())
-                .replace("{loop_name}", &loop_.name);
+                .replace("{{loop_name}}", &loop_.name);
 
             // 4e. 创建 step execution 记录
             let step_exec = self
