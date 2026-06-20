@@ -47,7 +47,7 @@ pub async fn get_execution_records(
         .db
         .get_execution_records(crate::db::execution::ExecutionRecordQuery {
             todo_id: query.todo_id,
-            step_id: None,
+            step_id: query.step_id,
             limit,
             offset,
             status,
