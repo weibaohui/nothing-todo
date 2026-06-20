@@ -328,6 +328,7 @@ fn build_executor_command_args(
 
 /// Update todo's executor to the one being used. 失败仅记日志，不阻断执行。
 async fn persist_executor_choice(db: &Database, todo_id: i64, executor_str: &str) {
+    if todo_id == 0 { return; } // 环节独立执行，不关联 todo
     if let Err(e) = db.update_todo_executor(todo_id, executor_str).await {
         tracing::error!("Failed to update todo executor: {}", e);
     }
