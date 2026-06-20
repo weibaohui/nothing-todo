@@ -7,7 +7,7 @@
 // 分页: page + limit, 简单表格不引入分页器, 改成"加载更多"按钮避免侵入式 UI
 
 import { useState, useEffect, useCallback } from 'react';
-import { App as AntApp, Button, Empty, Skeleton, Tag, Space, Tooltip } from 'antd';
+import { App as AntApp, Button, Empty, Skeleton, Tag, Space, Tooltip, Drawer, Descriptions } from 'antd';
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
@@ -188,11 +188,29 @@ export function LoopExecutionsPanel({ loopId, loopName }: Props) {
 
 // 环节执行卡片：卡片式布局 + 箭头连接展示执行顺序，每张卡展示执行详情
 function StepExecList({ stepExecs }: { stepExecs: Record<string, any>[] }) {
+  const [drawerRecord, setDrawerRecord] = useState<any | null>(null);
+  const [drawerLoading, setDrawerLoading] = useState(false);
+
+  const handleCardClick = useCallback(async (s: any) => {
+    if (!s.execution_record_id) return;
+    setDrawerLoading(true);
+    try {
+      const { getExecutionRecord } = await import('@/utils/database/executions');
+      const rec = await getExecutionRecord(s.execution_record_id);
+      setDrawerRecord(rec);
+    } catch {
+      // ignore
+    } finally {
+      setDrawerLoading(false);
+    }
+  }, []);
+
   if (stepExecs.length === 0) {
     return <Empty description="无环节执行记录" />;
   }
   return (
-    <div style={{ display: 'flex', gap: 0, overflowX: 'auto', paddingBottom: 8, alignItems: 'stretch' }}>
+    <>
+      <div style={{ display: 'flex', gap: 0, overflowX: 'auto', paddingBottom: 8, alignItems: 'stretch' }}>
       {stepExecs.map((s, idx) => {
         const view = execStatusView(s.status);
         const ratingPassed = s.rating != null && s.min_rating != null && s.rating >= s.min_rating;
@@ -208,6 +226,7 @@ function StepExecList({ stepExecs }: { stepExecs: Record<string, any>[] }) {
 
             {/* 执行卡片 */}
             <div
+              onClick={() => handleCardClick(s)}
               style={{
                 position: 'relative',
                 width: 220, minWidth: 220,
@@ -215,6 +234,7 @@ function StepExecList({ stepExecs }: { stepExecs: Record<string, any>[] }) {
                 border: `1px solid ${s.status === 'success' ? 'var(--color-success, #22c55e)' : s.status === 'failed' ? 'var(--color-error, #ef4444)' : 'var(--color-border, #e2e8f0)'}`,
                 borderRadius: 10,
                 padding: '14px 16px',
+                cursor: s.execution_record_id ? 'pointer' : 'default',
                 transition: 'box-shadow 200ms',
                 userSelect: 'none',
               }}
@@ -285,5 +305,46 @@ function StepExecList({ stepExecs }: { stepExecs: Record<string, any>[] }) {
         );
       })}
     </div>
+    {drawerLoading && <Skeleton active style={{ padding: 24 }} />}
+    <Drawer
+      title={drawerRecord ? `执行记录 #${drawerRecord.id}` : '执行记录'}
+      placement="right"
+      width={480}
+      open={!!drawerRecord}
+      onClose={() => setDrawerRecord(null)}
+      loading={drawerLoading}
+    >
+      {drawerRecord && (
+        <Descriptions column={1} size="small" bordered={false} style={{ marginBottom: 16 }}>
+          <Descriptions.Item label="状态">
+            <Tag color={drawerRecord.status === 'success' ? 'green' : drawerRecord.status === 'failed' ? 'red' : 'blue'}>
+              {drawerRecord.status}
+            </Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="执行器">{drawerRecord.executor || '-'}</Descriptions.Item>
+          {drawerRecord.rating != null && (
+            <Descriptions.Item label="评分">{drawerRecord.rating} / 100</Descriptions.Item>
+          )}
+          <Descriptions.Item label="开始时间">{drawerRecord.started_at || '-'}</Descriptions.Item>
+          <Descriptions.Item label="结束时间">{drawerRecord.finished_at || '-'}</Descriptions.Item>
+          {drawerRecord.command && (
+            <Descriptions.Item label="命令"><code style={{ wordBreak: 'break-all' }}>{drawerRecord.command}</code></Descriptions.Item>
+          )}
+        </Descriptions>
+      )}
+      {drawerRecord?.result && (
+        <div>
+          <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 14 }}>执行结果</div>
+          <div style={{
+            background: 'var(--color-bg-secondary, #f8fafc)',
+            padding: 12, borderRadius: 6, fontSize: 13,
+            whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 400, overflow: 'auto',
+          }}>
+            {drawerRecord.result}
+          </div>
+        </div>
+      )}
+    </Drawer>
+    </>
   );
 }
