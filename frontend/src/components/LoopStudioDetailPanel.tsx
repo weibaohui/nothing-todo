@@ -483,7 +483,7 @@ export function LoopDetailPanel({
               <Form.Item label="最大执行步数" name={['max_step_executions']} tooltip="超出后自动终止 Loop（留空=不限制）">
                 <InputNumber min={1} max={9999} placeholder="不限" style={{ width: '100%' }} />
               </Form.Item>
-              <Form.Item label="最大 Token 数（预留）" name={['max_total_tokens']} tooltip="超出后自动终止（留空=不限制）">
+              <Form.Item label="最大 Token 数" name={['max_total_tokens']} tooltip="超出后自动终止（留空=不限制）">
                 <InputNumber min={1} max={9999999999} placeholder="不限" style={{ width: '100%' }} step={1000000} />
               </Form.Item>
             </div>
