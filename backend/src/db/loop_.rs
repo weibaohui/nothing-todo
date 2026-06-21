@@ -158,7 +158,7 @@ impl Database {
                 new_loop.id,
                 &s.name,
                 &s.description,
-                s.todo_id,
+                s.step_id,
                 &s.run_mode,
                 s.skip_on_source_failed != 0,
                 s.min_rating,
@@ -320,7 +320,7 @@ impl Database {
         loop_id: i64,
         name: &str,
         description: &str,
-        todo_id: i64,
+        step_id: i64,
         run_mode: &str,
         skip_on_source_failed: bool,
         min_rating: Option<i32>,
@@ -346,7 +346,7 @@ impl Database {
             name: ActiveValue::Set(name.to_string()),
             description: ActiveValue::Set(description.to_string()),
             order_index: ActiveValue::Set(next_order),
-            todo_id: ActiveValue::Set(todo_id),
+            step_id: ActiveValue::Set(step_id),
             run_mode: ActiveValue::Set(run_mode.to_string()),
             skip_on_source_failed: ActiveValue::Set(if skip_on_source_failed { 1 } else { 0 }),
             min_rating: ActiveValue::Set(min_rating),
@@ -367,7 +367,7 @@ impl Database {
         id: i64,
         name: &str,
         description: &str,
-        todo_id: i64,
+        step_id: i64,
         run_mode: &str,
         skip_on_source_failed: bool,
         min_rating: Option<i32>,
@@ -383,7 +383,7 @@ impl Database {
             let mut am: loop_steps::ActiveModel = c.into();
             am.name = ActiveValue::Set(name.to_string());
             am.description = ActiveValue::Set(description.to_string());
-            am.todo_id = ActiveValue::Set(todo_id);
+            am.step_id = ActiveValue::Set(step_id);
             am.run_mode = ActiveValue::Set(run_mode.to_string());
             am.skip_on_source_failed =
                 ActiveValue::Set(if skip_on_source_failed { 1 } else { 0 });
@@ -784,7 +784,7 @@ impl Database {
         };
         let triggers = self.list_triggers_by_loop(loop_id).await?;
         let steps_with_meta = self.list_loop_steps_with_todo_meta(loop_id).await?;
-        let mut todo_ids: Vec<i64> = steps_with_meta.iter().map(|(s, _, _, _)| s.todo_id).collect();
+        let mut todo_ids: Vec<i64> = steps_with_meta.iter().map(|(s, _, _, _)| s.step_id).collect();
         todo_ids.sort_unstable();
         todo_ids.dedup();
         let todos = self.get_todos_by_ids(&todo_ids).await?;

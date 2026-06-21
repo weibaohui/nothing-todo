@@ -15,7 +15,9 @@ pub struct Model {
     pub description: String,
     #[sea_orm(default_value = "0")]
     pub order_index: i32,
-    pub todo_id: i64,
+    /// 实际存储 steps.id（列名 todo_id 是历史遗留，不要被名字误导）
+    #[sea_orm(column_name = "todo_id")]
+    pub step_id: i64,
     /// sequential (reserved for parallel)
     #[sea_orm(default_value = "sequential")]
     pub run_mode: String,
@@ -52,7 +54,7 @@ pub enum Relation {
     BelongsToLoop,
     #[sea_orm(
         belongs_to = "super::todos::Entity",
-        from = "Column::TodoId",
+        from = "Column::StepId",
         to = "super::todos::Column::Id"
     )]
     BelongsToTodo,
