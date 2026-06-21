@@ -6,6 +6,7 @@
  *   2. 「新建」按钮文案随模式变化（新建事项 / 新建环节 / 新建环路）
  *   3. 「批量」下拉菜单项随模式变化（事项和环节：更换执行器；环路：强停）
  *   4. 顶部 header 旧版「新建任务」按钮已被移除，只留「智能新建」
+ *   5. 工具栏不显示「已选 N 项 / 共 N 项」文案（节省空间）
  *
  * 截图证据：保存到 /tmp/feat-action-toolbar-*.png（不入 git）。
  */
@@ -72,7 +73,7 @@ async function switchMode(page: Page, mode: 'item' | 'step' | 'loop') {
 }
 
 test.describe('ActionToolbar — 通用行为', () => {
-  test('事项模式：工具栏三按钮 + 全选 + 批量', async ({ page }) => {
+  test('事项模式：工具栏三按钮 + 不显示已选/共计数文案', async ({ page }) => {
     await page.goto(DEV_URL);
     // 默认是事项模式，但显式切一次保证可重复
     await switchMode(page, 'item');
@@ -83,6 +84,10 @@ test.describe('ActionToolbar — 通用行为', () => {
     await expect(page.getByTestId('action-toolbar-create')).toContainText('新建');
     // 批量下拉存在
     await expect(page.getByTestId('action-toolbar-batch-trigger')).toBeVisible();
+
+    // 节省空间：不再渲染「已选 N 项」「共 N 项」文案节点
+    await expect(page.getByTestId('action-toolbar-selected-count')).toHaveCount(0);
+    await expect(page.getByTestId('action-toolbar-total-count')).toHaveCount(0);
   });
 
   test('事项模式：勾选两条后批量 Dropdown 启用，菜单项是「更换执行器」', async ({ page }) => {
@@ -92,6 +97,9 @@ test.describe('ActionToolbar — 通用行为', () => {
     // 等列表加载
     await page.waitForTimeout(300);
 
+    // 空选时批量 trigger 应被禁用
+    await expect(page.getByTestId('action-toolbar-batch-trigger')).toBeDisabled();
+
     // 勾选前两条 todo 的复选框（用 data-testid 精确锁）
     // 用 force: true 绕开 actionability 检查：用户 DB 里其他 todo 卡片可能
     // 视觉上压在我们新建的 todo 上方，Playwright 会误判被遮挡。
@@ -100,8 +108,8 @@ test.describe('ActionToolbar — 通用行为', () => {
     await todo1Cb.click({ force: true });
     await todo2Cb.click({ force: true });
 
-    // 工具栏出现「已选 2 项」
-    await expect(page.getByTestId('action-toolbar-selected-count')).toContainText('已选 2');
+    // 批量 trigger 启用
+    await expect(page.getByTestId('action-toolbar-batch-trigger')).toBeEnabled();
 
     // 打开批量下拉
     await page.getByTestId('action-toolbar-batch-trigger').click();
@@ -115,20 +123,21 @@ test.describe('ActionToolbar — 通用行为', () => {
     await page.waitForTimeout(300);
 
     const selectAll = page.getByTestId('action-toolbar-select-all');
-    // 初始：未选
+    // 初始：未选（input.checked 为 false 且无 .ant-checkbox-indeterminate）
     await expect(selectAll).not.toBeChecked();
+    const wrapperClass = await selectAll.locator('xpath=..').getAttribute('class');
+    expect(wrapperClass ?? '').not.toContain('ant-checkbox-indeterminate');
 
-    // 点全选 → 全部当前可见项被勾
+    // 点全选 → 全部当前可见项被勾（空选时禁用批量 trigger，这里应启用）
     await selectAll.click();
-    await expect(page.getByTestId('action-toolbar-selected-count')).toContainText('已选');
-    // 复选框应进入 checked 态（DOM aria-checked or input checked）
+    await expect(page.getByTestId('action-toolbar-batch-trigger')).toBeEnabled();
+    // 复选框应进入 checked 态
     await expect(selectAll).toBeChecked();
 
-    // 取消勾选其中一条 → 复选框进入 indeterminate
+    // 取消勾选其中一条 → 复选框进入 indeterminate（antd 6 加 .ant-checkbox-indeterminate 类）
     await page.getByTestId(`todo-row-checkbox-${todoId1}`).click({ force: true });
-    // antd 在 indeterminate 时 input 不 checked，但 aria-checked 会变 mixed
-    const ariaChecked = await selectAll.getAttribute('aria-checked');
-    expect(ariaChecked).toBe('mixed');
+    const wrapperClass2 = await selectAll.locator('xpath=..').getAttribute('class');
+    expect(wrapperClass2 ?? '').toContain('ant-checkbox-indeterminate');
   });
 
   test('事项模式：header 旧版「新建任务」按钮已移除，只剩「智能新建」', async ({ page }) => {
@@ -149,12 +158,10 @@ test.describe('ActionToolbar — 通用行为', () => {
     await page.waitForTimeout(300);
 
     await expect(page.getByTestId('action-toolbar-create')).toContainText('新建');
-    // 选择前，确认模式切换后 selectedIds 被清空
-    await expect(page.getByTestId('action-toolbar-selected-count')).toHaveCount(0);
 
     // 勾选环节
     await page.getByTestId(`step-row-checkbox-${stepId}`).click({ force: true });
-    await expect(page.getByTestId('action-toolbar-selected-count')).toContainText('已选 1');
+    await expect(page.getByTestId('action-toolbar-batch-trigger')).toBeEnabled();
 
     // 打开批量下拉，菜单项 = 更换执行器
     await page.getByTestId('action-toolbar-batch-trigger').click();
@@ -170,7 +177,7 @@ test.describe('ActionToolbar — 通用行为', () => {
 
     // 勾选环路
     await page.getByTestId(`loop-row-checkbox-${loopId}`).click({ force: true });
-    await expect(page.getByTestId('action-toolbar-selected-count')).toContainText('已选 1');
+    await expect(page.getByTestId('action-toolbar-batch-trigger')).toBeEnabled();
 
     // 打开批量下拉，菜单项 = 强停
     await page.getByTestId('action-toolbar-batch-trigger').click();
@@ -179,5 +186,62 @@ test.describe('ActionToolbar — 通用行为', () => {
     // antd 给 danger 菜单项加 .ant-dropdown-menu-item-danger 类
     const cls = await forceStop.getAttribute('class');
     expect(cls).toContain('ant-dropdown-menu-item-danger');
+  });
+
+  test('三种模式都有搜索框，且切换不丢失', async ({ page }) => {
+    await page.goto(DEV_URL);
+
+    // 事项模式：placeholder 提到 "提示词"
+    await switchMode(page, 'item');
+    await expect(page.getByPlaceholder(/搜索标题或提示词/)).toBeVisible();
+
+    // 环节模式：placeholder 提到 "环节标题"
+    await switchMode(page, 'step');
+    await page.waitForTimeout(200);
+    await expect(page.getByPlaceholder(/搜索环节标题/)).toBeVisible();
+
+    // 环路模式：placeholder 提到 "环路名称"
+    await switchMode(page, 'loop');
+    await page.waitForTimeout(200);
+    await expect(page.getByPlaceholder(/搜索环路名称/)).toBeVisible();
+  });
+
+  test('环节模式：搜索关键词过滤列表（搜不到时列表清空）', async ({ page }) => {
+    await page.goto(DEV_URL);
+    await switchMode(page, 'step');
+    await page.waitForTimeout(300);
+
+    // 我们的 seed step 标题是 toolbar-step-1，先确认它可见
+    const stepRow = page.getByTestId(`step-row-checkbox-${stepId}`);
+    await expect(stepRow).toBeVisible();
+
+    // 搜一个不存在的关键词，列表清空（卡片消失）
+    const searchInput = page.getByPlaceholder(/搜索环节标题/);
+    await searchInput.fill('__nope_keyword_should_not_match__');
+    await page.waitForTimeout(200);
+    await expect(stepRow).toHaveCount(0);
+
+    // 清空搜索 → 卡片重新出现
+    await searchInput.fill('');
+    await page.waitForTimeout(200);
+    await expect(stepRow).toBeVisible();
+  });
+
+  test('环路模式：搜索关键词过滤列表', async ({ page }) => {
+    await page.goto(DEV_URL);
+    await switchMode(page, 'loop');
+    await page.waitForTimeout(300);
+
+    const loopRow = page.getByTestId(`loop-row-checkbox-${loopId}`);
+    await expect(loopRow).toBeVisible();
+
+    const searchInput = page.getByPlaceholder(/搜索环路名称/);
+    await searchInput.fill('__nope_keyword_should_not_match__');
+    await page.waitForTimeout(200);
+    await expect(loopRow).toHaveCount(0);
+
+    await searchInput.fill('');
+    await page.waitForTimeout(200);
+    await expect(loopRow).toBeVisible();
   });
 });

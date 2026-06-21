@@ -9,7 +9,9 @@
 //    不去查后端的全量数据 — 过滤后选中是用户能直接感知的范围。
 // 4. **批量按钮空选时禁用**：菜单项仍渲染（让用户知道有哪些可做的操作），
 //    但 trigger 按钮 disabled，避免误导。
-// 5. **拆分内部子组件**：SelectAll / BatchDropdown / CreateButton 各自 < 30 行，
+// 5. **节省空间**：仅渲染三按钮（checkbox + 批量 + 新建），不显示「已选 N 项 / 共 N 项」文案，
+//    选中数 / 总数靠全选复选框三态视觉隐式表达。
+// 6. **拆分内部子组件**：SelectAll / BatchDropdown / CreateButton 各自 < 30 行，
 //    方便后续单测 + 维护。
 
 import { Checkbox, Dropdown, Button } from 'antd';
@@ -49,8 +51,6 @@ export interface ActionToolbarProps<TId extends Key = number> {
   batchLabel?: string;
 
   // —— 可选展示 ——
-  /** 总数（仅用于显示 "共 N 项"），无过滤时与 selectableIds.length 相等。 */
-  totalCount?: number;
   /** 整体隐藏（如列表为空）。 */
   hidden?: boolean;
   className?: string;
@@ -163,15 +163,13 @@ export function ActionToolbar<TId extends Key = number>(props: ActionToolbarProp
     selectableIds, selectedIds, onSelectionChange,
     createLabel, createIcon, onCreate,
     batchActions, batchLabel = '批量',
-    totalCount, hidden, className,
+    hidden, className,
   } = props;
 
   if (hidden) return null;
 
-  // "已选 N 项" 提示：有选择时显示，无选择时隐藏
-  const showSelectedCount = selectedIds.length > 0;
-  // "共 N 项" 总数提示：totalCount 与 selectableIds 长度不同时（如有搜索过滤）显示
-  const showTotal = totalCount !== undefined && totalCount !== selectableIds.length;
+  // 节省空间：用户反馈不再显示「已选 N 项」「共 N 项」文案。
+  // 选中数 / 总数由全选复选框的三态视觉（indeterminate / checked）隐式表达。
 
   return (
     <div
@@ -180,8 +178,8 @@ export function ActionToolbar<TId extends Key = number>(props: ActionToolbarProp
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 12,
-        padding: '8px 16px',
+        gap: 8,
+        padding: '6px 12px',
         borderBottom: '1px solid var(--color-border-light)',
         background: 'var(--color-bg-elevated, #ffffff)',
         flexShrink: 0,
@@ -192,19 +190,6 @@ export function ActionToolbar<TId extends Key = number>(props: ActionToolbarProp
         selectedIds={selectedIds}
         onChange={onSelectionChange}
       />
-      {showSelectedCount && (
-        <span
-          data-testid="action-toolbar-selected-count"
-          style={{ fontSize: 12, color: 'var(--color-primary)' }}
-        >
-          已选 {selectedIds.length} 项
-        </span>
-      )}
-      {showTotal && (
-        <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-          共 {totalCount} 项
-        </span>
-      )}
       <div style={{ flex: 1 }} />
       <BatchDropdown
         selectedIds={selectedIds}

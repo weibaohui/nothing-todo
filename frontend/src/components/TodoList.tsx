@@ -253,14 +253,26 @@ export function TodoList(props: TodoListProps) {
     return result;
   }, [todos, selectedTagId, selectedWorkspace, searchKeyword, listMode]);
 
+  // 通用关键字过滤：环节 / 环路模式也按标题搜索（用户反馈：避免切换时跳界面）
+  const filteredStepList = useMemo(() => {
+    const keyword = searchKeyword.trim().toLowerCase();
+    if (!keyword) return stepList;
+    return stepList.filter(s => (s.title || '').toLowerCase().includes(keyword));
+  }, [stepList, searchKeyword]);
+
+  const filteredLoopList = useMemo(() => {
+    const keyword = searchKeyword.trim().toLowerCase();
+    if (!keyword) return loopList;
+    return loopList.filter(l => (l.name || '').toLowerCase().includes(keyword));
+  }, [loopList, searchKeyword]);
+
   // 当前 listMode 下"可见可选"的 id 列表，传给 ActionToolbar 用于「全选」/计数。
-  // 环路模式下 LoopStudioListPanel 内部还有状态过滤，selectableIds 实际是
-  // 未过滤的全量；用户可手动点击复选框缩窄选择，V1 不做"全选仅选可见"。
+  // 三种模式都按当前 searchKeyword 过滤后的列表计算，避免「全选」选中隐藏项。
   const visibleIds = useMemo<number[]>(() => {
     if (listMode === 'item') return filteredTodos.map(t => t.id);
-    if (listMode === 'step') return stepList.map(s => s.id);
-    return loopList.map(l => l.id);
-  }, [listMode, filteredTodos, stepList, loopList]);
+    if (listMode === 'step') return filteredStepList.map(s => s.id);
+    return filteredLoopList.map(l => l.id);
+  }, [listMode, filteredTodos, filteredStepList, filteredLoopList]);
 
   const handleStatusChange = useCallback(async (todoId: number, title: string, prompt: string, newStatus: string) => {
     try {
@@ -456,6 +468,10 @@ export function TodoList(props: TodoListProps) {
           borderLeftColor: primaryTag?.color || '#cbd5e1',
           borderLeftWidth: 4,
           borderLeftStyle: 'solid',
+          // 工具栏的多选复选框用 position: absolute 浮在卡片左上；
+          // 若 .todo-item 不设 position: relative，复选框会逃逸到上层容器，
+          // 所有卡片的复选框都叠在同一个屏幕坐标，点击会命中最后渲染的那个。
+          position: 'relative',
         }}
         role="button"
         tabIndex={0}
@@ -724,19 +740,22 @@ export function TodoList(props: TodoListProps) {
         </Dropdown>
       </div>
 
-      {/* 搜索框：环路模式下隐藏，loop 列表有自己的过滤 */}
-      {listMode === 'item' && (
-        <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--color-border-light)' }}>
-          <Input
-            placeholder="搜索标题或提示词..."
-            prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
-            value={searchKeyword}
-            onChange={(e) => setSearchKeyword(e.target.value)}
-            allowClear
-            size="small"
-          />
-        </div>
-      )}
+      {/* 搜索框：三种模式都展示（用户反馈：环节/环路原本没有，切换时会跳界面）。
+          placeholder 按 listMode 切换，关键词同时匹配事项标题/提示词、环节标题、环路名称。 */}
+      <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--color-border-light)' }}>
+        <Input
+          placeholder={
+            listMode === 'item' ? '搜索标题或提示词...'
+            : listMode === 'step' ? '搜索环节标题...'
+            : '搜索环路名称...'
+          }
+          prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
+          value={searchKeyword}
+          onChange={(e) => setSearchKeyword(e.target.value)}
+          allowClear
+          size="small"
+        />
+      </div>
 
       {/* 列表选择：事项 / 环节 / 环路 */}
       <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--color-border-light)' }}>
@@ -766,11 +785,6 @@ export function TodoList(props: TodoListProps) {
           : onCreateLoop
         }
         batchActions={toolbarConfig.batchActions}
-        totalCount={
-          listMode === 'item' ? todos.length
-          : listMode === 'step' ? stepList.length
-          : loopList.length
-        }
       />
 
       {/* 标签过滤：环路模式下不显示，loop 不按 tag 过滤 */}
@@ -801,7 +815,7 @@ export function TodoList(props: TodoListProps) {
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 8 }}>
           {stepLoading ? (
             <Skeleton active style={{ padding: 16 }} />
-          ) : stepList.length === 0 ? (
+          ) : filteredStepList.length === 0 ? (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description={
@@ -816,7 +830,7 @@ export function TodoList(props: TodoListProps) {
             />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {stepList.map(step => (
+              {filteredStepList.map(step => (
                 <div
                   key={step.id}
                   onClick={() => {
@@ -911,7 +925,7 @@ export function TodoList(props: TodoListProps) {
             <Skeleton active style={{ padding: 16 }} />
           ) : (
             <LoopListPanel
-              loops={loopList}
+              loops={filteredLoopList}
               selectedId={selectedLoopId}
               onSelect={(id) => {
                 setSelectedLoopId(id);
