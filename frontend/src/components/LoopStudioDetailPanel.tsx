@@ -402,7 +402,7 @@ export function LoopDetailPanel({
         />
       </div>
 
-      {/* 折叠区: 执行历史, 默认收起 */}
+      {/* 折叠区: 执行历史 */}
       <div style={{
         background: 'var(--color-bg-elevated, #ffffff)',
         border: '1px solid var(--color-border, #e2e8f0)',
@@ -413,7 +413,7 @@ export function LoopDetailPanel({
         <Collapse
           ghost
           expandIconPosition="end"
-          defaultActiveKey={[]}
+          defaultActiveKey={['executions']}
           items={[
             {
               key: 'executions',
