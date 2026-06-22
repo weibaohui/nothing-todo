@@ -482,6 +482,10 @@ function StepExecList({ stepExecs, loopId, executionId, onApproved }: { stepExec
       const { approveStepExecution } = await import('@/utils/database/loops');
       await approveStepExecution(loopId, executionId, stepExecutionId, approveRating, approveComment || undefined);
       message.success('审批已提交');
+      // 重置审批表单状态为初始值，防止下一张待审卡片复用上次的评分与备注；
+      // 70 分是默认通过评分，空字符串确保备注框干净。
+      setApproveRating(70);
+      setApproveComment('');
       onApproved();
     } catch (e: any) {
       message.error(e?.message || '审批失败');

@@ -437,6 +437,19 @@ pub async fn approve_step_execution(
         .find(|se| se.id == step_execution_id)
         .ok_or_else(|| AppError::NotFound)?;
 
+    // 2.5. 校验 execution 归属于指定 loop_id，防止路径参数伪造
+    // 先获取 loop_execution 记录，确认其 loop_id 与 URL 路径中的 _loop_id 一致
+    let loop_exec = state
+        .db
+        .get_loop_execution(execution_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound)?;
+    if loop_exec.loop_id != _loop_id {
+        return Err(AppError::BadRequest(
+            "该 execution 不属于指定的 loop".to_string(),
+        ));
+    }
+
     // 3. 校验当前状态是 "pending_approval"
     if step_exec.status != "pending_approval" {
         return Err(AppError::BadRequest(

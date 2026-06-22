@@ -482,8 +482,11 @@ impl LoopRunner {
                         )
                         .await
                         .map_err(|e| e.to_string())?;
-                    // 标记审批状态为等待中
-                    let _ = self.ctx.db.set_step_execution_approval_status(step_exec.id, "pending").await;
+                    // 标记审批状态为等待中；失败仅记录日志，不中断 loop 暂停流程，
+                    // 因为 step_execution 已经写为 pending_approval 状态，前端可继续操作。
+                    if let Err(e) = self.ctx.db.set_step_execution_approval_status(step_exec.id, "pending").await {
+                        warn!("loop #{} step #{}: failed to set approval_status to pending: {}", loop_id, step.id, e);
+                    }
                     info!("loop #{} step #{} waiting for human approval", loop_id, step.id);
                     // 暂停循环（不写最终状态，loop execution 保持 running）
                     return Ok(());
@@ -636,6 +639,10 @@ impl LoopRunner {
         let wait_timeout = Duration::from_secs(24 * 60 * 60);
         let poll_interval = Duration::from_millis(500);
         let start = std::time::Instant::now();
+        // 连续错误计数器：防止数据库持续异常导致无限轮询；
+        // 单次成功查询或查询返回 None（记录尚未创建）时重置计数。
+        let mut consecutive_errors = 0;
+        let max_consecutive_errors = 5;
 
         loop {
             if start.elapsed() > wait_timeout {
@@ -648,16 +655,29 @@ impl LoopRunner {
             // 按 record_id 精确查询执行记录状态，避免 broadcast 竞态
             match self.ctx.db.get_execution_record(record_id).await {
                 Ok(Some(rec)) => {
+                    // 成功获取记录，重置错误计数
+                    consecutive_errors = 0;
                     let status_str = rec.status.to_string();
                     if !matches!(rec.status, ExecutionStatus::Running) {
                         return Ok(status_str);
                     }
                 }
                 Ok(None) => {
-                    // 记录尚未创建（执行尚未开始或尚未提交），继续等待
+                    // 记录尚未创建（执行尚未开始或尚未提交），继续等待；
+                    // 这是合法状态，重置错误计数。
+                    consecutive_errors = 0;
                 }
                 Err(e) => {
-                    warn!("wait_for_step_finish: get_execution_record #{} error: {}", record_id, e);
+                    consecutive_errors += 1;
+                    warn!("wait_for_step_finish: get_execution_record #{} error (consecutive: {}/{}): {}",
+                          record_id, consecutive_errors, max_consecutive_errors, e);
+                    // 达到连续错误阈值时停止轮询，防止数据库故障导致 loop 永久挂起
+                    if consecutive_errors >= max_consecutive_errors {
+                        return Err(format!(
+                            "step execution (record #{}) aborted after {} consecutive DB errors",
+                            record_id, max_consecutive_errors
+                        ));
+                    }
                 }
             }
 
