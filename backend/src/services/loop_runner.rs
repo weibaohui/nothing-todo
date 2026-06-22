@@ -488,6 +488,12 @@ impl LoopRunner {
                         warn!("loop #{} step #{}: failed to set approval_status to pending: {}", loop_id, step.id, e);
                     }
                     info!("loop #{} step #{} waiting for human approval", loop_id, step.id);
+                    // 发送 WebSocket 事件触发前端刷新（让执行历史列表显示"待审批"标记）
+                    let _ = self.tx.send(crate::handlers::ExecEvent::ReviewStatusChanged {
+                        record_id,
+                        todo_id: 0,
+                        review_status: "pending_approval".to_string(),
+                    });
                     // 暂停循环（不写最终状态，loop execution 保持 running）
                     return Ok(());
                 }

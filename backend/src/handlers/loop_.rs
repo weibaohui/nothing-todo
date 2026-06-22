@@ -472,6 +472,13 @@ pub async fn approve_step_execution(
         )
         .await?;
 
+    // 5b. 发送 WebSocket 事件触发前端刷新
+    let _ = state.tx.send(crate::handlers::ExecEvent::ReviewStatusChanged {
+        record_id: step_exec.execution_record_id.unwrap_or(0),
+        todo_id: step_exec.todo_id,
+        review_status: final_status.to_string(),
+    });
+
     // 6. 尝试恢复 loop 执行
     let runner = state
         .loop_runner
