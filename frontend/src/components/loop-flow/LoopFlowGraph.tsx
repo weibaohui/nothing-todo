@@ -114,7 +114,7 @@ function useFlowLayout(steps: LoopStepDto[]) {
           const name = targetNameOf(failTarget);
           layoutEdges.push({
             from: String(step.id), to: String(failTarget),
-            label: isSelfLoop ? `❌ <${step.min_rating}分`
+            label: isSelfLoop ? `<${step.min_rating}分`
               : isLoopBack ? `<${step.min_rating}分`
               : step.on_rating_fail === 'goto' ? `❌→${name}`
               : step.on_rating_fail === 'skip' ? '失败→继续' : '',
