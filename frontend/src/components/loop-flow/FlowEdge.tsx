@@ -102,17 +102,15 @@ export function buildEdgePath(
   startX: number, startY: number, endX: number, endY: number,
 ): string {
   if (edge.isSelfLoop) {
-    // 自环（goto-self）：从环节右侧偏下位置出发，向下走 SELF_LOOP_GAP，
-    // 水平横穿到环节左侧，再向上回到左侧偏下位置。
-    // 路径：右→下→左→上，形成底部折线。
+    // 自环（goto-self）：从环节底边右侧出发，向下→向左→向上回到底边左侧。
+    // 出点和入点都在底边，形成 U 形底部折线，视觉上不跟左右侧连线冲突。
     const node = nodes.find(n => n.id === edge.fromId);
     if (!node) return '';
-    const exitX = node.x + NODE_WIDTH;
-    const exitY = node.y + NODE_HEIGHT * 0.60;
-    const entryX = node.x;
-    const entryY = node.y + NODE_HEIGHT * 0.60;
-    const bottomY = node.y + NODE_HEIGHT + SELF_LOOP_GAP;
-    return `M ${exitX} ${exitY} V ${bottomY} H ${entryX} V ${entryY}`;
+    const bottom = node.y + NODE_HEIGHT;
+    const exitX = node.x + NODE_WIDTH * 0.85;
+    const entryX = node.x + NODE_WIDTH * 0.15;
+    const bottomY = bottom + SELF_LOOP_GAP;
+    return `M ${exitX} ${bottom} V ${bottomY} H ${entryX} V ${bottom}`;
   }
 
   const from = getEdgeAnchor(edge.fromId, nodes, startX, startY, endX, endY, 'right');
