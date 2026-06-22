@@ -168,6 +168,7 @@ impl Database {
                 s.success_goto_step_id,
                 &s.on_rating_fail,
                 s.fail_goto_step_id,
+                &s.review_type,
             )
             .await?;
         }
@@ -330,6 +331,7 @@ impl Database {
         success_goto_step_id: Option<i64>,
         on_rating_fail: &str,
         fail_goto_step_id: Option<i64>,
+        review_type: &str,
     ) -> Result<loop_steps::Model, sea_orm::DbErr> {
         // 自动分配 order_index: 当前最大 + 1
         let next_order = self
@@ -356,6 +358,7 @@ impl Database {
             success_goto_step_id: ActiveValue::Set(success_goto_step_id),
             on_rating_fail: ActiveValue::Set(on_rating_fail.to_string()),
             fail_goto_step_id: ActiveValue::Set(fail_goto_step_id),
+            review_type: ActiveValue::Set(review_type.to_string()),
             created_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
@@ -377,6 +380,7 @@ impl Database {
         success_goto_step_id: Option<i64>,
         on_rating_fail: &str,
         fail_goto_step_id: Option<i64>,
+        review_type: &str,
     ) -> Result<(), sea_orm::DbErr> {
         let existing = loop_steps::Entity::find_by_id(id).one(&self.conn).await?;
         if let Some(c) = existing {
@@ -394,6 +398,7 @@ impl Database {
             am.success_goto_step_id = ActiveValue::Set(success_goto_step_id);
             am.on_rating_fail = ActiveValue::Set(on_rating_fail.to_string());
             am.fail_goto_step_id = ActiveValue::Set(fail_goto_step_id);
+            am.review_type = ActiveValue::Set(review_type.to_string());
             am.update(&self.conn).await?;
         }
         Ok(())
@@ -642,6 +647,42 @@ impl Database {
         Ok(())
     }
 
+    /// 设置环节执行记录的审批状态（人工审批流程专用）。
+    pub async fn set_step_execution_approval_status(
+        &self,
+        id: i64,
+        approval_status: &str,
+    ) -> Result<(), sea_orm::DbErr> {
+        let existing = loop_step_executions::Entity::find_by_id(id).one(&self.conn).await?;
+        if let Some(c) = existing {
+            let mut am: loop_step_executions::ActiveModel = c.into();
+            am.approval_status = ActiveValue::Set(Some(approval_status.to_string()));
+            am.update(&self.conn).await?;
+        }
+        Ok(())
+    }
+
+    /// 人工审批：写入评分、审批意见，更新状态。
+    /// 调用前由 handler 校验 approval_status = "pending"。
+    pub async fn approve_step_execution(
+        &self,
+        id: i64,
+        rating: i32,
+        status: &str,
+        comment: Option<&str>,
+    ) -> Result<(), sea_orm::DbErr> {
+        let existing = loop_step_executions::Entity::find_by_id(id).one(&self.conn).await?;
+        if let Some(c) = existing {
+            let mut am: loop_step_executions::ActiveModel = c.into();
+            am.rating = ActiveValue::Set(Some(rating));
+            am.status = ActiveValue::Set(status.to_string());
+            am.approval_status = ActiveValue::Set(Some("approved".to_string()));
+            am.approval_comment = ActiveValue::Set(comment.map(|s| s.to_string()));
+            am.update(&self.conn).await?;
+        }
+        Ok(())
+    }
+
     // ====== 辅助：批量取 step + todo 元信息 ======
 
     /// 一次 SQL 把 step + 关联 todo 的 title/executor/status 拉出来。
@@ -657,6 +698,7 @@ impl Database {
             "SELECT s.id, s.loop_id, s.name, s.description, s.order_index, s.step_id, \
                     s.run_mode, s.skip_on_source_failed, s.min_rating, s.unrated_policy, \
                     s.on_success, s.success_goto_step_id, s.on_rating_fail, s.fail_goto_step_id, \
+                    s.review_type, \
                     s.enabled, s.created_at, \
                     t.title as todo_title, st.executor as todo_executor, t.status as todo_status \
              FROM loop_steps s \
@@ -687,6 +729,7 @@ impl Database {
                 success_goto_step_id: row.try_get_by::<Option<i64>, _>("success_goto_step_id")?,
                 on_rating_fail: row.try_get_by::<String, _>("on_rating_fail")?,
                 fail_goto_step_id: row.try_get_by::<Option<i64>, _>("fail_goto_step_id")?,
+                review_type: row.try_get_by::<String, _>("review_type")?,
                 enabled: row.try_get_by::<i32, _>("enabled")?,
                 created_at: row.try_get_by::<Option<String>, _>("created_at")?,
             };

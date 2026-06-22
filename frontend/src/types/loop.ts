@@ -26,6 +26,8 @@ export type LoopUnratedPolicy = 'skip' | 'continue';
 export type LoopOnSuccessPolicy = 'next' | 'goto' | 'end';
 export type LoopOnRatingFailPolicy = 'break' | 'skip' | 'goto' | 'end';
 
+export type ReviewType = 'ai' | 'human';
+
 export type LoopExecutionStatus = 'running' | 'success' | 'partial' | 'failed' | 'cancelled' | 'capped_step' | 'capped_token';
 
 export interface LoopDto {
@@ -84,6 +86,10 @@ export interface LoopStepExecutionDto {
   conclusion: string | null;
   /** 该环节消耗的 token（从关联的 execution_record.usage 解析） */
   input_tokens: number | null;
+  /** 人工审批状态: null | 'pending' | 'approved' */
+  approval_status: string | null;
+  /** 审批人的备注/意见 */
+  approval_comment: string | null;
   output_tokens: number | null;
   cache_read_input_tokens: number | null;
   cache_creation_input_tokens: number | null;
@@ -113,6 +119,8 @@ export interface LoopStepRawDto {
   success_goto_step_id: number | null;
   on_rating_fail: string;
   fail_goto_step_id: number | null;
+  /** 评审类型: 'ai' = AI 自动评审, 'human' = 人工审批 */
+  review_type: string;
   enabled: boolean;
   created_at: string | null;
 }
@@ -133,6 +141,8 @@ export interface LoopStepDto {
   success_goto_step_id: number | null;
   on_rating_fail: string;
   fail_goto_step_id: number | null;
+  /** 评审类型: 'ai' = AI 自动评审, 'human' = 人工审批 */
+  review_type: string;
   enabled: boolean;
   created_at: string | null;
   todo_title: string;
@@ -154,6 +164,8 @@ export interface CreateLoopStepRequest {
   success_goto_step_id?: number | null;
   on_rating_fail?: string;
   fail_goto_step_id?: number | null;
+  /** 评审类型: 'ai' | 'human'，默认 'ai' */
+  review_type?: string;
 }
 
 export interface UpdateLoopStepRequest {
@@ -170,6 +182,13 @@ export interface UpdateLoopStepRequest {
   success_goto_step_id: number | null;
   on_rating_fail: string;
   fail_goto_step_id: number | null;
+  /** 评审类型: 'ai' | 'human'，默认 'ai' */
+  review_type?: string;
+}
+
+export interface ApproveStepExecutionRequest {
+  rating: number;
+  comment?: string;
 }
 
 export interface ReorderLoopStepsRequest {

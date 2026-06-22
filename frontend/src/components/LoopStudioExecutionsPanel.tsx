@@ -16,6 +16,7 @@ import {
   StarOutlined,
   ArrowRightOutlined,
   ReadOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import * as dbLoops from '@/utils/database/loops';
 import type { LoopExecutionDto, LoopExecutionDetail, LoopExecutionTokenSummary } from '@/types/loop';
@@ -43,6 +44,7 @@ function execStatusView(status: string): { color: string; icon: React.ReactNode;
     case 'capped':
     case 'capped_step': return { color: 'gold', icon: <MinusCircleOutlined />, label: '步数超限' };
     case 'capped_token': return { color: 'purple', icon: <MinusCircleOutlined />, label: 'Token 超限' };
+    case 'pending_approval': return { color: 'orange', icon: <ExclamationCircleOutlined />, label: '等待审批' };
     default: return { color: 'default', icon: <MinusCircleOutlined />, label: status };
   }
 }
@@ -308,7 +310,7 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
                         {expandedDetail.token_summary && (
                           <TokenSummaryBar summary={expandedDetail.token_summary} />
                         )}
-                        <StepExecList stepExecs={expandedDetail.step_executions} />
+                        <StepExecList stepExecs={expandedDetail.step_executions} loopId={loopId} executionId={expandedDetail.id} onApproved={() => loadPage(page)} />
                       </>
                     ) : null}
                   </div>
@@ -450,9 +452,14 @@ function BlackboardDrawer({ open, stepExecs, onClose }: {
 }
 
 // 环节执行卡片：卡片式布局 + 箭头连接展示执行顺序，每张卡展示执行详情
-function StepExecList({ stepExecs }: { stepExecs: Record<string, any>[] }) {
+function StepExecList({ stepExecs, loopId, executionId, onApproved }: { stepExecs: Record<string, any>[]; loopId: number; executionId: number; onApproved: () => void }) {
+  const { message } = AntApp.useApp();
   const [drawerRecord, setDrawerRecord] = useState<any | null>(null);
   const [drawerLoading, setDrawerLoading] = useState(false);
+  // 人工审批状态
+  const [approvingId, setApprovingId] = useState<number | null>(null);
+  const [approveRating, setApproveRating] = useState<number>(70);
+  const [approveComment, setApproveComment] = useState<string>('');
 
   const handleCardClick = useCallback(async (s: any) => {
     if (!s.execution_record_id) return;
@@ -467,6 +474,21 @@ function StepExecList({ stepExecs }: { stepExecs: Record<string, any>[] }) {
       setDrawerLoading(false);
     }
   }, []);
+
+  // 人工审批提交
+  const handleApprove = useCallback(async (stepExecutionId: number) => {
+    setApprovingId(stepExecutionId);
+    try {
+      const { approveStepExecution } = await import('@/utils/database/loops');
+      await approveStepExecution(loopId, executionId, stepExecutionId, approveRating, approveComment || undefined);
+      message.success('审批已提交');
+      onApproved();
+    } catch (e: any) {
+      message.error(e?.message || '审批失败');
+    } finally {
+      setApprovingId(null);
+    }
+  }, [loopId, executionId, approveRating, approveComment, message, onApproved]);
 
   if (stepExecs.length === 0) {
     return <Empty description="无环节执行记录" />;
@@ -620,6 +642,60 @@ function StepExecList({ stepExecs }: { stepExecs: Record<string, any>[] }) {
               {s.error_message && (
                 <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-error, #ef4444)', lineHeight: 1.4 }}>
                   {s.error_message}
+                </div>
+              )}
+
+              {/* 人工审批操作区域：pending_approval 状态时显示 */}
+              {s.status === 'pending_approval' && (
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    marginTop: 8,
+                    padding: '8px 10px',
+                    background: 'var(--color-warning-bg, #fffbeb)',
+                    border: '1px solid var(--color-warning, #f59e0b)',
+                    borderRadius: 8,
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-warning, #f59e0b)', marginBottom: 6 }}>
+                    ⏳ 等待人工审批
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>评分</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={approveRating}
+                      onChange={(e) => setApproveRating(Number(e.target.value))}
+                      style={{ flex: 1, minWidth: 60 }}
+                    />
+                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text)', minWidth: 24, textAlign: 'right' }}>
+                      {approveRating}
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="审批意见（可选）"
+                    value={approveComment}
+                    onChange={(e) => setApproveComment(e.target.value)}
+                    style={{
+                      width: '100%', padding: '3px 6px', fontSize: 11,
+                      borderRadius: 4, border: '1px solid var(--color-border, #e2e8f0)',
+                      background: 'var(--color-bg-elevated, #fff)',
+                      color: 'var(--color-text)',
+                      marginBottom: 6, boxSizing: 'border-box',
+                    }}
+                  />
+                  <Button
+                    size="small"
+                    type="primary"
+                    loading={approvingId === s.id}
+                    onClick={() => handleApprove(s.id)}
+                    style={{ width: '100%', fontSize: 11 }}
+                  >
+                    提交审批
+                  </Button>
                 </div>
               )}
             </div>
