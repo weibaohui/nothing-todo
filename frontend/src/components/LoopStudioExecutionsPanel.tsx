@@ -267,9 +267,6 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
                     <span style={{ fontWeight: 600, fontSize: 14 }}>#{e.id}</span>
                     <Tag color={view.color}>{view.label}</Tag>
                     <Tag>{e.trigger_type}</Tag>
-                    {e.failed_steps > 0 && (
-                      <Tag color="red">{e.failed_steps} 失败</Tag>
-                    )}
                     {e.pending_approval_count > 0 && (
                       <Tag color="red" style={{ fontWeight: 600 }}>
                         <ExclamationCircleOutlined /> {e.pending_approval_count} 待审批
