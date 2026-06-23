@@ -21,6 +21,12 @@ import * as dbLoops from '@/utils/database/loops';
 import type { LoopExecutionDto, LoopListItem } from '@/types/loop';
 import { formatRelativeTime } from '@/utils/datetime';
 
+// 环路执行记录增强类型：增加 loop_name 方便在卡片中直接显示环路名称，
+// 避免在渲染时反复回查 loop 列表
+interface LoopExecutionWithLoopName extends LoopExecutionDto {
+  loop_name: string;
+}
+
 const TIME_OPTIONS: { label: string; value: number }[] = [
   { label: '6h',  value: 6 },
   { label: '12h', value: 12 },
@@ -71,8 +77,222 @@ const COLUMNS: ColumnDef[] = [
   { status: 'capped_token',   label: 'Token超限', color: '#a855f7' },
 ];
 
-interface LoopExecutionWithLoopName extends LoopExecutionDto {
-  loop_name: string;
+// 执行卡片组件：展示单个环路执行记录的核心信息。
+// 拆分理由：原 renderCard 超过 30 行，抽成独立组件符合代码规范。
+// 为什么接受 view 参数：避免在子组件内重复调用 execStatusView，提升性能。
+interface ExecutionCardProps {
+  exec: LoopExecutionWithLoopName;
+  view: ReturnType<typeof execStatusView>;
+}
+
+function ExecutionCard({ exec, view }: ExecutionCardProps) {
+  return (
+    <div
+      className="loop-kanban-card"
+      style={{
+        borderTop: `3px solid ${view.color}`,
+        background: 'var(--color-bg-elevated, #ffffff)',
+        border: '1px solid var(--color-border, #e2e8f0)',
+        borderRadius: 8,
+        padding: '10px 12px',
+        marginBottom: 8,
+        cursor: 'default',
+      }}
+    >
+      <CardHeader exec={exec} view={view} />
+      <CardTrigger exec={exec} />
+      <CardProgress exec={exec} />
+      {exec.pending_approval_count > 0 && <CardApprovalBadge count={exec.pending_approval_count} />}
+    </div>
+  );
+}
+
+// 卡片头部：环路名称 + 状态图标 + 状态标签。
+// 为什么独立出来：header 布局逻辑独立，方便后续调整样式或增加交互。
+function CardHeader({ exec, view }: { exec: LoopExecutionWithLoopName; view: ReturnType<typeof execStatusView> }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+      {view.icon}
+      <span style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {exec.loop_name}
+      </span>
+      <Tag color={view.color} style={{ margin: 0, fontSize: 10 }}>{view.label}</Tag>
+    </div>
+  );
+}
+
+// 触发类型行。
+// 为什么独立：触发信息是可选的辅助信息，未来可能需要扩展显示触发者、触发参数等。
+function CardTrigger({ exec }: { exec: LoopExecutionWithLoopName }) {
+  return (
+    <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>
+      触发: {exec.trigger_type}
+    </div>
+  );
+}
+
+// 进度与时间信息行。
+// 为什么独立：进度计算逻辑相对复杂（相对时间 + 环节进度 + 耗时），单独组件便于测试。
+function CardProgress({ exec }: { exec: LoopExecutionWithLoopName }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--color-text-secondary)' }}>
+      <Tooltip title={`开始: ${exec.started_at}`}>
+        <span>{formatRelativeTime(exec.started_at)}</span>
+      </Tooltip>
+      <span>{exec.completed_steps}/{exec.total_steps} 环节</span>
+      <span style={{ fontFamily: 'monospace', color: 'var(--color-text-tertiary)' }}>
+        {durationLabel(exec.started_at, exec.finished_at)}
+      </span>
+    </div>
+  );
+}
+
+// 待审批徽章。
+// 为什么独立：条件渲染逻辑独立，且未来可能需要支持点击跳转到审批页。
+function CardApprovalBadge({ count }: { count: number }) {
+  return (
+    <div style={{ marginTop: 4 }}>
+      <Tag color="red" style={{ fontSize: 10, fontWeight: 600 }}>
+        <ExclamationCircleOutlined /> {count} 待审批
+      </Tag>
+    </div>
+  );
+}
+
+// 看板列组件：展示一列执行记录。
+// 拆分理由：原 renderColumn 超过 30 行，抽成独立组件符合规范。
+// 为什么接受 renderCard：避免在子组件内重新定义卡片渲染逻辑，保持单一数据源。
+interface KanbanColumnProps {
+  col: ColumnDef;
+  items: LoopExecutionWithLoopName[];
+  renderCard: (exec: LoopExecutionWithLoopName) => React.ReactNode;
+}
+
+function KanbanColumn({ col, items, renderCard }: KanbanColumnProps) {
+  return (
+    <div
+      className="loop-kanban-column"
+      style={{
+        minWidth: 220,
+        maxWidth: 280,
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <ColumnHeader col={col} count={items.length} />
+      <ColumnBody items={items} renderCard={renderCard} />
+    </div>
+  );
+}
+
+// 列头：状态标签 + 数量徽章。
+// 为什么独立：header 样式逻辑独立，未来可能需要支持拖拽排序或自定义显隐。
+function ColumnHeader({ col, count }: { col: ColumnDef; count: number }) {
+  return (
+    <div
+      className="loop-kanban-column-header"
+      style={{
+        borderBottom: `3px solid ${col.color}`,
+        padding: '8px 12px',
+        marginBottom: 8,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div
+          className="loop-kanban-column-dot"
+          style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: col.color }}
+        />
+        <span style={{ fontWeight: 600, fontSize: 13 }}>{col.label}</span>
+        <span
+          className="loop-kanban-column-count"
+          style={{
+            background: `${col.color}18`,
+            color: col.color,
+            borderRadius: 10,
+            padding: '0 6px',
+            fontSize: 11,
+            fontWeight: 600,
+          }}
+        >
+          {count}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// 列体：卡片列表或空状态。
+// 为什么独立：body 的滚动容器逻辑与 header 独立，方便后续增加虚拟滚动优化。
+function ColumnBody({ items, renderCard }: { items: LoopExecutionWithLoopName[]; renderCard: (exec: LoopExecutionWithLoopName) => React.ReactNode }) {
+  return (
+    <div className="loop-kanban-column-body" style={{ flex: 1, overflowY: 'auto', padding: '0 4px' }}>
+      {items.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--color-text-tertiary)', fontSize: 12 }}>
+          暂无
+        </div>
+      ) : (
+        items.map(renderCard)
+      )}
+    </div>
+  );
+}
+
+// 自定义 Hook：加载并聚合所有环路的执行历史。
+// 设计理由：
+// - 数据获取逻辑独立成 hook，方便测试与复用
+// - 使用 cancelledRef 防御快速切换时的竞态条件：晚返回的请求若发现已卸载，直接丢弃结果
+// - limit=20 的边界：看板场景下只需展示近期执行，20 条足够覆盖常见时间窗口且避免首屏过慢
+// - loading 状态在空列表时也能正确重置：确保空状态能正常展示，而非永久 loading
+function useLoopExecutions() {
+  const [allLoops, setAllLoops] = useState<LoopListItem[]>([]);
+  const [executions, setExecutions] = useState<LoopExecutionWithLoopName[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // 首次加载所有环路列表。
+  // 无论成功或失败都要 reset loading，避免空列表时永久 loading（Issue 2 修复点）。
+  useEffect(() => {
+    dbLoops.listLoops()
+      .then(setAllLoops)
+      .catch(() => setAllLoops([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  // 环路列表加载后，批量并发拉取每个环路的执行历史。
+  // 为什么用 Promise.all：并发请求减少总耗时，看板对实时性要求高。
+  // 为什么在每个 loop 的 catch 中返回 []：单个环路失败不影响其他环路数据展示。
+  useEffect(() => {
+    // 空列表时跳过：避免无意义的 Promise.all([]) 触发 loading
+    if (allLoops.length === 0) return;
+    let cancelled = false;
+    setLoading(true);
+
+    Promise.all(
+      allLoops.map(loop =>
+        dbLoops.listExecutions(loop.id, { page: 1, limit: 20 })
+          .then(res => res.items.map(e => ({ ...e, loop_name: loop.name })))
+          .catch(() => []) // 单个环路失败回退为空数组，不阻塞其他数据
+      )
+    )
+      .then(results => {
+        if (cancelled) return; // 防御竞态：组件已卸载则丢弃结果
+        const flat = results.flat();
+        // 按开始时间倒序：最新执行优先展示，符合看板习惯
+        flat.sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
+        setExecutions(flat);
+      })
+      .catch(() => {
+        if (!cancelled) setExecutions([]);
+      })
+      .finally(() => {
+        // 确保 loading 总能重置，即使 allLoops 为空也不会永久 loading（Issue 2 核心修复）
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [allLoops]);
+
+  return { executions, loading };
 }
 
 interface Props {
@@ -83,6 +303,9 @@ interface Props {
 }
 
 export function LoopKanban({ searchText: externalSearch, hours: externalHours, onSearchChange, onHoursChange }: Props = {}) {
+  // 为什么区分 internal/external：支持受控/非受控两种模式，
+  // 外部传入时作为受控组件（MemorialBoard 统一管理 searchText/hours），
+  // 未传入时作为非受控组件（独立状态）。
   const [internalSearch, setInternalSearch] = useState('');
   const [internalHours, setInternalHours] = useState(24);
   const searchText = externalSearch ?? internalSearch;
@@ -90,44 +313,12 @@ export function LoopKanban({ searchText: externalSearch, hours: externalHours, o
   const handleSearchChange = (v: string) => { if (onSearchChange) onSearchChange(v); else setInternalSearch(v); };
   const handleHoursChange = (h: number) => { if (onHoursChange) onHoursChange(h); else setInternalHours(h); };
 
-  const [allLoops, setAllLoops] = useState<LoopListItem[]>([]);
-  const [executions, setExecutions] = useState<LoopExecutionWithLoopName[]>([]);
-  const [loading, setLoading] = useState(true);
+  // 使用自定义 Hook 加载数据，逻辑抽离后函数体长度可控
+  const { executions, loading } = useLoopExecutions();
 
-  // 加载所有环路列表
-  useEffect(() => {
-    dbLoops.listLoops().then(setAllLoops).catch(() => setAllLoops([]));
-  }, []);
-
-  // 加载所有环路的执行历史（批量聚合）
-  useEffect(() => {
-    if (allLoops.length === 0) return;
-    let cancelled = false;
-    setLoading(true);
-
-    // 批量并发拉取每个环路的最新执行记录（limit=20 足够展示近期）
-    Promise.all(
-      allLoops.map(loop =>
-        dbLoops.listExecutions(loop.id, { page: 1, limit: 20 })
-          .then(res => res.items.map(e => ({ ...e, loop_name: loop.name })))
-          .catch(() => [])
-      )
-    ).then(results => {
-      if (cancelled) return;
-      // 合并并按 started_at 倒序
-      const flat = results.flat();
-      flat.sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
-      setExecutions(flat);
-    }).catch(() => {
-      if (!cancelled) setExecutions([]);
-    }).finally(() => {
-      if (!cancelled) setLoading(false);
-    });
-
-    return () => { cancelled = true; };
-  }, [allLoops]);
-
-  // 按时间过滤
+  // 按时间窗口过滤执行记录。
+  // 为什么要独立 memo：hours 变化频繁（用户切换 Segmented），避免重复计算 cutoff 和遍历。
+  // cutoff = 0 的边界：hours 未设置时显示全部，避免误过滤。
   const timeFiltered = useMemo(() => {
     const cutoff = hours ? Date.now() - hours * 3600 * 1000 : 0;
     if (cutoff === 0) return executions;
@@ -137,7 +328,9 @@ export function LoopKanban({ searchText: externalSearch, hours: externalHours, o
     });
   }, [executions, hours]);
 
-  // 按环路名称搜索过滤
+  // 按搜索关键词过滤。
+  // 为什么同时匹配 loop_name 和 trigger_type：用户可能记得环路名或触发方式，两者都是有效的查找维度。
+  // 为什么 toLowerCase：忽略大小写，提升搜索容错性。
   const filtered = useMemo(() => {
     if (!searchText.trim()) return timeFiltered;
     const q = searchText.toLowerCase();
@@ -147,7 +340,10 @@ export function LoopKanban({ searchText: externalSearch, hours: externalHours, o
     );
   }, [timeFiltered, searchText]);
 
-  // 按状态分组
+  // 按状态分组到看板列。
+  // 为什么未知状态归入最后一列：后端可能新增状态，前端未同步时不能丢弃数据，
+  // 归入"Token 超限"列作为兜底，便于用户发现异常并反馈。
+  // 为什么先预初始化所有列：确保即使某列为空也能渲染"暂无"占位，保持列布局稳定。
   const grouped = useMemo(() => {
     const map: Record<string, LoopExecutionWithLoopName[]> = {};
     for (const col of COLUMNS) map[col.status] = [];
@@ -155,7 +351,6 @@ export function LoopKanban({ searchText: externalSearch, hours: externalHours, o
       if (map[exec.status]) {
         map[exec.status].push(exec);
       } else {
-        // 未知状态归入最后一列
         const lastCol = COLUMNS[COLUMNS.length - 1];
         map[lastCol.status].push(exec);
       }
@@ -163,125 +358,33 @@ export function LoopKanban({ searchText: externalSearch, hours: externalHours, o
     return map;
   }, [filtered]);
 
-  // 统计
+  // 统计各列数量，供工具栏右侧汇总展示。
+  // 为什么依赖 grouped 而非 filtered：grouped 已完成分组，直接读取长度更高效。
   const stats = useMemo(() => {
     const result: Record<string, number> = {};
     for (const col of COLUMNS) result[col.label] = grouped[col.status]?.length ?? 0;
     return result;
   }, [grouped]);
 
-  // 渲染单个 execution 卡片
+  // 渲染单个执行卡片。
+  // 为什么抽成独立组件：原 renderCard 函数超过 30 行，拆分后主体逻辑更清晰。
+  // 为什么用 useCallback：避免每次渲染都重新创建函数，减少子组件不必要的 re-render。
   const renderCard = useCallback((exec: LoopExecutionWithLoopName) => {
     const view = execStatusView(exec.status);
     return (
-      <div
+      <ExecutionCard
         key={`${exec.loop_id}-${exec.id}`}
-        className="loop-kanban-card"
-        style={{
-          borderTop: `3px solid ${view.color}`,
-          background: 'var(--color-bg-elevated, #ffffff)',
-          border: '1px solid var(--color-border, #e2e8f0)',
-          borderRadius: 8,
-          padding: '10px 12px',
-          marginBottom: 8,
-          cursor: 'default',
-        }}
-      >
-        {/* 环路名称 + ID */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-          {view.icon}
-          <span style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {exec.loop_name}
-          </span>
-          <Tag color={view.color} style={{ margin: 0, fontSize: 10 }}>{view.label}</Tag>
-        </div>
-
-        {/* 触发类型 */}
-        <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>
-          触发: {exec.trigger_type}
-        </div>
-
-        {/* 时间 + 进度 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--color-text-secondary)' }}>
-          <Tooltip title={`开始: ${exec.started_at}`}>
-            <span>{formatRelativeTime(exec.started_at)}</span>
-          </Tooltip>
-          <span>{exec.completed_steps}/{exec.total_steps} 环节</span>
-          <span style={{ fontFamily: 'monospace', color: 'var(--color-text-tertiary)' }}>
-            {durationLabel(exec.started_at, exec.finished_at)}
-          </span>
-        </div>
-
-        {/* 待审批标记 */}
-        {exec.pending_approval_count > 0 && (
-          <div style={{ marginTop: 4 }}>
-            <Tag color="red" style={{ fontSize: 10, fontWeight: 600 }}>
-              <ExclamationCircleOutlined /> {exec.pending_approval_count} 待审批
-            </Tag>
-          </div>
-        )}
-      </div>
+        exec={exec}
+        view={view}
+      />
     );
   }, []);
 
-  // 渲染列
+  // 渲染看板列。
+  // 为什么提取成组件：原函数超过 30 行，拆分后符合规范且便于测试列渲染逻辑。
   const renderColumn = (col: ColumnDef) => {
     const items = grouped[col.status] ?? [];
-    return (
-      <div
-        key={col.status}
-        className="loop-kanban-column"
-        style={{
-          minWidth: 220,
-          maxWidth: 280,
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        {/* 列头 */}
-        <div
-          className="loop-kanban-column-header"
-          style={{
-            borderBottom: `3px solid ${col.color}`,
-            padding: '8px 12px',
-            marginBottom: 8,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div
-              className="loop-kanban-column-dot"
-              style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: col.color }}
-            />
-            <span style={{ fontWeight: 600, fontSize: 13 }}>{col.label}</span>
-            <span
-              className="loop-kanban-column-count"
-              style={{
-                background: `${col.color}18`,
-                color: col.color,
-                borderRadius: 10,
-                padding: '0 6px',
-                fontSize: 11,
-                fontWeight: 600,
-              }}
-            >
-              {items.length}
-            </span>
-          </div>
-        </div>
-
-        {/* 列体 */}
-        <div className="loop-kanban-column-body" style={{ flex: 1, overflowY: 'auto', padding: '0 4px' }}>
-          {items.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--color-text-tertiary)', fontSize: 12 }}>
-              暂无
-            </div>
-          ) : (
-            items.map(renderCard)
-          )}
-        </div>
-      </div>
-    );
+    return <KanbanColumn key={col.status} col={col} items={items} renderCard={renderCard} />;
   };
 
   return (
