@@ -11,7 +11,7 @@
 //! 不抽象 DAO trait，因为 codebase 其它 db 文件都这样做）。
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
-    Set, DbBackend, ConnectionTrait, Statement,
+    Set, DbBackend,
 };
 use std::collections::HashMap;
 

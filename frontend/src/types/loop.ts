@@ -68,6 +68,8 @@ export interface LoopExecutionDto {
   total_executed_steps: number;
   /** 待人工审批的环节数 */
   pending_approval_count: number;
+  /** 该次执行的 Token 消耗汇总（从 step_executions 的 usage 聚合计算） */
+  token_summary?: LoopExecutionTokenSummary;
 }
 
 export interface LoopStepExecutionDto {

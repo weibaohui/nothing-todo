@@ -525,9 +525,19 @@ pub async fn list_executions(
     let exec_ids: Vec<i64> = records.iter().map(|r| r.id).collect();
     let pending_counts = state.db.count_pending_approvals_by_execution_ids(&exec_ids).await?;
     let mut items: Vec<LoopExecutionDto> = records.into_iter().map(Into::into).collect();
-    // 填充 pending_approval_count
+    // 填充 pending_approval_count 和 token_summary
     for item in &mut items {
         item.pending_approval_count = pending_counts.get(&item.id).copied().unwrap_or(0);
+        // 加载 step_executions 并聚合 Token 消耗汇总
+        let step_execs = state.db.list_loop_step_executions(item.id).await.unwrap_or_default();
+        let mut enriched: Vec<LoopStepExecutionDto> = step_execs.into_iter().map(|se| {
+            se.into()
+        }).collect();
+        // 同步 enrich token usage（从 DB 读取 usage JSON 填充到 DTO）
+        for dto in &mut enriched {
+            enrich_step_execution_with_usage(&state.db, dto).await;
+        }
+        item.token_summary = Some(aggregate_step_execution_tokens(&state.db, &enriched).await);
     }
     Ok(ApiResponse::ok(serde_json::json!({
         "items": items,

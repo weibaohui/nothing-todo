@@ -230,6 +230,10 @@ pub struct LoopExecutionDto {
     /// 待人工审批的环节数（approval_status='pending' 的 loop_step_executions 数量）
     #[serde(default)]
     pub pending_approval_count: i32,
+    /// 该次执行的 Token 消耗汇总（从 step_executions 的 usage 聚合计算）
+    /// 仅在 list_executions 响应中由 handler 填充，从 Model 转换时默认为空。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_summary: Option<LoopExecutionTokenSummary>,
 }
 
 impl From<loop_executions::Model> for LoopExecutionDto {
@@ -247,6 +251,7 @@ impl From<loop_executions::Model> for LoopExecutionDto {
             completed_steps: m.completed_steps,
             failed_steps: m.failed_steps,
             pending_approval_count: 0, // 由 handler 后续查询填充
+            token_summary: None,       // 由 handler 后续加载 step_executions 后聚合填充
         }
     }
 }
