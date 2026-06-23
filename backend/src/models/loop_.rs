@@ -39,6 +39,13 @@ impl From<LoopListRow> for LoopListItem {
     }
 }
 
+impl LoopListItem {
+    pub fn with_tags(mut self, tag_ids: Vec<i64>) -> Self {
+        self.loop_ = self.loop_.with_tags(tag_ids);
+        self
+    }
+}
+
 /// Loop 详情(基本+子项完整数据),LoopStudio 详情页一次拿到。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoopDetail {
@@ -106,7 +113,9 @@ pub struct LoopDto {
     pub description: String,
     pub workspace: Option<String>,
     pub status: String,
-    pub color: String,
+    /// 标签 ID 列表（单选，复用 Todo 的标签体系）
+    #[serde(default)]
+    pub tag_ids: Vec<i64>,
     pub icon: String,
     pub review_template_id: Option<i64>,
     pub limits_config: String,
@@ -122,13 +131,20 @@ impl From<loops::Model> for LoopDto {
             description: m.description,
             workspace: m.workspace,
             status: m.status,
-            color: m.color,
+            tag_ids: vec![],
             icon: m.icon,
             review_template_id: m.review_template_id,
             limits_config: m.limits_config,
             created_at: m.created_at,
             updated_at: m.updated_at,
         }
+    }
+}
+
+impl LoopDto {
+    pub fn with_tags(mut self, tag_ids: Vec<i64>) -> Self {
+        self.tag_ids = tag_ids;
+        self
     }
 }
 
@@ -360,14 +376,13 @@ pub struct CreateLoopRequest {
     pub description: String,
     #[serde(default)]
     pub workspace: Option<String>,
-    #[serde(default = "default_color")]
-    pub color: String,
+    #[serde(default)]
+    pub tag_ids: Vec<i64>,
     #[serde(default = "default_icon")]
     pub icon: String,
     pub review_template_id: Option<i64>,
 }
 
-fn default_color() -> String { "#722ed1".to_string() }
 fn default_icon() -> String { "loop".to_string() }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -375,7 +390,6 @@ pub struct UpdateLoopRequest {
     pub name: String,
     pub description: String,
     pub workspace: Option<String>,
-    pub color: String,
     pub icon: String,
     pub review_template_id: Option<i64>,
     #[serde(default)]

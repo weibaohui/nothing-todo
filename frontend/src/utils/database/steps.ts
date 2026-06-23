@@ -51,9 +51,14 @@ export async function promoteTodoToStep(id: number): Promise<StepSummary> {
 /** 更新环节基本信息（部分更新：只传需要变更的字段即可）。 */
 export async function updateStep(
   id: number,
-  data: { title?: string; prompt?: string; executor?: string | null; acceptance_criteria?: string | null; color?: string },
+  data: { title?: string; prompt?: string; executor?: string | null; acceptance_criteria?: string | null },
 ): Promise<StepSummary> {
   return unwrap(await api.put(`/api/steps/${id}`, data));
+}
+
+/** 更新环节标签（全量替换）。 */
+export async function updateStepTags(id: number, tagIds: number[]): Promise<StepSummary> {
+  return unwrap(await api.put(`/api/steps/${id}/tags`, { tag_ids: tagIds }));
 }
 
 /** 删除环节。若被 loop 引用，后端会返回外键错误。 */

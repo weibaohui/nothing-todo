@@ -3,7 +3,7 @@ use sea_orm::{
 };
 
 use crate::db::Database;
-use crate::db::entity::{tags, todo_tags};
+use crate::db::entity::{tags, todo_tags, step_tags, loop_tags};
 use crate::models::Tag;
 
 use crate::models::TagBackup;
@@ -139,5 +139,121 @@ impl Database {
             .one(&self.conn)
             .await?
             .map(|m| m.id))
+    }
+
+    // ====== Step Tags ======
+
+    /// 设置环节的标签（全量替换）。
+    pub async fn set_step_tags(&self, step_id: i64, tag_ids: &[i64]) -> Result<(), sea_orm::DbErr> {
+        let tag_ids = tag_ids.to_vec();
+        self.conn
+            .transaction::<_, (), sea_orm::DbErr>(|txn| {
+                Box::pin(async move {
+                    step_tags::Entity::delete_many()
+                        .filter(step_tags::Column::StepId.eq(step_id))
+                        .exec(txn)
+                        .await?;
+
+                    if tag_ids.is_empty() {
+                        return Ok(());
+                    }
+
+                    let rows: Vec<step_tags::ActiveModel> = tag_ids
+                        .into_iter()
+                        .map(|tag_id| step_tags::ActiveModel {
+                            step_id: ActiveValue::Set(step_id),
+                            tag_id: ActiveValue::Set(tag_id),
+                        })
+                        .collect();
+
+                    step_tags::Entity::insert_many(rows)
+                        .on_conflict(
+                            sea_orm::sea_query::OnConflict::columns([
+                                step_tags::Column::StepId,
+                                step_tags::Column::TagId,
+                            ])
+                            .do_nothing()
+                            .to_owned(),
+                        )
+                        .exec(txn)
+                        .await?;
+
+                    Ok(())
+                })
+            })
+            .await
+            .map_err(|e| match e {
+                sea_orm::TransactionError::Connection(err) => err,
+                sea_orm::TransactionError::Transaction(err) => err,
+            })?;
+        Ok(())
+    }
+
+    /// 查询环节关联的所有标签 ID。
+    pub async fn get_step_tag_ids(&self, step_id: i64) -> Result<Vec<i64>, sea_orm::DbErr> {
+        use sea_orm::ColumnTrait;
+        let rows = step_tags::Entity::find()
+            .filter(step_tags::Column::StepId.eq(step_id))
+            .all(&self.conn)
+            .await?;
+        Ok(rows.into_iter().map(|r| r.tag_id).collect())
+    }
+
+    // ====== Loop Tags ======
+
+    /// 设置环路的标签（全量替换）。
+    pub async fn set_loop_tags(&self, loop_id: i64, tag_ids: &[i64]) -> Result<(), sea_orm::DbErr> {
+        let tag_ids = tag_ids.to_vec();
+        self.conn
+            .transaction::<_, (), sea_orm::DbErr>(|txn| {
+                Box::pin(async move {
+                    loop_tags::Entity::delete_many()
+                        .filter(loop_tags::Column::LoopId.eq(loop_id))
+                        .exec(txn)
+                        .await?;
+
+                    if tag_ids.is_empty() {
+                        return Ok(());
+                    }
+
+                    let rows: Vec<loop_tags::ActiveModel> = tag_ids
+                        .into_iter()
+                        .map(|tag_id| loop_tags::ActiveModel {
+                            loop_id: ActiveValue::Set(loop_id),
+                            tag_id: ActiveValue::Set(tag_id),
+                        })
+                        .collect();
+
+                    loop_tags::Entity::insert_many(rows)
+                        .on_conflict(
+                            sea_orm::sea_query::OnConflict::columns([
+                                loop_tags::Column::LoopId,
+                                loop_tags::Column::TagId,
+                            ])
+                            .do_nothing()
+                            .to_owned(),
+                        )
+                        .exec(txn)
+                        .await?;
+
+                    Ok(())
+                })
+            })
+            .await
+            .map_err(|e| match e {
+                sea_orm::TransactionError::Connection(err) => err,
+                sea_orm::TransactionError::Transaction(err) => err,
+            })?;
+        Ok(())
+    }
+
+    /// 查询环路关联的所有标签 ID。
+    pub async fn get_loop_tag_ids(&self, loop_id: i64) -> Result<Vec<i64>, sea_orm::DbErr> {
+        use sea_orm::ColumnTrait;
+        let rows = loop_tags::Entity::find()
+            .filter(loop_tags::Column::LoopId.eq(loop_id))
+            .all(&self.conn)
+            .await?;
+        Ok(rows.into_iter().map(|r| r.tag_id).collect())
     }
 }

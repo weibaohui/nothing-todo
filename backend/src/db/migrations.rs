@@ -85,6 +85,14 @@ pub const ALL_MIGRATIONS: &[Migration] = &[
              后续 promote 写入 steps 表而非改 kind。",
         statements: INDEPENDENT_STEPS_STATEMENTS,
     },
+    Migration {
+        version: 19,
+        name: "step_loop_tags",
+        description:
+            "环节和环路支持标签: 创建 step_tags 和 loop_tags 关联表, \
+             复用 Todo 的标签体系, 去除 steps.color 和 loops.color 字段。",
+        statements: STEP_LOOP_TAGS_STATEMENTS,
+    },
 ];
 
 /// All DDL for the initial schema (extracted from the previous monolithic
@@ -721,6 +729,28 @@ const INDEPENDENT_STEPS_STATEMENTS: &[&str] = &[
     "INSERT INTO steps (title, prompt, executor, acceptance_criteria, source_todo_id, created_at, updated_at)
      SELECT title, COALESCE(prompt, ''), executor, acceptance_criteria, id, created_at, updated_at
      FROM todos WHERE kind = 'step' AND id NOT IN (SELECT source_todo_id FROM steps WHERE source_todo_id IS NOT NULL)",
+];
+
+/// DDL for step_tags and loop_tags tables, plus removal of color columns.
+const STEP_LOOP_TAGS_STATEMENTS: &[&str] = &[
+    // step_tags 表（环节标签）
+    "CREATE TABLE IF NOT EXISTS step_tags (
+        step_id INTEGER NOT NULL,
+        tag_id INTEGER NOT NULL,
+        PRIMARY KEY (step_id, tag_id),
+        FOREIGN KEY (step_id) REFERENCES steps(id) ON DELETE CASCADE,
+        FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_step_tags_step_id ON step_tags(step_id)",
+    // loop_tags 表（环路标签）
+    "CREATE TABLE IF NOT EXISTS loop_tags (
+        loop_id INTEGER NOT NULL,
+        tag_id INTEGER NOT NULL,
+        PRIMARY KEY (loop_id, tag_id),
+        FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+        FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_loop_tags_loop_id ON loop_tags(loop_id)",
 ];
 
 /// SQL to create the `schema_version` meta table. Idempotent.

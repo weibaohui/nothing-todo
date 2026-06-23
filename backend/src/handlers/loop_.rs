@@ -28,7 +28,7 @@ use crate::models::{
     LoopDetail, LoopDto, LoopExecutionDetail, LoopExecutionDto, LoopExecutionTokenSummary,
     LoopListItem, LoopStepDto, LoopStepExecutionDto, LoopTriggerDto, ReorderLoopStepsRequest,
     UpdateLoopRequest, UpdateLoopStatusRequest, UpdateLoopStepRequest,
-    UpdateTriggerRequest, ApproveStepExecutionRequest,
+    UpdateTriggerRequest, ApproveStepExecutionRequest, UpdateTagsRequest, TodoSummary,
 };
 
 const DEFAULT_PAGE_LIMIT: u64 = 20;
@@ -43,7 +43,14 @@ pub async fn list_loops(
 ) -> Result<impl IntoResponse, AppError> {
     let workspace = params.get("workspace").map(|s| s.as_str());
     let rows = state.db.list_loops_with_counts(workspace).await?;
-    let items: Vec<LoopListItem> = rows.into_iter().map(Into::into).collect();
+    let mut items: Vec<LoopListItem> = rows.into_iter().map(Into::into).collect();
+    // 为每个 loop 加载标签 ID
+    let mut results: Vec<LoopListItem> = Vec::with_capacity(items.len());
+    for item in items {
+        let tag_ids = state.db.get_loop_tag_ids(item.loop_.id).await.unwrap_or_default();
+        results.push(item.with_tags(tag_ids));
+    }
+    items = results;
     Ok(ApiResponse::ok(items))
 }
 
@@ -61,11 +68,11 @@ pub async fn create_loop(
             req.name.trim(),
             &req.description,
             req.workspace.as_deref(),
-            &req.color,
             &req.icon,
             req.review_template_id,
         )
         .await?;
+    // 新建时没有标签，tag_ids 为空
     Ok((StatusCode::CREATED, ApiResponse::ok(LoopDto::from(created))))
 }
 
@@ -79,7 +86,40 @@ pub async fn get_loop(
         .load_loop_full(id)
         .await?
         .ok_or(AppError::NotFound)?;
-    Ok(ApiResponse::ok(LoopDetail::from(view)))
+    // 加载环路关联的标签 ID
+    let tag_ids = state.db.get_loop_tag_ids(id).await.unwrap_or_default();
+    let loop_dto = LoopDto::from(view.loop_).with_tags(tag_ids);
+    let detail = LoopDetail {
+        loop_: loop_dto,
+        triggers: view.triggers.into_iter().map(Into::into).collect(),
+        steps: view
+            .steps_meta
+            .into_iter()
+            .map(|(s, todo_title, todo_executor, todo_status)| LoopStepDto {
+                step: s.into(),
+                todo_title,
+                todo_executor,
+                todo_status,
+            })
+            .collect(),
+        todo_map: view
+            .todo_map
+            .into_iter()
+            .map(|(id, t)| {
+                (
+                    id,
+                    TodoSummary {
+                        id: t.id,
+                        title: t.title,
+                        status: t.status.unwrap_or_default(),
+                        executor: t.executor.unwrap_or_default(),
+                    },
+                )
+            })
+            .collect(),
+        pending_approval_count: view.pending_approval_count,
+    };
+    Ok(ApiResponse::ok(detail))
 }
 
 /// PUT /api/loops/{id} — 全量更新基本字段
@@ -103,14 +143,14 @@ pub async fn update_loop(
             req.name.trim(),
             &req.description,
             req.workspace.as_deref(),
-            &req.color,
             &req.icon,
             req.review_template_id,
             req.limits_config.as_deref(),
         )
         .await?;
     let updated = state.db.get_loop(id).await?.ok_or(AppError::NotFound)?;
-    Ok(ApiResponse::ok(LoopDto::from(updated)))
+    let tag_ids = state.db.get_loop_tag_ids(id).await.unwrap_or_default();
+    Ok(ApiResponse::ok(LoopDto::from(updated).with_tags(tag_ids)))
 }
 
 /// DELETE /api/loops/{id} — 删 loop（CASCADE 删 triggers/steps）
@@ -145,7 +185,8 @@ pub async fn update_loop_status(
         let _ = sched.reload_all().await;
     }
     let updated = state.db.get_loop(id).await?.ok_or(AppError::NotFound)?;
-    Ok(ApiResponse::ok(LoopDto::from(updated)))
+    let tag_ids = state.db.get_loop_tag_ids(id).await.unwrap_or_default();
+    Ok(ApiResponse::ok(LoopDto::from(updated).with_tags(tag_ids)))
 }
 
 /// POST /api/loops/{id}/duplicate — 复制 loop
@@ -162,7 +203,21 @@ pub async fn duplicate_loop(
     if let Some(sched) = state.loop_scheduler.as_ref() {
         let _ = sched.reload_all().await;
     }
-    Ok((StatusCode::CREATED, ApiResponse::ok(LoopDto::from(new_loop))))
+    // 复制时标签不复制，新 loop 从空标签开始
+    Ok((StatusCode::CREATED, ApiResponse::ok(LoopDto::from(new_loop).with_tags(vec![]))))
+}
+
+/// PUT /api/loops/{id}/tags — 更新环路标签（全量替换）
+pub async fn update_loop_tags(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<UpdateTagsRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    state.db.get_loop(id).await?.ok_or(AppError::NotFound)?;
+    state.db.set_loop_tags(id, &req.tag_ids).await?;
+    let updated = state.db.get_loop(id).await?.ok_or(AppError::NotFound)?;
+    let tag_ids = state.db.get_loop_tag_ids(id).await.unwrap_or_default();
+    Ok(ApiResponse::ok(LoopDto::from(updated).with_tags(tag_ids)))
 }
 
 /// POST /api/loops/{id}/trigger — 手动触发
@@ -665,6 +720,7 @@ pub fn loop_routes() -> axum::Router<AppState> {
         .route("/api/loops", get(list_loops).post(create_loop))
         .route("/api/loops/{id}", get(get_loop).put(update_loop).delete(delete_loop))
         .route("/api/loops/{id}/status", put(update_loop_status))
+        .route("/api/loops/{id}/tags", put(update_loop_tags))
         .route("/api/loops/{id}/duplicate", post(duplicate_loop))
         .route("/api/loops/{id}/trigger", post(trigger_loop))
         .route("/api/loops/{id}/triggers", get(list_triggers).post(create_trigger))
