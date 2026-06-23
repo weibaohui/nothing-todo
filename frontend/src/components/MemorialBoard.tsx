@@ -9,10 +9,14 @@ import {
   SearchOutlined,
   FolderOutlined,
   ThunderboltOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import { useApp } from '@/hooks/useApp';
 import { KanbanBoard } from './KanbanBoard';
 import { RunningBoard } from './RunningBoard';
+// 引入环路看板组件：与 KanbanBoard（todo 看板）、RunningBoard（运行视图）并列，
+// 为什么需要：提供环路维度的执行历史聚合视图，补齐 todo 维度之外的监控缺口。
+import { LoopKanban } from './LoopKanban';
 import { TodoCard } from './TodoCard';
 import * as db from '@/utils/database';
 import { formatRelativeTime } from '@/utils/datetime';
@@ -30,13 +34,19 @@ interface MemorialBoardProps {
   onBack?: () => void;
 }
 
-type BoardMode = 'memorial' | 'kanban' | 'running';
+// 看板模式类型：支持四种视图切换。
+// 为什么新增 loop_kanban：环路执行历史需要独立视图，与 todo 维度的看板互补。
+// 设计取舍：复用同一个 Segmented 切换，避免多入口导航混乱。
+type BoardMode = 'memorial' | 'kanban' | 'running' | 'loop_kanban';
 
 export function MemorialBoard({ onBack }: MemorialBoardProps) {
   const { state, dispatch } = useApp();
   const [boardMode, setBoardMode] = useState<BoardMode>('memorial');
   const [items, setItems] = useState<RecentCompletedTodo[]>([]);
   const [loading, setLoading] = useState(true);
+  // 为什么 hours 和 searchText 在 MemorialBoard 层管理：
+  // 四种视图（memorial/kanban/running/loop_kanban）共享同一个时间过滤和搜索状态，
+  // 用户切换视图时保持筛选条件，避免重复输入，提升体验。
   const [hours, setHours] = useState(24);
   const [searchText, setSearchText] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
@@ -363,6 +373,14 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
             />
           )}
           <h2 className="memorial-title">看板</h2>
+          {/* 视图模式切换：四种视图平铺展示。
+              为什么新增"环路看板"选项：
+              - memorial：按完成时间聚合 todo 的执行结论，适合快速回顾成果
+              - kanban：todo 维度的状态流转看板（待办/进行中/已完成/失败）
+              - running：实时运行状态监控
+              - loop_kanban：环路维度的执行历史看板，补齐 loop 视角的监控缺口
+              为什么用 SyncOutlined 图标：loop 强调循环执行，sync 图标语义匹配。
+          */}
           <Segmented
             size="small"
             value={boardMode}
@@ -371,6 +389,7 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
               { label: <span><ProfileOutlined /> 结论视图</span>, value: 'memorial' },
               { label: <span><AppstoreOutlined /> 看板视图</span>, value: 'kanban' },
               { label: <span><ThunderboltOutlined /> 运行视图</span>, value: 'running' },
+              { label: <span><SyncOutlined /> 环路看板</span>, value: 'loop_kanban' },
             ]}
           />
         </div>
@@ -429,10 +448,20 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
         </div>
       </div>
 
+      {/* 根据 boardMode 渲染对应视图。
+          为什么 loop_kanban 分支复用 searchText 和 hours：
+          - LoopKanban 支持受控模式，接受外部 searchText/hours 并回传 onChange
+          - 用户从其他视图切换过来时，保持已输入的搜索词和时间窗口，避免状态丢失
+          - onSearchChange/onHoursChange 回传给 MemorialBoard，使得多视图间筛选条件同步
+          为什么 loop_kanban 不传 selectedProject：
+          - loop 没有 workspace 概念，项目过滤仅适用于 todo 维度（memorial/kanban/running）
+      */}
       {boardMode === 'running' ? (
         <RunningBoard searchText={searchText} hours={hours} selectedProject={selectedProject} />
       ) : boardMode === 'kanban' ? (
         <KanbanBoard searchText={searchText} hours={hours} onSearchChange={setSearchText} onHoursChange={setHours} />
+      ) : boardMode === 'loop_kanban' ? (
+        <LoopKanban searchText={searchText} hours={hours} onSearchChange={setSearchText} onHoursChange={setHours} />
       ) : loading ? (
         <div className="memorial-grid">
           {Array.from({ length: columnCount }).map((_, colIdx) => (
