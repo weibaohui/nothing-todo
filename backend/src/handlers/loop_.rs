@@ -525,9 +525,20 @@ pub async fn list_executions(
     let exec_ids: Vec<i64> = records.iter().map(|r| r.id).collect();
     let pending_counts = state.db.count_pending_approvals_by_execution_ids(&exec_ids).await?;
     let mut items: Vec<LoopExecutionDto> = records.into_iter().map(Into::into).collect();
-    // 填充 pending_approval_count
+    // 填充 pending_approval_count 和 token_summary
     for item in &mut items {
         item.pending_approval_count = pending_counts.get(&item.id).copied().unwrap_or(0);
+        // 加载 step_executions 并聚合 Token 消耗汇总
+        let step_execs = state.db.list_loop_step_executions(item.id).await?;
+        let mut enriched: Vec<LoopStepExecutionDto> = step_execs.into_iter().map(|se| {
+            se.into()
+        }).collect();
+        // 从 execution_record.usage 填充 token 字段到 DTO
+        for dto in &mut enriched {
+            enrich_step_execution_with_usage(&state.db, dto).await;
+        }
+        // 直接从已 enrich 的 DTO 字段聚合，避免重复查询数据库
+        item.token_summary = Some(aggregate_tokens_from_step_dtos(&enriched));
     }
     Ok(ApiResponse::ok(serde_json::json!({
         "items": items,
@@ -565,39 +576,30 @@ async fn enrich_step_execution_with_usage(
     dto.total_cost_usd = usage.total_cost_usd;
 }
 
-/// 遍历 step_executions，从每个环节关联的 execution_record.usage 聚合出总 Token 用量。
-async fn aggregate_step_execution_tokens(
-    db: &crate::db::Database,
-    step_execs: &[LoopStepExecutionDto],
-) -> LoopExecutionTokenSummary {
+/// 从已 enrich 的 LoopStepExecutionDto 字段直接聚合 Token 消耗汇总，
+/// 不再重复查询数据库（原有的 aggregate_step_execution_tokens 存在 N+1 问题）。
+/// 前置条件：调用方必须先通过 enrich_step_execution_with_usage 填充 DTO token 字段。
+fn aggregate_tokens_from_step_dtos(step_execs: &[LoopStepExecutionDto]) -> LoopExecutionTokenSummary {
     let mut total_input_tokens: i64 = 0;
     let mut total_output_tokens: i64 = 0;
     let mut total_cache_read_input_tokens: i64 = 0;
     let mut total_cache_creation_input_tokens: i64 = 0;
     let mut total_cost_usd: f64 = 0.0;
     for se in step_execs {
-        let record_id = match se.execution_record_id {
-            Some(id) => id,
-            None => continue,
-        };
-        let record = match db.get_execution_record(record_id).await {
-            Ok(Some(r)) => r,
-            _ => continue,
-        };
-        let usage = match record.usage {
-            Some(u) => u,
-            None => continue,
-        };
-        total_input_tokens += usage.input_tokens as i64;
-        total_output_tokens += usage.output_tokens as i64;
-        if let Some(cr) = usage.cache_read_input_tokens {
-            total_cache_read_input_tokens += cr as i64;
+        if let Some(v) = se.input_tokens {
+            total_input_tokens += v;
         }
-        if let Some(cc) = usage.cache_creation_input_tokens {
-            total_cache_creation_input_tokens += cc as i64;
+        if let Some(v) = se.output_tokens {
+            total_output_tokens += v;
         }
-        if let Some(cost) = usage.total_cost_usd {
-            total_cost_usd += cost;
+        if let Some(v) = se.cache_read_input_tokens {
+            total_cache_read_input_tokens += v;
+        }
+        if let Some(v) = se.cache_creation_input_tokens {
+            total_cache_creation_input_tokens += v;
+        }
+        if let Some(v) = se.total_cost_usd {
+            total_cost_usd += v;
         }
     }
     LoopExecutionTokenSummary {
@@ -645,8 +647,8 @@ pub async fn get_execution(
         enrich_step_execution_with_usage(&state.db, &mut dto).await;
         enriched.push(dto);
     }
-    // 聚合 token 汇总
-    let token_summary = aggregate_step_execution_tokens(&state.db, &enriched).await;
+    // 聚合 token 汇总：直接从已 enrich 的 DTO 字段聚合，避免重复查询数据库
+    let token_summary = aggregate_tokens_from_step_dtos(&enriched);
     Ok(ApiResponse::ok(LoopExecutionDetail {
         execution: exec.into(),
         step_executions: enriched,

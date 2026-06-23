@@ -3,37 +3,41 @@
 // 将所有环路的执行历史以看板形式展示，参考 KanbanBoard 的列布局风格：
 // - 列：运行中 / 待审批 / 成功 / 部分 / 失败 / 已取消 / 超限
 // - 每列按时间倒序展示 execution 卡片
-// - 支持时间范围过滤和环路名称搜索
+// - 搜索与时间过滤由父组件 MemorialBoard 统一管理，本组件不再重复渲染工具栏
+//
+// 交互说明：
+// - 点击卡片：打开侧边栏，上方展示该环路的环节设计流程图（LoopFlowGraph），
+//   下方展示该次执行的环节轨迹（StepExecList），实现「设计 vs 实际」对照。
+// - 黑板按钮：打开黑板抽屉，展示该次执行中所有环节的结论摘要（复用 BlackboardDrawer 组件）
 //
 // 数据来源：遍历所有 loop，对每个 loop 调用 listExecutions 聚合结果。
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Input, Segmented, Spin, Empty, Tag, Tooltip } from 'antd';
+import { Button, Drawer, Spin, Empty, Tag, Tooltip, Divider, App as AntApp } from 'antd';
 import {
-  SearchOutlined,
+  ReadOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
   LoadingOutlined,
   MinusCircleOutlined,
   ExclamationCircleOutlined,
+  ApartmentOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import * as dbLoops from '@/utils/database/loops';
-import type { LoopExecutionDto, LoopListItem } from '@/types/loop';
+import type { LoopExecutionDto, LoopListItem, LoopExecutionDetail, LoopDetail } from '@/types/loop';
 import { formatRelativeTime } from '@/utils/datetime';
+// 复用 LoopStudioExecutionsPanel 中的执行轨迹卡片列表与黑板抽屉组件，
+// 确保环路执行历史在不同视图下的展示形态一致。
+import { StepExecList, BlackboardDrawer, formatToken } from './LoopStudioExecutionsPanel';
+// 复用环路流程设计图组件，在上方展示环节设计布局。
+import { LoopFlowGraph } from '@/components/loop-flow/LoopFlowGraph';
 
 // 环路执行记录增强类型：增加 loop_name 方便在卡片中直接显示环路名称，
 // 避免在渲染时反复回查 loop 列表
 interface LoopExecutionWithLoopName extends LoopExecutionDto {
   loop_name: string;
 }
-
-const TIME_OPTIONS: { label: string; value: number }[] = [
-  { label: '6h',  value: 6 },
-  { label: '12h', value: 12 },
-  { label: '24h', value: 24 },
-  { label: '3d',  value: 72 },
-  { label: '7d',  value: 168 },
-];
 
 // 状态 → 颜色 + 图标
 function execStatusView(status: string): { color: string; icon: React.ReactNode; label: string } {
@@ -83,9 +87,11 @@ const COLUMNS: ColumnDef[] = [
 interface ExecutionCardProps {
   exec: LoopExecutionWithLoopName;
   view: ReturnType<typeof execStatusView>;
+  onClick?: (exec: LoopExecutionWithLoopName) => void;
+  onBlackboard?: (exec: LoopExecutionWithLoopName) => void;
 }
 
-function ExecutionCard({ exec, view }: ExecutionCardProps) {
+function ExecutionCard({ exec, view, onClick, onBlackboard }: ExecutionCardProps) {
   return (
     <div
       className="loop-kanban-card"
@@ -96,13 +102,34 @@ function ExecutionCard({ exec, view }: ExecutionCardProps) {
         borderRadius: 8,
         padding: '10px 12px',
         marginBottom: 8,
-        cursor: 'default',
+        cursor: 'pointer',
+        transition: 'box-shadow 200ms',
       }}
+      onClick={() => onClick?.(exec)}
     >
       <CardHeader exec={exec} view={view} />
       <CardTrigger exec={exec} />
       <CardProgress exec={exec} />
+      {/* Token 消耗汇总：从执行历史 Token 消耗聚合数据中提取，
+          展示输入/输出/缓存读取的 token 数量，让用户快速了解资源消耗情况 */}
+      <CardTokenSummary exec={exec} />
       {exec.pending_approval_count > 0 && <CardApprovalBadge count={exec.pending_approval_count} />}
+      {/* 黑板按钮：点击后查看该次执行所有环节的结论摘要 */}
+      <div style={{ marginTop: 6, display: 'flex', justifyContent: 'flex-end' }}>
+        <Button
+          type="link"
+          size="small"
+          icon={<ReadOutlined />}
+          onClick={(e) => {
+            // 阻止冒泡到卡片的点击事件，避免同时打开轨迹侧边栏
+            e.stopPropagation();
+            onBlackboard?.(exec);
+          }}
+          style={{ fontSize: 11, padding: 0, height: 'auto', lineHeight: '20px' }}
+        >
+          黑板
+        </Button>
+      </div>
     </div>
   );
 }
@@ -143,6 +170,30 @@ function CardProgress({ exec }: { exec: LoopExecutionWithLoopName }) {
       <span style={{ fontFamily: 'monospace', color: 'var(--color-text-tertiary)' }}>
         {durationLabel(exec.started_at, exec.finished_at)}
       </span>
+    </div>
+  );
+}
+
+// Token 消耗汇总行：展示该次执行的输入/输出/缓存读取 token 数量。
+// 为什么独立成组件：条件渲染逻辑独立（只有 token_summary 存在且有消耗时才展示），
+// 且数据来自后端聚合计算，与卡片其他信息解耦。
+// 样式紧凑以适配看板卡片尺寸，颜色区分不同类型便于快速识别。
+function CardTokenSummary({ exec }: { exec: LoopExecutionWithLoopName }) {
+  const ts = exec.token_summary;
+  if (!ts) return null;
+  const hasTokens = ts.total_input_tokens > 0 || ts.total_output_tokens > 0 || (ts.total_cache_read_input_tokens ?? 0) > 0;
+  if (!hasTokens) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', fontSize: 10, marginTop: 4, color: 'var(--color-text-tertiary)' }}>
+      <span style={{ color: '#1677ff', fontWeight: 600 }}>输入 {formatToken(ts.total_input_tokens)}</span>
+      <span style={{ color: 'var(--color-text-tertiary)' }}>/</span>
+      <span style={{ color: '#52c41a', fontWeight: 600 }}>输出 {formatToken(ts.total_output_tokens)}</span>
+      {ts.total_cache_read_input_tokens > 0 && (
+        <>
+          <span style={{ color: 'var(--color-text-tertiary)' }}>/</span>
+          <span style={{ color: '#722ed1', fontWeight: 600 }}>缓存 {formatToken(ts.total_cache_read_input_tokens)}</span>
+        </>
+      )}
     </div>
   );
 }
@@ -302,19 +353,71 @@ interface Props {
   onHoursChange?: (h: number) => void;
 }
 
-export function LoopKanban({ searchText: externalSearch, hours: externalHours, onSearchChange, onHoursChange }: Props = {}) {
+export function LoopKanban({ searchText: externalSearch, hours: externalHours, onSearchChange: _onSearchChange, onHoursChange: _onHoursChange }: Props = {}) {
   // 为什么区分 internal/external：支持受控/非受控两种模式，
   // 外部传入时作为受控组件（MemorialBoard 统一管理 searchText/hours），
   // 未传入时作为非受控组件（独立状态）。
-  const [internalSearch, setInternalSearch] = useState('');
-  const [internalHours, setInternalHours] = useState(24);
+  // 注意：搜索与时间过滤的 UI 控件由父组件 MemorialBoard 渲染，
+  // 本组件不再渲染工具栏，但保留受控 props 透传能力，
+  // 使得 MemoriaBoard 的搜索/过滤对 LoopKanban 依然生效。
+  const [internalSearch] = useState('');
+  const [internalHours] = useState(24);
   const searchText = externalSearch ?? internalSearch;
   const hours = externalHours ?? internalHours;
-  const handleSearchChange = (v: string) => { if (onSearchChange) onSearchChange(v); else setInternalSearch(v); };
-  const handleHoursChange = (h: number) => { if (onHoursChange) onHoursChange(h); else setInternalHours(h); };
+
+  const { message } = AntApp.useApp();
 
   // 使用自定义 Hook 加载数据，逻辑抽离后函数体长度可控
   const { executions, loading } = useLoopExecutions();
+
+  // ── 轨迹侧边栏状态 ────────────────────────────────────
+  const [selectedExec, setSelectedExec] = useState<LoopExecutionWithLoopName | null>(null);
+  const [execDetail, setExecDetail] = useState<LoopExecutionDetail | null>(null);
+  // 环路设计信息：包含步骤定义，供 LoopFlowGraph 渲染环节设计图
+  const [loopDetail, setLoopDetail] = useState<LoopDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // 打开执行轨迹侧边栏：点击卡片时触发，加载该次执行的环节详情 与 环路的设计步骤。
+  // 为什么同时加载 loopDetail：在侧边栏上方展示环节设计流程图（LoopFlowGraph），
+  // 下方展示实际执行轨迹（StepExecList），实现「设计 vs 实际」对照。
+  // 为什么用 Promise.all：两个接口无依赖关系，可以并发请求减少总等待耗时。
+  // 为什么用 try/catch 静默失败：个别加载失败不应影响看板整体使用。
+  const handleCardClick = useCallback(async (exec: LoopExecutionWithLoopName) => {
+    setSelectedExec(exec);
+    setDrawerOpen(true);
+    setDetailLoading(true);
+    setExecDetail(null);
+    setLoopDetail(null);
+    try {
+      const [detail, loop] = await Promise.all([
+        dbLoops.getExecution(exec.loop_id, exec.id),
+        dbLoops.getLoop(exec.loop_id),
+      ]);
+      setExecDetail(detail);
+      setLoopDetail(loop);
+    } catch {
+      message.error('加载执行轨迹失败');
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [message]);
+
+  // ── 黑板抽屉状态 ────────────────────────────────────
+  const [blackboardOpen, setBlackboardOpen] = useState(false);
+  const [blackboardExecs, setBlackboardExecs] = useState<Record<string, any>[]>([]);
+
+  // 打开黑板抽屉：点击卡片上的「黑板」按钮时触发。
+  // 每次打开都重新加载最新的执行详情，确保黑板数据是最新的。
+  const handleOpenBlackboard = useCallback(async (exec: LoopExecutionWithLoopName) => {
+    try {
+      const detail = await dbLoops.getExecution(exec.loop_id, exec.id);
+      setBlackboardExecs(detail.step_executions);
+      setBlackboardOpen(true);
+    } catch {
+      message.error('加载黑板数据失败');
+    }
+  }, [message]);
 
   // 按时间窗口过滤执行记录。
   // 为什么要独立 memo：hours 变化频繁（用户切换 Segmented），避免重复计算 cutoff 和遍历。
@@ -358,14 +461,6 @@ export function LoopKanban({ searchText: externalSearch, hours: externalHours, o
     return map;
   }, [filtered]);
 
-  // 统计各列数量，供工具栏右侧汇总展示。
-  // 为什么依赖 grouped 而非 filtered：grouped 已完成分组，直接读取长度更高效。
-  const stats = useMemo(() => {
-    const result: Record<string, number> = {};
-    for (const col of COLUMNS) result[col.label] = grouped[col.status]?.length ?? 0;
-    return result;
-  }, [grouped]);
-
   // 渲染单个执行卡片。
   // 为什么抽成独立组件：原 renderCard 函数超过 30 行，拆分后主体逻辑更清晰。
   // 为什么用 useCallback：避免每次渲染都重新创建函数，减少子组件不必要的 re-render。
@@ -376,9 +471,11 @@ export function LoopKanban({ searchText: externalSearch, hours: externalHours, o
         key={`${exec.loop_id}-${exec.id}`}
         exec={exec}
         view={view}
+        onClick={handleCardClick}
+        onBlackboard={handleOpenBlackboard}
       />
     );
-  }, []);
+  }, [handleCardClick, handleOpenBlackboard]);
 
   // 渲染看板列。
   // 为什么提取成组件：原函数超过 30 行，拆分后符合规范且便于测试列渲染逻辑。
@@ -389,45 +486,7 @@ export function LoopKanban({ searchText: externalSearch, hours: externalHours, o
 
   return (
     <div className="loop-kanban-board">
-      {/* 工具栏 */}
-      <div
-        className="loop-kanban-toolbar"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '8px 16px',
-          borderBottom: '1px solid var(--color-border)',
-          flexWrap: 'wrap',
-        }}
-      >
-        <Input
-          placeholder="搜索环路名称或触发类型…"
-          prefix={<SearchOutlined style={{ color: 'var(--color-text-tertiary)' }} />}
-          value={searchText}
-          onChange={e => handleSearchChange(e.target.value)}
-          allowClear
-          size="small"
-          style={{ width: 220 }}
-        />
-        <Segmented
-          size="small"
-          options={TIME_OPTIONS.map(o => ({ label: o.label, value: o.label }))}
-          value={TIME_OPTIONS.find(o => o.value === hours)?.label || '24h'}
-          onChange={label => {
-            const opt = TIME_OPTIONS.find(o => o.label === label);
-            if (opt) handleHoursChange(opt.value);
-          }}
-        />
-        {/* 统计 */}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          {COLUMNS.map(col => (
-            <span key={col.status} style={{ fontSize: 12, color: col.color }}>
-              {col.label} <strong>{stats[col.label]}</strong>
-            </span>
-          ))}
-        </div>
-      </div>
+      {/* 搜索与时间过滤由父组件 MemorialBoard 统一管理，此处不再重复渲染工具栏 */}
 
       {/* 看板列 */}
       {loading ? (
@@ -449,6 +508,102 @@ export function LoopKanban({ searchText: externalSearch, hours: externalHours, o
           {COLUMNS.map(renderColumn)}
         </div>
       )}
+
+      {/* 执行轨迹侧边栏：点击卡片时打开，上方展示该环路的环节设计流程图，
+          下方展示该次执行的环节轨迹，实现「设计 vs 实际」对照。
+          复用 LoopFlowGraph（环节设计图）和 StepExecList（实际执行轨迹）。 */}
+      <Drawer
+        title={
+          selectedExec ? (
+            <span>
+              <ReadOutlined style={{ marginRight: 8 }} />
+              执行轨迹 · {selectedExec.loop_name}
+              <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--color-text-tertiary)', fontWeight: 400 }}>
+                #{selectedExec.id}
+              </span>
+            </span>
+          ) : '执行轨迹'
+        }
+        placement="right"
+        width={640}
+        open={drawerOpen}
+        onClose={() => {
+          setDrawerOpen(false);
+          setSelectedExec(null);
+          setExecDetail(null);
+          setLoopDetail(null);
+        }}
+        destroyOnClose
+      >
+        {detailLoading ? (
+          <div style={{ textAlign: 'center', padding: 40 }}>
+            <Spin tip="加载执行轨迹…" />
+          </div>
+        ) : execDetail && selectedExec && loopDetail ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* 上方：环节设计流程图 — 展示该环路的标准步骤设计图，
+                让用户对照「预期设计」与「实际执行」。 */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <ApartmentOutlined style={{ color: 'var(--color-primary, #0891b2)' }} />
+                <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--color-text, #0f172a)' }}>
+                  环节设计
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--color-text-tertiary, #94a3b8)' }}>
+                  {loopDetail.steps.length} 个环节
+                </span>
+              </div>
+              <div style={{
+                background: 'var(--color-bg-elevated, #ffffff)',
+                border: '1px solid var(--color-border, #e2e8f0)',
+                borderRadius: 8,
+                padding: '8px 12px',
+              }}>
+                <LoopFlowGraph
+                  steps={loopDetail.steps}
+                  selectedStepId={null}
+                  onSelectStep={() => {}}
+                  onAddStep={() => {}}
+                />
+              </div>
+            </div>
+
+            <Divider style={{ margin: '4px 0' }} />
+
+            {/* 下方：实际执行轨迹 — 展示该次执行中各环节的真实运行情况。 */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <HistoryOutlined style={{ color: 'var(--color-primary, #0891b2)' }} />
+                <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--color-text, #0f172a)' }}>
+                  执行轨迹
+                </span>
+              </div>
+              <StepExecList
+                stepExecs={execDetail.step_executions}
+                loopId={execDetail.loop_id}
+                executionId={execDetail.id}
+                onApproved={() => {
+                  // 审批通过后重新加载执行详情，保证环节状态与后端一致
+                  dbLoops.getExecution(selectedExec.loop_id, selectedExec.id)
+                    .then(setExecDetail)
+                    .catch(() => {});
+                }}
+              />
+            </div>
+          </div>
+        ) : (
+          <Empty description="无执行轨迹数据" />
+        )}
+      </Drawer>
+
+      {/* 黑板抽屉：按顺序展示该次执行中所有环节的结论，
+          让用户一次性纵览整条执行链路的输出摘要，
+          无需逐个展开每个环节的卡片查看 conclusion。 */}
+      <BlackboardDrawer
+        open={blackboardOpen}
+        stepExecs={blackboardExecs}
+        onClose={() => setBlackboardOpen(false)}
+      />
     </div>
   );
 }

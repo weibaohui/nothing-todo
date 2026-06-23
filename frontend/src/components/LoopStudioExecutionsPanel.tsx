@@ -58,7 +58,7 @@ function durationLabel(start: string, end: string | null): string {
 }
 
 // Token 格式化：千位分隔
-function formatToken(n: number): string {
+export function formatToken(n: number): string {
   return n.toLocaleString();
 }
 
@@ -351,7 +351,7 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
 // - 标题行：序号 + 环节名称
 // - 结论内容（markdown 区域）
 // 没有结论的环节展示「-无结论-」占位。
-function BlackboardDrawer({ open, stepExecs, onClose }: {
+export function BlackboardDrawer({ open, stepExecs, onClose }: {
   open: boolean;
   stepExecs: Record<string, any>[];
   onClose: () => void;
@@ -453,7 +453,7 @@ function BlackboardDrawer({ open, stepExecs, onClose }: {
 }
 
 // 环节执行卡片：卡片式布局 + 箭头连接展示执行顺序，每张卡展示执行详情
-function StepExecList({ stepExecs, loopId, executionId, onApproved }: { stepExecs: Record<string, any>[]; loopId: number; executionId: number; onApproved: () => void }) {
+export function StepExecList({ stepExecs, loopId, executionId, onApproved }: { stepExecs: Record<string, any>[]; loopId: number; executionId: number; onApproved: () => void }) {
   const { message } = AntApp.useApp();
   const [drawerRecord, setDrawerRecord] = useState<any | null>(null);
   const [drawerLoading, setDrawerLoading] = useState(false);
