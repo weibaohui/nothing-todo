@@ -57,6 +57,7 @@ pub(super) fn all_migrations() -> Vec<Box<dyn Migration>> {
         Box::new(V18LoopHumanReview),
         Box::new(V19StepLoopTags),
         Box::new(V23DropTodoHooksColumns),
+        Box::new(RenameLoopStepsStepIdBackToTodoId),
     ]
 }
 
@@ -3125,6 +3126,103 @@ impl Migration for V23DropTodoHooksColumns {
     async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
         drop_column_if_exists(db, "todos", "hooks").await?;
         drop_column_if_exists(db, "execution_records", "source_hook_id").await?;
+        Ok(())
+    }
+}
+
+/// v24 迁移：将 loop_steps.step_id 改回 todo_id。
+///
+/// v13 把列重命名为 step_id 并企图让 FK 指向 steps 表，
+/// 但 steps 表从未创建（Step 中间层已被移除），导致 FK 实际失效。
+/// 本次迁移重建 loop_steps 表：
+///   - 列名改回 todo_id（与 Rust entity 对齐，无须 column_name attribute）
+///   - FK 改为正确指向 todos(id)
+///   - 保留所有历史数据
+struct RenameLoopStepsStepIdBackToTodoId;
+
+#[async_trait]
+impl Migration for RenameLoopStepsStepIdBackToTodoId {
+    fn version(&self) -> i64 { 24 }
+    fn name(&self) -> &'static str { "rename_loop_steps_step_id_to_todo_id" }
+
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        // 1. 如果 loop_steps 表不存在（迁移中途失败，只剩 loop_steps_new），直接 rename 恢复
+        if !table_exists(db, "loop_steps").await? && table_exists(db, "loop_steps_new").await? {
+            tracing::info!("loop_steps missing but loop_steps_new exists, renaming to restore");
+            db.exec("ALTER TABLE loop_steps_new RENAME TO loop_steps").await?;
+            db.exec("CREATE INDEX IF NOT EXISTS idx_loop_steps_loop_id ON loop_steps(loop_id)").await?;
+            db.exec("CREATE INDEX IF NOT EXISTS idx_loop_steps_loop_order ON loop_steps(loop_id, order_index)").await?;
+            return Ok(());
+        }
+
+        // 2. 如果列已是 todo_id（fresh DB 场景），跳过
+        if !table_has_column(db, "loop_steps", "step_id").await? {
+            tracing::info!("loop_steps.step_id not present, skip rename");
+            return Ok(());
+        }
+
+        // 3. 禁用外键约束（SQLite 不允许在有 FK 引用时 DROP TABLE）
+        db.exec("PRAGMA foreign_keys = OFF").await?;
+
+        // 4. 删除旧残留（如果有）
+        db.exec("DROP TABLE IF EXISTS loop_steps_new").await?;
+
+        // 5. 创建新表（列名改回 todo_id，FK 指向 todos.id）
+        db.exec(
+            "CREATE TABLE loop_steps_new (
+                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                loop_id BIGINT NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                order_index INTEGER NOT NULL DEFAULT 0,
+                todo_id BIGINT NOT NULL,
+                run_mode TEXT NOT NULL DEFAULT 'sequential',
+                skip_on_source_failed INTEGER NOT NULL DEFAULT 0,
+                min_rating BIGINT,
+                unrated_policy TEXT NOT NULL DEFAULT 'skip',
+                on_success TEXT NOT NULL DEFAULT 'next',
+                success_goto_step_id BIGINT,
+                on_rating_fail TEXT NOT NULL DEFAULT 'break',
+                fail_goto_step_id BIGINT,
+                review_type TEXT NOT NULL DEFAULT 'ai',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT,
+                FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+                FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE RESTRICT
+            )",
+        )
+        .await?;
+
+        // 6. 复制数据（step_id → todo_id）
+        db.exec(
+            "INSERT INTO loop_steps_new (id, loop_id, name, description, order_index,
+                todo_id, run_mode, skip_on_source_failed, min_rating, unrated_policy,
+                on_success, success_goto_step_id, on_rating_fail, fail_goto_step_id,
+                review_type, enabled, created_at)
+             SELECT id, loop_id, name, description, order_index,
+                step_id, run_mode, skip_on_source_failed, min_rating, unrated_policy,
+                on_success, success_goto_step_id, on_rating_fail, fail_goto_step_id,
+                review_type, enabled, created_at
+             FROM loop_steps",
+        )
+        .await?;
+
+        // 7. 删除旧表
+        db.exec("DROP TABLE loop_steps").await?;
+
+        // 8. 重命名新表
+        db.exec("ALTER TABLE loop_steps_new RENAME TO loop_steps").await?;
+
+        // 9. 重建索引
+        db.exec("CREATE INDEX IF NOT EXISTS idx_loop_steps_loop_id ON loop_steps(loop_id)")
+            .await?;
+        db.exec("CREATE INDEX IF NOT EXISTS idx_loop_steps_loop_order ON loop_steps(loop_id, order_index)")
+            .await?;
+
+        // 10. 恢复外键约束
+        db.exec("PRAGMA foreign_keys = ON").await?;
+
+        tracing::info!("loop_steps.step_id renamed back to todo_id");
         Ok(())
     }
 }
