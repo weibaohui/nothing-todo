@@ -124,14 +124,6 @@ pub struct Todo {
     /// 是否在执行完成后自动派生一个评审 todo. 只对 normal 类型有意义.
     #[serde(default = "default_true")]
     pub auto_review_enabled: bool,
-    /// 'item' = 一次性事项, 'step' = 可复用的环节 (loop 编排引用).
-    /// 缺省时按 'item' 处理, 避免前端拿到 None 时还要兜底.
-    #[serde(default = "default_todo_kind")]
-    pub kind: String,
-}
-
-fn default_todo_kind() -> String {
-    "item".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -350,9 +342,6 @@ pub struct CreateTodoRequest {
     pub acceptance_criteria: Option<String>,
     #[serde(default)]
     pub auto_review_enabled: Option<bool>,
-    /// kind: "item" or "step". Defaults to "item" if not specified.
-    #[serde(default)]
-    pub kind: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]

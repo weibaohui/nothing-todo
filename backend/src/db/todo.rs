@@ -67,9 +67,6 @@ impl Database {
             parent_todo_id: m.parent_todo_id,
             review_template_id: m.review_template_id,
             auto_review_enabled: m.auto_review_enabled.unwrap_or(true),
-            // kind 默认 'item'；实际数据由 v3 migration 注入。
-            // unwrap_or_default 兜底 None(例如老库 v3 升级前的行),与字段语义保持一致。
-            kind: m.kind.unwrap_or_else(|| "item".to_string()),
         }
     }
 
@@ -304,22 +301,6 @@ impl Database {
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
             auto_review_enabled: ActiveValue::Set(Some(enabled)),
-            updated_at: ActiveValue::Set(Some(now)),
-            ..Default::default()
-        };
-        self.exec_update(am).await
-    }
-
-    /// 设置 todo 的 kind（item/step）。
-    pub async fn update_todo_kind(
-        &self,
-        id: i64,
-        kind: &str,
-    ) -> Result<(), sea_orm::DbErr> {
-        let now = crate::models::utc_timestamp();
-        let am = todos::ActiveModel {
-            id: ActiveValue::Unchanged(id),
-            kind: ActiveValue::Set(Some(kind.to_string())),
             updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
@@ -983,29 +964,6 @@ impl Database {
             .collect())
     }
 
-    // ====== 环节（kind=step）相关 CRUD ======
-    //
-    // 设计与 v3 migration 对齐：todos.kind 列区分事项与环节。
-    // 这里只读 kind='step' 的子集，loop_steps 强校验只能引用环节。
-
-    /// 按 kind 列过滤列出 todo。供 TodoList 前端 filter 用（事项 / 环节 / 全部）。
-    pub async fn list_todos_by_kind(&self, kind: &str) -> Result<Vec<Todo>, sea_orm::DbErr> {
-        let models = todos::Entity::find()
-            .filter(todos::Column::DeletedAt.is_null())
-            .filter(todos::Column::Kind.eq(kind))
-            .order_by_desc(todos::Column::UpdatedAt)
-            .all(&self.conn)
-            .await?;
-        let ids: Vec<i64> = models.iter().map(|m| m.id).collect();
-        let tag_map = self.fetch_tag_ids_for_many(&ids).await?;
-        Ok(models
-            .into_iter()
-            .map(|m| {
-                let tag_ids = tag_map.get(&m.id).cloned().unwrap_or_default();
-                Self::model_to_todo(m, tag_ids)
-            })
-            .collect())
-    }
 }
 
 #[cfg(test)]

@@ -27,23 +27,14 @@ fn validate_cron_expression(expr: &str) -> Result<(), String> {
 
 pub async fn get_todos(
     State(state): State<AppState>,
-    axum::extract::Query(params): axum::extract::Query<TodoListQuery>,
+    axum::extract::Query(_params): axum::extract::Query<TodoListQuery>,
 ) -> Result<ApiResponse<Vec<Todo>>, AppError> {
-    // kind=item / kind=step / kind=all(默认) 三种过滤。
-    // 保持向后兼容：未传参时返回所有 todo。
-    let todos = match params.kind.as_deref() {
-        Some("item") => state.db.list_todos_by_kind("item").await?,
-        Some("step") => state.db.list_todos_by_kind("step").await?,
-        _ => state.db.get_todos().await?,
-    };
+    let todos = state.db.get_todos().await?;
     Ok(ApiResponse::ok(todos))
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub struct TodoListQuery {
-    #[serde(default)]
-    pub kind: Option<String>,
-}
+pub struct TodoListQuery {}
 
 pub async fn get_todo(
     State(state): State<AppState>,
@@ -134,14 +125,6 @@ pub async fn create_todo(
         }
     }
 
-    // kind: 默认为 "item"，请求中显式指定时更新
-    let kind = req.kind.as_deref().unwrap_or("item");
-    if kind != "item" {
-        if let Err(e) = state.db.update_todo_kind(id, kind).await {
-            tracing::warn!("Failed to set kind for todo {}: {}", id, e);
-        }
-    }
-
     Ok(ApiResponse::ok(Todo {
         id,
         title: title.to_string(),
@@ -162,8 +145,6 @@ pub async fn create_todo(
         parent_todo_id: None,
         review_template_id: None,
         auto_review_enabled: req.auto_review_enabled.unwrap_or(true),
-        // kind 由请求中的 req.kind 决定，已在前面更新到 DB。
-        kind: kind.to_string(),
     }))
 }
 
