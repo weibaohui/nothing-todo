@@ -605,7 +605,9 @@ impl LoopRunner {
             tx: self.ctx.tx.clone(),
             task_manager: self.ctx.task_manager.clone(),
             config: self.ctx.config.clone(),
-            todo_id: 0,
+            // 使用 todo.id 而非 0，确保 execution_record 能关联到正确的 todo，
+            // 使 todo 执行历史界面能看到 loop 环节的执行记录。
+            todo_id: todo.id,
             message: enhanced_prompt.to_string(),
             req_executor: todo.executor.clone(),
             trigger_type: format!("loop_stage:{}", trigger_type),
