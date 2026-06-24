@@ -210,7 +210,7 @@ export function LoopExecutionsPanel({ loopId, loopName: _loopName, onTotalChange
     try {
       const detail = await dbLoops.getExecution(loopId, execId);
       setExpandedDetail(detail);
-      // 提取轨迹：按 sequence_index 排序的 step_id 列表
+      // 提取轨迹：按 sequence_index 排序的 loop_step_id 列表
       const sorted = [...detail.step_executions].sort(
         (a: any, b: any) => (a.sequence_index || 0) - (b.sequence_index || 0)
       );

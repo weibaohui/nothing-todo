@@ -82,7 +82,7 @@ function AppContent() {
       const todoId = params.get('todo');
       const loopId = params.get('loop');
       if (todoId) {
-        // useViewState handles todo selection; just clear loop and step
+        // useViewState handles todo selection; just clear loop
         setSelectedLoopId(null);
       } else if (loopId) {
         setSelectedLoopId(Number(loopId));

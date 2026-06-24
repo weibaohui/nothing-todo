@@ -218,7 +218,7 @@ export function LoopStepsPanel({ loopId, steps, onChanged, maxStepExecutions, ma
                 value: c.id,
               }))}
               notFoundContent={
-                <Empty description="暂无环节，请先在环节页创建" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                <Empty description="暂无环节，请先创建事项后关联" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               }
             />
           </Form.Item>

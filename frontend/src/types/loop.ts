@@ -76,7 +76,9 @@ export interface LoopExecutionDto {
 export interface LoopStepExecutionDto {
   id: number;
   loop_execution_id: number;
+  /** 关联的 loop_step id（FK 到 loop_steps 表） */
   loop_step_id: number;
+  /** 关联的 todo id（FK 到 todos 表） */
   todo_id: number;
   status: string;
   execution_record_id: number | null;
@@ -145,7 +147,7 @@ export interface LoopStepDto {
   created_at: string | null;
   /** 关联的 todo title */
   todo_title: string;
-  /** 关联 step 模板的执行器 */
+  /** 关联的 todo executor */
   todo_executor: string;
 }
 

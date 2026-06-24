@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useApp } from '@/hooks/useApp';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { Button, Dropdown, Empty, Tooltip, Input, Segmented, Skeleton, Checkbox, Modal, App as AntApp, Form, Select } from 'antd';
+import { Button, Dropdown, Empty, Tooltip, Input, Segmented, Skeleton, Checkbox, Modal, App as AntApp } from 'antd';
 import type { MenuProps } from 'antd';
 import { ThunderboltOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, ReadOutlined, SettingOutlined, SunOutlined, MoonOutlined, ApartmentOutlined, FolderOpenOutlined, MoreOutlined, SearchOutlined, DownOutlined, SwapOutlined, StopOutlined } from '@ant-design/icons';
 import { useTheme } from '@/hooks/useTheme';
@@ -87,17 +87,12 @@ export function TodoList(props: TodoListProps) {
   const [isLoading, setIsLoading] = useState(true);
   // 搜索关键字状态，用于按标题或提示词过滤 todo 列表
   const [searchKeyword, setSearchKeyword] = useState('');
-  // 列表模式：'item' = 事项, 'step' = 环节, 'loop' = 环路
-  const [listMode, setListMode] = useState<'item' | 'step' | 'loop'>(() => {
+  // 列表模式：'item' = 事项, 'loop' = 环路
+  const [listMode, setListMode] = useState<'item' | 'loop'>(() => {
     const saved = localStorage.getItem('ntd_list_mode');
-    if (saved === 'item' || saved === 'step' || saved === 'loop') return saved;
+    if (saved === 'item' || saved === 'loop') return saved;
     return 'item';
   });
-  // 环节列表数据（只在 listMode === 'step' 时使用）
-  const [stepList, setStepList] = useState<Todo[]>([]);
-  const [stepLoading, setStepLoading] = useState(false);
-  // 当前选中的 step id（高亮选中状态）
-  const [selectedStepId, setSelectedStepId] = useState<number | null>(null);
   // 环路列表数据（只在 listMode === 'loop' 时使用）
   const [loopList, setLoopList] = useState<LoopListItem[]>([]);
   const [loopLoading, setLoopLoading] = useState(false);
@@ -106,41 +101,14 @@ export function TodoList(props: TodoListProps) {
   // 项目目录：工作空间选择器需要目录列表
   const [projectDirectories, setProjectDirectories] = useState<ProjectDirectory[]>([]);
   // —— 通用工具栏：跨模式的多选 id 列表 ——
-  // 切换 listMode 时清空，避免不同模式 id 串台（todo/step/loop 都是 number id）
+  // 切换 listMode 时清空，避免不同模式 id 串台（todo/loop 都是 number id）
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  // 批量更换执行器 Modal（事项 / 环节共用）
+  // 批量更换执行器 Modal（事项模式）
   const [executorModalOpen, setExecutorModalOpen] = useState(false);
   const [pendingExecutorChangeIds, setPendingExecutorChangeIds] = useState<number[]>([]);
   // 强停确认 Modal（环路）
   const [forceStopModalOpen, setForceStopModalOpen] = useState(false);
   const [pendingForceStopIds, setPendingForceStopIds] = useState<number[]>([]);
-  // 新建环节 Modal（环节模式「新建」入口）
-  const [stepCreateOpen, setStepCreateOpen] = useState(false);
-  const [stepCreateForm] = Form.useForm<{ title: string; prompt: string; executor?: string }>();
-  const [stepCreating, setStepCreating] = useState(false);
-
-  /**
-   * 新建环节：直接创建 kind='step' 的 Todo。
-   *
-   * 环节与 Todo 已在后端合并，LoopStep 直接引用 Todo。
-   */
-  const handleCreateStep = useCallback(async (values: { title: string; prompt: string; executor?: string }) => {
-    if (!values.title.trim()) { message.error('标题必填'); return; }
-    setStepCreating(true);
-    try {
-      const created = await db.createTodo(values.title.trim(), values.prompt?.trim() ?? '', [], undefined, undefined, 'step' as any);
-      message.success(`环节「${created.title}」已创建`);
-      setStepCreateOpen(false);
-      stepCreateForm.resetFields();
-      // 刷新环节列表
-      const fresh = await db.getAllTodos('step');
-      setStepList(fresh);
-    } catch {
-      // axios 拦截器已弹错；不关 modal 让用户能继续修改
-    } finally {
-      setStepCreating(false);
-    }
-  }, [message, stepCreateForm]);
 
   useEffect(() => {
     setIsLoading(false);
@@ -164,16 +132,6 @@ export function TodoList(props: TodoListProps) {
     return () => window.removeEventListener('projectDirectoryAdded', handleDirAdded); // 清理：卸载时移除监听
   }, [reloadProjectDirectories]);
 
-  // 当列表切换到「环节」时，自动加载 step 列表
-  useEffect(() => {
-    if (listMode !== 'step') return;
-    setStepLoading(true);
-    db.getAllTodos('step')
-      .then(setStepList)
-      .catch(() => setStepList([]))
-      .finally(() => setStepLoading(false));
-  }, [listMode]);
-
   // 当列表切换到「环路」时，自动加载 loop 列表；或环路变更时刷新
   useEffect(() => {
     if (listMode !== 'loop') return;
@@ -189,7 +147,7 @@ export function TodoList(props: TodoListProps) {
     localStorage.setItem('ntd_list_mode', listMode);
   }, [listMode]);
 
-  // 切换 listMode 时清空选择：todo/step/loop 虽然 id 都是 number，
+  // 切换 listMode 时清空选择：todo/loop 虽然 id 都是 number，
   // 但语义不同（同一数字可能指向不同实体），跨模式保留选择会让用户困惑。
   useEffect(() => {
     setSelectedIds([]);
@@ -201,8 +159,6 @@ export function TodoList(props: TodoListProps) {
   }, []);
 
   const filteredTodos = useMemo(() => {
-    // 步骤模式下不需要过滤 todo（左侧渲染步骤列表）
-    if (listMode === 'step') return [];
     // 环路模式下不需要过滤 todo（左侧渲染环路列表）
     if (listMode === 'loop') return [];
 
@@ -231,20 +187,8 @@ export function TodoList(props: TodoListProps) {
       });
     }
 
-    // 按类型过滤：仅显示事项
-    if (listMode === 'item') {
-      result = result.filter(todo => (todo.kind ?? 'item') === 'item');
-    }
-
     return result;
   }, [todos, selectedTagId, selectedWorkspace, searchKeyword, listMode]);
-
-  // 通用关键字过滤：环节 / 环路模式也按标题搜索（用户反馈：避免切换时跳界面）
-  const filteredStepList = useMemo(() => {
-    const keyword = searchKeyword.trim().toLowerCase();
-    if (!keyword) return stepList;
-    return stepList.filter(s => (s.title || '').toLowerCase().includes(keyword));
-  }, [stepList, searchKeyword]);
 
   const filteredLoopList = useMemo(() => {
     const keyword = searchKeyword.trim().toLowerCase();
@@ -253,12 +197,11 @@ export function TodoList(props: TodoListProps) {
   }, [loopList, searchKeyword]);
 
   // 当前 listMode 下"可见可选"的 id 列表，传给 ActionToolbar 用于「全选」/计数。
-  // 三种模式都按当前 searchKeyword 过滤后的列表计算，避免「全选」选中隐藏项。
+  // 两种模式都按当前 searchKeyword 过滤后的列表计算，避免「全选」选中隐藏项。
   const visibleIds = useMemo<number[]>(() => {
     if (listMode === 'item') return filteredTodos.map(t => t.id);
-    if (listMode === 'step') return filteredStepList.map(s => s.id);
     return filteredLoopList.map(l => l.id);
-  }, [listMode, filteredTodos, filteredStepList, filteredLoopList]);
+  }, [listMode, filteredTodos, filteredLoopList]);
 
   const handleStatusChange = useCallback(async (todoId: number, title: string, prompt: string, newStatus: string) => {
     try {
@@ -276,44 +219,31 @@ export function TodoList(props: TodoListProps) {
     setExecutorModalOpen(true);
   }, []);
 
-  // —— 批量操作：环节模式 ——
-  const openStepChangeExecutor = useCallback((ids: number[]) => {
-    setPendingExecutorChangeIds(ids);
-    setExecutorModalOpen(true);
-  }, []);
-
   // —— 批量操作：环路模式 ——
   const openLoopForceStop = useCallback((ids: number[]) => {
     setPendingForceStopIds(ids);
     setForceStopModalOpen(true);
   }, []);
 
-  // 确认更换执行器（事项 / 环节共用，根据 listMode 路由到不同的 db 函数）
+  // 确认更换执行器（事项模式）
   const handleConfirmChangeExecutor = useCallback(async (executor: string) => {
     const ids = pendingExecutorChangeIds;
     if (ids.length === 0) return;
     setExecutorModalOpen(false);
     setPendingExecutorChangeIds([]);
     try {
-      const result = listMode === 'item'
-        ? await db.batchUpdateTodosExecutor(ids, executor)
-        : await db.batchUpdateTodosExecutor(ids, executor);
+      const result = await db.batchUpdateTodosExecutor(ids, executor);
       if (result.failed.length === 0) {
         message.success(`已为 ${result.updated.length} 项更换执行器为「${executor}」`);
       } else {
         message.warning(`成功 ${result.updated.length} 条，失败 ${result.failed.length} 条`);
       }
-      // 触发列表刷新：loop 通过各自的 reload
+      // 触发列表刷新：item 模式依赖全局 todos 状态，由 useApp 拉取；全量表查一次避免 N 次单条 GET
       if (listMode === 'item') {
-        // item 模式依赖全局 todos 状态，由 useApp 拉取；全量表查一次避免 N 次单条 GET
         const allItems = await db.getAllTodos('item');
         for (const todo of allItems) {
           dispatch({ type: 'UPDATE_TODO', payload: todo });
         }
-      } else if (listMode === 'step') {
-        // step 模式独立拉取：手动刷新一次
-        const fresh = await db.getAllTodos('step');
-        setStepList(fresh);
       }
     } catch {
       // axios 拦截器已弹错
@@ -359,17 +289,6 @@ export function TodoList(props: TodoListProps) {
         }],
       };
     }
-    if (listMode === 'step') {
-      return {
-        createLabel: '新建',
-        batchActions: [{
-          key: 'change-executor',
-          label: '更换执行器',
-          icon: <SwapOutlined />,
-          onClick: openStepChangeExecutor,
-        }],
-      };
-    }
     return {
       createLabel: '新建',
       batchActions: [{
@@ -380,7 +299,7 @@ export function TodoList(props: TodoListProps) {
         onClick: openLoopForceStop,
       }],
     };
-  }, [listMode, openItemChangeExecutor, openStepChangeExecutor, openLoopForceStop]);
+  }, [listMode, openItemChangeExecutor, openLoopForceStop]);
 
   const desktopNavActions = useMemo(
     () => buildDesktopNavActions(onShowDashboard, onShowMemorial, onShowRelationMap),
@@ -610,7 +529,7 @@ export function TodoList(props: TodoListProps) {
           {!isMobile && (
             <div className="header-quick-actions">
               {/* header 只保留「智能新建」（AI 一句话生成）。普通新建入口已迁到
-                  ActionToolbar 的「新建事项 / 新建环节 / 新建环路」按钮，避免两处入口混淆。 */}
+                  ActionToolbar 的「新建事项 / 新建环路」按钮，避免两处入口混淆。 */}
               <Tooltip title="智能新建">
                 <Button
                   type="text"
@@ -712,13 +631,12 @@ export function TodoList(props: TodoListProps) {
         </Dropdown>
       </div>
 
-      {/* 搜索框：三种模式都展示（用户反馈：环节/环路原本没有，切换时会跳界面）。
-          placeholder 按 listMode 切换，关键词同时匹配事项标题/提示词、环节标题、环路名称。 */}
+      {/* 搜索框：两种模式都展示（用户反馈：环路原本没有，切换时会跳界面）。
+          placeholder 按 listMode 切换，关键词同时匹配事项标题/提示词、环路名称。 */}
       <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--color-border-light)' }}>
         <Input
           placeholder={
             listMode === 'item' ? '搜索标题或提示词...'
-            : listMode === 'step' ? '搜索环节标题...'
             : '搜索环路名称...'
           }
           prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
@@ -729,16 +647,15 @@ export function TodoList(props: TodoListProps) {
         />
       </div>
 
-      {/* 列表选择：事项 / 环节 / 环路 */}
+      {/* 列表选择：事项 / 环路 */}
       <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--color-border-light)' }}>
         <Segmented
           block
           size="small"
           value={listMode}
-          onChange={(v) => setListMode(v as 'item' | 'step' | 'loop')}
+          onChange={(v) => setListMode(v as 'item' | 'loop')}
           options={[
             { label: '事项', value: 'item' },
-            { label: '环节', value: 'step' },
             { label: '环路', value: 'loop' },
           ]}
         />
@@ -753,7 +670,6 @@ export function TodoList(props: TodoListProps) {
         createLabel={toolbarConfig.createLabel}
         onCreate={
           listMode === 'item' ? onOpenCreateModal
-          : listMode === 'step' ? () => setStepCreateOpen(true)
           : onCreateLoop
         }
         batchActions={toolbarConfig.batchActions}
@@ -782,121 +698,7 @@ export function TodoList(props: TodoListProps) {
         </div>
       )}
 
-      {/* 环节列表：在 listMode === 'step' 时显示步骤列表 */}
-      {listMode === 'step' ? (
-        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 8 }}>
-          {stepLoading ? (
-            <Skeleton active style={{ padding: 16 }} />
-          ) : filteredStepList.length === 0 ? (
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={
-                <span style={{ fontSize: 13 }}>
-                  暂无环节<br />
-                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary, #94a3b8)' }}>
-                    在事项详情中点击"升级为环节"
-                  </span>
-                </span>
-              }
-              style={{ marginTop: 32 }}
-            />
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {filteredStepList.map(step => (
-                <div
-                  key={step.id}
-                  onClick={() => {
-                    setSelectedStepId(step.id);
-  
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { }}}
-                  style={{
-                    position: 'relative',
-                    background: selectedStepId === step.id
-                      ? 'var(--color-primary-bg, #f0f9ff)'
-                      : 'var(--color-bg-elevated, #ffffff)',
-                    border: `1px solid ${selectedStepId === step.id
-                      ? 'var(--color-primary, #0891b2)'
-                      : 'var(--color-border, #e2e8f0)'}`,
-                    boxShadow: selectedStepId === step.id
-                      ? 'inset 0 0 0 1px var(--color-primary, #0891b2)'
-                      : '0 1px 2px color-mix(in srgb, var(--color-text, #0f172a) 6%, transparent)',
-                    borderRadius: 10,
-                    padding: '12px 12px 14px 16px',
-                    cursor: 'pointer',
-                    overflow: 'hidden',
-                    transition: 'background 200ms, border-color 200ms, box-shadow 200ms, transform 200ms',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (selectedStepId !== step.id) {
-                      e.currentTarget.style.borderColor = 'var(--color-text-tertiary, #94a3b8)';
-                      e.currentTarget.style.boxShadow = '0 4px 10px color-mix(in srgb, var(--color-text, #0f172a) 10%, transparent)';
-                      e.currentTarget.style.transform = 'translateY(-1px)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (selectedStepId !== step.id) {
-                      e.currentTarget.style.borderColor = 'var(--color-border, #e2e8f0)';
-                      e.currentTarget.style.boxShadow = '0 1px 2px color-mix(in srgb, var(--color-text, #0f172a) 6%, transparent)';
-                      e.currentTarget.style.transform = 'translateY(0)';
-                    }
-                  }}
-                >
-                  {/* 多选复选框：与 todo 卡片一致，绝对定位浮在卡片左上 */}
-                  <Checkbox
-                    checked={selectedIds.includes(step.id)}
-                    onChange={(e) => { e.stopPropagation(); toggleSelect(step.id); }}
-                    onClick={(e) => e.stopPropagation()}
-                    data-testid={`step-row-checkbox-${step.id}`}
-                    style={{ position: 'absolute', top: 14, left: 12, zIndex: 1 }}
-                  />
-                  {/* 左侧 3px 颜色条（从标签解析颜色） */}
-                  <span style={{
-                    position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
-                    background: (() => {
-                      const tag = tags.find(t => step.tag_ids?.includes(t.id));
-                      return tag?.color || 'var(--color-primary, #0891b2)';
-                    })(),
-                    borderRadius: '10px 0 0 10px',
-                  }} />
-
-                  {/* 标题行: #id + 名称，多选模式左侧留出复选框空间 */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, paddingLeft: 28 }}>
-                    <span style={{ color: 'var(--color-text-tertiary, #94a3b8)', fontSize: 11, fontFamily: 'monospace' }}>#{step.id}</span>
-                    <span style={{
-                      fontWeight: 600, fontSize: 14, flex: 1, minWidth: 0,
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      color: 'var(--color-text, #0f172a)',
-                    }}>
-                      {step.title}
-                    </span>
-                  </div>
-
-                  {/* meta: 执行器 */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--color-text-tertiary, #94a3b8)' }}>
-                    {step.executor && (
-                      <ExecutorBadge executor={step.executor} style={{ fontSize: 9, padding: '1px 5px' }} />
-                    )}
-                  </div>
-
-                  {/* 底部 3px 进度条（淡出指示条） */}
-                  <div style={{
-                    position: 'absolute', left: 0, right: 0, bottom: 0, height: 3,
-                    background: (() => {
-                      const tag = tags.find(t => step.tag_ids?.includes(t.id));
-                      return tag?.color || 'var(--color-primary, #0891b2)';
-                    })(),
-                    opacity: 0.25,
-                    borderRadius: '0 0 10px 10px',
-                  }} />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : listMode === 'loop' ? (
+      {listMode === 'loop' ? (
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           {loopLoading ? (
             <Skeleton active style={{ padding: 16 }} />
@@ -942,7 +744,7 @@ export function TodoList(props: TodoListProps) {
         </div>
       )}
 
-      {/* 批量更换执行器 Modal：事项 / 环节共用。
+      {/* 批量更换执行器 Modal：事项模式。
           关闭即作废，不会触发回调（避免半路取消导致 selectedIds 与 Modal 状态不一致）。 */}
       <Modal
         title={`更换执行器（${pendingExecutorChangeIds.length} 项）`}
@@ -973,39 +775,6 @@ export function TodoList(props: TodoListProps) {
         <p style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>
           （强停功能开发中，详见 utils/database/loops.ts 的 forceStopLoops 注释。）
         </p>
-      </Modal>
-
-      {/* 新建环节 Modal：工具栏「新建环节」触发。
-          字段：标题（必填）/ 提示词 / 执行器，复用 createTodo + promote 流程。 */}
-      <Modal
-        title="新建环节"
-        open={stepCreateOpen}
-        onCancel={() => { setStepCreateOpen(false); stepCreateForm.resetFields(); }}
-        onOk={() => stepCreateForm.submit()}
-        confirmLoading={stepCreating}
-        okText="创建"
-        cancelText="取消"
-        destroyOnClose
-      >
-        <Form
-          form={stepCreateForm}
-          layout="vertical"
-          onFinish={handleCreateStep}
-          initialValues={{ executor: 'claudecode' }}
-        >
-          <Form.Item label="标题" name="title" rules={[{ required: true, message: '标题必填' }]}>
-            <Input placeholder="例如：代码审查环节" maxLength={100} />
-          </Form.Item>
-          <Form.Item label="提示词 (Prompt)" name="prompt" tooltip="描述这个环节能做什么">
-            <Input.TextArea rows={5} placeholder="例如：你是资深代码审查员..." maxLength={4000} />
-          </Form.Item>
-          <Form.Item label="执行器" name="executor">
-            <Select
-              options={EXECUTORS_FOR_PICKER.map(e => ({ label: e.label, value: e.value }))}
-              placeholder="选择执行器"
-            />
-          </Form.Item>
-        </Form>
       </Modal>
     </div>
   );
