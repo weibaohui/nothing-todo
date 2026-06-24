@@ -27,9 +27,11 @@ import {
   CopyOutlined,
 } from '@ant-design/icons';
 import * as db from '@/utils/database';
+import * as dbLoops from '@/utils/database/loops';
 import type { Webhook, WebhookRecord } from '@/utils/database';
 import { copyToClipboard } from '@/utils/clipboard';
 import type { Todo } from '@/types';
+import type { LoopListItem } from '@/types/loop';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
 interface WebhooksPanelProps {
@@ -254,6 +256,9 @@ export function WebhooksPanel({ todos }: WebhooksPanelProps) {
 
   // Records state
   const [records, setRecords] = useState<WebhookRecord[]>([]);
+  // Loops list for webhook form (loop type)
+  const [loops, setLoops] = useState<LoopListItem[]>([]);
+  const [loopsLoading, setLoopsLoading] = useState(false);
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordsTotal, setRecordsTotal] = useState(0);
   const [recordsPage, setRecordsPage] = useState(1);
@@ -285,6 +290,18 @@ export function WebhooksPanel({ todos }: WebhooksPanelProps) {
     }
   };
 
+  const loadLoops = async () => {
+    setLoopsLoading(true);
+    try {
+      const data = await dbLoops.listLoops();
+      setLoops(data);
+    } catch {
+      // 静默失败
+    } finally {
+      setLoopsLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadWebhooks();
     loadRecords(1, recordsPageSize);
@@ -293,6 +310,7 @@ export function WebhooksPanel({ todos }: WebhooksPanelProps) {
   const handleCreateWebhook = useCallback(() => {
     setEditingWebhook(null);
     webhookForm.resetFields();
+    loadLoops();
     setWebhookFormOpen(true);
   }, [webhookForm]);
 
@@ -305,6 +323,7 @@ export function WebhooksPanel({ todos }: WebhooksPanelProps) {
       default_todo_id: webhook.default_todo_id,
       loop_id: webhook.loop_id,
     });
+    loadLoops();
     setWebhookFormOpen(true);
   }, [webhookForm]);
 
@@ -688,9 +707,21 @@ export function WebhooksPanel({ todos }: WebhooksPanelProps) {
                 <Form.Item
                   name="loop_id"
                   label="关联 Loop"
-                  tooltip="配置后可通过 /webhook/trigger/{webhook_id}/loop 触发此 Loop；必须设置才能生成触发 URL"
+                  tooltip="配置后可通过 /webhook/trigger/loop/{loop_id} 触发此 Loop；必须设置才能生成触发 URL"
                 >
-                  <Input type="number" placeholder="输入 Loop ID" />
+                  <Select
+                    allowClear
+                    placeholder="选择关联的 Loop"
+                    showSearch
+                    loading={loopsLoading}
+                    filterOption={(input, option) =>
+                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
+                    options={loops.map(l => ({
+                      value: l.id,
+                      label: l.name,
+                    }))}
+                  />
                 </Form.Item>
               )
             }
