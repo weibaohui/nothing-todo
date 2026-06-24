@@ -166,6 +166,7 @@ export function LoopFormModal({
           tag_ids: basePayload.tag_ids,
           icon: basePayload.icon,
           review_template_id: basePayload.review_template_id,
+          limits_config: basePayload.limits_config,
         });
         message.success('环路已创建');
         onSaved(res.id);

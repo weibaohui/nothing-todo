@@ -279,6 +279,8 @@ export interface CreateLoopRequest {
   /** 创建时可选预绑定单个标签；省略时后端按空标签处理，兼容旧调用方。 */
   icon?: string;
   review_template_id?: number | null;
+  /** 限制条件 JSON 字符串 */
+  limits_config?: string | null;
 }
 
 export interface UpdateLoopRequest {

@@ -1,9 +1,7 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-/// 环路阶段：loop 的一个有序步骤，绑定一个 todo。
-///
-/// 首版仅支持 sequential 执行；run_mode 字段预留扩展。
+/// 环路阶段：loop 的一个有序步骤，关联一个 todo。
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "loop_steps")]
 pub struct Model {

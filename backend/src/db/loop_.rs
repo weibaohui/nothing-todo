@@ -40,6 +40,7 @@ impl Database {
         workspace: Option<&str>,
         icon: &str,
         review_template_id: Option<i64>,
+        limits_config: Option<&str>,
     ) -> Result<loops::Model, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = loops::ActiveModel {
@@ -48,6 +49,7 @@ impl Database {
             workspace: ActiveValue::Set(workspace.map(|s| s.to_string())),
             icon: ActiveValue::Set(icon.to_string()),
             review_template_id: ActiveValue::Set(review_template_id),
+            limits_config: ActiveValue::Set(limits_config.unwrap_or("{}").to_string()),
             status: ActiveValue::Set("paused".to_string()),
             created_at: ActiveValue::Set(Some(now.clone())),
             updated_at: ActiveValue::Set(Some(now)),
@@ -129,6 +131,7 @@ impl Database {
                 source.workspace.as_deref(),
                 &source.icon,
                 source.review_template_id,
+                Some(source.limits_config.as_str()),
             )
             .await?;
 

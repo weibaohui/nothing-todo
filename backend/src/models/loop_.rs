@@ -359,6 +359,8 @@ pub struct CreateLoopRequest {
     #[serde(default = "default_icon")]
     pub icon: String,
     pub review_template_id: Option<i64>,
+    #[serde(default)]
+    pub limits_config: Option<String>,
 }
 
 fn default_icon() -> String { "loop".to_string() }
