@@ -1335,8 +1335,10 @@ fn feishu_routes() -> Router<AppState> {
 /// Webhook 路由：外部触发端点（无 /api 前缀）+ Webhook 管理 API + 调用记录。
 fn webhook_routes() -> Router<AppState> {
     Router::new()
-        // todo_id 必填：显式、确定性，避免"最近一个 enabled todo"的竞态
-        .route("/webhook/trigger/{todo_id}", get(webhook::trigger_webhook_with_todo).post(webhook::trigger_webhook_with_todo_post_json))
+        // Todo webhook: /webhook/trigger/todo/{todo_id}
+        .route("/webhook/trigger/todo/{todo_id}", get(webhook::trigger_webhook_with_todo).post(webhook::trigger_webhook_with_todo_post_json))
+        // Loop webhook: /webhook/trigger/loop/{loop_id}
+        .route("/webhook/trigger/loop/{loop_id}", get(webhook::trigger_webhook_with_loop_get).post(webhook::trigger_webhook_with_loop_post))
         .route("/api/webhooks", get(webhook::list_webhooks).post(webhook::create_webhook))
         .route("/api/webhooks/{id}", get(webhook::get_webhook).put(webhook::update_webhook).delete(webhook::delete_webhook))
         .route("/api/webhook-records", get(webhook::get_webhook_records))
