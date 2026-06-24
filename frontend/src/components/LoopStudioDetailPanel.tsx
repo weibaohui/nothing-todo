@@ -40,7 +40,6 @@ interface LoopDetailPanelProps {
   onTrigger: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
-  onCreate: () => void;
   onToggleStatus: () => void;
   onChanged: () => void;
 }
@@ -51,7 +50,6 @@ export function LoopDetailPanel({
   onTrigger,
   onDuplicate,
   onDelete,
-  onCreate,
   onToggleStatus,
   onChanged,
 }: LoopDetailPanelProps) {
@@ -253,9 +251,6 @@ export function LoopDetailPanel({
           </Tooltip>
           <Tooltip title="编辑">
             <Button size="small" icon={<EditOutlined />} onClick={handleOpenEdit} />
-          </Tooltip>
-          <Tooltip title="新建">
-            <Button size="small" icon={<PlusOutlined />} onClick={onCreate} />
           </Tooltip>
           <Popconfirm
             title="删除 loop"

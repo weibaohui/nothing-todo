@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ConfigProvider, Layout, App as AntApp, message } from 'antd';
+import { ConfigProvider, Layout, App as AntApp, Modal, Select, message } from 'antd';
 import { PlusOutlined, ThunderboltOutlined, CloseOutlined, LeftOutlined } from '@ant-design/icons';
 import { AppProvider, useApp } from './hooks/useApp';
 import { useIsMobile } from './hooks/useIsMobile';
@@ -20,7 +20,7 @@ import { LoopDetailPanel } from './components/LoopStudioDetailPanel';
 import * as dbLoops from './utils/database/loops';
 import { EXECUTION_PANEL, SIDEBAR_WIDTH } from './constants';
 import * as db from './utils/database';
-import type { Config } from './types';
+import type { Config, ProjectDirectory } from './types';
 import zhCN from 'antd/locale/zh_CN';
 import './App.css';
 
@@ -34,6 +34,11 @@ function AppContent() {
   const [smartCreateOpen, setSmartCreateOpen] = useState(false);
   const [fabExpanded, setFabExpanded] = useState(false);
   const [appConfig, setAppConfig] = useState<Config | null>(null);
+  // 新建环路时的工作空间选择弹窗
+  const [loopCreateModalOpen, setLoopCreateModalOpen] = useState(false);
+  const [loopCreateWorkspace, setLoopCreateWorkspace] = useState<string | undefined>(undefined);
+  const [loopCreateCreating, setLoopCreateCreating] = useState(false);
+  const [loopCreateDirs, setLoopCreateDirs] = useState<ProjectDirectory[]>([]);
   // 从左侧环路列表选中某个 loop 时记录其 id，右侧面板展示 LoopDetailPanel
   const [selectedLoopId, setSelectedLoopId] = useState<number | null>(null);
   // ���左侧环节列表选中某个 step 时记录其 id，右侧面板展示 StepDetailPanel
@@ -234,14 +239,13 @@ function AppContent() {
               loopUpdateCount={loopUpdateCount}
               onShowSettings={() => handleShowView('settings')}
               onSelectLoop={handleSelectLoop}
-              onCreateLoop={async () => {
-                try {
-                  const res = await dbLoops.createLoop({ name: '新建环路', description: '' });
-                  setSelectedLoopId(res.id);
-                  setLoopUpdateCount(c => c + 1);
-                } catch (err) {
-                  message.error('创建失败');
-                }
+              onCreateLoop={() => {
+                // 打开工作空间选择弹窗，用户选定后创建环路
+                db.getProjectDirectories().then(dirs => {
+                  setLoopCreateDirs(dirs);
+                  setLoopCreateWorkspace(undefined);
+                  setLoopCreateModalOpen(true);
+                }).catch(() => message.error('加载项目目录失败'));
               }}
             />
           </div>
@@ -326,15 +330,6 @@ function AppContent() {
                       message.error('删除失败，环路可能正在被引用');
                     }
                   }}
-                  onCreate={async () => {
-                    try {
-                      const res = await dbLoops.createLoop({ name: '新建环路', description: '' });
-                      setSelectedLoopId(res.id);
-                      setLoopUpdateCount(c => c + 1);
-                    } catch (err) {
-                      message.error('创建失败');
-                    }
-                  }}
                   onToggleStatus={async () => {
                     try {
                       const loops = await dbLoops.listLoops();
@@ -397,6 +392,45 @@ function AppContent() {
           } catch {}
         }}
       />
+
+      {/* 新建环路工作空间选择弹窗：工作空间为必填项，选定后才创建环路 */}
+      <Modal
+        title="新建环路"
+        open={loopCreateModalOpen}
+        onCancel={() => setLoopCreateModalOpen(false)}
+        onOk={async () => {
+          if (!loopCreateWorkspace) {
+            message.error('请选择工作空间');
+            return;
+          }
+          setLoopCreateCreating(true);
+          try {
+            const res = await dbLoops.createLoop({ name: '新建环路', description: '', workspace: loopCreateWorkspace });
+            setSelectedLoopId(res.id);
+            setLoopUpdateCount(c => c + 1);
+            setLoopCreateModalOpen(false);
+          } catch (err) {
+            message.error('创建失败');
+          } finally {
+            setLoopCreateCreating(false);
+          }
+        }}
+        confirmLoading={loopCreateCreating}
+        okText="创建"
+        cancelText="取消"
+      >
+        <div style={{ marginTop: 16 }}>
+          {/* 工作空间下拉选择器：从项目目录列表中选取 */}
+          <div style={{ marginBottom: 8, fontWeight: 500 }}>工作空间 <span style={{ color: '#ff4d4f' }}>*</span></div>
+          <Select
+            style={{ width: '100%' }}
+            placeholder="请选择工作空间"
+            value={loopCreateWorkspace}
+            onChange={setLoopCreateWorkspace}
+            options={loopCreateDirs.map(d => ({ label: d.name || d.path, value: d.path }))}
+          />
+        </div>
+      </Modal>
     </Layout>
   );
 }
