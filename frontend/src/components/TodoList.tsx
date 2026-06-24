@@ -240,7 +240,7 @@ export function TodoList(props: TodoListProps) {
       }
       // 触发列表刷新：item 模式依赖全局 todos 状态，由 useApp 拉取；全量表查一次避免 N 次单条 GET
       if (listMode === 'item') {
-        const allItems = await db.getAllTodos('item');
+        const allItems = await db.getAllTodos();
         for (const todo of allItems) {
           dispatch({ type: 'UPDATE_TODO', payload: todo });
         }
