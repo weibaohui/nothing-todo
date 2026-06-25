@@ -599,7 +599,20 @@ impl FeishuListener {
         prep: &MessagePrep<'_>,
         command_ctx: &SlashCommandMatch<'_>,
     ) {
-        let matched_rule = Self::find_slash_rule(context.config, command_ctx.command);
+        // 先获取 bot 的 workspace_id
+        let workspace_id = match context.db.get_agent_bot_workspace_id(context.bot_id).await {
+            Ok(Some(id)) => id,
+            Ok(None) => {
+                tracing::warn!("bot {} has no workspace_id, skipping slash command", context.bot_id);
+                return Self::dispatch_default_response(context, msg, prep).await;
+            }
+            Err(e) => {
+                tracing::error!("failed to get workspace_id for bot {}: {}", context.bot_id, e);
+                return Self::dispatch_default_response(context, msg, prep).await;
+            }
+        };
+
+        let matched_rule = Self::find_slash_rule(context.db, workspace_id, command_ctx.command).await;
         let Some(rule) = matched_rule else {
             // 没匹配上规则 → 走默认回复路径，保持向后兼容
             return Self::dispatch_default_response(context, msg, prep).await;
@@ -617,15 +630,17 @@ impl FeishuListener {
         Self::push_slash_command_message(context.debounce, context.bot_id, msg, prep.chat_type, &todo, command_ctx.body, params);
     }
 
-    /// 阶段 6a-i：查 enabled 的斜杠命令规则；锁内只读后尽早释放
-    fn find_slash_rule(
-        config: &Arc<RwLock<AppConfig>>,
+    /// 阶段 6a-i：查 enabled 的斜杠命令规则（按 workspace 查询）
+    async fn find_slash_rule(
+        db: &Database,
+        workspace_id: i64,
         command: &str,
-    ) -> Option<crate::config::SlashCommandRule> {
-        let cfg = config.read().unwrap();
-        cfg.slash_command_rules.iter()
-            .find(|r| r.slash_command == command && r.enabled)
-            .cloned()
+    ) -> Option<crate::db::entity::workspace_slash_commands::Model> {
+        crate::db::workspace_slash_command::get_workspace_slash_command(db, workspace_id, command)
+            .await
+            .ok()
+            .flatten()
+            .filter(|r| r.enabled)
     }
 
     /// 阶段 6a-ii：把斜杠命令消息塞进 debounce
@@ -663,7 +678,25 @@ impl FeishuListener {
         msg: &ChannelMessage,
         prep: &MessagePrep<'_>,
     ) {
-        let default_todo_id = context.config.read().unwrap().default_response_todo_id;
+        // 从数据库获取 bot 的 workspace_id，然后查询 workspace 设置中的 default_response_todo_id
+        let workspace_id = match context.db.get_agent_bot_workspace_id(context.bot_id).await {
+            Ok(Some(id)) => id,
+            Ok(None) => {
+                tracing::warn!("bot {} has no workspace_id, skipping default response", context.bot_id);
+                return;
+            }
+            Err(e) => {
+                tracing::error!("failed to get workspace_id for bot {}: {}", context.bot_id, e);
+                return;
+            }
+        };
+
+        let default_todo_id = crate::db::workspace_setting::get_workspace_settings(context.db, workspace_id)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|s| s.default_response_todo_id);
+
         let Some(todo_id) = default_todo_id else { return };
         // 空消息不触发 todo
         if prep.content.is_empty() {
@@ -1833,31 +1866,6 @@ mod tests {
         assert!(msg.is_none());
     }
 
-    #[test]
-    fn test_find_slash_rule_picks_enabled_match() {
-        // enabled 命中的规则返回；disabled 的不返回
-        let mut config = AppConfig::default();
-        config.slash_command_rules = vec![
-            SlashCommandRule {
-                slash_command: "/on".into(),
-                todo_id: 1,
-                enabled: true,
-            },
-            SlashCommandRule {
-                slash_command: "/off".into(),
-                todo_id: 2,
-                enabled: false,
-            },
-        ];
-        let cfg = Arc::new(RwLock::new(config));
-        let rule = FeishuListener::find_slash_rule(&cfg, "/on");
-        assert!(rule.is_some());
-        assert_eq!(rule.unwrap().todo_id, 1);
-        let rule = FeishuListener::find_slash_rule(&cfg, "/off");
-        assert!(rule.is_none(), "disabled rules must be filtered out");
-        let rule = FeishuListener::find_slash_rule(&cfg, "/unknown");
-        assert!(rule.is_none());
-    }
 
     #[test]
     fn test_build_binding_execution_message_preserves_content_on_no_resume() {

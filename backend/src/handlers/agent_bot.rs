@@ -276,8 +276,9 @@ pub async fn feishu_poll_sse(
                 };
 
                 // 在数据库中创建飞书 bot 记录
+                // TODO: 后续需要在 UI 中选择工作空间，这里暂时用 0（第一个工作空间）
                 let bot_id = match db
-                    .create_agent_bot("feishu", bot_name.as_deref().unwrap_or("Feishu Bot"), app_id, app_secret, open_id.map(String::from), domain.clone())
+                    .create_agent_bot("feishu", bot_name.as_deref().unwrap_or("Feishu Bot"), app_id, app_secret, open_id.map(String::from), domain.clone(), 0)
                     .await
                 {
                     Ok(id) => Some(id),

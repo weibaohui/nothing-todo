@@ -16,6 +16,7 @@ fn map_bot(m: agent_bots::Model) -> AgentBot {
         enabled: m.enabled.unwrap_or(true),
         config: m.config.unwrap_or_else(|| "{}".to_string()),
         created_at: m.created_at.unwrap_or_default(),
+        workspace_id: m.workspace_id,
     }
 }
 
@@ -36,6 +37,7 @@ impl Database {
         app_secret: &str,
         bot_open_id: Option<String>,
         domain: Option<String>,
+        workspace_id: i64,
     ) -> Result<i64, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = agent_bots::ActiveModel {
@@ -45,6 +47,7 @@ impl Database {
             app_secret: ActiveValue::Set(app_secret.to_string()),
             bot_open_id: ActiveValue::Set(bot_open_id),
             domain: ActiveValue::Set(domain),
+            workspace_id: ActiveValue::Set(workspace_id),
             enabled: ActiveValue::Set(Some(true)),
             config: ActiveValue::Set(Some("{}".to_string())),
             created_at: ActiveValue::Set(Some(now.clone())),
@@ -99,5 +102,11 @@ impl Database {
         am.config = ActiveValue::Set(Some(config.to_string()));
         am.update(&self.conn).await?;
         Ok(())
+    }
+
+    /// 获取 bot 的 workspace_id
+    pub async fn get_agent_bot_workspace_id(&self, bot_id: i64) -> Result<Option<i64>, sea_orm::DbErr> {
+        let bot = agent_bots::Entity::find_by_id(bot_id).one(&self.conn).await?;
+        Ok(bot.map(|b| b.workspace_id))
     }
 }
