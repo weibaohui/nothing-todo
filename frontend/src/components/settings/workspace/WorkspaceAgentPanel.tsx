@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Table, Button, Space, Switch, Popconfirm, message, Modal, Select, Tooltip, Spin } from 'antd';
-import { DeleteOutlined, SwapOutlined, QrcodeOutlined } from '@ant-design/icons';
+import { DeleteOutlined, SwapOutlined, QrcodeOutlined, FileTextOutlined } from '@ant-design/icons';
 import QRCode from 'qrcode';
 import type { ColumnsType } from 'antd/es/table';
 import * as db from '@/utils/database';
@@ -22,6 +22,8 @@ export function WorkspaceAgentPanel({ workspaceId, onBotChanged }: WorkspaceAgen
   const [targetWorkspaceId, setTargetWorkspaceId] = useState<number | null>(null);
   // 选中的 bot，显示详情页
   const [selectedBot, setSelectedBot] = useState<AgentBot | null>(null);
+  // 点击消息记录时，直接打开详情页并默认展开消息记录
+  const [selectedBotForHistory, setSelectedBotForHistory] = useState<AgentBot | null>(null);
 
   // 绑定飞书状态
   const [binding, setBinding] = useState(false);
@@ -205,6 +207,13 @@ export function WorkspaceAgentPanel({ workspaceId, onBotChanged }: WorkspaceAgen
           <Button
             type="text"
             size="small"
+            icon={<FileTextOutlined />}
+            onClick={() => setSelectedBotForHistory(bot)}
+            title="查看消息记录"
+          />
+          <Button
+            type="text"
+            size="small"
             icon={<SwapOutlined />}
             onClick={() => openMoveModal(bot.id)}
             title="变更工作空间"
@@ -225,13 +234,15 @@ export function WorkspaceAgentPanel({ workspaceId, onBotChanged }: WorkspaceAgen
   // 其他工作空间的 bots
   const otherBots = allBots.filter(b => b.workspace_id !== workspaceId);
 
-  // 选中 bot，显示详情页
-  if (selectedBot) {
+  // 选中 bot，显示详情页（优先处理消息记录跳转）
+  const activeBot = selectedBotForHistory || selectedBot;
+  if (activeBot) {
     return (
       <BotDetailPage
-        bot={selectedBot}
-        onBack={() => setSelectedBot(null)}
+        bot={activeBot}
+        onBack={() => { setSelectedBot(null); setSelectedBotForHistory(null); }}
         onRefresh={() => { loadBots(); onBotChanged?.(); }}
+        autoShowHistory={!!selectedBotForHistory}
       />
     );
   }

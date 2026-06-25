@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Card, Button, Switch, Input, Select, Tag, message, List, Modal, Typography, AutoComplete } from 'antd';
-import { LeftOutlined, CopyOutlined, FileTextOutlined } from '@ant-design/icons';
+import { LeftOutlined, CopyOutlined } from '@ant-design/icons';
 import * as db from '@/utils/database';
 import type { AgentBot, FeishuPushStatus, WhitelistEntry, FeishuSenderItem } from '@/utils/database';
 import type { FeishuHistoryMessage, FeishuHistoryChat } from '@/types';
@@ -12,13 +12,15 @@ interface BotDetailPageProps {
   bot: AgentBot;
   onBack: () => void;
   onRefresh: () => void;
+  /** 为 true 时，默认展开消息记录面板 */
+  autoShowHistory?: boolean;
 }
 
 /**
  * Bot 详情页：单页展示 bot 基本配置和绑定信息，
  * 消息记录通过右上角按钮打开独立面板。
  */
-export function BotDetailPage({ bot, onBack, onRefresh }: BotDetailPageProps) {
+export function BotDetailPage({ bot, onBack, onRefresh, autoShowHistory = false }: BotDetailPageProps) {
   const [botConfig, setBotConfig] = useState<Record<string, boolean>>({ dm_enabled: true, group_enabled: true, group_require_mention: true, echo_reply: true });
   const [pushStatus, setPushStatus] = useState<FeishuPushStatus | null>(null);
   const [groupWhitelist, setGroupWhitelist] = useState<WhitelistEntry[]>([]);
@@ -37,7 +39,7 @@ export function BotDetailPage({ bot, onBack, onRefresh }: BotDetailPageProps) {
   const [historyIsHistory, setHistoryIsHistory] = useState<boolean | undefined>(undefined);
   const [historySelectedSenderId] = useState<string | undefined>(undefined);
   const [historyViewMsg, setHistoryViewMsg] = useState<string | null>(null);
-  const [showHistory, setShowHistory] = useState(false);
+  const showHistory = autoShowHistory;
 
   // 加载 bot 配置
   useEffect(() => {
@@ -164,22 +166,13 @@ export function BotDetailPage({ bot, onBack, onRefresh }: BotDetailPageProps) {
 
   return (
     <div className="bot-detail-page">
-      {/* 头部：返回、名称、标签、消息按钮 */}
+      {/* 头部：返回、名称、标签 */}
       <div className="detail-header" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <Button type="text" size="small" icon={<LeftOutlined />} onClick={onBack} className="back-btn" />
         <h3 className="card-title" style={{ margin: 0 }}>{bot.bot_name}</h3>
         <Tag color={bot.enabled ? 'green' : 'default'}>
           {bot.enabled ? '已启用' : '已禁用'}
         </Tag>
-        <Button
-          type="text"
-          size="small"
-          icon={<FileTextOutlined />}
-          onClick={() => setShowHistory(v => !v)}
-          style={{ marginLeft: 'auto' }}
-        >
-          消息记录
-        </Button>
       </div>
 
       {/* 消息记录面板 */}
