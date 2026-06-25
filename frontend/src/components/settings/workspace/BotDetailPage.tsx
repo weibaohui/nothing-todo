@@ -1,7 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
-import { Card, Button, Switch, Input, Select, Tag, message, Tabs, List, Space, Spin, Modal, Typography, AutoComplete } from 'antd';
-import { LeftOutlined, QrcodeOutlined, CopyOutlined } from '@ant-design/icons';
-import QRCode from 'qrcode';
+import { useState, useEffect } from 'react';
+import { Card, Button, Switch, Input, Select, Tag, message, Tabs, List, Modal, Typography, AutoComplete } from 'antd';
+import { LeftOutlined, CopyOutlined } from '@ant-design/icons';
 import * as db from '@/utils/database';
 import type { AgentBot, FeishuPushStatus, WhitelistEntry, FeishuSenderItem } from '@/utils/database';
 import type { FeishuHistoryMessage, FeishuHistoryChat } from '@/types';
@@ -29,13 +28,6 @@ export function BotDetailPage({ bot, onBack, onRefresh }: BotDetailPageProps) {
   const [historySenders, setHistorySenders] = useState<FeishuSenderItem[]>([]);
 
   // 聊天绑定状态
-  const [binding, setBinding] = useState(false);
-  const [bindModalOpen, setBindModalOpen] = useState(false);
-  const [qrCodeUrl, setQrCodeUrl] = useState('');
-  const [pollError, setPollError] = useState('');
-  const [bindSuccess, setBindSuccess] = useState(false);
-  const [feishuEventSource, setFeishuEventSource] = useState<EventSource | null>(null);
-  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 消息记录状态
   const [historyMessages, setHistoryMessages] = useState<FeishuHistoryMessage[]>([]);
@@ -168,70 +160,6 @@ export function BotDetailPage({ bot, onBack, onRefresh }: BotDetailPageProps) {
     else message.error('复制失败');
   };
 
-  // 开始绑定
-  const handleStartBind = async () => {
-    if (successTimerRef.current) clearTimeout(successTimerRef.current);
-    if (feishuEventSource) feishuEventSource.close();
-
-    setBinding(true);
-    setBindSuccess(false);
-    setPollError('');
-    setQrCodeUrl('');
-    setBindModalOpen(true);
-
-    try {
-      const initRes = await db.feishuInit();
-      if (!initRes.supported) {
-        setPollError('当前环境不支持 client_secret 认证');
-        setBinding(false);
-        return;
-      }
-
-      const beginRes = await db.feishuBegin();
-      const qrDataUrl = await QRCode.toDataURL(beginRes.qr_url, { width: 256, margin: 2 });
-      setQrCodeUrl(qrDataUrl);
-
-      const eventSource = db.feishuPollSSE(
-        beginRes.device_code,
-        beginRes.interval,
-        beginRes.expire_in,
-        (pollRes) => {
-          if (pollRes.success) {
-            setBindSuccess(true);
-            message.success(`绑定成功！Bot: ${pollRes.bot_name || 'Feishu Bot'}`);
-            onRefresh();
-            successTimerRef.current = setTimeout(() => {
-              setBindModalOpen(false);
-              setQrCodeUrl('');
-            }, 2000);
-          } else {
-            const errMsg = pollRes.error === 'access_denied' ? '用户拒绝了绑定请求'
-              : pollRes.error === 'expired_token' ? '二维码已过期，请重新绑定'
-              : '绑定超时，请重试';
-            setPollError(errMsg);
-          }
-          setBinding(false);
-        },
-        (error) => {
-          setPollError(error || 'SSE 连接失败');
-          setBinding(false);
-        }
-      );
-      setFeishuEventSource(eventSource);
-    } catch (err: any) {
-      setPollError(err?.message || '启动绑定失败');
-      setBinding(false);
-    }
-  };
-
-  // 关闭绑定弹窗
-  useEffect(() => {
-    return () => {
-      feishuEventSource?.close();
-      if (successTimerRef.current) clearTimeout(successTimerRef.current);
-    };
-  }, [feishuEventSource]);
-
   const isFeishu = bot.bot_type === 'feishu';
 
   // Tab 内容：基本设置
@@ -322,11 +250,11 @@ export function BotDetailPage({ bot, onBack, onRefresh }: BotDetailPageProps) {
     </div>
   );
 
-  // Tab 内容：聊天绑定
+  // Tab 内容：聊天绑定（展示绑定信息，不再提供绑定入口，绑定在列表页操作）
   const chatBindingsTab = (
     <div style={{ maxWidth: 700 }}>
-      <Card title="绑定信息" size="small" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+      <Card title="绑定信息" size="small">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 36, height: 36, borderRadius: 8, background: isFeishu ? '#1976D2' : '#888', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
             {isFeishu ? '飞' : '其他'}
           </div>
@@ -338,34 +266,7 @@ export function BotDetailPage({ bot, onBack, onRefresh }: BotDetailPageProps) {
             {bot.enabled ? '已启用' : '已禁用'}
           </Tag>
         </div>
-        <Button type="primary" icon={<QrcodeOutlined />} onClick={handleStartBind} loading={binding} size="small">
-          绑定飞书
-        </Button>
       </Card>
-
-      <Modal
-        title={<Space><QrcodeOutlined />绑定飞书智能体</Space>}
-        open={bindModalOpen}
-        onCancel={() => { setBindModalOpen(false); setQrCodeUrl(''); setPollError(''); setBindSuccess(false); }}
-        footer={null} width={400} centered
-        afterClose={() => { onRefresh(); }}
-      >
-        <div style={{ textAlign: 'center', padding: '16px 0' }}>
-          {pollError && <div style={{ marginBottom: 16, color: '#ff4d4f', fontSize: 13 }}>{pollError}</div>}
-          {bindSuccess ? (
-            <div style={{ color: '#52c41a', fontSize: 48, marginBottom: 16 }}>✓</div>
-          ) : qrCodeUrl ? (
-            <div style={{ marginBottom: 16 }}>
-              <img src={qrCodeUrl} alt="QR Code" style={{ width: '100%', maxWidth: 200, height: 'auto' }} />
-              <div style={{ marginTop: 12, color: 'var(--color-text-secondary)', fontSize: 13 }}>请使用飞书 App 扫描二维码绑定</div>
-              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--color-text-tertiary)' }}>二维码有效期 10 分钟，请尽快完成</div>
-            </div>
-          ) : (
-            <Spin size="large" />
-          )}
-          {binding && !qrCodeUrl && <div style={{ marginTop: 16, color: 'var(--color-text-secondary)', fontSize: 13 }}>正在生成二维码...</div>}
-        </div>
-      </Modal>
     </div>
   );
 

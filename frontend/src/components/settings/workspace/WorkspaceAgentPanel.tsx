@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
-import { Table, Button, Space, Switch, Popconfirm, message, Modal, Select, Tooltip } from 'antd';
-import { DeleteOutlined, SwapOutlined } from '@ant-design/icons';
+import { useState, useEffect, useRef } from 'react';
+import { Table, Button, Space, Switch, Popconfirm, message, Modal, Select, Tooltip, Spin } from 'antd';
+import { DeleteOutlined, SwapOutlined, QrcodeOutlined } from '@ant-design/icons';
+import QRCode from 'qrcode';
 import type { ColumnsType } from 'antd/es/table';
 import * as db from '@/utils/database';
 import type { AgentBot, ProjectDirectory } from '@/utils/database';
@@ -22,6 +23,15 @@ export function WorkspaceAgentPanel({ workspaceId, onBotChanged }: WorkspaceAgen
   // 选中的 bot，显示详情页
   const [selectedBot, setSelectedBot] = useState<AgentBot | null>(null);
 
+  // 绑定飞书状态
+  const [binding, setBinding] = useState(false);
+  const [bindModalOpen, setBindModalOpen] = useState(false);
+  const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [pollError, setPollError] = useState('');
+  const [bindSuccess, setBindSuccess] = useState(false);
+  const [feishuEventSource, setFeishuEventSource] = useState<EventSource | null>(null);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const loadBots = () => {
     setLoading(true);
     Promise.all([
@@ -37,6 +47,72 @@ export function WorkspaceAgentPanel({ workspaceId, onBotChanged }: WorkspaceAgen
       .catch((err: any) => message.error('加载智能体失败: ' + (err?.message || String(err))))
       .finally(() => setLoading(false));
   };
+
+  // 开始绑定飞书
+  const handleStartBind = async () => {
+    if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    if (feishuEventSource) feishuEventSource.close();
+
+    setBinding(true);
+    setBindSuccess(false);
+    setPollError('');
+    setQrCodeUrl('');
+    setBindModalOpen(true);
+
+    try {
+      const initRes = await db.feishuInit();
+      if (!initRes.supported) {
+        setPollError('当前环境不支持 client_secret 认证');
+        setBinding(false);
+        return;
+      }
+
+      const beginRes = await db.feishuBegin();
+      const qrDataUrl = await QRCode.toDataURL(beginRes.qr_url, { width: 256, margin: 2 });
+      setQrCodeUrl(qrDataUrl);
+
+      const eventSource = db.feishuPollSSE(
+        beginRes.device_code,
+        beginRes.interval,
+        beginRes.expire_in,
+        (pollRes) => {
+          if (pollRes.success) {
+            setBindSuccess(true);
+            message.success(`绑定成功！Bot: ${pollRes.bot_name || 'Feishu Bot'}`);
+            // 绑定成功后刷新列表，新 bot 会自动出现在当前 workspace（后端自动分配）
+            loadBots();
+            onBotChanged?.();
+            successTimerRef.current = setTimeout(() => {
+              setBindModalOpen(false);
+              setQrCodeUrl('');
+            }, 2000);
+          } else {
+            const errMsg = pollRes.error === 'access_denied' ? '用户拒绝了绑定请求'
+              : pollRes.error === 'expired_token' ? '二维码已过期，请重新绑定'
+              : '绑定超时，请重试';
+            setPollError(errMsg);
+          }
+          setBinding(false);
+        },
+        (error) => {
+          setPollError(error || 'SSE 连接失败');
+          setBinding(false);
+        }
+      );
+      setFeishuEventSource(eventSource);
+    } catch (err: any) {
+      setPollError(err?.message || '启动绑定失败');
+      setBinding(false);
+    }
+  };
+
+  // 关闭绑定弹窗时清理
+  useEffect(() => {
+    return () => {
+      feishuEventSource?.close();
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    };
+  }, [feishuEventSource]);
 
   useEffect(() => {
     loadBots();
@@ -161,10 +237,13 @@ export function WorkspaceAgentPanel({ workspaceId, onBotChanged }: WorkspaceAgen
 
   return (
     <div>
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
         <span style={{ color: '#666' }}>
           当前工作空间共有 {bots.length} 个智能体
         </span>
+        <Button type="primary" icon={<QrcodeOutlined />} onClick={handleStartBind} loading={binding} size="small">
+          绑定飞书
+        </Button>
       </div>
 
       <Table
@@ -230,6 +309,32 @@ export function WorkspaceAgentPanel({ workspaceId, onBotChanged }: WorkspaceAgen
                 </Select.Option>
               ))}
           </Select>
+        </div>
+      </Modal>
+
+      {/* 绑定飞书 Modal */}
+      <Modal
+        title={<Space><QrcodeOutlined />绑定飞书智能体</Space>}
+        open={bindModalOpen}
+        onCancel={() => { setBindModalOpen(false); setQrCodeUrl(''); setPollError(''); setBindSuccess(false); }}
+        footer={null}
+        width={400}
+        centered
+      >
+        <div style={{ textAlign: 'center', padding: '16px 0' }}>
+          {pollError && <div style={{ marginBottom: 16, color: '#ff4d4f', fontSize: 13 }}>{pollError}</div>}
+          {bindSuccess ? (
+            <div style={{ color: '#52c41a', fontSize: 48, marginBottom: 16 }}>✓</div>
+          ) : qrCodeUrl ? (
+            <div style={{ marginBottom: 16 }}>
+              <img src={qrCodeUrl} alt="QR Code" style={{ width: '100%', maxWidth: 200, height: 'auto' }} />
+              <div style={{ marginTop: 12, color: 'var(--color-text-secondary)', fontSize: 13 }}>请使用飞书 App 扫描二维码绑定</div>
+              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--color-text-tertiary)' }}>二维码有效期 10 分钟，请尽快完成</div>
+            </div>
+          ) : (
+            <Spin size="large" />
+          )}
+          {binding && !qrCodeUrl && <div style={{ marginTop: 16, color: 'var(--color-text-secondary)', fontSize: 13 }}>正在生成二维码...</div>}
         </div>
       </Modal>
     </div>
