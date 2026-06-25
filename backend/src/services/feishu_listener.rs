@@ -617,16 +617,18 @@ impl FeishuListener {
             // 没匹配上规则 → 走默认回复路径，保持向后兼容
             return Self::dispatch_default_response(context, msg, prep).await;
         };
-        // 没有命令体（只输入了 /xxx）→ 不执行
-        if command_ctx.body.is_empty() {
-            return;
-        }
         // 防御：rule 关联的 todo 可能已被删，没拿到 todo 就不 push
         let Ok(Some(todo)) = context.db.get_todo(rule.todo_id).await else {
             tracing::error!("Failed to fetch todo {} for slash command", rule.todo_id);
             return;
         };
-        let (_, params) = build_trigger_params(&format!("{} {}", command_ctx.command, command_ctx.body));
+        // 命令体可能为空（如 /j 直接触发），此时直接用命令名作为 trigger 参数字符串
+        let trigger_str = if command_ctx.body.is_empty() {
+            command_ctx.command.to_string()
+        } else {
+            format!("{} {}", command_ctx.command, command_ctx.body)
+        };
+        let (_, params) = build_trigger_params(&trigger_str);
         Self::push_slash_command_message(context.debounce, context.bot_id, msg, prep.chat_type, &todo, command_ctx.body, params);
     }
 
