@@ -60,6 +60,7 @@ pub(super) fn all_migrations() -> Vec<Box<dyn Migration>> {
         Box::new(V26DisableAutoReviewForNormalTodos),
         Box::new(V23DropTodoHooksColumns),
         Box::new(RenameLoopStepsStepIdBackToTodoId),
+        Box::new(V27AbnormalHandlerTodo),
     ]
 }
 
@@ -3306,6 +3307,46 @@ impl Migration for V26DisableAutoReviewForNormalTodos {
         db.exec(
             "UPDATE todos SET auto_review_enabled = 0 WHERE auto_review_enabled IS NULL OR auto_review_enabled = 1"
         ).await?;
+        Ok(())
+    }
+}
+
+// ===== V27: Loop 异常处理 Todo =====
+//
+// 需求：当 Loop 以异常状态结束时（capped_step、capped_token、failed 等），
+// 如果配置了异常处理 Todo，则自动执行该 Todo，给用户一个清理/补救的机会。
+//
+// 新增字段：
+// - loops.abnormal_handler_todo_id：异常处理 Todo 的 ID（可选）
+// - loops.abnormal_handler_trigger_on：触发条件的 JSON 数组，如 ["capped_step", "capped_token", "failed"]
+//
+// 幂等：列已存在时跳过 ALTER。
+pub(super) struct V27AbnormalHandlerTodo;
+
+#[async_trait]
+impl Migration for V27AbnormalHandlerTodo {
+    fn version(&self) -> i64 {
+        27
+    }
+    fn name(&self) -> &'static str {
+        "abnormal_handler_todo"
+    }
+
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        add_column_if_missing(
+            db,
+            "loops",
+            "abnormal_handler_todo_id",
+            "ALTER TABLE loops ADD COLUMN abnormal_handler_todo_id INTEGER REFERENCES todos(id) ON DELETE SET NULL",
+        )
+        .await?;
+        add_column_if_missing(
+            db,
+            "loops",
+            "abnormal_handler_trigger_on",
+            "ALTER TABLE loops ADD COLUMN abnormal_handler_trigger_on TEXT NOT NULL DEFAULT '[\"capped_step\",\"capped_token\",\"failed\"]'",
+        )
+        .await?;
         Ok(())
     }
 }

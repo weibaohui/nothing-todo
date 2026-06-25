@@ -41,6 +41,8 @@ impl Database {
         icon: &str,
         review_template_id: Option<i64>,
         limits_config: Option<&str>,
+        abnormal_handler_todo_id: Option<i64>,
+        abnormal_handler_trigger_on: &str,
     ) -> Result<loops::Model, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = loops::ActiveModel {
@@ -50,6 +52,8 @@ impl Database {
             icon: ActiveValue::Set(icon.to_string()),
             review_template_id: ActiveValue::Set(review_template_id),
             limits_config: ActiveValue::Set(limits_config.unwrap_or("{}").to_string()),
+            abnormal_handler_todo_id: ActiveValue::Set(abnormal_handler_todo_id),
+            abnormal_handler_trigger_on: ActiveValue::Set(abnormal_handler_trigger_on.to_string()),
             status: ActiveValue::Set("paused".to_string()),
             created_at: ActiveValue::Set(Some(now.clone())),
             updated_at: ActiveValue::Set(Some(now)),
@@ -67,6 +71,8 @@ impl Database {
         icon: &str,
         review_template_id: Option<i64>,
         limits_config: Option<&str>,
+        abnormal_handler_todo_id: Option<i64>,
+        abnormal_handler_trigger_on: &str,
     ) -> Result<(), sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let existing = loops::Entity::find_by_id(id).one(&self.conn).await?;
@@ -80,6 +86,8 @@ impl Database {
             if let Some(lc) = limits_config {
                 am.limits_config = ActiveValue::Set(lc.to_string());
             }
+            am.abnormal_handler_todo_id = ActiveValue::Set(abnormal_handler_todo_id);
+            am.abnormal_handler_trigger_on = ActiveValue::Set(abnormal_handler_trigger_on.to_string());
             am.updated_at = ActiveValue::Set(Some(now));
             am.update(&self.conn).await?;
         }
@@ -132,6 +140,8 @@ impl Database {
                 &source.icon,
                 source.review_template_id,
                 Some(source.limits_config.as_str()),
+                source.abnormal_handler_todo_id,
+                &source.abnormal_handler_trigger_on,
             )
             .await?;
 
@@ -859,6 +869,8 @@ impl Database {
                     icon: row.try_get_by::<String, _>("icon")?,
                     review_template_id: row.try_get_by::<Option<i64>, _>("review_template_id")?,
                     limits_config: row.try_get_by::<String, _>("limits_config")?,
+                    abnormal_handler_todo_id: row.try_get_by::<Option<i64>, _>("abnormal_handler_todo_id")?,
+                    abnormal_handler_trigger_on: row.try_get_by::<String, _>("abnormal_handler_trigger_on")?,
                     created_at: row.try_get_by::<Option<String>, _>("created_at")?,
                     updated_at: row.try_get_by::<Option<String>, _>("updated_at")?,
                 },

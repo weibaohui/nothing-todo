@@ -67,6 +67,8 @@ export function LoopDetailPanel({
     name: string; description: string; workspace: string | null;
     icon: string; review_template_id: number | null;
     tag_ids: number[]; limits_config: string | null;
+    abnormal_handler_todo_id: number | null;
+    abnormal_handler_trigger_on: string;
   } | null>(null);
 
   // 加载完整 detail, 子面板变更后也要重新拉以保持最新
@@ -118,6 +120,8 @@ export function LoopDetailPanel({
       review_template_id: detail.review_template_id ?? null,
       tag_ids: detail.tag_ids ?? [],
       limits_config: detail.limits_config,
+      abnormal_handler_todo_id: (detail as any).abnormal_handler_todo_id ?? null,
+      abnormal_handler_trigger_on: (detail as any).abnormal_handler_trigger_on ?? '["capped_step","capped_token","failed"]',
     });
     setEditing(true);
   }, [detail]);

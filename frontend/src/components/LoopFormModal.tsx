@@ -9,12 +9,14 @@
 // 被 LoopStudioDetailPanel（编辑）和 App.tsx（新建）共用。
 
 import { useEffect, useState, useCallback } from 'react';
-import { App as AntApp, Modal, Form, Input, InputNumber, Select, Button } from 'antd';
+import { App as AntApp, Modal, Form, Input, InputNumber, Select, Button, Checkbox } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import * as dbLoops from '@/utils/database/loops';
 import * as dbReviewTemplates from '@/utils/database/reviewTemplates';
+import * as dbTodos from '@/utils/database/todos';
 import type { UpdateLoopRequest } from '@/types/loop';
 import type { ReviewTemplateOption } from '@/types/reviewTemplate';
+import type { Todo } from '@/types/todo';
 import { TagCheckCardGroup } from './TagCheckCard';
 import { WorkspaceSelect } from './common/WorkspaceSelect';
 
@@ -48,6 +50,8 @@ interface LoopFormModalProps {
 type FormValues = UpdateLoopRequest & {
   max_step_executions?: number;
   max_total_tokens?: number;
+  abnormal_handler_todo_id?: number | null;
+  abnormal_handler_trigger_on?: string[];
 };
 
 // ---------- component ----------
@@ -67,12 +71,17 @@ export function LoopFormModal({
   const [creatingTemplate, setCreatingTemplate] = useState(false);
   const [creatingTemplateSaving, setCreatingTemplateSaving] = useState(false);
   const [newTemplateForm] = Form.useForm<{ name: string; description?: string; prompt: string }>();
+  // 异常处理 Todo
+  const [abnormalHandlerTodoOptions, setAbnormalHandlerTodoOptions] = useState<Todo[]>([]);
 
-  // 打开时加载评审模板选项
+  // 打开时加载评审模板选项和异常处理 Todo 选项
   useEffect(() => {
     if (!open) return;
     dbReviewTemplates.listReviewTemplateOptions()
       .then(setReviewTemplateOptions)
+      .catch(() => { /* 静默 */ });
+    dbTodos.getAllTodos()
+      .then(setAbnormalHandlerTodoOptions)
       .catch(() => { /* 静默 */ });
   }, [open]);
 
@@ -85,6 +94,7 @@ export function LoopFormModal({
         description: initialData.description,
         icon: initialData.icon,
         review_template_id: initialData.review_template_id ?? null,
+        abnormal_handler_todo_id: (initialData as any).abnormal_handler_todo_id ?? null,
       });
       setWorkspaceValue(initialData.workspace ?? null);
       // 解析 limits_config
@@ -95,6 +105,13 @@ export function LoopFormModal({
           max_total_tokens: lc.max_total_tokens ?? null,
         });
       } catch { /* 忽略解析错误 */ }
+      // 解析异常处理触发条件
+      try {
+        const triggerOn = JSON.parse((initialData as any).abnormal_handler_trigger_on || '["capped_step","capped_token","failed"]');
+        form.setFieldsValue({ abnormal_handler_trigger_on: triggerOn });
+      } catch {
+        form.setFieldsValue({ abnormal_handler_trigger_on: ['capped_step', 'capped_token', 'failed'] });
+      }
       setEditingTag(initialData.tag_ids?.[0] ?? null);
     } else if (mode === 'create') {
       // 创建模式：清空表单
@@ -142,6 +159,11 @@ export function LoopFormModal({
       if (values.max_step_executions != null) limitsConfig.max_step_executions = values.max_step_executions;
       if (values.max_total_tokens != null) limitsConfig.max_total_tokens = values.max_total_tokens;
 
+      // 构建异常处理触发条件
+      const abnormalHandlerTriggerOn = values.abnormal_handler_trigger_on
+        ? JSON.stringify(values.abnormal_handler_trigger_on)
+        : '["capped_step","capped_token","failed"]';
+
       const basePayload = {
         name: values.name.trim(),
         description: values.description ?? '',
@@ -149,6 +171,8 @@ export function LoopFormModal({
         icon: values.icon ?? 'loop',
         review_template_id: values.review_template_id ?? null,
         limits_config: Object.keys(limitsConfig).length > 0 ? JSON.stringify(limitsConfig) : null,
+        abnormal_handler_todo_id: values.abnormal_handler_todo_id ?? null,
+        abnormal_handler_trigger_on: abnormalHandlerTriggerOn,
         tag_ids: editingTag != null ? [editingTag] : [],
       };
 
@@ -260,6 +284,41 @@ export function LoopFormModal({
               options={reviewTemplateOptions.map(t => ({ value: t.id, label: t.name }))}
             />
           </Form.Item>
+          {/* 异常处理 Todo */}
+          <div style={{ fontWeight: 600, fontSize: 14, marginTop: 16, marginBottom: 8, color: 'var(--color-text-secondary, #64748b)' }}>
+            异常处理
+          </div>
+          <div style={{ background: 'var(--color-bg-elevated, #f8fafc)', padding: 12, borderRadius: 8 }}>
+            <Form.Item
+              label="异常处理 Todo"
+              name="abnormal_handler_todo_id"
+              tooltip="当 Loop 以异常状态结束时，自动执行此 Todo 作为清理/补救措施"
+            >
+              <Select
+                allowClear
+                placeholder="不设置异常处理"
+                showSearch
+                optionFilterProp="label"
+                options={abnormalHandlerTodoOptions.map(t => ({ value: t.id, label: t.title }))}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+            <Form.Item
+              label="触发条件"
+              name="abnormal_handler_trigger_on"
+              tooltip="哪些异常状态时触发异常处理 Todo"
+              style={{ marginBottom: 0 }}
+            >
+              <Checkbox.Group
+                defaultValue={['capped_step', 'capped_token', 'failed']}
+                options={[
+                  { label: '超步数', value: 'capped_step' },
+                  { label: '超 Token', value: 'capped_token' },
+                  { label: '执行失败', value: 'failed' },
+                ]}
+              />
+            </Form.Item>
+          </div>
           {/* 全局限制 */}
           <div style={{ fontWeight: 600, fontSize: 14, marginTop: 16, marginBottom: 12, color: 'var(--color-text-secondary, #64748b)' }}>
             全局限制

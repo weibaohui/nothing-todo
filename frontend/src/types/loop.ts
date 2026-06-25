@@ -40,6 +40,10 @@ export interface LoopDto {
   tag_ids: number[];
   icon: string;
   limits_config: string;
+  /** 异常处理 Todo ID */
+  abnormal_handler_todo_id: number | null;
+  /** 异常处理触发条件 JSON 数组 */
+  abnormal_handler_trigger_on: string;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -281,6 +285,10 @@ export interface CreateLoopRequest {
   review_template_id?: number | null;
   /** 限制条件 JSON 字符串 */
   limits_config?: string | null;
+  /** 异常处理 Todo ID */
+  abnormal_handler_todo_id?: number | null;
+  /** 异常处理触发条件 JSON 数组 */
+  abnormal_handler_trigger_on?: string;
 }
 
 export interface UpdateLoopRequest {
@@ -290,6 +298,10 @@ export interface UpdateLoopRequest {
   icon: string;
   review_template_id?: number | null;
   limits_config?: string | null;
+  /** 异常处理 Todo ID */
+  abnormal_handler_todo_id?: number | null;
+  /** 异常处理触发条件 JSON 数组 */
+  abnormal_handler_trigger_on?: string;
   /** 可选更新标签 ID（传空数组清除标签，省略不更新）。合并到同一请求避免多次 API 调用导致的部分提交风险。 */
   tag_ids?: number[] | null;
 }

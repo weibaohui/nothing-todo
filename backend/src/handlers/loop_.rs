@@ -82,6 +82,8 @@ pub async fn create_loop(
             &req.icon,
             req.review_template_id,
             req.limits_config.as_deref(),
+            req.abnormal_handler_todo_id,
+            &req.abnormal_handler_trigger_on,
         )
         .await?;
     // 如果创建请求携带了 tag_ids，则持久化标签关联；否则新建环路从空标签开始
@@ -133,6 +135,8 @@ pub async fn update_loop(
             &req.icon,
             req.review_template_id,
             req.limits_config.as_deref(),
+            req.abnormal_handler_todo_id,
+            &req.abnormal_handler_trigger_on,
         )
         .await?;
     // 如果请求携带了 tag_ids，则更新标签关联；
