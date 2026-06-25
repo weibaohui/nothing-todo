@@ -1930,6 +1930,7 @@ mod tests {
             scheduler_next_run_at: None,
             task_id: None,
             workspace: None,
+            webhook_enabled: false,
             acceptance_criteria: None,
             todo_type: 0,
             parent_todo_id: None,

@@ -62,6 +62,7 @@ pub(super) fn all_migrations() -> Vec<Box<dyn Migration>> {
         Box::new(V27AbnormalHandlerTodo),
         Box::new(V28DropLoopStepExecutionsStepIdFk),
         Box::new(V29WebhookEnabledFields),
+        Box::new(V30WorkspaceRefactor),
     ]
 }
 
@@ -2280,7 +2281,7 @@ async fn v15_review_templates(db: &Database) -> Result<(), sea_orm::DbErr> {
 
     // 4) 删老 type=1 行：迁移后 todos 不再承担评审模板存储。
     //
-    // 已知约束：loop_steps.step_id 和 loop_hooks.target_todo_id 通过
+    // 已知约束：loop_steps.todo_id 和 loop_hooks.target_todo_id 通过
     // `ON DELETE RESTRICT` 外键引用 todos(id)，所以直接 DELETE 会被外键拒绝。
     // V15 之前的旧数据可能让某些 todo 既是 type=1（评审模板）又兼任 loop step，
     // 这些 loop step / hook 在评审模板迁出后失去语义，必须在删 todo 之前先解绑。
@@ -2289,7 +2290,7 @@ async fn v15_review_templates(db: &Database) -> Result<(), sea_orm::DbErr> {
     // 这些 step / hook 的 step / target 本身就是评审模板，已无意义）。
     // 影响面：仅限历史脏数据；fresh DB 没有这些 row，DELETE 0 行无副作用。
     db.exec(
-        "DELETE FROM loop_steps WHERE step_id IN (SELECT id FROM todos WHERE todo_type = 1)"
+        "DELETE FROM loop_steps WHERE todo_id IN (SELECT id FROM todos WHERE todo_type = 1)"
     )
     .await?;
     db.exec(
@@ -2571,7 +2572,7 @@ mod v15_review_templates_tests {
         );
     }
 
-    /// 场景 5：旧库里有 todo_type=1 同时被 loop_steps.step_id / loop_hooks.target_todo_id
+    /// 场景 5：旧库里有 todo_type=1 同时被 loop_steps.todo_id / loop_hooks.target_todo_id
     /// 引用（通过 ON DELETE RESTRICT 强约束），V15 必须能解绑这些外键并成功迁移。
     /// 真实用户场景：Self-Improving 环路 (loop #54) 曾把评审模板 todo 同时作为 step。
     #[tokio::test]
@@ -2579,9 +2580,9 @@ mod v15_review_templates_tests {
         let db = fresh_db().await;
 
         // 前置：插一个 loop + 一个引用 type=1 todo 的 loop_steps 行 + 一个 loop_hooks 行。
-        // 注：fresh DB 上 loop_steps.step_id 引用 steps(id)（不是 todos），但 ON DELETE
-        // RESTRICT 的语义是"任何引用了 step_id 的行不能随便被删 todo"；为了模拟"旧脏数据
-        // 指向 todo_type=1"的真实场景，这里在 steps 表里也放一行 id=42，让 FK 通过。
+        // 注：fresh DB 上 loop_steps.todo_id 引用 todos(id)，但 ON DELETE
+        // RESTRICT 的语义是"任何引用了 todo_id 的行不能随便被删 todo"；为了模拟"旧脏数据
+        // 指向 todo_type=1"的真实场景，这里在 todos 表里也放一行 id=42，让 FK 通过。
         db.conn.execute(Statement::from_string(
             DbBackend::Sqlite,
             "INSERT INTO loops (id, name, status) VALUES (1, 'test loop', 'draft')",
@@ -2590,17 +2591,13 @@ mod v15_review_templates_tests {
             DbBackend::Sqlite,
             "INSERT INTO todos (id, title, prompt, todo_type) VALUES (42, '评审模板(脏数据)', 'p', 1)",
         )).await.expect("insert todo_type=1");
-        // steps 是 fresh schema 里 loop_steps.step_id 引用目标；插一行 id=42 模拟旧脏数据
-        // （旧库里 loop_steps.step_id 实际指 todos(id) 而非 steps(id)，但本次迁移的目的是
+        // fresh schema 里 loop_steps.todo_id 引用 todos(id)；插一行 id=42 模拟旧脏数据
+        // （旧库里 loop_steps.todo_id 实际指 todos(id)，但本次迁移的目的是
         // 把这些"指向 type=1 todo 的 step"清掉，因此测试重点是 DELETE FROM loop_steps 的
         // 子查询能找到 todo_type=1 行的 id=42, 而不是 FK 关系的精确性）。
         db.conn.execute(Statement::from_string(
             DbBackend::Sqlite,
-            "INSERT INTO steps (id, title, prompt) VALUES (42, '脏 step 占位', 'p')",
-        )).await.expect("insert steps placeholder");
-        db.conn.execute(Statement::from_string(
-            DbBackend::Sqlite,
-            "INSERT INTO loop_steps (id, loop_id, name, step_id) VALUES (100, 1, '脏 step', 42)",
+            "INSERT INTO loop_steps (id, loop_id, name, todo_id) VALUES (100, 1, '脏 step', 42)",
         )).await.expect("insert loop_step");
         db.conn.execute(Statement::from_string(
             DbBackend::Sqlite,
@@ -3427,5 +3424,75 @@ impl Migration for V29WebhookEnabledFields {
             "ALTER TABLE loops ADD COLUMN webhook_enabled INTEGER NOT NULL DEFAULT 0",
         )
         .await
+    }
+}
+
+// ===== V30: 工作空间重构 - Bot 与 Workspace 绑定 =====
+//
+// 阶段 1：数据库结构变更
+//
+// 本次迁移实现：
+// 1. 创建 workspace_slash_commands 表：存储每个工作空间的斜杠命令规则
+// 2. 创建 workspace_settings 表：存储每个工作空间的设置（如 default_response_todo_id）
+// 3. 给 agent_bots 表添加 workspace_id 列：实现 bot 与 workspace 的强制绑定
+//
+// 设计原则：
+// - bot 创建时必须指定 workspace_id（不可为 NULL）
+// - 斜杠命令和默认响应改为按 workspace 隔离查询
+// - 变更 bot 的 workspace_id 时，其全部聊天绑定会失效（由应用层处理）
+//
+// 幂等：所有操作使用 IF NOT EXISTS / add_column_if_missing 确保重跑安全。
+pub(super) struct V30WorkspaceRefactor;
+
+#[async_trait]
+impl Migration for V30WorkspaceRefactor {
+    fn version(&self) -> i64 {
+        30
+    }
+    fn name(&self) -> &'static str {
+        "workspace_refactor"
+    }
+
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        // 1. 创建 workspace_slash_commands 表
+        // 存储工作空间级别的斜杠命令规则，替代 Config.slash_command_rules
+        db.exec(
+            "CREATE TABLE IF NOT EXISTS workspace_slash_commands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                workspace_id INTEGER NOT NULL,
+                slash_command TEXT NOT NULL,
+                todo_id INTEGER NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT,
+                updated_at TEXT,
+                UNIQUE(workspace_id, slash_command)
+            )",
+        )
+        .await?;
+
+        // 2. 创建 workspace_settings 表
+        // 存储工作空间级别的设置（如默认响应 Todo），替代 Config.default_response_todo_id
+        db.exec(
+            "CREATE TABLE IF NOT EXISTS workspace_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                workspace_id INTEGER NOT NULL UNIQUE,
+                default_response_todo_id INTEGER,
+                updated_at TEXT
+            )",
+        )
+        .await?;
+
+        // 3. 给 agent_bots 表添加 workspace_id 列
+        // 实现 bot 与 workspace 的强制绑定（不可为 NULL）
+        // 已有 bot 的迁移逻辑：由后续应用层处理，按 feishu_project_bindings 中 project_dir_id 最多的来设定
+        add_column_if_missing(
+            db,
+            "agent_bots",
+            "workspace_id",
+            "ALTER TABLE agent_bots ADD COLUMN workspace_id INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
+
+        Ok(())
     }
 }
