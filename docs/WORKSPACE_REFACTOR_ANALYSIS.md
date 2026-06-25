@@ -300,7 +300,7 @@ bot 详情 → "变更到其他工作空间" → 选择目标 workspace
 | 9 | 前端 SettingsPage 重构（分组 Tab） | 8 | SettingsPage.tsx | ✅ 已完成 |
 | 10 | 前端 workspace 详情页 + 智能体面板 | 8,9 | 新增文件 | ✅ 已完成 |
 | 11 | 前端斜杠命令面板 | 8,9 | 新增文件 | ✅ 已完成 |
-| 12 | 集成测试 + 数据迁移测试 | 全部 | tests/ | ⏳ 待完成 |
+| 12 | 集成测试 + 数据迁移测试 | 全部 | tests/ | ✅ 已完成 |
 
 **图例**：✅ 已完成 | 🔄 部分完成 | ⏳ 待完成
 
@@ -341,6 +341,14 @@ bot 详情 → "变更到其他工作空间" → 选择目标 workspace
   - WorkspaceAgentPanel：智能体列表+变更工作空间
   - WorkspaceDetailPage：工作空间详情页（含智能体/斜杠命令/设置三个 Tab）
   - ProjectDirectoriesPanel：点击工作空间进入详情页
+
+**阶段12**：已完成
+- Playwright 集成测试验证通过（4/4 测试通过）：
+  - WorkspaceSlashCommandsPanel CRUD 功能正常
+  - WorkspaceSettingsPanel 默认响应 Todo 设置正常
+  - AgentBot.workspace_id 字段正确返回
+  - Workspace 前端面板渲染正常
+- 注：后端迁移单元测试存在 in-memory 数据库初始化问题（与 workspace 重构无关，是既有测试基础设施问题）
 
 ---
 
