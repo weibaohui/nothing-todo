@@ -818,7 +818,9 @@ impl Database {
         use sea_orm::{ConnectionTrait, Statement};
         let sql = match workspace {
             Some(_) => "SELECT l.id, l.name, l.description, l.workspace, \
-                          l.status, l.color, l.icon, l.limits_config, l.review_template_id, l.created_at, l.updated_at, \
+                          l.status, l.color, l.icon, l.limits_config, l.review_template_id, \
+                          l.abnormal_handler_todo_id, l.abnormal_handler_trigger_on, \
+                          l.created_at, l.updated_at, \
                           (SELECT COUNT(*) FROM loop_triggers t WHERE t.loop_id = l.id) as trigger_count, \
                           (SELECT COUNT(*) FROM loop_steps s WHERE s.loop_id = l.id) as step_count, \
                           (SELECT le.status FROM loop_executions le \
@@ -832,7 +834,9 @@ impl Database {
                    WHERE l.workspace = ?1 \
                    ORDER BY l.updated_at DESC",
             None => "SELECT l.id, l.name, l.description, l.workspace, \
-                      l.status, l.color, l.icon, l.limits_config, l.review_template_id, l.created_at, l.updated_at, \
+                      l.status, l.color, l.icon, l.limits_config, l.review_template_id, \
+                      l.abnormal_handler_todo_id, l.abnormal_handler_trigger_on, \
+                      l.created_at, l.updated_at, \
                       (SELECT COUNT(*) FROM loop_triggers t WHERE t.loop_id = l.id) as trigger_count, \
                       (SELECT COUNT(*) FROM loop_steps s WHERE s.loop_id = l.id) as step_count, \
                       (SELECT le.status FROM loop_executions le \
