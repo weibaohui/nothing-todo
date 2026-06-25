@@ -15,6 +15,7 @@
 //    方便后续单测 + 维护。
 
 import { Checkbox, Dropdown, Button } from 'antd';
+import type { CheckboxProps } from 'antd';
 import type { MenuProps } from 'antd';
 import { DownOutlined, PlusOutlined } from '@ant-design/icons';
 import type { Key, ReactNode } from 'react';
@@ -81,15 +82,26 @@ function SelectAll<TId extends Key>({ selectableIds, selectedIds, onChange }: Se
     }
   };
 
+  // 统一按钮样式：根据状态调整外观
+  const getButtonStyle = (): CheckboxProps => {
+    if (isAll) {
+      return { style: { backgroundColor: 'var(--color-primary-bg, #e6f7ff)', borderColor: 'var(--color-primary, #1890ff)', color: 'var(--color-primary, #1890ff)' } };
+    }
+    if (isPartial) {
+      return { style: { backgroundColor: 'var(--color-primary-bg, #e6f7ff)', borderColor: 'var(--color-primary, #1890ff)', color: 'var(--color-primary, #1890ff)' } };
+    }
+    return { style: { backgroundColor: 'transparent', borderColor: 'var(--color-border, #d9d9d9)' } };
+  };
+
   return (
-    <Checkbox
-      checked={isAll}
-      indeterminate={isPartial}
-      onChange={handleToggle}
+    <Button
+      size="small"
+      onClick={handleToggle}
       data-testid="action-toolbar-select-all"
+      {...getButtonStyle()}
     >
-      全选
-    </Checkbox>
+      {isAll ? '已全选' : isPartial ? '部分选' : '全选'}
+    </Button>
   );
 }
 
@@ -117,15 +129,29 @@ function InvertSelect<TId extends Key>({ selectableIds, selectedIds, onChange }:
   // 当没有可选项目时禁用按钮
   const disabled = selectableIds.length === 0;
 
+  // 计算反选后的状态用于显示
+  const selectedSet = new Set<TId>(selectedIds);
+  const unselectedCount = selectableIds.filter(id => !selectedSet.has(id)).length;
+  const totalCount = selectableIds.length;
+
+  // 统一按钮样式：与 SelectAll 保持一致
+  const getButtonStyle = () => {
+    if (unselectedCount === 0) {
+      // 已全选，反选将变为空选
+      return { style: { backgroundColor: 'var(--color-primary-bg, #e6f7ff)', borderColor: 'var(--color-primary, #1890ff)', color: 'var(--color-primary, #1890ff)' } };
+    }
+    return { style: { backgroundColor: 'transparent', borderColor: 'var(--color-border, #d9d9d9)' } };
+  };
+
   return (
     <Button
       size="small"
       onClick={handleInvert}
       disabled={disabled}
       data-testid="action-toolbar-invert-select"
-      style={{ marginLeft: 4 }}
+      {...getButtonStyle()}
     >
-      反选
+      反选 ({unselectedCount}/{totalCount})
     </Button>
   );
 }
