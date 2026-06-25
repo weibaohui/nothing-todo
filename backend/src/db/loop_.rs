@@ -623,6 +623,33 @@ impl Database {
         am.insert(&self.conn).await
     }
 
+    /// 为异常处理步骤创建 loop_step_execution 记录。
+    ///
+    /// 使用原始 SQL 绕过外键约束，因为 abnormal handler 使用特殊 step_id=-1
+    ///（该 ID 在 loop_steps 表中不存在，直接用 SeaORM insert 会触发 FK 校验失败）。
+    pub async fn create_abnormal_handler_step_execution(
+        &self,
+        loop_execution_id: i64,
+        todo_id: i64,
+        sequence_index: i32,
+    ) -> Result<i64, sea_orm::DbErr> {
+        use sea_orm::{ConnectionTrait, Statement};
+        let sql = r#"
+            INSERT INTO loop_step_executions
+                (loop_execution_id, step_id, todo_id, status, sequence_index, started_at)
+            VALUES (?1, -1, ?2, 'running', ?3, datetime('now'))
+        "#;
+        let result = self
+            .conn
+            .execute(Statement::from_sql_and_values(
+                sea_orm::DbBackend::Sqlite,
+                sql,
+                [loop_execution_id.into(), todo_id.into(), sequence_index.into()],
+            ))
+            .await?;
+        Ok(result.last_insert_id() as i64)
+    }
+
     pub async fn list_loop_step_executions(
         &self,
         loop_execution_id: i64,

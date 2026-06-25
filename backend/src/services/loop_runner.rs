@@ -1178,9 +1178,20 @@ impl LoopRunner {
             total_tokens_used,
         );
 
-        // 6. 触发异常处理 Todo 的执行（fire-and-forget）
-        // 注意：handler todo 作为独立 todo 执行，不创建 loop_step_execution 记录，
-        // 避免 step_id 外键约束问题（-1 不是一个有效的 step_id）
+        // 6. 创建异常处理步骤记录（step_id=-1 标识异常处理步骤）
+        // 注意：使用专用方法绕过 FK 约束，因为 step_id=-1 在 loop_steps 表中不存在
+        let abnormal_step_exec_id = self
+            .ctx
+            .db
+            .create_abnormal_handler_step_execution(
+                loop_execution_id,
+                handler_todo_id,
+                999, // high sequence index so it appears last on blackboard
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // 8. 触发异常处理 Todo 的执行
         let request = RunTodoExecutionRequest {
             db: self.ctx.db.clone(),
             executor_registry: self.ctx.executor_registry.clone(),
@@ -1196,29 +1207,59 @@ impl LoopRunner {
             resume_message: None,
             source_todo_id: Some(handler_todo_id),
             source_todo_title: Some(handler_todo.title.clone()),
-            loop_step_execution_id: None,
+            loop_step_execution_id: Some(abnormal_step_exec_id),
             step_id: None,
             feishu_bot_id: None,
             feishu_receive_id: None,
             workspace: handler_todo.workspace.clone(),
         };
 
-        let result = run_todo_execution_with_params(request).await;
-        match result.record_id {
-            Some(record_id) => {
-                info!(
-                    "loop abnormal handler todo triggered: record_id={}, task_id={}",
-                    record_id, result.task_id
-                );
-            }
+        // 9. 等待 handler 执行完成（轮询方式，最多等 5 分钟）
+        let record_id = match run_todo_execution_with_params(request).await.record_id {
+            Some(id) => id,
             None => {
-                error!("loop abnormal handler todo failed: task_id={}", result.task_id);
+                let _ = self
+                    .ctx
+                    .db
+                    .finish_step_execution(
+                        abnormal_step_exec_id,
+                        "failed",
+                        None,
+                        Some("trigger failed"),
+                        None,
+                        None,
+                    )
+                    .await;
+                return Ok(());
             }
-        }
+        };
+
+        let handler_status = self.wait_for_step_finish(record_id).await
+            .unwrap_or_else(|e| {
+                warn!("loop abnormal handler wait error: {}", e);
+                "failed".to_string()
+            });
+
+        // 10. 提取结论并更新 step execution
+        let conclusion = self.extract_conclusion(record_id).await;
+        let final_status = if handler_status == "success" { "success" } else { "failed" };
+
+        self.ctx
+            .db
+            .finish_step_execution(
+                abnormal_step_exec_id,
+                final_status,
+                Some(record_id),
+                None,
+                None,
+                Some(&conclusion),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
 
         info!(
-            "loop #{} abnormal handler finished: todo_id={} for status '{}'",
-            loop_id, handler_todo_id, abnormal_status
+            "loop #{} abnormal handler finished: todo_id={} for status '{}', final_status={}, conclusion_len={}",
+            loop_id, handler_todo_id, abnormal_status, final_status, conclusion.len()
         );
         Ok(())
     }

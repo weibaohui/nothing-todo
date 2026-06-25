@@ -694,8 +694,13 @@ pub async fn get_execution(
     let mut enriched: Vec<LoopStepExecutionDto> = vec![];
     for se in step_execs {
         let mut dto: LoopStepExecutionDto = se.into();
-        // 读取 loop_step 的名称（仅用于显示）
-        if let Ok(Some(ls)) = state.db.get_loop_step(dto.step_id).await {
+        // step_id=-1 是异常处理步骤，没有对应的 loop_step，用 todo 标题代替
+        if dto.step_id == -1 {
+            if let Ok(Some(todo)) = state.db.get_todo(dto.todo_id).await {
+                dto.step_name = Some(format!("[异常处理] {}", todo.title));
+            }
+        } else if let Ok(Some(ls)) = state.db.get_loop_step(dto.step_id).await {
+            // 读取 loop_step 的名称（仅用于显示）
             dto.step_name = Some(ls.name);
         }
         // 从关联的 execution_record 读取 token 用量

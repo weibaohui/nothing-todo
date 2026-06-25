@@ -61,6 +61,7 @@ pub(super) fn all_migrations() -> Vec<Box<dyn Migration>> {
         Box::new(V23DropTodoHooksColumns),
         Box::new(RenameLoopStepsStepIdBackToTodoId),
         Box::new(V27AbnormalHandlerTodo),
+        Box::new(V28DropLoopStepExecutionsStepIdFk),
     ]
 }
 
@@ -3347,6 +3348,95 @@ impl Migration for V27AbnormalHandlerTodo {
             "ALTER TABLE loops ADD COLUMN abnormal_handler_trigger_on TEXT NOT NULL DEFAULT '[\"capped_step\",\"capped_token\",\"failed\"]'",
         )
         .await?;
+        Ok(())
+    }
+}
+
+/// v28 迁移：去掉 loop_step_executions.step_id 的外键约束。
+///
+/// FK 约束 `FOREIGN KEY (step_id) REFERENCES loop_steps(id)` 阻止异常处理使用 step_id=-1
+///（异常处理是特殊步骤，不属于 loop_steps 表）。
+///
+/// SQLite 不支持 DROP FOREIGN KEY，需重建表。幂等处理：
+/// - 先尝试直接删除 FK 约束（SQLite 忽略不存在的约束，不报错）
+/// - 若表仍有旧 FK 约束说明是历史库，重建表迁移数据
+pub(super) struct V28DropLoopStepExecutionsStepIdFk;
+
+#[async_trait]
+impl Migration for V28DropLoopStepExecutionsStepIdFk {
+    fn version(&self) -> i64 {
+        28
+    }
+    fn name(&self) -> &'static str {
+        "drop_loop_step_executions_step_id_fk"
+    }
+
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        // 1. 尝试直接删 FK（对新库无效但无害，幂等）
+        db.exec("PRAGMA foreign_keys = OFF").await?;
+        let drop_fk_sql = "ALTER TABLE loop_step_executions DROP FOREIGN KEY step_id";
+        let drop_result = db.exec(drop_fk_sql).await;
+        // SQLite 3.35+ 支持 DROP FOREIGN KEY，老库忽略报错继续走重建表逻辑
+        if drop_result.is_err() {
+            tracing::info!("loop_step_executions step_id FK not removable via ALTER, rebuilding table");
+            Self::rebuild_table(db).await?;
+        }
+        db.exec("PRAGMA foreign_keys = ON").await?;
+        Ok(())
+    }
+}
+
+impl V28DropLoopStepExecutionsStepIdFk {
+    /// 重建 loop_step_executions 表，去掉 step_id 的 FK 约束。
+    async fn rebuild_table(db: &Database) -> Result<(), sea_orm::DbErr> {
+        let backup = "loop_step_executions_backup_v2";
+        // 1) 重命名旧表
+        db.exec(&format!("ALTER TABLE loop_step_executions RENAME TO {}", backup))
+            .await?;
+        // 2) 建新表（无 step_id FK，保留所有列）
+        db.exec(
+            r#"CREATE TABLE loop_step_executions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                loop_execution_id INTEGER NOT NULL,
+                step_id INTEGER NOT NULL,
+                todo_id INTEGER NOT NULL,
+                execution_record_id INTEGER,
+                status TEXT NOT NULL DEFAULT 'pending',
+                started_at TEXT,
+                finished_at TEXT,
+                error_message TEXT,
+                rating INTEGER,
+                unrated_policy TEXT,
+                conclusion TEXT,
+                approval_status TEXT,
+                approval_comment TEXT,
+                min_rating INTEGER,
+                sequence_index INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (loop_execution_id) REFERENCES loop_executions(id) ON DELETE CASCADE,
+                FOREIGN KEY (execution_record_id) REFERENCES execution_records(id) ON DELETE SET NULL
+            )"#,
+        )
+        .await?;
+        // 3) 复制数据
+        db.exec(&format!(
+            r#"INSERT INTO loop_step_executions
+                (id, loop_execution_id, step_id, todo_id, execution_record_id, status,
+                 started_at, finished_at, error_message, rating, unrated_policy,
+                 conclusion, approval_status, approval_comment, min_rating, sequence_index)
+               SELECT id, loop_execution_id, step_id, todo_id, execution_record_id, status,
+                      started_at, finished_at, error_message, rating, unrated_policy,
+                      conclusion, approval_status, approval_comment, min_rating, sequence_index
+               FROM {}"#,
+            backup
+        ))
+        .await?;
+        // 4) 重建索引
+        db.exec("CREATE INDEX IF NOT EXISTS idx_loop_step_executions_loop_exec ON loop_step_executions(loop_execution_id)")
+            .await?;
+        db.exec("CREATE INDEX IF NOT EXISTS idx_loop_step_executions_record ON loop_step_executions(execution_record_id)")
+            .await?;
+        // 5) 删除旧表
+        db.exec(&format!("DROP TABLE {}", backup)).await?;
         Ok(())
     }
 }
