@@ -295,11 +295,11 @@ bot 详情 → "变更到其他工作空间" → 选择目标 workspace
 | 4 | 后端 feishu_listener 改造（workspace 路由） | 2,3 | feishu_listener.rs | 🔄 部分完成 |
 | 5 | 后端 API handlers（新接口 + bot 接口加 workspace_id） | 2 | handlers/ 目录 | ✅ 已完成 |
 | 6 | 后端 agent_bot handler（级联逻辑） | 2,5 | handlers/agent_bot.rs | ✅ 已完成 |
-| 7 | 前端类型定义更新 | 5 | types/ 目录 | ⏳ 待完成 |
-| 8 | 前端 API 调用层更新 | 7 | utils/database/ 目录 | ⏳ 待完成 |
-| 9 | 前端 SettingsPage 重构（分组 Tab） | 8 | SettingsPage.tsx | ⏳ 待完成 |
-| 10 | 前端 workspace 详情页 + 智能体面板 | 8,9 | 新增文件 | ⏳ 待完成 |
-| 11 | 前端斜杠命令面板 | 8,9 | 新增文件 | ⏳ 待完成 |
+| 7 | 前端类型定义更新 | 5 | types/ 目录 | ✅ 已完成 |
+| 8 | 前端 API 调用层更新 | 7 | utils/database/ 目录 | ✅ 已完成 |
+| 9 | 前端 SettingsPage 重构（分组 Tab） | 8 | SettingsPage.tsx | ✅ 已完成 |
+| 10 | 前端 workspace 详情页 + 智能体面板 | 8,9 | 新增文件 | ✅ 已完成 |
+| 11 | 前端斜杠命令面板 | 8,9 | 新增文件 | ✅ 已完成 |
 | 12 | 集成测试 + 数据迁移测试 | 全部 | tests/ | ⏳ 待完成 |
 
 **图例**：✅ 已完成 | 🔄 部分完成 | ⏳ 待完成
@@ -331,6 +331,16 @@ bot 详情 → "变更到其他工作空间" → 选择目标 workspace
   - pending binding 直接删除
   - 已生效 binding 设为 disabled
   - 更新 bot.workspace_id 并重启 listener
+
+**阶段7-11**：已完成
+- 前端类型定义：AgentBot 新增 workspace_id，WorkspaceSlashCommand/WorkspaceSettings 类型
+- 前端 API 函数：workspace 斜杠命令和设置的 CRUD，moveBotToWorkspace
+- 前端 UI 面板：
+  - WorkspaceSlashCommandsPanel：斜杠命令管理（创建/编辑/删除/启用禁用）
+  - WorkspaceSettingsPanel：工作空间设置（默认响应 Todo）
+  - WorkspaceAgentPanel：智能体列表+变更工作空间
+  - WorkspaceDetailPage：工作空间详情页（含智能体/斜杠命令/设置三个 Tab）
+  - ProjectDirectoriesPanel：点击工作空间进入详情页
 
 ---
 
