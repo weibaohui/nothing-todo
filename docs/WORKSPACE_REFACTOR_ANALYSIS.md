@@ -89,7 +89,6 @@ workspace-B  →  bot-2 (聊天绑定 B1)
 │   ├── 备份与恢复 → 全局，不变
 │   ├── Skills 管理 → 全局，不变
 │   ├── 运行管理   → 全局，不变
-│   ├── Webhook    → 全局，不变
 │   ├── Session    → 全局，不变
 │   └── 云端同步   → 全局，不变
 │
@@ -234,6 +233,7 @@ async fn move_bot_to_workspace(db: &Database, bot_id: i64, new_workspace_id: i64
 | `settings/messages/ProjectBindsTab.tsx` | 修改 | binding 的 project_dir_id 由 bot.workspace_id 决定 |
 | `settings/messages/RecordTab.tsx` | 修改 | 按 workspace 过滤消息 |
 | `settings/SystemSettingsPanel.tsx` | 简化 | 删除斜杠命令和默认响应配置项 |
+| `settings/WebhooksPanel.tsx` | 删除 | Webhook 功能已移除 |
 | **新增** `settings/workspace/WorkspaceDetailPage.tsx` | 新增 | 工作空间详情页（含智能体、命令子 Tab） |
 | **新增** `settings/workspace/WorkspaceAgentPanel.tsx` | 新增 | 工作空间下的智能体管理 |
 | **新增** `settings/workspace/WorkspaceSlashCommandsPanel.tsx` | 新增 | 工作空间下的斜杠命令管理 |
