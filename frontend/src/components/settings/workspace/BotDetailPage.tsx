@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Card, Button, Switch, Input, Select, Tag, message, Tabs, List, Modal, Typography, AutoComplete } from 'antd';
-import { LeftOutlined, CopyOutlined } from '@ant-design/icons';
+import { Card, Button, Switch, Input, Select, Tag, message, List, Modal, Typography, AutoComplete } from 'antd';
+import { LeftOutlined, CopyOutlined, FileTextOutlined } from '@ant-design/icons';
 import * as db from '@/utils/database';
 import type { AgentBot, FeishuPushStatus, WhitelistEntry, FeishuSenderItem } from '@/utils/database';
 import type { FeishuHistoryMessage, FeishuHistoryChat } from '@/types';
@@ -15,19 +15,16 @@ interface BotDetailPageProps {
 }
 
 /**
- * Bot 详情页：显示单个 bot 的配置、聊天绑定和消息记录
- * 包含三个 Tab：基本设置 / 聊天绑定 / 消息记录
+ * Bot 详情页：单页展示 bot 基本配置和绑定信息，
+ * 消息记录通过右上角按钮打开独立面板。
  */
 export function BotDetailPage({ bot, onBack, onRefresh }: BotDetailPageProps) {
-  // 基本设置状态
   const [botConfig, setBotConfig] = useState<Record<string, boolean>>({ dm_enabled: true, group_enabled: true, group_require_mention: true, echo_reply: true });
   const [pushStatus, setPushStatus] = useState<FeishuPushStatus | null>(null);
   const [groupWhitelist, setGroupWhitelist] = useState<WhitelistEntry[]>([]);
   const [whitelistOpenId, setWhitelistOpenId] = useState('');
   const [whitelistName, setWhitelistName] = useState('');
   const [historySenders, setHistorySenders] = useState<FeishuSenderItem[]>([]);
-
-  // 聊天绑定状态
 
   // 消息记录状态
   const [historyMessages, setHistoryMessages] = useState<FeishuHistoryMessage[]>([]);
@@ -40,6 +37,7 @@ export function BotDetailPage({ bot, onBack, onRefresh }: BotDetailPageProps) {
   const [historyIsHistory, setHistoryIsHistory] = useState<boolean | undefined>(undefined);
   const [historySelectedSenderId] = useState<string | undefined>(undefined);
   const [historyViewMsg, setHistoryViewMsg] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   // 加载 bot 配置
   useEffect(() => {
@@ -64,16 +62,18 @@ export function BotDetailPage({ bot, onBack, onRefresh }: BotDetailPageProps) {
     }
   }, [bot.id, pushStatus]);
 
-  // 加载历史发送者
+  // 加载历史发送者和群聊
   useEffect(() => {
     db.getFeishuSenders().then(setHistorySenders).catch(() => {});
     db.getFeishuHistoryChats().then(setHistoryChats).catch(() => {});
   }, []);
 
-  // 加载历史消息
+  // 加载历史消息（仅当显示消息面板时）
   useEffect(() => {
-    loadHistoryMessages();
-  }, [historyPage, historyPageSize, historySelectedChatId, historyIsHistory, historySelectedSenderId]);
+    if (showHistory) {
+      loadHistoryMessages();
+    }
+  }, [historyPage, historyPageSize, historySelectedChatId, historyIsHistory, historySelectedSenderId, showHistory]);
 
   const loadHistoryMessages = async () => {
     setHistoryLoading(true);
@@ -162,183 +162,174 @@ export function BotDetailPage({ bot, onBack, onRefresh }: BotDetailPageProps) {
 
   const isFeishu = bot.bot_type === 'feishu';
 
-  // Tab 内容：基本设置
-  const basicSettingsTab = (
-    <div style={{ maxWidth: 700 }}>
-      <Card title="基本配置" size="small" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
-            <Switch size="small" checked={botConfig.dm_enabled !== false} onChange={v => handleConfigChange('dm_enabled', v)} />接收单聊消息
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
-            <Switch size="small" checked={botConfig.group_enabled !== false} onChange={v => handleConfigChange('group_enabled', v)} />接收群聊消息
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
-            <Switch size="small" checked={botConfig.group_require_mention !== false} onChange={v => handleConfigChange('group_require_mention', v)} />群聊仅处理@
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
-            <Switch size="small" checked={botConfig.echo_reply !== false} onChange={v => handleConfigChange('echo_reply', v)} />Echo 回复
-          </span>
-        </div>
-      </Card>
+  return (
+    <div className="bot-detail-page">
+      {/* 头部：返回、名称、标签、消息按钮 */}
+      <div className="detail-header" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+        <Button type="text" size="small" icon={<LeftOutlined />} onClick={onBack} className="back-btn" />
+        <h3 className="card-title" style={{ margin: 0 }}>{bot.bot_name}</h3>
+        <Tag color={bot.enabled ? 'green' : 'default'}>
+          {bot.enabled ? '已启用' : '已禁用'}
+        </Tag>
+        <Button
+          type="text"
+          size="small"
+          icon={<FileTextOutlined />}
+          onClick={() => setShowHistory(v => !v)}
+          style={{ marginLeft: 'auto' }}
+        >
+          消息记录
+        </Button>
+      </div>
 
-      {isFeishu && pushStatus && (
-        <Card title="推送配置" size="small" style={{ marginBottom: 16 }}>
-          <div style={{ marginBottom: 12 }}>
-            <span style={{ fontSize: 13, marginRight: 8 }}>推送目标</span>
-            <Select size="small" value={pushStatus.push_level} onChange={handlePushLevelChange} style={{ width: 90 }}
-              options={[
-                { value: 'disabled', label: '关闭' },
-                { value: 'result_only', label: '仅结论' },
-                { value: 'all', label: '全部' },
-              ]}
+      {/* 消息记录面板 */}
+      {showHistory && (
+        <Card title="历史消息" size="small" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+            <Select size="small" placeholder="筛选群聊" allowClear style={{ width: 150 }}
+              value={historySelectedChatId}
+              onChange={v => { setHistorySelectedChatId(v); setHistoryPage(1); }}
+              options={historyChats.map(c => ({ value: c.chat_id, label: c.chat_name || c.chat_id }))}
+            />
+            <Select size="small" placeholder="消息类型" allowClear style={{ width: 120 }}
+              value={historyIsHistory}
+              onChange={v => { setHistoryIsHistory(v); setHistoryPage(1); }}
+              options={[{ value: true, label: '历史消息' }, { value: false, label: '实时消息' }]}
             />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontSize: 12, width: 60, color: 'var(--color-text-tertiary)' }}>单聊ID:</span>
-              <Input size="small" value={pushStatus.p2p_receive_id} style={{ flex: 1, fontSize: 12 }} />
-              <Button size="small" icon={<CopyOutlined />} onClick={() => doCopyText(pushStatus.p2p_receive_id, 'p2p_receive_id')} />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontSize: 12, width: 60, color: 'var(--color-text-tertiary)' }}>群ID:</span>
-              <Input size="small" value={pushStatus.group_chat_id || ''} style={{ flex: 1, fontSize: 12 }} />
-              <Button size="small" icon={<CopyOutlined />} onClick={() => doCopyText(pushStatus.group_chat_id || '', 'group_chat_id')} />
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 16, fontSize: 13 }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Switch size="small" checked={pushStatus.p2p_response_enabled} onChange={v => handleResponseEnabledChange('p2p', v)} />单聊响应
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Switch size="small" checked={pushStatus.group_response_enabled} onChange={v => handleResponseEnabledChange('group', v)} />群聊响应
-            </span>
-          </div>
-        </Card>
-      )}
 
-      {isFeishu && (
-        <Card title="群聊响应白名单" size="small">
-          <Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
-            白名单为空时不限制，仅白名单内的用户消息会触发响应
-          </Paragraph>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <AutoComplete
-              size="small" placeholder="搜索或粘贴 Open ID" style={{ flex: 1 }}
-              value={whitelistOpenId}
-              onChange={setWhitelistOpenId}
-              options={historySenders.filter(s => s.sender_open_id).map(s => ({
-                value: s.sender_open_id,
-                label: `${s.sender_nickname || s.sender_open_id} (${s.count}条)`
-              }))}
-            />
-            <Input size="small" placeholder="备注名" value={whitelistName} onChange={e => setWhitelistName(e.target.value)} style={{ width: 100 }} />
-            <Button size="small" onClick={handleAddWhitelist}>添加</Button>
-          </div>
-          {groupWhitelist.map(w => (
-            <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, marginBottom: 4 }}>
-              <span style={{ flex: 1 }}>{w.sender_name || w.sender_open_id}</span>
-              <span style={{ color: 'var(--color-text-tertiary)', fontSize: 11 }}>{w.sender_open_id.slice(0, 12)}...</span>
-              <Button size="small" danger type="link" style={{ fontSize: 11, padding: 0 }} onClick={() => handleDeleteWhitelist(w.id)}>删除</Button>
-            </div>
-          ))}
-          {groupWhitelist.length === 0 && (
-            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>暂无白名单，所有用户均可触发响应</div>
-          )}
-        </Card>
-      )}
-    </div>
-  );
-
-  // Tab 内容：聊天绑定（展示绑定信息，不再提供绑定入口，绑定在列表页操作）
-  const chatBindingsTab = (
-    <div style={{ maxWidth: 700 }}>
-      <Card title="绑定信息" size="small">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 8, background: isFeishu ? '#1976D2' : '#888', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
-            {isFeishu ? '飞' : '其他'}
-          </div>
-          <div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>{bot.bot_name}</div>
-            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>App ID: {bot.app_id}</div>
-          </div>
-          <Tag color={bot.enabled ? 'green' : 'default'} style={{ marginLeft: 'auto' }}>
-            {bot.enabled ? '已启用' : '已禁用'}
-          </Tag>
-        </div>
-      </Card>
-    </div>
-  );
-
-  // Tab 内容：消息记录
-  const messageRecordsTab = (
-    <div style={{ maxWidth: 900 }}>
-      <Card title="历史消息" size="small">
-        <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
-          <Select size="small" placeholder="筛选群聊" allowClear style={{ width: 150 }}
-            value={historySelectedChatId}
-            onChange={v => { setHistorySelectedChatId(v); setHistoryPage(1); }}
-            options={historyChats.map(c => ({ value: c.chat_id, label: c.chat_name || c.chat_id }))}
-          />
-          <Select size="small" placeholder="消息类型" allowClear style={{ width: 120 }}
-            value={historyIsHistory}
-            onChange={v => { setHistoryIsHistory(v); setHistoryPage(1); }}
-            options={[{ value: true, label: '历史消息' }, { value: false, label: '实时消息' }]}
-          />
-        </div>
-
-        <List
-          loading={historyLoading}
-          dataSource={historyMessages}
-          locale={{ emptyText: '暂无消息记录' }}
-          renderItem={msg => (
-            <List.Item key={msg.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--color-border-light)' }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
-                  <span style={{ fontWeight: 500 }}>{msg.sender_nickname || msg.sender_open_id}</span>
-                  <span style={{ marginLeft: 8 }}>{msg.created_at ? new Date(msg.created_at).toLocaleString() : ''}</span>
-                  {msg.is_history && <Tag style={{ marginLeft: 8 }}>历史</Tag>}
+          <List
+            loading={historyLoading}
+            dataSource={historyMessages}
+            locale={{ emptyText: '暂无消息记录' }}
+            renderItem={msg => (
+              <List.Item key={msg.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--color-border-light)' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
+                    <span style={{ fontWeight: 500 }}>{msg.sender_nickname || msg.sender_open_id}</span>
+                    <span style={{ marginLeft: 8 }}>{msg.created_at ? new Date(msg.created_at).toLocaleString() : ''}</span>
+                    {msg.is_history && <Tag style={{ marginLeft: 8 }}>历史</Tag>}
+                  </div>
+                  <div style={{ fontSize: 13 }}>{msg.content}</div>
                 </div>
-                <div style={{ fontSize: 13 }}>{msg.content}</div>
+                <Button size="small" type="link" onClick={() => setHistoryViewMsg(msg.content || '')}>详情</Button>
+              </List.Item>
+            )}
+          />
+
+          <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <Button size="small" disabled={historyPage <= 1} onClick={() => setHistoryPage(p => p - 1)}>上一页</Button>
+            <span style={{ fontSize: 12, lineHeight: '24px' }}>第 {historyPage} 页，共 {historyTotal} 条</span>
+            <Button size="small" disabled={historyPage * historyPageSize >= historyTotal} onClick={() => setHistoryPage(p => p + 1)}>下一页</Button>
+          </div>
+        </Card>
+      )}
+
+      {/* 详情主体：基本配置 + 绑定信息合并 */}
+      <div style={{ maxWidth: 700 }}>
+        {/* Bot 基本信息 */}
+        <Card title="基本信息" size="small" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 8, background: isFeishu ? '#1976D2' : '#888', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14 }}>
+              {isFeishu ? '飞' : '其他'}
+            </div>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{bot.bot_name}</div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>App ID: {bot.app_id}</div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+              <Switch size="small" checked={botConfig.dm_enabled !== false} onChange={v => handleConfigChange('dm_enabled', v)} />接收单聊消息
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+              <Switch size="small" checked={botConfig.group_enabled !== false} onChange={v => handleConfigChange('group_enabled', v)} />接收群聊消息
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+              <Switch size="small" checked={botConfig.group_require_mention !== false} onChange={v => handleConfigChange('group_require_mention', v)} />群聊仅处理@
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+              <Switch size="small" checked={botConfig.echo_reply !== false} onChange={v => handleConfigChange('echo_reply', v)} />Echo 回复
+            </span>
+          </div>
+        </Card>
+
+        {/* 推送配置（仅飞书） */}
+        {isFeishu && pushStatus && (
+          <Card title="推送配置" size="small" style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 12 }}>
+              <span style={{ fontSize: 13, marginRight: 8 }}>推送目标</span>
+              <Select size="small" value={pushStatus.push_level} onChange={handlePushLevelChange} style={{ width: 90 }}
+                options={[
+                  { value: 'disabled', label: '关闭' },
+                  { value: 'result_only', label: '仅结论' },
+                  { value: 'all', label: '全部' },
+                ]}
+              />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 12, width: 60, color: 'var(--color-text-tertiary)' }}>单聊ID:</span>
+                <Input size="small" value={pushStatus.p2p_receive_id} style={{ flex: 1, fontSize: 12 }} />
+                <Button size="small" icon={<CopyOutlined />} onClick={() => doCopyText(pushStatus.p2p_receive_id, 'p2p_receive_id')} />
               </div>
-              <Button size="small" type="link" onClick={() => setHistoryViewMsg(msg.content || '')}>详情</Button>
-            </List.Item>
-          )}
-        />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 12, width: 60, color: 'var(--color-text-tertiary)' }}>群ID:</span>
+                <Input size="small" value={pushStatus.group_chat_id || ''} style={{ flex: 1, fontSize: 12 }} />
+                <Button size="small" icon={<CopyOutlined />} onClick={() => doCopyText(pushStatus.group_chat_id || '', 'group_chat_id')} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 16, fontSize: 13 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Switch size="small" checked={pushStatus.p2p_response_enabled} onChange={v => handleResponseEnabledChange('p2p', v)} />单聊响应
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Switch size="small" checked={pushStatus.group_response_enabled} onChange={v => handleResponseEnabledChange('group', v)} />群聊响应
+              </span>
+            </div>
+          </Card>
+        )}
 
-        <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <Button size="small" disabled={historyPage <= 1} onClick={() => setHistoryPage(p => p - 1)}>上一页</Button>
-          <span style={{ fontSize: 12, lineHeight: '24px' }}>第 {historyPage} 页，共 {historyTotal} 条</span>
-          <Button size="small" disabled={historyPage * historyPageSize >= historyTotal} onClick={() => setHistoryPage(p => p + 1)}>下一页</Button>
-        </div>
-      </Card>
+        {/* 群聊响应白名单（仅飞书） */}
+        {isFeishu && (
+          <Card title="群聊响应白名单" size="small">
+            <Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
+              白名单为空时不限制，仅白名单内的用户消息会触发响应
+            </Paragraph>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <AutoComplete
+                size="small" placeholder="搜索或粘贴 Open ID" style={{ flex: 1 }}
+                value={whitelistOpenId}
+                onChange={setWhitelistOpenId}
+                options={historySenders.filter(s => s.sender_open_id).map(s => ({
+                  value: s.sender_open_id,
+                  label: `${s.sender_nickname || s.sender_open_id} (${s.count}条)`
+                }))}
+              />
+              <Input size="small" placeholder="备注名" value={whitelistName} onChange={e => setWhitelistName(e.target.value)} style={{ width: 100 }} />
+              <Button size="small" onClick={handleAddWhitelist}>添加</Button>
+            </div>
+            {groupWhitelist.map(w => (
+              <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, marginBottom: 4 }}>
+                <span style={{ flex: 1 }}>{w.sender_name || w.sender_open_id}</span>
+                <span style={{ color: 'var(--color-text-tertiary)', fontSize: 11 }}>{w.sender_open_id.slice(0, 12)}...</span>
+                <Button size="small" danger type="link" style={{ fontSize: 11, padding: 0 }} onClick={() => handleDeleteWhitelist(w.id)}>删除</Button>
+              </div>
+            ))}
+            {groupWhitelist.length === 0 && (
+              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>暂无白名单，所有用户均可触发响应</div>
+            )}
+          </Card>
+        )}
+      </div>
 
+      {/* 消息详情弹窗 */}
       <Modal open={!!historyViewMsg} onCancel={() => setHistoryViewMsg(null)} footer={null} width={560} title="消息详情">
         <div style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 400, overflowY: 'auto' }}>
           {historyViewMsg}
         </div>
       </Modal>
-    </div>
-  );
-
-  return (
-    <div className="bot-detail-page">
-      <div className="detail-header" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-        <Button type="text" size="small" icon={<LeftOutlined />} onClick={onBack} className="back-btn" />
-        <h3 className="card-title" style={{ margin: 0 }}>{bot.bot_name}</h3>
-        <Tag color={bot.enabled ? 'green' : 'default'} style={{ marginLeft: 8 }}>
-          {bot.enabled ? '已启用' : '已禁用'}
-        </Tag>
-      </div>
-
-      <Tabs
-        size="small"
-        items={[
-          { key: 'basic', label: '基本设置', children: basicSettingsTab },
-          { key: 'binding', label: '聊天绑定', children: chatBindingsTab },
-          { key: 'records', label: '消息记录', children: messageRecordsTab },
-        ]}
-      />
     </div>
   );
 }
