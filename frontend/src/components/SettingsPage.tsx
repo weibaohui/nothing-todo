@@ -8,7 +8,6 @@ import {
   FolderOutlined,
   ThunderboltOutlined,
   InfoCircleOutlined,
-  MessageOutlined,
   PlayCircleOutlined,
   LaptopOutlined,
   FileTextOutlined,
@@ -27,7 +26,6 @@ import { TagsPanel } from './settings/TagsPanel';
 import { ProjectDirectoriesPanel } from './settings/ProjectDirectoriesPanel';
 import { BackupPanel } from './settings/BackupPanel';
 import { RuntimePanel } from './settings/RuntimePanel';
-import { MessagesPanel } from './settings/MessagesPanel';
 import { TemplatesPanel } from './settings/TemplatesPanel';
 import { AboutPanel } from './settings/AboutPanel';
 import { CloudSyncPanel } from './settings/CloudSyncPanel';
@@ -180,18 +178,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       key: 'tags',
       label: <span><TagOutlined style={{ marginRight: 6 }} />标签管理</span>,
       children: <TagsPanel tags={tags} dispatch={dispatch} />,
-    },
-    {
-      key: 'messages',
-      label: <span><MessageOutlined style={{ marginRight: 6 }} />消息</span>,
-      children: (
-        <MessagesPanel
-          configForm={configForm}
-          configSaving={configSaving}
-          handleSaveConfig={handleSaveConfig}
-          onBack={onBack}
-        />
-      ),
     },
     {
       key: 'sessions',

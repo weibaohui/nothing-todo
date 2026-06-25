@@ -4,6 +4,7 @@ import { DeleteOutlined, SwapOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import * as db from '@/utils/database';
 import type { AgentBot, ProjectDirectory } from '@/utils/database';
+import { BotDetailPage } from './BotDetailPage';
 
 interface WorkspaceAgentPanelProps {
   workspaceId: number;
@@ -18,6 +19,8 @@ export function WorkspaceAgentPanel({ workspaceId, onBotChanged }: WorkspaceAgen
   const [moveModalVisible, setMoveModalVisible] = useState(false);
   const [movingBotId, setMovingBotId] = useState<number | null>(null);
   const [targetWorkspaceId, setTargetWorkspaceId] = useState<number | null>(null);
+  // 选中的 bot，显示详情页
+  const [selectedBot, setSelectedBot] = useState<AgentBot | null>(null);
 
   const loadBots = () => {
     setLoading(true);
@@ -112,9 +115,16 @@ export function WorkspaceAgentPanel({ workspaceId, onBotChanged }: WorkspaceAgen
     {
       title: '操作',
       key: 'actions',
-      width: 150,
+      width: 180,
       render: (_: any, bot: AgentBot) => (
         <Space>
+          <Button
+            type="text"
+            size="small"
+            onClick={() => setSelectedBot(bot)}
+          >
+            详情
+          </Button>
           <Button
             type="text"
             size="small"
@@ -137,6 +147,17 @@ export function WorkspaceAgentPanel({ workspaceId, onBotChanged }: WorkspaceAgen
 
   // 其他工作空间的 bots
   const otherBots = allBots.filter(b => b.workspace_id !== workspaceId);
+
+  // 选中 bot，显示详情页
+  if (selectedBot) {
+    return (
+      <BotDetailPage
+        bot={selectedBot}
+        onBack={() => setSelectedBot(null)}
+        onRefresh={() => { loadBots(); onBotChanged?.(); }}
+      />
+    );
+  }
 
   return (
     <div>
