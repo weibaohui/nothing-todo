@@ -15,7 +15,7 @@
 //    方便后续单测 + 维护。
 
 import { Dropdown, Button } from 'antd';
-import type { MenuProps, ButtonProps } from 'antd';
+import type { MenuProps } from 'antd';
 import { DownOutlined, PlusOutlined } from '@ant-design/icons';
 import type { Key, ReactNode } from 'react';
 
@@ -56,66 +56,29 @@ export interface ActionToolbarProps<TId extends Key = number> {
   className?: string;
 }
 
-// ─── 内部子组件：SelectAll ───────────────────────────────────
+// ─── 内部子组件：SelectDropdown ─────────────────────────────────
 
-interface SelectAllProps<TId extends Key> {
+interface SelectDropdownProps<TId extends Key> {
   selectableIds: TId[];
   selectedIds: TId[];
   onChange: (next: TId[]) => void;
 }
 
-function SelectAll<TId extends Key>({ selectableIds, selectedIds, onChange }: SelectAllProps<TId>) {
-  // 三态判定：与 antd `Checkbox` 的 indeterminate 协议对齐
-  // indeterminate 时 input.checked 为 false，aria-checked='mixed' 反映部分选
+function SelectDropdown<TId extends Key>({ selectableIds, selectedIds, onChange }: SelectDropdownProps<TId>) {
+  // 计算状态
   const allCount = selectableIds.length;
   const selectedSet = new Set<TId>(selectedIds);
   const isAll = allCount > 0 && selectableIds.every(id => selectedSet.has(id));
   const isPartial = !isAll && selectedIds.some(id => selectedSet.has(id));
+  const unselectedCount = selectableIds.filter(id => !selectedSet.has(id)).length;
 
-  // 点击行为：未全选 → 全选；已全选 → 清空
-  const handleToggle = () => {
-    if (isAll || isPartial) {
-      onChange([]); // 任何非空状态点击都清空
-    } else {
-      onChange([...selectableIds]); // 全选当前可见项
-    }
+  // 全选动作
+  const handleSelectAll = () => {
+    onChange([...selectableIds]);
   };
 
-  // 统一按钮样式：根据状态调整外观
-  const getButtonStyle = (): ButtonProps => {
-    if (isAll) {
-      return { style: { backgroundColor: 'var(--color-primary-bg, #e6f7ff)', borderColor: 'var(--color-primary, #1890ff)', color: 'var(--color-primary, #1890ff)' } };
-    }
-    if (isPartial) {
-      return { style: { backgroundColor: 'var(--color-primary-bg, #e6f7ff)', borderColor: 'var(--color-primary, #1890ff)', color: 'var(--color-primary, #1890ff)' } };
-    }
-    return { style: { backgroundColor: 'transparent', borderColor: 'var(--color-border, #d9d9d9)' } };
-  };
-
-  return (
-    <Button
-      size="small"
-      onClick={handleToggle}
-      data-testid="action-toolbar-select-all"
-      {...getButtonStyle()}
-    >
-      {isAll ? '已全选' : isPartial ? '部分选' : '全选'}
-    </Button>
-  );
-}
-
-// ─── 内部子组件：InvertSelect ─────────────────────────────────
-
-interface InvertSelectProps<TId extends Key> {
-  selectableIds: TId[];
-  selectedIds: TId[];
-  onChange: (next: TId[]) => void;
-}
-
-function InvertSelect<TId extends Key>({ selectableIds, selectedIds, onChange }: InvertSelectProps<TId>) {
-  // 反选逻辑：将当前未选中的 selectableIds 加入选中列表，已选中的移除
+  // 反选动作
   const handleInvert = () => {
-    const selectedSet = new Set<TId>(selectedIds);
     const inverted: TId[] = [];
     for (const id of selectableIds) {
       if (!selectedSet.has(id)) {
@@ -125,33 +88,33 @@ function InvertSelect<TId extends Key>({ selectableIds, selectedIds, onChange }:
     onChange(inverted);
   };
 
-  // 当没有可选项目时禁用按钮
-  const disabled = selectableIds.length === 0;
+  // 下拉菜单项
+  const items: MenuProps['items'] = [
+    {
+      key: 'all',
+      label: '全选',
+      onClick: handleSelectAll,
+    },
+    {
+      key: 'invert',
+      label: `反选 (${unselectedCount}/${allCount})`,
+      onClick: handleInvert,
+    },
+  ];
 
-  // 计算反选后的状态用于显示
-  const selectedSet = new Set<TId>(selectedIds);
-  const unselectedCount = selectableIds.filter(id => !selectedSet.has(id)).length;
-  const totalCount = selectableIds.length;
-
-  // 统一按钮样式：与 SelectAll 保持一致
-  const getButtonStyle = (): ButtonProps => {
-    if (unselectedCount === 0) {
-      // 已全选，反选将变为空选
-      return { style: { backgroundColor: 'var(--color-primary-bg, #e6f7ff)', borderColor: 'var(--color-primary, #1890ff)', color: 'var(--color-primary, #1890ff)' } };
-    }
-    return { style: { backgroundColor: 'transparent', borderColor: 'var(--color-border, #d9d9d9)' } };
+  // 下拉按钮文案：显示当前选中状态
+  const dropdownLabel = () => {
+    if (isAll) return '已全选';
+    if (isPartial) return '部分选';
+    return '选择';
   };
 
   return (
-    <Button
-      size="small"
-      onClick={handleInvert}
-      disabled={disabled}
-      data-testid="action-toolbar-invert-select"
-      {...getButtonStyle()}
-    >
-      反选 ({unselectedCount}/{totalCount})
-    </Button>
+    <Dropdown menu={{ items }} trigger={['click']}>
+      <Button size="small" data-testid="action-toolbar-select-dropdown">
+        {dropdownLabel()} <DownOutlined style={{ fontSize: 10 }} />
+      </Button>
+    </Dropdown>
   );
 }
 
@@ -247,12 +210,7 @@ export function ActionToolbar<TId extends Key = number>(props: ActionToolbarProp
         flexShrink: 0,
       }}
     >
-      <SelectAll
-        selectableIds={selectableIds}
-        selectedIds={selectedIds}
-        onChange={onSelectionChange}
-      />
-      <InvertSelect
+      <SelectDropdown
         selectableIds={selectableIds}
         selectedIds={selectedIds}
         onChange={onSelectionChange}
