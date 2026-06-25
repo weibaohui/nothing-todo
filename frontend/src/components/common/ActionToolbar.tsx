@@ -14,9 +14,8 @@
 // 6. **拆分内部子组件**：SelectAll / BatchDropdown / CreateButton 各自 < 30 行，
 //    方便后续单测 + 维护。
 
-import { Checkbox, Dropdown, Button } from 'antd';
-import type { CheckboxProps } from 'antd';
-import type { MenuProps } from 'antd';
+import { Dropdown, Button } from 'antd';
+import type { MenuProps, ButtonProps } from 'antd';
 import { DownOutlined, PlusOutlined } from '@ant-design/icons';
 import type { Key, ReactNode } from 'react';
 
@@ -83,7 +82,7 @@ function SelectAll<TId extends Key>({ selectableIds, selectedIds, onChange }: Se
   };
 
   // 统一按钮样式：根据状态调整外观
-  const getButtonStyle = (): CheckboxProps => {
+  const getButtonStyle = (): ButtonProps => {
     if (isAll) {
       return { style: { backgroundColor: 'var(--color-primary-bg, #e6f7ff)', borderColor: 'var(--color-primary, #1890ff)', color: 'var(--color-primary, #1890ff)' } };
     }
@@ -135,7 +134,7 @@ function InvertSelect<TId extends Key>({ selectableIds, selectedIds, onChange }:
   const totalCount = selectableIds.length;
 
   // 统一按钮样式：与 SelectAll 保持一致
-  const getButtonStyle = () => {
+  const getButtonStyle = (): ButtonProps => {
     if (unselectedCount === 0) {
       // 已全选，反选将变为空选
       return { style: { backgroundColor: 'var(--color-primary-bg, #e6f7ff)', borderColor: 'var(--color-primary, #1890ff)', color: 'var(--color-primary, #1890ff)' } };
