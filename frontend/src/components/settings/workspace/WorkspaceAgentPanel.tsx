@@ -79,7 +79,7 @@ export function WorkspaceAgentPanel({ workspaceId, onBotChanged }: WorkspaceAgen
           if (pollRes.success) {
             setBindSuccess(true);
             message.success(`绑定成功！Bot: ${pollRes.bot_name || 'Feishu Bot'}`);
-            // 绑定成功后刷新列表，新 bot 会自动出现在当前 workspace（后端自动分配）
+            // 绑定成功后刷新列表，新 bot 会自动出现在当前 workspace
             loadBots();
             onBotChanged?.();
             successTimerRef.current = setTimeout(() => {
@@ -97,7 +97,8 @@ export function WorkspaceAgentPanel({ workspaceId, onBotChanged }: WorkspaceAgen
         (error) => {
           setPollError(error || 'SSE 连接失败');
           setBinding(false);
-        }
+        },
+        workspaceId,
       );
       setFeishuEventSource(eventSource);
     } catch (err: any) {

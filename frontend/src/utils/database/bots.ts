@@ -203,6 +203,7 @@ export async function feishuBegin(): Promise<FeishuBeginResponse> {
  * @param expire_in 过期时间（秒），默认 1800
  * @param onMessage 授权结果回调，接收 FeishuPollResponse
  * @param onError 错误回调，接收错误信息字符串
+ * @param workspaceId 创建 bot 时归属的工作空间 ID
  * @returns EventSource 实例，调用方负责管理其生命周期（关闭连接）
  */
 export function feishuPollSSE(
@@ -211,8 +212,17 @@ export function feishuPollSSE(
   expire_in: number = 1800,
   onMessage: (data: FeishuPollResponse) => void,
   onError?: (error: string) => void,
+  workspaceId?: number,
 ): EventSource {
-  const url = `/api/agent-bots/feishu/poll-stream?device_code=${encodeURIComponent(device_code)}&interval=${interval}&expire_in=${expire_in}`;
+  const params = new URLSearchParams({
+    device_code,
+    interval: String(interval),
+    expire_in: String(expire_in),
+  });
+  if (workspaceId !== undefined) {
+    params.set('workspace_id', String(workspaceId));
+  }
+  const url = `/api/agent-bots/feishu/poll-stream?${params.toString()}`;
   const eventSource = new EventSource(url);
 
   eventSource.addEventListener('result', (event) => {

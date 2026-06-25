@@ -140,6 +140,8 @@ pub struct FeishuPollRequest {
     pub device_code: String,
     pub interval: Option<u64>,
     pub expire_in: Option<u64>,
+    /// 创建 bot 时归属的工作空间 ID
+    pub workspace_id: Option<i64>,
 }
 
 // SSE 轮询飞书授权结果，支持页面关闭后继续执行
@@ -160,6 +162,7 @@ pub async fn feishu_poll_sse(
     // 将需要 clone 的值提取到闭包外部
     let db = state.db.clone();
     let listener = state.feishu_listener.clone();
+    let workspace_id = params.workspace_id.unwrap_or(0);
 
     // 启动后台轮询任务：独立于请求处理线程，持续轮询飞书 API
     tokio::spawn(async move {
@@ -275,10 +278,9 @@ pub async fn feishu_poll_sse(
                     }
                 };
 
-                // 在数据库中创建飞书 bot 记录
-                // TODO: 后续需要在 UI 中选择工作空间，这里暂时用 0（第一个工作空间）
+                // 在数据库中创建飞书 bot 记录，使用 SSE URL 中传入的 workspace_id
                 let bot_id = match db
-                    .create_agent_bot("feishu", bot_name.as_deref().unwrap_or("Feishu Bot"), app_id, app_secret, open_id.map(String::from), domain.clone(), 0)
+                    .create_agent_bot("feishu", bot_name.as_deref().unwrap_or("Feishu Bot"), app_id, app_secret, open_id.map(String::from), domain.clone(), workspace_id)
                     .await
                 {
                     Ok(id) => Some(id),
