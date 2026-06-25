@@ -61,6 +61,7 @@ pub(super) fn all_migrations() -> Vec<Box<dyn Migration>> {
         Box::new(RenameLoopStepsStepIdBackToTodoId),
         Box::new(V27AbnormalHandlerTodo),
         Box::new(V28DropLoopStepExecutionsStepIdFk),
+        Box::new(V29WebhookEnabledFields),
     ]
 }
 
@@ -3389,5 +3390,42 @@ impl V28DropLoopStepExecutionsStepIdFk {
     async fn cleanup_backup(db: &Database, backup: &str) -> Result<(), sea_orm::DbErr> {
         db.exec(&format!("DROP TABLE {}", backup)).await?;
         Ok(())
+    }
+}
+
+// ===== V29: 为 Todo/Loop 添加 webhook_enabled 列 =====
+//
+// 重构（b8a0f8a）将 Webhook 从独立的管理模型改为 Todo/Loop 的内置属性，
+// v1 DDL（create_todos_table / create_loops_table）已包含 webhook_enabled 列，
+// 但已有数据库（在 v1 建表后才添加该列到 DDL 中）的 todos 和 loops 表均缺失该列。
+//
+// 本次迁移为已有数据库补齐这两列。
+// 幂等：add_column_if_missing 确保列已存在时跳过。
+pub(super) struct V29WebhookEnabledFields;
+
+#[async_trait]
+impl Migration for V29WebhookEnabledFields {
+    fn version(&self) -> i64 {
+        29
+    }
+    fn name(&self) -> &'static str {
+        "webhook_enabled_fields"
+    }
+
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        add_column_if_missing(
+            db,
+            "todos",
+            "webhook_enabled",
+            "ALTER TABLE todos ADD COLUMN webhook_enabled INTEGER NOT NULL DEFAULT 0",
+        )
+        .await?;
+        add_column_if_missing(
+            db,
+            "loops",
+            "webhook_enabled",
+            "ALTER TABLE loops ADD COLUMN webhook_enabled INTEGER NOT NULL DEFAULT 0",
+        )
+        .await
     }
 }
