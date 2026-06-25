@@ -109,4 +109,19 @@ impl Database {
         let bot = agent_bots::Entity::find_by_id(bot_id).one(&self.conn).await?;
         Ok(bot.map(|b| b.workspace_id))
     }
+
+    /// 更新 bot 的 workspace_id（仅变更 workspace 时调用）
+    ///
+    /// 注意：此方法仅更新 workspace_id 字段本身，不执行级联逻辑。
+    /// 级联禁用 binding 由调用方在 handler 层负责。
+    pub async fn update_agent_bot_workspace_id(&self, bot_id: i64, workspace_id: i64) -> Result<(), sea_orm::DbErr> {
+        let bot = agent_bots::Entity::find_by_id(bot_id).one(&self.conn).await?;
+        let Some(bot) = bot else {
+            return Ok(());
+        };
+        let mut am: agent_bots::ActiveModel = bot.into();
+        am.workspace_id = ActiveValue::Set(workspace_id);
+        am.update(&self.conn).await?;
+        Ok(())
+    }
 }

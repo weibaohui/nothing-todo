@@ -581,7 +581,7 @@ mod tests {
         let restored: Config = serde_yaml::from_str(&yaml).unwrap();
         assert_eq!(restored.port, 1234);
         assert!(restored.db_path.contains(".ntd/data.db"));
-        assert!(restored.slash_command_rules.is_empty());
+        // slash_command_rules 和 default_response_todo_id 已迁移到数据库表
     }
 
     #[test]
@@ -627,21 +627,6 @@ mod tests {
     fn test_normalize_single_path_already_absolute() {
         let result = Config::normalize_single_path("/usr/bin/claude");
         assert_eq!(result, "/usr/bin/claude", "absolute path should not be modified");
-    }
-
-    #[test]
-    fn test_slash_command_rules_round_trip() {
-        let cfg = Config {
-            slash_command_rules: vec![SlashCommandRule {
-                slash_command: "/joke".to_string(),
-                todo_id: 8,
-                enabled: true,
-            }],
-            ..Default::default()
-        };
-        let yaml = serde_yaml::to_string(&cfg).unwrap();
-        let restored: Config = serde_yaml::from_str(&yaml).unwrap();
-        assert_eq!(restored.slash_command_rules, cfg.slash_command_rules);
     }
 
     // ---------------------------------------------------------------------------

@@ -264,7 +264,7 @@ mod cascade_delete_tests {
 
         // 1. Create a feishu bot (also creates feishu_response_config rows)
         let bot_id = db
-            .create_agent_bot("feishu", "test-bot", "app_id", "app_secret", None, None)
+            .create_agent_bot("feishu", "test-bot", "app_id", "app_secret", None, None, 0)
             .await
             .unwrap();
 
@@ -339,7 +339,7 @@ mod whitelist_and_message_tests {
     async fn test_add_group_whitelist_empty_sender_rejected() {
         let db = Database::new(":memory:").await.unwrap();
         let bot_id = db
-            .create_agent_bot("feishu", "test-bot", "app_id", "app_secret", None, None)
+            .create_agent_bot("feishu", "test-bot", "app_id", "app_secret", None, None, 0)
             .await
             .unwrap();
 
@@ -358,7 +358,7 @@ mod whitelist_and_message_tests {
     async fn test_sender_in_whitelist_with_entries() {
         let db = Database::new(":memory:").await.unwrap();
         let bot_id = db
-            .create_agent_bot("feishu", "test-bot", "app_id", "app_secret", None, None)
+            .create_agent_bot("feishu", "test-bot", "app_id", "app_secret", None, None, 0)
             .await
             .unwrap();
 
@@ -381,7 +381,7 @@ mod whitelist_and_message_tests {
     async fn test_sender_in_whitelist_empty_allows_all() {
         let db = Database::new(":memory:").await.unwrap();
         let bot_id = db
-            .create_agent_bot("feishu", "test-bot", "app_id", "app_secret", None, None)
+            .create_agent_bot("feishu", "test-bot", "app_id", "app_secret", None, None, 0)
             .await
             .unwrap();
 
@@ -395,7 +395,7 @@ mod whitelist_and_message_tests {
     async fn test_mark_feishu_message_failed() {
         let db = Database::new(":memory:").await.unwrap();
         let bot_id = db
-            .create_agent_bot("feishu", "test-bot", "app_id", "app_secret", None, None)
+            .create_agent_bot("feishu", "test-bot", "app_id", "app_secret", None, None, 0)
             .await
             .unwrap();
 
@@ -440,7 +440,7 @@ mod whitelist_and_message_tests {
     async fn test_save_feishu_history_message_processed_false() {
         let db = Database::new(":memory:").await.unwrap();
         let bot_id = db
-            .create_agent_bot("feishu", "test-bot", "app_id", "app_secret", None, None)
+            .create_agent_bot("feishu", "test-bot", "app_id", "app_secret", None, None, 0)
             .await
             .unwrap();
 

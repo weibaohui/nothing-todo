@@ -1316,6 +1316,12 @@ fn agent_bot_routes() -> Router<AppState> {
         .route("/api/agent-bots/feishu/group-whitelist/{id}", delete(agent_bot::delete_group_whitelist))
         .route("/api/agent-bots/{id}", delete(agent_bot::delete_agent_bot))
         .route("/api/agent-bots/{id}/config", put(agent_bot::update_agent_bot_config))
+        .route("/api/agent-bots/{id}/workspace", put(agent_bot::move_bot_to_workspace))
+        // Workspace 斜杠命令管理
+        .route("/api/workspace/{workspace_id}/slash-commands", get(agent_bot::list_workspace_slash_commands).post(agent_bot::create_workspace_slash_command))
+        .route("/api/workspace/{workspace_id}/slash-commands/{cmd_id}", put(agent_bot::update_workspace_slash_command).delete(agent_bot::delete_workspace_slash_command))
+        // Workspace 设置管理
+        .route("/api/workspace/{workspace_id}/settings", get(agent_bot::get_workspace_settings).put(agent_bot::update_workspace_settings))
 }
 
 /// 飞书相关路由：历史消息查询 + 绑定管理。
