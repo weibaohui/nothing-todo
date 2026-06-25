@@ -94,6 +94,10 @@ pub struct LoopDto {
     pub icon: String,
     pub review_template_id: Option<i64>,
     pub limits_config: String,
+    /// 异常处理 Todo ID
+    pub abnormal_handler_todo_id: Option<i64>,
+    /// 异常处理触发条件 JSON 数组
+    pub abnormal_handler_trigger_on: String,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
@@ -110,6 +114,8 @@ impl From<loops::Model> for LoopDto {
             icon: m.icon,
             review_template_id: m.review_template_id,
             limits_config: m.limits_config,
+            abnormal_handler_todo_id: m.abnormal_handler_todo_id,
+            abnormal_handler_trigger_on: m.abnormal_handler_trigger_on,
             created_at: m.created_at,
             updated_at: m.updated_at,
         }
@@ -361,9 +367,16 @@ pub struct CreateLoopRequest {
     pub review_template_id: Option<i64>,
     #[serde(default)]
     pub limits_config: Option<String>,
+    /// 异常处理 Todo ID
+    #[serde(default)]
+    pub abnormal_handler_todo_id: Option<i64>,
+    /// 异常处理触发条件 JSON 数组
+    #[serde(default = "default_abnormal_trigger_on")]
+    pub abnormal_handler_trigger_on: String,
 }
 
 fn default_icon() -> String { "loop".to_string() }
+fn default_abnormal_trigger_on() -> String { "[\"capped_step\",\"capped_token\",\"failed\"]".to_string() }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct UpdateLoopRequest {
@@ -374,6 +387,12 @@ pub struct UpdateLoopRequest {
     pub review_template_id: Option<i64>,
     #[serde(default)]
     pub limits_config: Option<String>,
+    /// 异常处理 Todo ID
+    #[serde(default)]
+    pub abnormal_handler_todo_id: Option<i64>,
+    /// 异常处理触发条件 JSON 数组
+    #[serde(default = "default_abnormal_trigger_on")]
+    pub abnormal_handler_trigger_on: String,
     /// 可选更新的标签 ID（单选）；传空数组或无字段表示不更新标签
     #[serde(default)]
     pub tag_ids: Option<Vec<i64>>,

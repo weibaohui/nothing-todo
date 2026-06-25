@@ -24,6 +24,11 @@ pub struct Model {
     /// JSON 全局限制配置: {"max_step_executions": 20, "max_total_tokens": null}
     #[sea_orm(default_value = "{}")]
     pub limits_config: String,
+    /// 异常处理 Todo ID，当 Loop 异常终止时执行的 Todo
+    pub abnormal_handler_todo_id: Option<i64>,
+    /// 异常处理触发条件 JSON 数组，如 ["capped_step", "capped_token", "failed"]
+    #[sea_orm(default_value = "[\"capped_step\",\"capped_token\",\"failed\"]")]
+    pub abnormal_handler_trigger_on: String,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }

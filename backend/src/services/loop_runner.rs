@@ -116,6 +116,10 @@ impl LoopRunner {
                         0,
                     )
                     .await;
+                // 触发异常处理 Todo（传入 0 作为步数/Token 统计）
+                let _ = this2_for_err
+                    .trigger_abnormal_handler(loop_id, loop_execution_id, "failed", 0, 0)
+                    .await;
             }
         });
 
@@ -362,6 +366,10 @@ impl LoopRunner {
                     .finish_loop_execution(loop_execution_id, "capped_step", completed, failed)
                     .await
                     .map_err(|e| e.to_string())?;
+                // 触发异常处理 Todo
+                let _ = self
+                    .trigger_abnormal_handler(loop_id, loop_execution_id, "capped_step", total_executed, total_tokens_used)
+                    .await;
                 return Ok(());
             }
             if total_tokens_used >= max_total_tokens {
@@ -374,6 +382,10 @@ impl LoopRunner {
                     .finish_loop_execution(loop_execution_id, "capped_token", completed, failed)
                     .await
                     .map_err(|e| e.to_string())?;
+                // 触发异常处理 Todo
+                let _ = self
+                    .trigger_abnormal_handler(loop_id, loop_execution_id, "capped_token", total_executed, total_tokens_used)
+                    .await;
                 return Ok(());
             }
 
@@ -581,6 +593,13 @@ impl LoopRunner {
             .finish_loop_execution(loop_execution_id, final_status, completed, failed)
             .await
             .map_err(|e| e.to_string())?;
+
+        // 对异常状态触发异常处理 Todo
+        if final_status == "failed" || final_status == "partial" {
+            let _ = self
+                .trigger_abnormal_handler(loop_id, loop_execution_id, final_status, total_executed, total_tokens_used)
+                .await;
+        }
 
         info!(
             "loop #{} run done: status={} completed={} failed={} total_executed={}",
@@ -1077,6 +1096,173 @@ impl LoopRunner {
             .map_err(|e| format!("load default template: {}", e))?
             .ok_or_else(|| "default reviewer template vanished".to_string())
     }
+
+    /// 触发异常处理 Todo 并写入 loop_step_execution 记录。
+    ///
+    /// 当 Loop 以异常状态结束时（capped_step / capped_token / failed），
+    /// 如果配置了异常处理 Todo 且当前状态在触发条件内，则执行该 Todo。
+    ///
+    /// 异常处理 Todo 的执行结果会作为一条特殊的 step execution 记录写入黑板，
+    /// 供后续环节或人工复盘使用。
+    ///
+    /// 设计要点：
+    /// - 使用特殊步骤 ID -1 标识异常处理步骤（正常步骤从 1 开始）
+    /// - 同步等待执行完成，提取结论写入 conclusion 字段
+    /// - 状态统一为 "abnormal_handler" 方便识别
+    async fn trigger_abnormal_handler(
+        &self,
+        loop_id: i64,
+        loop_execution_id: i64,
+        abnormal_status: &str,
+        total_executed_steps: i32,
+        total_tokens_used: i64,
+    ) -> Result<(), String> {
+        // 1. 加载 loop 配置
+        let loop_ = self
+            .ctx
+            .db
+            .get_loop(loop_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("loop #{} not found", loop_id))?;
+
+        let handler_todo_id = match loop_.abnormal_handler_todo_id {
+            Some(id) => id,
+            None => {
+                // 没有配置异常处理 Todo，静默返回
+                return Ok(());
+            }
+        };
+
+        // 2. 检查当前状态是否在触发条件内
+        let trigger_on: Vec<String> = serde_json::from_str(&loop_.abnormal_handler_trigger_on)
+            .unwrap_or_else(|_| vec![
+                "capped_step".to_string(),
+                "capped_token".to_string(),
+                "failed".to_string(),
+            ]);
+        if !trigger_on.contains(&abnormal_status.to_string()) {
+            info!(
+                "loop #{} abnormal handler: status '{}' not in trigger conditions {:?}, skip",
+                loop_id, abnormal_status, trigger_on
+            );
+            return Ok(());
+        }
+
+        // 3. 检查 handler Todo 是否仍然存在
+        let handler_todo = self
+            .ctx
+            .db
+            .get_todo(handler_todo_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("abnormal handler todo #{} not found, may have been deleted", handler_todo_id))?;
+
+        // 4. 构造上下文信息，注入到 prompt
+        let mut context_params = HashMap::new();
+        context_params.insert("loop_id".to_string(), loop_id.to_string());
+        context_params.insert("loop_execution_id".to_string(), loop_execution_id.to_string());
+        context_params.insert("loop_name".to_string(), loop_.name.clone());
+        context_params.insert("abnormal_status".to_string(), abnormal_status.to_string());
+        context_params.insert("total_executed_steps".to_string(), total_executed_steps.to_string());
+        context_params.insert("total_tokens_used".to_string(), total_tokens_used.to_string());
+
+        // 5. 构建增强 prompt，注入异常上下文
+        let enhanced_prompt = format!(
+            "{}\n\n## 异常上下文\n- Loop 名称: {}\n- Loop 执行 ID: {}\n- 异常状态: {}\n- 已执行步数: {}\n- 已消耗 Token: {}",
+            handler_todo.prompt,
+            loop_.name,
+            loop_execution_id,
+            abnormal_status,
+            total_executed_steps,
+            total_tokens_used,
+        );
+
+        // 6. 创建异常处理步骤记录（step_id=-1 标识异常处理步骤）
+        // 注意：使用专用方法绕过 FK 约束，因为 step_id=-1 在 loop_steps 表中不存在
+        let abnormal_step_exec_id = self
+            .ctx
+            .db
+            .create_abnormal_handler_step_execution(
+                loop_execution_id,
+                handler_todo_id,
+                999, // high sequence index so it appears last on blackboard
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // 8. 触发异常处理 Todo 的执行
+        let request = RunTodoExecutionRequest {
+            db: self.ctx.db.clone(),
+            executor_registry: self.ctx.executor_registry.clone(),
+            tx: self.ctx.tx.clone(),
+            task_manager: self.ctx.task_manager.clone(),
+            config: self.ctx.config.clone(),
+            todo_id: handler_todo_id,
+            message: enhanced_prompt,
+            req_executor: handler_todo.executor.clone(),
+            trigger_type: "loop_abnormal_handler".to_string(),
+            params: Some(context_params),
+            resume_session_id: None,
+            resume_message: None,
+            source_todo_id: Some(handler_todo_id),
+            source_todo_title: Some(handler_todo.title.clone()),
+            loop_step_execution_id: Some(abnormal_step_exec_id),
+            step_id: None,
+            feishu_bot_id: None,
+            feishu_receive_id: None,
+            workspace: handler_todo.workspace.clone(),
+        };
+
+        // 9. 等待 handler 执行完成（复用的 wait_for_step_finish，最长 24h）
+        let record_id = match run_todo_execution_with_params(request).await.record_id {
+            Some(id) => id,
+            None => {
+                let _ = self
+                    .ctx
+                    .db
+                    .finish_step_execution(
+                        abnormal_step_exec_id,
+                        "failed",
+                        None,
+                        Some("trigger failed"),
+                        None,
+                        None,
+                    )
+                    .await;
+                return Ok(());
+            }
+        };
+
+        let handler_status = self.wait_for_step_finish(record_id).await
+            .unwrap_or_else(|e| {
+                warn!("loop abnormal handler wait error: {}", e);
+                "failed".to_string()
+            });
+
+        // 10. 提取结论并更新 step execution
+        let conclusion = self.extract_conclusion(record_id).await;
+        let final_status = if handler_status == "success" { "success" } else { "failed" };
+
+        self.ctx
+            .db
+            .finish_step_execution(
+                abnormal_step_exec_id,
+                final_status,
+                Some(record_id),
+                None,
+                None,
+                Some(&conclusion),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+        info!(
+            "loop #{} abnormal handler finished: todo_id={} for status '{}', final_status={}, conclusion_len={}",
+            loop_id, handler_todo_id, abnormal_status, final_status, conclusion.len()
+        );
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1251,5 +1437,23 @@ mod tests {
         let config: LimitsConfig = serde_json::from_str(r#"{"max_total_tokens": 99999}"#).unwrap();
         assert_eq!(config.max_step_executions, None);
         assert_eq!(config.max_total_tokens, Some(99999));
+    }
+
+    /// 异常处理触发条件解析测试
+    #[test]
+    fn abnormal_trigger_on_parses_valid_json() {
+        let trigger_on: Vec<String> = serde_json::from_str(r#"["capped_step","capped_token","failed"]"#).unwrap();
+        assert_eq!(trigger_on.len(), 3);
+        assert!(trigger_on.contains(&"capped_step".to_string()));
+        assert!(trigger_on.contains(&"capped_token".to_string()));
+        assert!(trigger_on.contains(&"failed".to_string()));
+    }
+
+    #[test]
+    fn abnormal_trigger_on_defaults_to_all() {
+        let trigger_on: Vec<String> = serde_json::from_str(r#"["capped_step","capped_token","failed"]"#).unwrap();
+        assert!(trigger_on.contains(&"capped_step".to_string()));
+        assert!(trigger_on.contains(&"capped_token".to_string()));
+        assert!(trigger_on.contains(&"failed".to_string()));
     }
 }

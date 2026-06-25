@@ -41,6 +41,8 @@ impl Database {
         icon: &str,
         review_template_id: Option<i64>,
         limits_config: Option<&str>,
+        abnormal_handler_todo_id: Option<i64>,
+        abnormal_handler_trigger_on: &str,
     ) -> Result<loops::Model, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = loops::ActiveModel {
@@ -50,6 +52,8 @@ impl Database {
             icon: ActiveValue::Set(icon.to_string()),
             review_template_id: ActiveValue::Set(review_template_id),
             limits_config: ActiveValue::Set(limits_config.unwrap_or("{}").to_string()),
+            abnormal_handler_todo_id: ActiveValue::Set(abnormal_handler_todo_id),
+            abnormal_handler_trigger_on: ActiveValue::Set(abnormal_handler_trigger_on.to_string()),
             status: ActiveValue::Set("paused".to_string()),
             created_at: ActiveValue::Set(Some(now.clone())),
             updated_at: ActiveValue::Set(Some(now)),
@@ -67,6 +71,8 @@ impl Database {
         icon: &str,
         review_template_id: Option<i64>,
         limits_config: Option<&str>,
+        abnormal_handler_todo_id: Option<i64>,
+        abnormal_handler_trigger_on: &str,
     ) -> Result<(), sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let existing = loops::Entity::find_by_id(id).one(&self.conn).await?;
@@ -80,6 +86,8 @@ impl Database {
             if let Some(lc) = limits_config {
                 am.limits_config = ActiveValue::Set(lc.to_string());
             }
+            am.abnormal_handler_todo_id = ActiveValue::Set(abnormal_handler_todo_id);
+            am.abnormal_handler_trigger_on = ActiveValue::Set(abnormal_handler_trigger_on.to_string());
             am.updated_at = ActiveValue::Set(Some(now));
             am.update(&self.conn).await?;
         }
@@ -132,6 +140,8 @@ impl Database {
                 &source.icon,
                 source.review_template_id,
                 Some(source.limits_config.as_str()),
+                source.abnormal_handler_todo_id,
+                &source.abnormal_handler_trigger_on,
             )
             .await?;
 
@@ -613,6 +623,33 @@ impl Database {
         am.insert(&self.conn).await
     }
 
+    /// 为异常处理步骤创建 loop_step_execution 记录。
+    ///
+    /// 使用原始 SQL 绕过外键约束，因为 abnormal handler 使用特殊 step_id=-1
+    ///（该 ID 在 loop_steps 表中不存在，直接用 SeaORM insert 会触发 FK 校验失败）。
+    pub async fn create_abnormal_handler_step_execution(
+        &self,
+        loop_execution_id: i64,
+        todo_id: i64,
+        sequence_index: i32,
+    ) -> Result<i64, sea_orm::DbErr> {
+        use sea_orm::{ConnectionTrait, Statement};
+        let sql = r#"
+            INSERT INTO loop_step_executions
+                (loop_execution_id, step_id, todo_id, status, sequence_index, started_at)
+            VALUES (?1, -1, ?2, 'running', ?3, datetime('now'))
+        "#;
+        let result = self
+            .conn
+            .execute(Statement::from_sql_and_values(
+                sea_orm::DbBackend::Sqlite,
+                sql,
+                [loop_execution_id.into(), todo_id.into(), sequence_index.into()],
+            ))
+            .await?;
+        Ok(result.last_insert_id() as i64)
+    }
+
     pub async fn list_loop_step_executions(
         &self,
         loop_execution_id: i64,
@@ -808,7 +845,9 @@ impl Database {
         use sea_orm::{ConnectionTrait, Statement};
         let sql = match workspace {
             Some(_) => "SELECT l.id, l.name, l.description, l.workspace, \
-                          l.status, l.color, l.icon, l.limits_config, l.review_template_id, l.created_at, l.updated_at, \
+                          l.status, l.color, l.icon, l.limits_config, l.review_template_id, \
+                          l.abnormal_handler_todo_id, l.abnormal_handler_trigger_on, \
+                          l.created_at, l.updated_at, \
                           (SELECT COUNT(*) FROM loop_triggers t WHERE t.loop_id = l.id) as trigger_count, \
                           (SELECT COUNT(*) FROM loop_steps s WHERE s.loop_id = l.id) as step_count, \
                           (SELECT le.status FROM loop_executions le \
@@ -822,7 +861,9 @@ impl Database {
                    WHERE l.workspace = ?1 \
                    ORDER BY l.updated_at DESC",
             None => "SELECT l.id, l.name, l.description, l.workspace, \
-                      l.status, l.color, l.icon, l.limits_config, l.review_template_id, l.created_at, l.updated_at, \
+                      l.status, l.color, l.icon, l.limits_config, l.review_template_id, \
+                      l.abnormal_handler_todo_id, l.abnormal_handler_trigger_on, \
+                      l.created_at, l.updated_at, \
                       (SELECT COUNT(*) FROM loop_triggers t WHERE t.loop_id = l.id) as trigger_count, \
                       (SELECT COUNT(*) FROM loop_steps s WHERE s.loop_id = l.id) as step_count, \
                       (SELECT le.status FROM loop_executions le \
@@ -859,6 +900,8 @@ impl Database {
                     icon: row.try_get_by::<String, _>("icon")?,
                     review_template_id: row.try_get_by::<Option<i64>, _>("review_template_id")?,
                     limits_config: row.try_get_by::<String, _>("limits_config")?,
+                    abnormal_handler_todo_id: row.try_get_by::<Option<i64>, _>("abnormal_handler_todo_id")?,
+                    abnormal_handler_trigger_on: row.try_get_by::<String, _>("abnormal_handler_trigger_on")?,
                     created_at: row.try_get_by::<Option<String>, _>("created_at")?,
                     updated_at: row.try_get_by::<Option<String>, _>("updated_at")?,
                 },
