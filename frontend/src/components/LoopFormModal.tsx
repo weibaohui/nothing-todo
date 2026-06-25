@@ -9,7 +9,7 @@
 // 被 LoopStudioDetailPanel（编辑）和 App.tsx（新建）共用。
 
 import { useEffect, useState, useCallback } from 'react';
-import { App as AntApp, Modal, Form, Input, InputNumber, Select, Button, Checkbox } from 'antd';
+import { App as AntApp, Drawer, Form, Input, InputNumber, Select, Button, Checkbox, Modal } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import * as dbLoops from '@/utils/database/loops';
 import * as dbReviewTemplates from '@/utils/database/reviewTemplates';
@@ -211,17 +211,21 @@ export function LoopFormModal({
 
   return (
     <>
-      {/* 主表单 Modal */}
-      <Modal
+      {/* 主表单 Drawer */}
+      <Drawer
         title={mode === 'create' ? '新建环路' : '编辑 loop'}
         open={open}
-        onCancel={onClose}
-        onOk={handleSave}
-        okText={mode === 'create' ? '创建' : '保存'}
-        cancelText="取消"
-        confirmLoading={saving}
-        width={560}
+        onClose={onClose}
+        width={600}
         destroyOnClose
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <Button onClick={onClose}>取消</Button>
+            <Button type="primary" loading={saving} onClick={handleSave}>
+              {mode === 'create' ? '创建' : '保存'}
+            </Button>
+          </div>
+        }
       >
         <Form form={form} layout="vertical">
           {/* 名称：必填 */}
@@ -284,6 +288,20 @@ export function LoopFormModal({
               options={reviewTemplateOptions.map(t => ({ value: t.id, label: t.name }))}
             />
           </Form.Item>
+          {/* 全局限制 */}
+          <div style={{ fontWeight: 600, fontSize: 14, marginTop: 16, marginBottom: 12, color: 'var(--color-text-secondary, #64748b)' }}>
+            全局限制
+          </div>
+          <div style={{ background: 'var(--color-bg-elevated, #f8fafc)', padding: 12, borderRadius: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Form.Item label="最大执行步数" name={['max_step_executions']} tooltip="超出后自动终止 Loop（留空=不限制）">
+                <InputNumber min={1} max={9999} placeholder="不限" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item label="最大 Token 数" name={['max_total_tokens']} tooltip="超出后自动终止（留空=不限制）">
+                <InputNumber min={1} max={9999999999} placeholder="不限" style={{ width: '100%' }} step={1000000} />
+              </Form.Item>
+            </div>
+          </div>
           {/* 异常处理 Todo */}
           <div style={{ fontWeight: 600, fontSize: 14, marginTop: 16, marginBottom: 8, color: 'var(--color-text-secondary, #64748b)' }}>
             异常处理
@@ -319,22 +337,8 @@ export function LoopFormModal({
               />
             </Form.Item>
           </div>
-          {/* 全局限制 */}
-          <div style={{ fontWeight: 600, fontSize: 14, marginTop: 16, marginBottom: 12, color: 'var(--color-text-secondary, #64748b)' }}>
-            全局限制
-          </div>
-          <div style={{ background: 'var(--color-bg-elevated, #f8fafc)', padding: 12, borderRadius: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <Form.Item label="最大执行步数" name={['max_step_executions']} tooltip="超出后自动终止 Loop（留空=不限制）">
-                <InputNumber min={1} max={9999} placeholder="不限" style={{ width: '100%' }} />
-              </Form.Item>
-              <Form.Item label="最大 Token 数" name={['max_total_tokens']} tooltip="超出后自动终止（留空=不限制）">
-                <InputNumber min={1} max={9999999999} placeholder="不限" style={{ width: '100%' }} step={1000000} />
-              </Form.Item>
-            </div>
-          </div>
         </Form>
-      </Modal>
+      </Drawer>
 
       {/* inline 新建评审模板的 Modal */}
       <Modal
