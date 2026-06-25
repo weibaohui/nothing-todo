@@ -110,6 +110,30 @@ impl Database {
             .collect())
     }
 
+    /// 按工作空间名称过滤 Todo
+    pub async fn get_todos_by_workspace(&self, workspace_name: Option<&str>) -> Result<Vec<Todo>, sea_orm::DbErr> {
+        let mut query = todos::Entity::find()
+            .filter(todos::Column::DeletedAt.is_null())
+            .order_by_desc(todos::Column::UpdatedAt);
+
+        if let Some(name) = workspace_name {
+            query = query.filter(todos::Column::Workspace.eq(name));
+        }
+
+        let models = query.all(&self.conn).await?;
+
+        let ids: Vec<i64> = models.iter().map(|m| m.id).collect();
+        let tag_map = self.fetch_tag_ids_for_many(&ids).await?;
+
+        Ok(models
+            .into_iter()
+            .map(|m| {
+                let tag_ids = tag_map.get(&m.id).cloned().unwrap_or_default();
+                Self::model_to_todo(m, tag_ids)
+            })
+            .collect())
+    }
+
     pub async fn create_todo(&self, title: &str, prompt: &str) -> Result<i64, sea_orm::DbErr> {
         self.create_todo_with_executor(title, prompt, Some(crate::adapters::DEFAULT_EXECUTOR)).await
     }

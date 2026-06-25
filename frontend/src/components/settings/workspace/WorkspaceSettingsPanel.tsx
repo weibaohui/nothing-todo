@@ -5,10 +5,11 @@ import type { Todo } from '@/types';
 
 interface WorkspaceSettingsPanelProps {
   workspaceId: number;
+  workspaceName: string;
   onChanged?: () => void;
 }
 
-export function WorkspaceSettingsPanel({ workspaceId, onChanged }: WorkspaceSettingsPanelProps) {
+export function WorkspaceSettingsPanel({ workspaceId, workspaceName, onChanged }: WorkspaceSettingsPanelProps) {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -16,8 +17,8 @@ export function WorkspaceSettingsPanel({ workspaceId, onChanged }: WorkspaceSett
 
   useEffect(() => {
     loadSettings();
-    db.getAllTodos().then(setTodos).catch(() => {});
-  }, [workspaceId]);
+    db.getAllTodos(workspaceName).then(setTodos).catch(() => {});
+  }, [workspaceId, workspaceName]);
 
   const loadSettings = () => {
     setLoading(true);

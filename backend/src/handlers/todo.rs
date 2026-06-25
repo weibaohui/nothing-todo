@@ -25,16 +25,20 @@ fn validate_cron_expression(expr: &str) -> Result<(), String> {
         })
 }
 
-pub async fn get_todos(
-    State(state): State<AppState>,
-    axum::extract::Query(_params): axum::extract::Query<TodoListQuery>,
-) -> Result<ApiResponse<Vec<Todo>>, AppError> {
-    let todos = state.db.get_todos().await?;
-    Ok(ApiResponse::ok(todos))
+#[derive(Debug, serde::Deserialize)]
+pub struct TodoListQuery {
+    /// 按工作空间名称过滤 Todo（对应 todos.workspace 字段）
+    #[serde(default)]
+    pub workspace_name: Option<String>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct TodoListQuery {}
+pub async fn get_todos(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<TodoListQuery>,
+) -> Result<ApiResponse<Vec<Todo>>, AppError> {
+    let todos = state.db.get_todos_by_workspace(params.workspace_name.as_deref()).await?;
+    Ok(ApiResponse::ok(todos))
+}
 
 pub async fn get_todo(
     State(state): State<AppState>,

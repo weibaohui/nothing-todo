@@ -38,7 +38,8 @@ impl FeishuPushService {
         let db = self.db.clone();
         let feishu_listener = self.feishu_listener.clone();
         let mut config_rx = self.mutator.subscribe();
-        let mut targets_cache: Vec<(i64, String, String, String)> = Vec::new();
+        // workspace_name → [(bot_id, receive_id, receive_id_type, push_level)]
+        let mut targets_cache: std::collections::HashMap<Option<String>, Vec<(i64, String, String, String)>> = std::collections::HashMap::new();
         let mut last_refresh = Instant::now();
 
         tokio::spawn(async move {
@@ -69,7 +70,24 @@ impl FeishuPushService {
                                     }
                                 }
 
-                                if targets_cache.is_empty() {
+                                // Extract workspace_name from Finished event
+                                let event_workspace = match &ev {
+                                    ExecEvent::Finished { workspace_name, .. } => workspace_name.clone(),
+                                    _ => None,
+                                };
+
+                                // Only send to bots in the same workspace
+                                let Some(targets) = targets_cache.get(&event_workspace).or_else(|| {
+                                    if event_workspace.is_some() {
+                                        targets_cache.get(&None)
+                                    } else {
+                                        None
+                                    }
+                                }) else {
+                                    continue;
+                                };
+
+                                if targets.is_empty() {
                                     continue;
                                 }
 
@@ -77,7 +95,7 @@ impl FeishuPushService {
                                     continue;
                                 };
 
-                                for (bot_id, receive_id, receive_id_type, push_level) in targets_cache.iter() {
+                                for (bot_id, receive_id, receive_id_type, push_level) in targets.iter() {
                                     if !Self::should_send(push_level, &ev) {
                                         continue;
                                     }
@@ -126,11 +144,11 @@ impl FeishuPushService {
         }
     }
 
-    async fn refresh_targets(db: &Database, targets: &mut Vec<(i64, String, String, String)>) {
+    async fn refresh_targets(db: &Database, targets: &mut std::collections::HashMap<Option<String>, Vec<(i64, String, String, String)>>) {
         targets.clear();
-        match db.get_all_enabled_push_targets().await {
-            Ok(targets_list) => {
-                *targets = targets_list;
+        match db.get_all_push_targets_by_workspace().await {
+            Ok(targets_map) => {
+                *targets = targets_map;
             }
             Err(e) => {
                 error!("[feishu-push] failed to load push targets: {}", e);

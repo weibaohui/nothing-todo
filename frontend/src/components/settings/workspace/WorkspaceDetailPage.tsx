@@ -54,7 +54,7 @@ export function WorkspaceDetailPage({ workspace, onBack }: WorkspaceDetailPagePr
                 斜杠命令
               </span>
             ),
-            children: <WorkspaceSlashCommandsPanel workspaceId={workspace.id} />,
+            children: <WorkspaceSlashCommandsPanel workspaceId={workspace.id} workspaceName={workspace.name || ''} />,
           },
           {
             key: 'settings',
@@ -64,7 +64,7 @@ export function WorkspaceDetailPage({ workspace, onBack }: WorkspaceDetailPagePr
                 设置
               </span>
             ),
-            children: <WorkspaceSettingsPanel workspaceId={workspace.id} />,
+            children: <WorkspaceSettingsPanel workspaceId={workspace.id} workspaceName={workspace.name || ''} />,
           },
         ]}
       />
