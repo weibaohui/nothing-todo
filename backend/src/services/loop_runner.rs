@@ -900,6 +900,10 @@ impl LoopRunner {
         step_acceptance_criteria: Option<&str>,
         review_template_id: Option<i64>,
     ) -> Result<(bool, Option<i32>, Option<String>), String> {
+        info!(
+            "apply_rating_gate: record #{} min_rating={} step_acceptance_criteria={:?} review_template_id={:?}",
+            record_id, min_rating, step_acceptance_criteria, review_template_id
+        );
         // 先检查是否已有评分
         let rec = self
             .ctx
@@ -918,6 +922,11 @@ impl LoopRunner {
 
         // 无评分但有验收标准：发起自动评审
         if let Some(criteria) = step_acceptance_criteria.filter(|s| !s.trim().is_empty()) {
+            info!(
+                "apply_rating_gate: record #{} HAS acceptance_criteria (len={}), entering auto-review",
+                record_id,
+                criteria.len()
+            );
             info!("rating gate: record #{} triggering auto-review", record_id);
 
             // 1) 获取评审模板
@@ -1064,10 +1073,20 @@ impl LoopRunner {
                     record_id, r, min_rating, if passed { "PASS" } else { "FAIL" });
                 return Ok((passed, Some(r), None));
             }
+
+            // 有验收标准、评审也执行了，但未能提取到有效评分
+            info!(
+                "apply_rating_gate: record #{} auto-review done but no rating extracted, treating as FAIL",
+                record_id
+            );
+            return Ok((false, None, Some("自动评审已完成但未能提取有效评分，请检查评审模板输出格式".to_string())));
         }
 
         // 无评分且无验收标准 = 视为 0 分，不通过
-        info!("rating gate: record #{} no rating and no criteria, treating as FAIL", record_id);
+        info!(
+            "apply_rating_gate: record #{} no rating and no acceptance_criteria, treating as FAIL",
+            record_id
+        );
         Ok((false, None, Some("环节未设置验收标准，无法触发自动评审".to_string())))
     }
 
