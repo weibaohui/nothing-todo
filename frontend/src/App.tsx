@@ -204,8 +204,9 @@ function AppContent() {
     setSelectedLoopId(null);
     clearSelection();
     setForcedListMode(mode);
-    pushUrl(mode === 'loop' ? 'loops' : 'items');
-  }, [pushUrl, clearSelection]);
+    // 使用 replaceUrl + panel=list：切回 items/loops 时定位到列表页，不污染历史
+    replaceUrl(mode === 'loop' ? 'loops' : 'items', { panel: 'list' });
+  }, [replaceUrl, clearSelection]);
 
   /**
    * 左侧主导航点击处理（桌面侧栏/移动抽屉共用）。
