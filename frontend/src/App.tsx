@@ -381,6 +381,7 @@ function AppContent() {
               onListModeChange={() => {
                 setForcedListMode(undefined);
               }}
+              activeView={activeView}
             />
           </div>
 
@@ -490,6 +491,9 @@ function AppContent() {
               <SettingsPage onBack={isMobile ? backToList : undefined} />
             ) : activeView === 'memorial' ? (
               <MemorialBoard onBack={isMobile ? backToList : undefined} />
+            ) : activeView === 'items' || activeView === 'loops' ? (
+              // 事项/环路视图但未选中具体条目：展示空白区域，绝不回退到 Dashboard
+              <div />
             ) : (
               <Dashboard onBack={isMobile ? backToList : undefined} />
             )}
