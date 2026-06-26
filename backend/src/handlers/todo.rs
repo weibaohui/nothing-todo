@@ -25,16 +25,20 @@ fn validate_cron_expression(expr: &str) -> Result<(), String> {
         })
 }
 
-pub async fn get_todos(
-    State(state): State<AppState>,
-    axum::extract::Query(_params): axum::extract::Query<TodoListQuery>,
-) -> Result<ApiResponse<Vec<Todo>>, AppError> {
-    let todos = state.db.get_todos().await?;
-    Ok(ApiResponse::ok(todos))
+#[derive(Debug, serde::Deserialize)]
+pub struct TodoListQuery {
+    /// 按工作空间 ID 过滤 Todo（对应 todos.workspace_id 字段）
+    #[serde(default)]
+    pub workspace_id: Option<i64>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct TodoListQuery {}
+pub async fn get_todos(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<TodoListQuery>,
+) -> Result<ApiResponse<Vec<Todo>>, AppError> {
+    let todos = state.db.get_todos_by_workspace_id(params.workspace_id).await?;
+    Ok(ApiResponse::ok(todos))
+}
 
 pub async fn get_todo(
     State(state): State<AppState>,
@@ -69,6 +73,7 @@ pub async fn create_todo(
         Some(&executor),
         req.acceptance_criteria.as_deref(),
         req.webhook_enabled.unwrap_or(false),
+        None, // workspace_id 由调用方在创建后通过 update_todo_workspace 单独设置
     ).await?;
 
     // Update executor if specified
@@ -141,6 +146,7 @@ pub async fn create_todo(
         scheduler_next_run_at: None,
         task_id: None,
         workspace: None,
+        workspace_id: None,
         webhook_enabled: req.webhook_enabled.unwrap_or(false),
         acceptance_criteria: req.acceptance_criteria.clone(),
         todo_type: 0,

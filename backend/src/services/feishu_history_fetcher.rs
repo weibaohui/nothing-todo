@@ -225,6 +225,9 @@ impl FeishuHistoryFetcher {
             _ => None,
         };
 
+        // 获取 bot 所属的 workspace_id，保存到消息记录中
+        let workspace_id = self.ctx.db.get_agent_bot_workspace_id(bot_id).await.unwrap_or(None);
+
         let mut total_fetched = 0;
         let mut page_token: Option<String> = None;
         let mut has_more = true;
@@ -321,6 +324,7 @@ impl FeishuHistoryFetcher {
                             content: content.as_deref(),
                             msg_type: &item.msg_type,
                             created_at: &created_at,
+                            workspace_id,
                         })
                         .await
                     {
@@ -404,6 +408,7 @@ impl FeishuHistoryFetcher {
                                     resume_session_id: None,
                                     resume_message: None,
                                     binding_id: None,
+                                    workspace_id: None,
                                 });
                                 // Debounce timer will mark message as processed with execution_record_id
                             }
@@ -417,30 +422,10 @@ impl FeishuHistoryFetcher {
     }
 
     /// Resolve the target todo_id for a message: slash command match or default response.
-    async fn resolve_todo_id(config: &Arc<RwLock<AppConfig>>, content: &str) -> Option<i64> {
-        let trimmed = content.trim();
-
-        // Try slash command first
-        if trimmed.starts_with('/') {
-            let mut parts = trimmed.splitn(2, char::is_whitespace);
-            let command = parts.next()?.trim();
-            let body = parts.next().unwrap_or("").trim();
-
-            if !body.is_empty() {
-                let cfg = config.read().unwrap();
-                if let Some(rule) = cfg
-                    .slash_command_rules
-                    .iter()
-                    .find(|rule| rule.enabled && rule.slash_command.eq_ignore_ascii_case(command))
-                {
-                    return Some(rule.todo_id);
-                }
-            }
-        }
-
-        // Fall through to default response
-        let cfg = config.read().unwrap();
-        cfg.default_response_todo_id
+    /// TODO: 需要改为从 workspace 设置查询
+    async fn resolve_todo_id(_config: &Arc<RwLock<AppConfig>>, _content: &str) -> Option<i64> {
+        // 当前实现已移除，后续需要通过 workspace 设置查询
+        None
     }
 
     #[allow(dead_code)]

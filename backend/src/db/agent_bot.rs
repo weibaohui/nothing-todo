@@ -16,6 +16,7 @@ fn map_bot(m: agent_bots::Model) -> AgentBot {
         enabled: m.enabled.unwrap_or(true),
         config: m.config.unwrap_or_else(|| "{}".to_string()),
         created_at: m.created_at.unwrap_or_default(),
+        workspace_id: m.workspace_id,
     }
 }
 
@@ -36,6 +37,7 @@ impl Database {
         app_secret: &str,
         bot_open_id: Option<String>,
         domain: Option<String>,
+        workspace_id: i64,
     ) -> Result<i64, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let am = agent_bots::ActiveModel {
@@ -45,6 +47,7 @@ impl Database {
             app_secret: ActiveValue::Set(app_secret.to_string()),
             bot_open_id: ActiveValue::Set(bot_open_id),
             domain: ActiveValue::Set(domain),
+            workspace_id: ActiveValue::Set(workspace_id),
             enabled: ActiveValue::Set(Some(true)),
             config: ActiveValue::Set(Some("{}".to_string())),
             created_at: ActiveValue::Set(Some(now.clone())),
@@ -99,5 +102,33 @@ impl Database {
         am.config = ActiveValue::Set(Some(config.to_string()));
         am.update(&self.conn).await?;
         Ok(())
+    }
+
+    /// 获取 bot 的 workspace_id
+    pub async fn get_agent_bot_workspace_id(&self, bot_id: i64) -> Result<Option<i64>, sea_orm::DbErr> {
+        let bot = agent_bots::Entity::find_by_id(bot_id).one(&self.conn).await?;
+        Ok(bot.map(|b| b.workspace_id))
+    }
+
+    /// 更新 bot 的 workspace_id（仅变更 workspace 时调用）
+    ///
+    /// 注意：此方法仅更新 workspace_id 字段本身，不执行级联逻辑。
+    /// 级联禁用 binding 由调用方在 handler 层负责。
+    pub async fn update_agent_bot_workspace_id(&self, bot_id: i64, workspace_id: i64) -> Result<(), sea_orm::DbErr> {
+        let bot = agent_bots::Entity::find_by_id(bot_id).one(&self.conn).await?;
+        let Some(bot) = bot else {
+            return Ok(());
+        };
+        let mut am: agent_bots::ActiveModel = bot.into();
+        am.workspace_id = ActiveValue::Set(workspace_id);
+        am.update(&self.conn).await?;
+        Ok(())
+    }
+
+    /// 获取 workspace 名称（通过 workspace_id 查 project_directories 表）
+    pub async fn get_workspace_name_by_id(&self, workspace_id: i64) -> Result<Option<String>, sea_orm::DbErr> {
+        use crate::db::entity::project_directories;
+        let ws = project_directories::Entity::find_by_id(workspace_id).one(&self.conn).await?;
+        Ok(ws.and_then(|w| w.name))
     }
 }

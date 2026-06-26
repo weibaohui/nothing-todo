@@ -296,11 +296,11 @@ mod agent_bot_tests {
     async fn test_agent_bot_crud_main_path() {
         let db = setup_db().await;
         let id_first = db
-            .create_agent_bot("custom", "first", "app1", "secret1", None, None)
+            .create_agent_bot("custom", "first", "app1", "secret1", None, None, 0)
             .await
             .unwrap();
         let id_second = db
-            .create_agent_bot("custom", "second", "app2", "secret2", None, None)
+            .create_agent_bot("custom", "second", "app2", "secret2", None, None, 0)
             .await
             .unwrap();
 
@@ -336,6 +336,7 @@ mod agent_bot_tests {
                 "secret_test",
                 Some("ou_test_open_id".to_string()),
                 Some("https://open.feishu.cn".to_string()),
+                0,
             )
             .await
             .unwrap();
@@ -387,7 +388,7 @@ mod agent_bot_tests {
     async fn test_non_feishu_agent_bot_does_not_create_response_config() {
         let db = setup_db().await;
         let bot_id = db
-            .create_agent_bot("custom", "no-feishu-bot", "x", "y", None, None)
+            .create_agent_bot("custom", "no-feishu-bot", "x", "y", None, None, 0)
             .await
             .unwrap();
 

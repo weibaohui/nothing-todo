@@ -227,6 +227,7 @@ pub async fn execute_handler(
         feishu_bot_id: None,
         feishu_receive_id: None,
         workspace: None,
+        workspace_id: None,
     })
     .await;
     let result = result?;
@@ -503,6 +504,7 @@ pub async fn resume_execution_handler(
         feishu_bot_id: None,
         feishu_receive_id: None,
         workspace: None,
+        workspace_id: None,
     })
     .await?;
     let record_id = result.record_id
@@ -585,14 +587,12 @@ pub async fn smart_create_handler(
         return Err(AppError::BadRequest("内容不能为空".to_string()));
     }
 
-    // 读取默认响应 Todo ID
-    let default_todo_id = {
-        let cfg = state.config.read().unwrap();
-        cfg.default_response_todo_id
-    };
+    // 从 workspace 设置读取默认响应 Todo ID
+    let workspace_settings = crate::db::workspace_setting::get_workspace_settings(&*state.db, req.workspace_id).await?
+        .ok_or_else(|| AppError::BadRequest(format!("工作空间 #{} 不存在", req.workspace_id)))?;
 
-    let todo_id = default_todo_id
-        .ok_or_else(|| AppError::BadRequest("尚未配置默认响应 Todo，请先在设置中配置".to_string()))?;
+    let todo_id = workspace_settings.default_response_todo_id
+        .ok_or_else(|| AppError::BadRequest("尚未配置默认响应 Todo，请先在工作空间设置中配置".to_string()))?;
 
     // 验证 Todo 存在
     let todo = state
@@ -661,6 +661,7 @@ pub async fn smart_create_handler(
         feishu_bot_id: None,
         feishu_receive_id: None,
         workspace: None,
+        workspace_id: None,
     })
     .await?;
 

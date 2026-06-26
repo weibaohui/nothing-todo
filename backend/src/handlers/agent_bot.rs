@@ -140,6 +140,8 @@ pub struct FeishuPollRequest {
     pub device_code: String,
     pub interval: Option<u64>,
     pub expire_in: Option<u64>,
+    /// 创建 bot 时归属的工作空间 ID
+    pub workspace_id: Option<i64>,
 }
 
 // SSE 轮询飞书授权结果，支持页面关闭后继续执行
@@ -160,6 +162,7 @@ pub async fn feishu_poll_sse(
     // 将需要 clone 的值提取到闭包外部
     let db = state.db.clone();
     let listener = state.feishu_listener.clone();
+    let workspace_id = params.workspace_id.unwrap_or(0);
 
     // 启动后台轮询任务：独立于请求处理线程，持续轮询飞书 API
     tokio::spawn(async move {
@@ -275,9 +278,9 @@ pub async fn feishu_poll_sse(
                     }
                 };
 
-                // 在数据库中创建飞书 bot 记录
+                // 在数据库中创建飞书 bot 记录，使用 SSE URL 中传入的 workspace_id
                 let bot_id = match db
-                    .create_agent_bot("feishu", bot_name.as_deref().unwrap_or("Feishu Bot"), app_id, app_secret, open_id.map(String::from), domain.clone())
+                    .create_agent_bot("feishu", bot_name.as_deref().unwrap_or("Feishu Bot"), app_id, app_secret, open_id.map(String::from), domain.clone(), workspace_id)
                     .await
                 {
                     Ok(id) => Some(id),
@@ -411,6 +414,8 @@ pub struct AgentBotResponse {
     pub enabled: bool,
     pub config: String,
     pub created_at: String,
+    /// Bot 所属的工作空间 ID
+    pub workspace_id: i64,
 }
 
 pub async fn list_agent_bots(
@@ -430,6 +435,7 @@ pub async fn list_agent_bots(
             enabled: b.enabled,
             config: b.config,
             created_at: b.created_at,
+            workspace_id: b.workspace_id,
         })
         .collect();
 
@@ -673,4 +679,209 @@ pub async fn delete_group_whitelist(
     state.db.remove_group_whitelist(id).await
         .map_err(|e| AppError::Internal(e.to_string()))?;
     Ok(ApiResponse::ok(serde_json::json!({"success": true})))
+}
+
+// ============================================================================
+// Workspace 相关的 API（阶段5）
+// ============================================================================
+
+/// 获取工作空间的斜杠命令列表
+pub async fn list_workspace_slash_commands(
+    State(state): State<AppState>,
+    Path(workspace_id): Path<i64>,
+) -> Result<impl IntoResponse, AppError> {
+    let commands = crate::db::workspace_slash_command::get_workspace_slash_commands(&*state.db, workspace_id)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    Ok(ApiResponse::ok(commands))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateWorkspaceSlashCommandRequest {
+    pub slash_command: String,
+    pub todo_id: i64,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// 创建工作空间的斜杠命令
+pub async fn create_workspace_slash_command(
+    State(state): State<AppState>,
+    Path(workspace_id): Path<i64>,
+    Json(req): Json<CreateWorkspaceSlashCommandRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    // 校验 slash_command 格式（必须以 / 开头）
+    if !req.slash_command.starts_with('/') {
+        return Err(AppError::BadRequest("slash_command must start with /".to_string()));
+    }
+
+    let id = crate::db::workspace_slash_command::create_workspace_slash_command(
+        &*state.db,
+        workspace_id,
+        &req.slash_command,
+        req.todo_id,
+        req.enabled,
+    )
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    Ok(ApiResponse::ok(serde_json::json!({ "id": id })))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateWorkspaceSlashCommandRequest {
+    pub slash_command: Option<String>,
+    pub todo_id: Option<i64>,
+    pub enabled: Option<bool>,
+}
+
+/// 更新工作空间的斜杠命令
+pub async fn update_workspace_slash_command(
+    State(state): State<AppState>,
+    Path((_workspace_id, cmd_id)): Path<(i64, i64)>,
+    Json(req): Json<UpdateWorkspaceSlashCommandRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    // 校验 slash_command 格式（如果提供）
+    if let Some(ref cmd) = req.slash_command {
+        if !cmd.starts_with('/') {
+            return Err(AppError::BadRequest("slash_command must start with /".to_string()));
+        }
+    }
+
+    crate::db::workspace_slash_command::update_workspace_slash_command(
+        &*state.db,
+        cmd_id,
+        req.slash_command.as_deref(),
+        req.todo_id,
+        req.enabled,
+    )
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    Ok(ApiResponse::ok(serde_json::json!({"success": true})))
+}
+
+/// 删除工作空间的斜杠命令
+pub async fn delete_workspace_slash_command(
+    State(state): State<AppState>,
+    Path((_workspace_id, cmd_id)): Path<(i64, i64)>,
+) -> Result<impl IntoResponse, AppError> {
+    crate::db::workspace_slash_command::delete_workspace_slash_command(&*state.db, cmd_id)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    Ok(ApiResponse::ok(serde_json::json!({"success": true})))
+}
+
+/// 获取工作空间的设置
+pub async fn get_workspace_settings(
+    State(state): State<AppState>,
+    Path(workspace_id): Path<i64>,
+) -> Result<impl IntoResponse, AppError> {
+    let settings = crate::db::workspace_setting::get_workspace_settings(&*state.db, workspace_id)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    match settings {
+        Some(s) => Ok(ApiResponse::ok(serde_json::json!({
+            "workspace_id": s.workspace_id,
+            "default_response_todo_id": s.default_response_todo_id,
+            "updated_at": s.updated_at,
+        }))),
+        None => Ok(ApiResponse::ok(serde_json::json!({
+            "workspace_id": workspace_id,
+            "default_response_todo_id": null,
+            "updated_at": null,
+        }))),
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateWorkspaceSettingsRequest {
+    pub default_response_todo_id: Option<i64>,
+}
+
+/// 更新工作空间的设置
+pub async fn update_workspace_settings(
+    State(state): State<AppState>,
+    Path(workspace_id): Path<i64>,
+    Json(req): Json<UpdateWorkspaceSettingsRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    crate::db::workspace_setting::upsert_workspace_settings(
+        &*state.db,
+        workspace_id,
+        req.default_response_todo_id,
+    )
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    Ok(ApiResponse::ok(serde_json::json!({"success": true})))
+}
+
+// ============================================================================
+// Bot 变更 workspace 的级联逻辑（阶段6）
+// ============================================================================
+
+/// Bot 变更 workspace 请求
+#[derive(Debug, Clone, Deserialize)]
+pub struct MoveBotToWorkspaceRequest {
+    pub workspace_id: i64,
+}
+
+/// 将 Bot 移动到另一个工作空间（阶段6：级联禁用原有 bindings）
+///
+/// 变更逻辑：
+/// 1. pending binding（__pending__）直接删除
+/// 2. 已生效 binding 设为 disabled（保留记录）
+/// 3. 更新 bot.workspace_id
+pub async fn move_bot_to_workspace(
+    State(state): State<AppState>,
+    Path(bot_id): Path<i64>,
+    Json(req): Json<MoveBotToWorkspaceRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    // 1. 查询该 bot 的所有 project_bindings
+    let bindings = state.db
+        .get_feishu_project_bindings(bot_id)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    // 2. 级联处理 bindings
+    for b in bindings {
+        if b.chat_id == crate::models::PENDING_CHAT_ID {
+            // pending binding 直接删除
+            state.db.delete_feishu_project_binding(b.id).await
+                .map_err(|e| AppError::Internal(e.to_string()))?;
+        } else {
+            // 已生效的 binding 设为 disabled
+            state.db.update_feishu_project_binding_enabled(b.id, false).await
+                .map_err(|e| AppError::Internal(e.to_string()))?;
+        }
+    }
+
+    // 3. 更新 bot.workspace_id
+    state.db.update_agent_bot_workspace_id(bot_id, req.workspace_id)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    // 4. 如果 bot 正在运行，重启 listener 使其使用新的 workspace_id
+    if state.feishu_listener.has_bot(bot_id) {
+        if let Ok(Some(bot)) = state.db.get_agent_bot(bot_id).await {
+            if bot.enabled {
+                let listener = state.feishu_listener.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = listener.start_bot(&bot).await {
+                        tracing::error!("failed to restart feishu bot {} after workspace change: {e}", bot.id);
+                    }
+                });
+            }
+        }
+    }
+
+    Ok(ApiResponse::ok(serde_json::json!({
+        "success": true,
+        "message": format!("Bot moved to workspace {}, all existing bindings have been disabled", req.workspace_id)
+    })))
 }

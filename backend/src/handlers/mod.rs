@@ -144,6 +144,8 @@ pub enum ExecEvent {
         feishu_bot_id: Option<i64>,
         /// Feishu receive_id (user open_id for p2p, chat_id for group)
         feishu_receive_id: Option<String>,
+        /// 执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标
+        workspace_id: Option<i64>,
     },
     /// 同步事件：连接时发送当前实际运行的任务列表
     /// 前端收到此事件后应清空 runningTasks 并用此列表初始化
@@ -1316,6 +1318,12 @@ fn agent_bot_routes() -> Router<AppState> {
         .route("/api/agent-bots/feishu/group-whitelist/{id}", delete(agent_bot::delete_group_whitelist))
         .route("/api/agent-bots/{id}", delete(agent_bot::delete_agent_bot))
         .route("/api/agent-bots/{id}/config", put(agent_bot::update_agent_bot_config))
+        .route("/api/agent-bots/{id}/workspace", put(agent_bot::move_bot_to_workspace))
+        // Workspace 斜杠命令管理
+        .route("/api/workspace/{workspace_id}/slash-commands", get(agent_bot::list_workspace_slash_commands).post(agent_bot::create_workspace_slash_command))
+        .route("/api/workspace/{workspace_id}/slash-commands/{cmd_id}", put(agent_bot::update_workspace_slash_command).delete(agent_bot::delete_workspace_slash_command))
+        // Workspace 设置管理
+        .route("/api/workspace/{workspace_id}/settings", get(agent_bot::get_workspace_settings).put(agent_bot::update_workspace_settings))
 }
 
 /// 飞书相关路由：历史消息查询 + 绑定管理。

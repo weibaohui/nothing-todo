@@ -46,12 +46,6 @@ pub async fn update_config(
         if let Some(log_level) = req.log_level {
             cfg.log_level = log_level;
         }
-        if let Some(slash_command_rules) = req.slash_command_rules {
-            cfg.slash_command_rules = slash_command_rules;
-        }
-        if let Some(default_response_todo_id) = req.default_response_todo_id {
-            cfg.default_response_todo_id = Some(default_response_todo_id);
-        }
         if let Some(history_message_max_age_secs) = req.history_message_max_age_secs {
             cfg.history_message_max_age_secs = history_message_max_age_secs;
         }

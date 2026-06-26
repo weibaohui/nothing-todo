@@ -109,6 +109,8 @@ pub struct Todo {
     #[serde(default)]
     pub workspace: Option<String>,
     #[serde(default)]
+    pub workspace_id: Option<i64>,
+    #[serde(default)]
     pub webhook_enabled: bool,
     #[serde(default)]
     pub acceptance_criteria: Option<String>,
@@ -149,6 +151,8 @@ pub struct AgentBot {
     pub enabled: bool,
     pub config: String,
     pub created_at: String,
+    /// Bot 所属的工作空间 ID
+    pub workspace_id: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -398,6 +402,8 @@ pub struct ExecuteRequest {
 #[derive(Deserialize)]
 pub struct SmartCreateRequest {
     pub content: String,
+    /// 工作空间 ID（用于查询该工作空间的默认响应 Todo）
+    pub workspace_id: i64,
 }
 
 #[derive(Deserialize)]
@@ -683,8 +689,6 @@ pub struct UpdateConfigRequest {
     pub host: Option<String>,
     pub db_path: Option<String>,
     pub log_level: Option<String>,
-    pub slash_command_rules: Option<Vec<crate::config::SlashCommandRule>>,
-    pub default_response_todo_id: Option<i64>,
     pub history_message_max_age_secs: Option<u64>,
     pub max_concurrent_todos: Option<u32>,
     pub execution_timeout_secs: Option<u64>,

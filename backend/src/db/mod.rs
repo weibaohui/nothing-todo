@@ -619,6 +619,8 @@ mod todo_template;
 pub use todo_template::TemplateInput;
 mod review_template;
 pub use review_template::ReviewTemplateInput;
+pub mod workspace_setting;
+pub mod workspace_slash_command;
 
 #[cfg(test)]
 mod tests {
@@ -811,6 +813,7 @@ mod tests {
             scheduler_config: None,
             scheduler_timezone: None,
             workspace: None,
+            webhook_enabled: None,
             acceptance_criteria: None,
             auto_review_enabled: None,
         })
@@ -973,6 +976,7 @@ mod tests {
             scheduler_config: Some("0 0 * * *"),
             scheduler_timezone: None,
             workspace: Some("/tmp/workspace"),
+            webhook_enabled: None,
             acceptance_criteria: None,
             auto_review_enabled: None,
         })

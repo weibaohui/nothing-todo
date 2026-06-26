@@ -98,30 +98,40 @@ impl Database {
             .await
     }
 
-    /// Get all push targets with push_level != "disabled".
-    /// Returns (bot_id, resolved_receive_id, receive_id_type, push_level).
-    pub async fn get_all_enabled_push_targets(
+    /// Get all push targets with push_level != "disabled", grouped by workspace_id.
+    /// Returns (workspace_id, targets). workspace_id = None means bots without workspace.
+    pub async fn get_all_push_targets_by_workspace(
         &self,
-    ) -> Result<Vec<(i64, String, String, String)>, sea_orm::DbErr> {
+    ) -> Result<std::collections::HashMap<Option<i64>, Vec<(i64, String, String, String)>>, sea_orm::DbErr> {
+        use std::collections::HashMap;
+        use sea_orm::EntityTrait;
+
         let targets = feishu_push_targets::Entity::find()
             .all(&self.conn)
             .await?;
-        Ok(targets
-            .into_iter()
-            .filter(|t| t.push_level != "disabled")
-            .filter_map(|t| {
-                let receive_id = match t.receive_id_type.as_str() {
-                    "chat_id" => t.group_chat_id.clone(),
-                    _ => t.p2p_receive_id.clone(),
-                };
-                if receive_id.is_empty() {
-                    None
-                } else {
-                    Some((t.bot_id, receive_id, t.receive_id_type.clone(), t.push_level.clone()))
-                }
-            })
-            .collect())
+
+        let mut map: HashMap<Option<i64>, Vec<(i64, String, String, String)>> = HashMap::new();
+
+        for t in targets.into_iter().filter(|t| t.push_level != "disabled") {
+            let receive_id = match t.receive_id_type.as_str() {
+                "chat_id" => t.group_chat_id.clone(),
+                _ => t.p2p_receive_id.clone(),
+            };
+            if receive_id.is_empty() {
+                continue;
+            }
+
+            // Get bot's workspace_id directly from agent_bots table
+            let workspace_id = self.get_agent_bot_workspace_id(t.bot_id).await?;
+
+            let entry = map.entry(workspace_id).or_default();
+            entry.push((t.bot_id, receive_id, t.receive_id_type.clone(), t.push_level.clone()));
+        }
+
+        Ok(map)
     }
+
+
 
     /// Get all (bot_id, group_chat_id) pairs where group_chat_id is set.
     pub async fn get_group_chat_ids(

@@ -221,7 +221,9 @@ impl FeishuListener {
         let is_mention = !msg.mentioned_open_ids.is_empty();
         let content = msg.content.trim();
         // 持久化是 audit 用途，失败仅记录；不影响主流程决策
-        Self::persist_inbound_message(context.db, context.bot_id, msg, chat_type, is_mention).await;
+        // workspace_id 在消息接收时确定，记录该 bot 所属的工作空间
+        let workspace_id = context.db.get_agent_bot_workspace_id(context.bot_id).await.unwrap_or(None);
+        Self::persist_inbound_message(context.db, context.bot_id, msg, chat_type, is_mention, workspace_id).await;
         let reaction_id = Self::add_processing_reaction(
             context.credentials, context.token_manager, context.bot_id, &msg.id,
         ).await;
@@ -235,6 +237,7 @@ impl FeishuListener {
         msg: &ChannelMessage,
         chat_type: &str,
         is_mention: bool,
+        workspace_id: Option<i64>,
     ) {
         db.save_feishu_message(NewFeishuMessage {
             bot_id,
@@ -246,6 +249,7 @@ impl FeishuListener {
             content: Some(&msg.content),
             msg_type: "text",
             is_mention,
+            workspace_id,
         })
         .await
         .ok();
@@ -464,6 +468,7 @@ impl FeishuListener {
             &todo,
             resume_session_id,
             resume_message,
+            None, // binding path uses feishu_bot_id directly in push service
         );
         Self::cleanup_reaction(context, msg, prep.reaction_id.as_deref()).await;
         true
@@ -532,6 +537,7 @@ impl FeishuListener {
         todo: &crate::models::Todo,
         resume_session_id: Option<String>,
         resume_message: Option<String>,
+        workspace_id: Option<i64>,
     ) {
         let pending = Self::build_binding_execution_message(
             msg,
@@ -541,6 +547,7 @@ impl FeishuListener {
             todo,
             resume_session_id,
             resume_message,
+            workspace_id,
         );
         debounce.push(pending);
     }
@@ -557,6 +564,7 @@ impl FeishuListener {
         todo: &crate::models::Todo,
         resume_session_id: Option<String>,
         resume_message: Option<String>,
+        workspace_id: Option<i64>,
     ) -> PendingMessage {
         let executor = todo.executor.as_deref().unwrap_or("claudecode");
         PendingMessage {
@@ -574,6 +582,7 @@ impl FeishuListener {
             resume_session_id,
             resume_message,
             binding_id: Some(binding.id),
+            workspace_id,
         }
     }
 
@@ -599,33 +608,50 @@ impl FeishuListener {
         prep: &MessagePrep<'_>,
         command_ctx: &SlashCommandMatch<'_>,
     ) {
-        let matched_rule = Self::find_slash_rule(context.config, command_ctx.command);
+        // 先获取 bot 的 workspace_id
+        let workspace_id = match context.db.get_agent_bot_workspace_id(context.bot_id).await {
+            Ok(Some(id)) => id,
+            Ok(None) => {
+                tracing::warn!("bot {} has no workspace_id, skipping slash command", context.bot_id);
+                return Self::dispatch_default_response(context, msg, prep).await;
+            }
+            Err(e) => {
+                tracing::error!("failed to get workspace_id for bot {}: {}", context.bot_id, e);
+                return Self::dispatch_default_response(context, msg, prep).await;
+            }
+        };
+
+        let matched_rule = Self::find_slash_rule(context.db, workspace_id, command_ctx.command).await;
         let Some(rule) = matched_rule else {
             // 没匹配上规则 → 走默认回复路径，保持向后兼容
             return Self::dispatch_default_response(context, msg, prep).await;
         };
-        // 没有命令体（只输入了 /xxx）→ 不执行
-        if command_ctx.body.is_empty() {
-            return;
-        }
         // 防御：rule 关联的 todo 可能已被删，没拿到 todo 就不 push
         let Ok(Some(todo)) = context.db.get_todo(rule.todo_id).await else {
             tracing::error!("Failed to fetch todo {} for slash command", rule.todo_id);
             return;
         };
-        let (_, params) = build_trigger_params(&format!("{} {}", command_ctx.command, command_ctx.body));
-        Self::push_slash_command_message(context.debounce, context.bot_id, msg, prep.chat_type, &todo, command_ctx.body, params);
+        // 命令体可能为空（如 /j 直接触发），此时直接用命令名作为 trigger 参数字符串
+        let trigger_str = if command_ctx.body.is_empty() {
+            command_ctx.command.to_string()
+        } else {
+            format!("{} {}", command_ctx.command, command_ctx.body)
+        };
+        let (_, params) = build_trigger_params(&trigger_str);
+        Self::push_slash_command_message(context.debounce, context.bot_id, msg, prep.chat_type, &todo, command_ctx.body, params, Some(workspace_id));
     }
 
-    /// 阶段 6a-i：查 enabled 的斜杠命令规则；锁内只读后尽早释放
-    fn find_slash_rule(
-        config: &Arc<RwLock<AppConfig>>,
+    /// 阶段 6a-i：查 enabled 的斜杠命令规则（按 workspace 查询）
+    async fn find_slash_rule(
+        db: &Database,
+        workspace_id: i64,
         command: &str,
-    ) -> Option<crate::config::SlashCommandRule> {
-        let cfg = config.read().unwrap();
-        cfg.slash_command_rules.iter()
-            .find(|r| r.slash_command == command && r.enabled)
-            .cloned()
+    ) -> Option<crate::db::entity::workspace_slash_commands::Model> {
+        crate::db::workspace_slash_command::get_workspace_slash_command(db, workspace_id, command)
+            .await
+            .ok()
+            .flatten()
+            .filter(|r| r.enabled)
     }
 
     /// 阶段 6a-ii：把斜杠命令消息塞进 debounce
@@ -637,6 +663,7 @@ impl FeishuListener {
         todo: &crate::models::Todo,
         body: &str,
         params: std::collections::HashMap<String, String>,
+        workspace_id: Option<i64>,
     ) {
         debounce.push(PendingMessage {
             bot_id,
@@ -653,6 +680,7 @@ impl FeishuListener {
             resume_session_id: None,
             resume_message: None,
             binding_id: None,
+            workspace_id,
         });
     }
 
@@ -663,7 +691,25 @@ impl FeishuListener {
         msg: &ChannelMessage,
         prep: &MessagePrep<'_>,
     ) {
-        let default_todo_id = context.config.read().unwrap().default_response_todo_id;
+        // 从数据库获取 bot 的 workspace_id，然后查询 workspace 设置中的 default_response_todo_id
+        let workspace_id = match context.db.get_agent_bot_workspace_id(context.bot_id).await {
+            Ok(Some(id)) => id,
+            Ok(None) => {
+                tracing::warn!("bot {} has no workspace_id, skipping default response", context.bot_id);
+                return;
+            }
+            Err(e) => {
+                tracing::error!("failed to get workspace_id for bot {}: {}", context.bot_id, e);
+                return;
+            }
+        };
+
+        let default_todo_id = crate::db::workspace_setting::get_workspace_settings(context.db, workspace_id)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|s| s.default_response_todo_id);
+
         let Some(todo_id) = default_todo_id else { return };
         // 空消息不触发 todo
         if prep.content.is_empty() {
@@ -702,6 +748,7 @@ impl FeishuListener {
             resume_session_id: None,
             resume_message: None,
             binding_id: None,
+            workspace_id: None,
         });
     }
 
@@ -1123,9 +1170,8 @@ impl FeishuListener {
                         path = dir.path,
                     );
 
-                    match db.create_todo(&todo_title, &todo_prompt).await {
+                    match db.create_todo_with_extras(&todo_title, &todo_prompt, None, None, false, Some(dir.id)).await {
                         Ok(todo_id) => {
-                            let _ = db.update_todo_workspace(todo_id, Some(&dir.path)).await;
                             match db.create_feishu_project_binding(bot_id, channel, chat_type, dir.id, todo_id).await {
                                 Ok(binding_id) => {
                                     let dir_name = dir.name.as_deref().unwrap_or("unknown");
@@ -1833,31 +1879,6 @@ mod tests {
         assert!(msg.is_none());
     }
 
-    #[test]
-    fn test_find_slash_rule_picks_enabled_match() {
-        // enabled 命中的规则返回；disabled 的不返回
-        let mut config = AppConfig::default();
-        config.slash_command_rules = vec![
-            SlashCommandRule {
-                slash_command: "/on".into(),
-                todo_id: 1,
-                enabled: true,
-            },
-            SlashCommandRule {
-                slash_command: "/off".into(),
-                todo_id: 2,
-                enabled: false,
-            },
-        ];
-        let cfg = Arc::new(RwLock::new(config));
-        let rule = FeishuListener::find_slash_rule(&cfg, "/on");
-        assert!(rule.is_some());
-        assert_eq!(rule.unwrap().todo_id, 1);
-        let rule = FeishuListener::find_slash_rule(&cfg, "/off");
-        assert!(rule.is_none(), "disabled rules must be filtered out");
-        let rule = FeishuListener::find_slash_rule(&cfg, "/unknown");
-        assert!(rule.is_none());
-    }
 
     #[test]
     fn test_build_binding_execution_message_preserves_content_on_no_resume() {
@@ -1872,6 +1893,7 @@ mod tests {
             "请帮我修复登录 bug",
             &binding,
             &todo,
+            None,
             None,
             None,
         );
@@ -1895,6 +1917,7 @@ mod tests {
             &todo,
             Some("real_sid".into()),
             Some("继续".into()),
+            None,
         );
         assert_eq!(pending.content, "继续");
         assert_eq!(pending.resume_message.as_deref(), Some("继续"));
@@ -1930,6 +1953,8 @@ mod tests {
             scheduler_next_run_at: None,
             task_id: None,
             workspace: None,
+            workspace_id: None,
+            webhook_enabled: false,
             acceptance_criteria: None,
             todo_type: 0,
             parent_todo_id: None,

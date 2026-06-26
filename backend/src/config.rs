@@ -131,10 +131,6 @@ pub struct Config {
     pub auto_sync_custom_templates_enabled: bool,
     /// 自定义模板自动同步 cron 表达式（6 字段，含秒）
     pub auto_sync_custom_templates_cron: String,
-    /// 全局斜杠命令规则
-    pub slash_command_rules: Vec<SlashCommandRule>,
-    /// 默认响应：当没有匹配到斜杠命令时执行的 Todo ID
-    pub default_response_todo_id: Option<i64>,
     /// 历史消息最大处理年龄（秒），超过此时间的历史消息拉取后标记跳过不处理（默认 600 = 10 分钟）
     pub history_message_max_age_secs: u64,
     /// 最大并发执行数（默认 3）
@@ -268,7 +264,6 @@ impl Default for Config {
             auto_todo_backup_enabled: todo_backup.enabled, auto_todo_backup_cron: todo_backup.cron, auto_todo_backup_max_files: todo_backup.max_files,
             auto_skill_backup_enabled: skill_backup.enabled, auto_skill_backup_cron: skill_backup.cron, auto_skill_backup_max_files: skill_backup.max_files,
             auto_sync_custom_templates_enabled: sync_templates.enabled, auto_sync_custom_templates_cron: sync_templates.cron,
-            slash_command_rules: Vec::new(), default_response_todo_id: None,
             history_message_max_age_secs: DEFAULT_HISTORY_MESSAGE_MAX_AGE_SECS,
             max_concurrent_todos: DEFAULT_MAX_CONCURRENT_TODOS, execution_timeout_secs: DEFAULT_EXECUTION_TIMEOUT_SECS,
             auto_cleanup_logs_days: DEFAULT_AUTO_CLEANUP_LOGS_DAYS, scheduler_default_timezone: None,
@@ -586,7 +581,7 @@ mod tests {
         let restored: Config = serde_yaml::from_str(&yaml).unwrap();
         assert_eq!(restored.port, 1234);
         assert!(restored.db_path.contains(".ntd/data.db"));
-        assert!(restored.slash_command_rules.is_empty());
+        // slash_command_rules 和 default_response_todo_id 已迁移到数据库表
     }
 
     #[test]
@@ -632,21 +627,6 @@ mod tests {
     fn test_normalize_single_path_already_absolute() {
         let result = Config::normalize_single_path("/usr/bin/claude");
         assert_eq!(result, "/usr/bin/claude", "absolute path should not be modified");
-    }
-
-    #[test]
-    fn test_slash_command_rules_round_trip() {
-        let cfg = Config {
-            slash_command_rules: vec![SlashCommandRule {
-                slash_command: "/joke".to_string(),
-                todo_id: 8,
-                enabled: true,
-            }],
-            ..Default::default()
-        };
-        let yaml = serde_yaml::to_string(&cfg).unwrap();
-        let restored: Config = serde_yaml::from_str(&yaml).unwrap();
-        assert_eq!(restored.slash_command_rules, cfg.slash_command_rules);
     }
 
     // ---------------------------------------------------------------------------

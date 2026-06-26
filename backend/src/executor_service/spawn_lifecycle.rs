@@ -93,6 +93,7 @@ pub(crate) async fn try_spawn_executor_child(
                 runtime.feishu_bot_id,
                 runtime.feishu_receive_id.clone(),
                 e,
+                runtime.prepared.request.workspace_id,
             )
             .await;
             None
@@ -113,6 +114,7 @@ pub(crate) async fn handle_spawn_failure(
     feishu_bot_id: Option<i64>,
     feishu_receive_id: Option<String>,
     error: std::io::Error,
+    workspace_id: Option<i64>,
 ) {
     let error_msg = format!("Failed to spawn executor: {}", error);
     let entry = ParsedLogEntry::error(error_msg.clone());
@@ -134,6 +136,7 @@ pub(crate) async fn handle_spawn_failure(
             result: Some(error_msg),
             feishu_bot_id,
             feishu_receive_id,
+            workspace_id,
         },
     );
     let _ = db.finish_todo_execution(todo_id, false).await;
@@ -320,8 +323,7 @@ pub(crate) async fn dispatch_outcome(
                 log_flusher,
                 flush_timer,
                 runtime,
-            )
-            .await;
+            ).await;
         }
         super::types::RunOutcome::TimedOut => {
             dispatch_timeout(
@@ -376,6 +378,7 @@ async fn dispatch_cancellation(
         runtime.feishu_bot_id,
         runtime.feishu_receive_id.clone(),
         &runtime.worktree_ctx,
+        runtime.prepared.request.workspace_id,
     )
     .await;
 }
@@ -408,6 +411,7 @@ async fn dispatch_timeout(
         runtime.feishu_bot_id,
         runtime.feishu_receive_id.clone(),
         &runtime.worktree_ctx,
+        runtime.prepared.request.workspace_id,
     )
     .await;
 }
@@ -444,6 +448,7 @@ async fn dispatch_completed(
             trigger_type: runtime.prepared.request.trigger_type,
             feishu_bot_id: runtime.feishu_bot_id,
             feishu_receive_id: runtime.feishu_receive_id,
+            workspace_id: runtime.prepared.request.workspace_id,
         },
     )
     .await;
@@ -468,6 +473,7 @@ pub(crate) async fn run_cancellation_path(
     feishu_bot_id: Option<i64>,
     feishu_receive_id: Option<String>,
     worktree_ctx: &WorktreeContext,
+    workspace_id: Option<i64>,
 ) {
     kill_process_tree(child).await;
     drain_readers_and_flush(child, stdout_task, stderr_task, log_flusher, flush_timer).await;
@@ -482,6 +488,7 @@ pub(crate) async fn run_cancellation_path(
         record_id,
         feishu_bot_id,
         feishu_receive_id,
+        workspace_id,
     )
     .await;
     cleanup_worktree_if_needed(worktree_ctx);
@@ -507,6 +514,7 @@ pub(crate) async fn run_timeout_path(
     feishu_bot_id: Option<i64>,
     feishu_receive_id: Option<String>,
     worktree_ctx: &WorktreeContext,
+    workspace_id: Option<i64>,
 ) {
     kill_process_tree(child).await;
     drain_readers_and_flush(child, stdout_task, stderr_task, log_flusher, flush_timer).await;
@@ -523,6 +531,7 @@ pub(crate) async fn run_timeout_path(
         super::completion::format_timeout_secs(execution_timeout_secs),
         feishu_bot_id,
         feishu_receive_id,
+        workspace_id,
     )
     .await;
     cleanup_worktree_if_needed(worktree_ctx);
@@ -608,6 +617,7 @@ pub(crate) async fn persist_and_finalize_completion(
         ctx.trigger_type.clone(),
         ctx.feishu_bot_id,
         ctx.feishu_receive_id.clone(),
+        ctx.workspace_id,
     )
     .await;
 }
