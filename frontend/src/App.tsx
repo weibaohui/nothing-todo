@@ -511,9 +511,29 @@ function AppContent() {
               <SettingsPage onBack={isMobile ? backToList : undefined} />
             ) : activeView === 'memorial' ? (
               <MemorialBoard onBack={isMobile ? backToList : undefined} />
-            ) : activeView === 'items' || activeView === 'loops' ? (
-              // 事项/环路视图但未选中具体条目：展示空白区域，绝不回退到 Dashboard
+            ) : activeView === 'items' ? (
+              // 事项视图但未选中具体条目：展示空白区域
               <div />
+            ) : activeView === 'loops' ? (
+              // 环路视图：始终渲染 TodoList（环路列表），即使未选中具体环路
+              <TodoList
+                onOpenCreateModal={() => setTodoModalOpen(true)}
+                onSelectTodo={(todoId) => {
+                  handleSelectTodo(todoId);
+                }}
+                loopUpdateCount={loopUpdateCount}
+                onSelectLoop={(loopId) => {
+                  handleSelectLoop(loopId);
+                }}
+                onCreateLoop={() => {
+                  setLoopCreateModalOpen(true);
+                }}
+                forcedListMode={forcedListMode}
+                onListModeChange={() => {
+                  setForcedListMode(undefined);
+                }}
+                activeView={activeView}
+              />
             ) : (
               <Dashboard onBack={isMobile ? backToList : undefined} />
             )}
