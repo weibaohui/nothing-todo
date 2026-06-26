@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ConfigProvider, Layout, App as AntApp, Drawer, message, Form } from 'antd';
-import { PlusOutlined, ThunderboltOutlined, CloseOutlined, LeftOutlined, PlayCircleOutlined, LaptopOutlined, FolderOutlined } from '@ant-design/icons';
+import { PlusOutlined, ThunderboltOutlined, CloseOutlined, LeftOutlined, PlayCircleOutlined, LaptopOutlined, FolderOutlined, MenuOutlined } from '@ant-design/icons';
 import { AppProvider, useApp } from './hooks/useApp';
 import { useIsMobile } from './hooks/useIsMobile';
 import { useExecutionEvents } from './hooks/useExecutionEvents';
@@ -266,6 +266,18 @@ function AppContent() {
 
   return (
     <Layout style={{ height: '100vh', flexDirection: isMobile ? 'column' : 'row' }}>
+      {/* Mobile Header with Hamburger Menu */}
+      {isMobile && (
+        <div className="mobile-header">
+          <button
+            className="mobile-header-menu-btn"
+            onClick={() => setNavDrawerOpen(true)}
+            aria-label="打开菜单"
+          >
+            <MenuOutlined />
+          </button>
+        </div>
+      )}
       {/* Mobile FAB Group */}
       {isMobile && selectedPanel === 'list' && (
         <>
