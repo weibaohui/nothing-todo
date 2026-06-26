@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useApp } from '@/hooks/useApp';
+import { useViewState } from '@/hooks/useViewState';
 import { Empty, Input, Skeleton, Checkbox, Modal, App as AntApp } from 'antd';
 import { ClockCircleOutlined, InboxOutlined, SearchOutlined, SwapOutlined, StopOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
@@ -42,6 +43,7 @@ export function TodoList(props: TodoListProps) {
   const { onOpenCreateModal, onSelectTodo, onSelectLoop, onCreateLoop, loopUpdateCount, forcedListMode, onListModeChange } = props;
   const { state, dispatch } = useApp();
   const { todos, selectedTodoId, selectedTagId, selectedWorkspace, tags } = state;
+  const { activeView } = useViewState();
   const { message } = AntApp.useApp();
   const [isLoading, setIsLoading] = useState(true);
   // 搜索关键字状态，用于按标题或提示词过滤 todo 列表
@@ -59,6 +61,8 @@ export function TodoList(props: TodoListProps) {
   const [selectedLoopId, setSelectedLoopId] = useState<number | null>(null);
   // 项目目录：工作空间选择器需要目录列表
   const [projectDirectories, setProjectDirectories] = useState<ProjectDirectory[]>([]);
+  // 标记项目目录初始加载是否已完成（无论成功与否），用于守卫环路加载等工作空间确定后再发起请求
+  const [directoriesReady, setDirectoriesReady] = useState(false);
   // —— 通用工具栏：跨模式的多选 id 列表 ——
   // 切换 listMode 时清空，避免不同模式 id 串台（todo/loop 都是 number id）
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -85,9 +89,12 @@ export function TodoList(props: TodoListProps) {
   // 失败时静默处理：分组视图退化为只显示路径即可，不阻塞主流程。
   const reloadProjectDirectories = useCallback(() => {
     db.getProjectDirectories() // 从后端拉取全量目录列表
-      .then(setProjectDirectories) // 更新本地状态，触发分组重新计算
+      .then(dirs => {
+        setProjectDirectories(dirs);
+        setDirectoriesReady(true);
+      })
       .catch(() => {
-        // 静默失败：分组视图退化为只显示路径即可，不阻塞主流程
+        setDirectoriesReady(true); // 失败也标记为 ready，避免阻塞环路加载
       });
   }, []);
 
@@ -109,31 +116,23 @@ export function TodoList(props: TodoListProps) {
   }, [projectDirectories, selectedWorkspace, dispatch]);
 
   // 当列表切换到「环路」时，自动加载 loop 列表；或环路变更时刷新
+  // 必须等待项目目录加载完成且工作空间已确定，否则请求不携带 workspace 参数返回错误数据。
   useEffect(() => {
     if (listMode !== 'loop') return;
+    if (!directoriesReady) return;
+    // 已有目录但尚未选定工作空间 → 等待 auto-select 后再加载
+    if (projectDirectories.length > 0 && selectedWorkspace === null) return;
     setLoopLoading(true);
     dbLoops.listLoops(selectedWorkspace)
       .then(setLoopList)
       .catch(() => setLoopList([]))
       .finally(() => setLoopLoading(false));
-  }, [listMode, loopUpdateCount, selectedWorkspace]);
+  }, [listMode, loopUpdateCount, selectedWorkspace, projectDirectories, directoriesReady]);
 
   // 持久化列表模式到 localStorage
   useEffect(() => {
     localStorage.setItem('ntd_list_mode', listMode);
   }, [listMode]);
-
-  // 进入环路列表且加载完成后，若未选中任何 loop，自动选中第一个。
-  // 目的是让右侧直接展示环路详情而不显示空白仪表盘。
-  useEffect(() => {
-    if (listMode !== 'loop') return;
-    if (loopLoading) return;
-    if (selectedLoopId !== null) return;
-    if (loopList.length === 0) return;
-    const firstId = loopList[0].id;
-    setSelectedLoopId(firstId);
-    onSelectLoop?.(firstId);
-  }, [listMode, loopLoading, loopList, selectedLoopId, onSelectLoop]);
 
   // 向壳层同步当前列表模式，便于左侧主导航高亮与全局路由状态保持一致。
   useEffect(() => {
@@ -189,6 +188,38 @@ export function TodoList(props: TodoListProps) {
     if (!keyword) return loopList;
     return loopList.filter(l => (l.name || '').toLowerCase().includes(keyword));
   }, [loopList, searchKeyword]);
+
+  // 事项/环路模式：等目录加载完成 → 工作空间确定后 → 自动选中第一项。
+  // 目的是让右侧直接展示详情，避免显示空白仪表盘页。
+  // 注意：必须检查 activeView 匹配，防止用户已导航离开后 auto-select 又把视图弹回。
+  useEffect(() => {
+    // 等目录加载完成
+    if (!directoriesReady) return;
+    // 有目录但尚未选定工作空间 → 等待 auto-select
+    if (projectDirectories.length > 0 && selectedWorkspace === null) return;
+
+    if (listMode === 'item') {
+      if (activeView !== 'items') return;
+      if (selectedTodoId !== null) return;
+      if (filteredTodos.length === 0) return;
+      const firstId = filteredTodos[0].id;
+      dispatch({ type: 'SELECT_TODO', payload: firstId });
+      onSelectTodo?.(firstId);
+    } else if (listMode === 'loop') {
+      if (activeView !== 'loops') return;
+      if (selectedLoopId !== null) return;
+      if (loopLoading) return;
+      if (loopList.length === 0) return;
+      const firstId = loopList[0].id;
+      setSelectedLoopId(firstId);
+      onSelectLoop?.(firstId);
+    }
+  }, [
+    directoriesReady, projectDirectories, selectedWorkspace,
+    listMode, activeView,
+    selectedTodoId, filteredTodos, dispatch, onSelectTodo,
+    selectedLoopId, loopLoading, loopList, onSelectLoop,
+  ]);
 
   // 当前 listMode 下"可见可选"的 id 列表，传给 ActionToolbar 用于「全选」/计数。
   // 两种模式都按当前 searchKeyword 过滤后的列表计算，避免「全选」选中隐藏项。

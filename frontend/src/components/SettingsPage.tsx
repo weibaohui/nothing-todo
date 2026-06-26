@@ -11,6 +11,7 @@ import {
   CloudOutlined,
 } from '@ant-design/icons';
 import { useApp } from '@/hooks/useApp';
+import { useViewState } from '@/hooks/useViewState';
 import * as db from '@/utils/database';
 import type { Config, ExecutorConfig, SlashCommandRule } from '@/types';
 import { SystemSettingsPanel } from './settings/SystemSettingsPanel';
@@ -186,34 +187,13 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
   const knownTabs = useMemo(() => tabItems.map(t => t.key), [tabItems]);
 
-  const getInitialTab = useCallback(() => {
-    const tab = new URLSearchParams(window.location.search).get('tab');
-    if (tab && knownTabs.includes(tab)) return tab;
-    return 'system';
-  }, [knownTabs]);
-
-  const [activeTab, setActiveTab] = useState<string>(getInitialTab);
-
-  useEffect(() => {
-    setActiveTab(getInitialTab());
-  }, [getInitialTab]);
-
-  useEffect(() => {
-    const onPopState = () => {
-      setActiveTab(getInitialTab());
-    };
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, [getInitialTab]);
+  // 从 useViewState 获取当前 tab，popstate 由它统一处理
+  const { activeTab, pushUrl } = useViewState();
+  const resolvedTab = activeTab && knownTabs.includes(activeTab) ? activeTab : 'system';
 
   const handleTabChange = useCallback((key: string) => {
-    setActiveTab(key);
-    const params = new URLSearchParams(window.location.search);
-    params.set('view', 'settings');
-    params.set('tab', key);
-    window.history.pushState(null, '', `/?${params.toString()}`);
-    window.dispatchEvent(new CustomEvent('settingsTabChanged', { detail: { tab: key } }));
-  }, []);
+    pushUrl('settings', { tab: key });
+  }, [pushUrl]);
 
   return (
     <div
@@ -244,7 +224,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         type="card"
         size="small"
         tabPosition="left"
-        activeKey={activeTab}
+        activeKey={resolvedTab}
         onChange={handleTabChange}
       />
     </div>
