@@ -1,10 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useApp } from '@/hooks/useApp';
-import { useIsMobile } from '@/hooks/useIsMobile';
-import { Button, Dropdown, Empty, Tooltip, Input, Segmented, Skeleton, Checkbox, Modal, App as AntApp } from 'antd';
-import type { MenuProps } from 'antd';
-import { ThunderboltOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, ReadOutlined, SettingOutlined, SunOutlined, MoonOutlined, ApartmentOutlined, FolderOpenOutlined, MoreOutlined, SearchOutlined, DownOutlined, SwapOutlined, StopOutlined } from '@ant-design/icons';
-import { useTheme } from '@/hooks/useTheme';
+import { Empty, Input, Skeleton, Checkbox, Modal, App as AntApp } from 'antd';
+import { ClockCircleOutlined, InboxOutlined, SearchOutlined, SwapOutlined, StopOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import * as db from '@/utils/database';
 import type { ProjectDirectory, Todo } from '@/types';
@@ -19,14 +16,13 @@ import { formatRelativeTime } from '@/utils/datetime';
 
 interface TodoListProps {
   onOpenCreateModal: () => void;
-  onOpenSmartCreate: () => void;
   onSelectTodo?: (todoId: string | number) => void;
-  onShowDashboard?: () => void;
-  onShowMemorial?: () => void;
-  onShowSettings?: () => void;
   onSelectLoop?: (loopId: number) => void;
   onCreateLoop?: () => void;
   loopUpdateCount?: number;
+  forcedListMode?: 'item' | 'loop';
+  onListModeChange?: (mode: 'item' | 'loop') => void;
+  activeView: string;
 }
 
 function SkeletonRow() {
@@ -43,38 +39,11 @@ function SkeletonList() {
   );
 }
 
-/**
- * 构建桌面端头部高频导航按钮。
- */
-function buildDesktopNavActions(
-  onShowDashboard: TodoListProps['onShowDashboard'],
-  onShowMemorial: TodoListProps['onShowMemorial'],
-) {
-  return [
-    {
-      key: 'dashboard',
-      title: '仪表盘',
-      icon: <DashboardOutlined />,
-      onClick: onShowDashboard ? () => onShowDashboard() : undefined,
-      ariaLabel: '仪表盘',
-    },
-    {
-      key: 'memorial',
-      title: '看板',
-      icon: <ReadOutlined />,
-      onClick: onShowMemorial ? () => onShowMemorial() : undefined,
-      ariaLabel: '看板',
-    },
-  ].filter(action => typeof action.onClick === 'function');
-}
-
 export function TodoList(props: TodoListProps) {
-  const { onOpenCreateModal, onOpenSmartCreate, onSelectTodo, onShowDashboard, onShowMemorial, onShowSettings, onSelectLoop, onCreateLoop, loopUpdateCount } = props;
+  const { onOpenCreateModal, onSelectTodo, onSelectLoop, onCreateLoop, loopUpdateCount, forcedListMode, onListModeChange, activeView } = props;
   const { state, dispatch } = useApp();
-  const { themeMode, toggleTheme } = useTheme();
   const { todos, selectedTodoId, selectedTagId, selectedWorkspace, tags } = state;
   const { message } = AntApp.useApp();
-  const isMobile = useIsMobile();
   const [isLoading, setIsLoading] = useState(true);
   // 搜索关键字状态，用于按标题或提示词过滤 todo 列表
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -91,6 +60,8 @@ export function TodoList(props: TodoListProps) {
   const [selectedLoopId, setSelectedLoopId] = useState<number | null>(null);
   // 项目目录：工作空间选择器需要目录列表
   const [projectDirectories, setProjectDirectories] = useState<ProjectDirectory[]>([]);
+  // 标记项目目录初始加载是否已完成（无论成功与否），用于守卫环路加载等工作空间确定后再发起请求
+  const [directoriesReady, setDirectoriesReady] = useState(false);
   // —— 通用工具栏：跨模式的多选 id 列表 ——
   // 切换 listMode 时清空，避免不同模式 id 串台（todo/loop 都是 number id）
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -105,13 +76,24 @@ export function TodoList(props: TodoListProps) {
     setIsLoading(false);
   }, []);
 
+  // 外部导航强制指定 listMode 时（例如左侧主导航点击“事项/环路”），
+  // 需要让内部状态跟随，否则中间列表会停留在用户上次切换的模式。
+  useEffect(() => {
+    if (!forcedListMode) return;
+    if (forcedListMode === listMode) return;
+    setListMode(forcedListMode);
+  }, [forcedListMode, listMode]);
+
   // 进入页面时拉取项目目录；后续 Todo 抽屉新增/删除目录时也会主动重拉，确保分组始终准确。
   // 失败时静默处理：分组视图退化为只显示路径即可，不阻塞主流程。
   const reloadProjectDirectories = useCallback(() => {
     db.getProjectDirectories() // 从后端拉取全量目录列表
-      .then(setProjectDirectories) // 更新本地状态，触发分组重新计算
+      .then(dirs => {
+        setProjectDirectories(dirs);
+        setDirectoriesReady(true);
+      })
       .catch(() => {
-        // 静默失败：分组视图退化为只显示路径即可，不阻塞主流程
+        setDirectoriesReady(true); // 失败也标记为 ready，避免阻塞环路加载
       });
   }, []);
 
@@ -133,24 +115,34 @@ export function TodoList(props: TodoListProps) {
   }, [projectDirectories, selectedWorkspace, dispatch]);
 
   // 当列表切换到「环路」时，自动加载 loop 列表；或环路变更时刷新
+  // 必须等待项目目录加载完成且工作空间已确定，否则请求不携带 workspace 参数返回错误数据。
   useEffect(() => {
     if (listMode !== 'loop') return;
+    if (!directoriesReady) return;
+    // 已有目录但尚未选定工作空间 → 等待 auto-select 后再加载
+    if (projectDirectories.length > 0 && selectedWorkspace === null) return;
     setLoopLoading(true);
     dbLoops.listLoops(selectedWorkspace)
       .then(setLoopList)
       .catch(() => setLoopList([]))
       .finally(() => setLoopLoading(false));
-  }, [listMode, loopUpdateCount, selectedWorkspace]);
+  }, [listMode, loopUpdateCount, selectedWorkspace, projectDirectories, directoriesReady]);
 
   // 持久化列表模式到 localStorage
   useEffect(() => {
     localStorage.setItem('ntd_list_mode', listMode);
   }, [listMode]);
 
+  // 向壳层同步当前列表模式，便于左侧主导航高亮与全局路由状态保持一致。
+  useEffect(() => {
+    onListModeChange?.(listMode);
+  }, [listMode, onListModeChange]);
+
   // 切换 listMode 时清空选择：todo/loop 虽然 id 都是 number，
   // 但语义不同（同一数字可能指向不同实体），跨模式保留选择会让用户困惑。
   useEffect(() => {
     setSelectedIds([]);
+    setSelectedLoopId(null);
   }, [listMode]);
 
   // 切换单条 id 的选中态（toggle 语义，工具栏的「全选」用 onSelectionChange 全量覆盖）
@@ -195,6 +187,38 @@ export function TodoList(props: TodoListProps) {
     if (!keyword) return loopList;
     return loopList.filter(l => (l.name || '').toLowerCase().includes(keyword));
   }, [loopList, searchKeyword]);
+
+  // 事项/环路模式：等目录加载完成 → 工作空间确定后 → 自动选中第一项。
+  // 目的是让右侧直接展示详情，避免显示空白仪表盘页。
+  // 注意：必须检查 activeView 匹配，防止用户已导航离开后 auto-select 又把视图弹回。
+  useEffect(() => {
+    // 等目录加载完成
+    if (!directoriesReady) return;
+    // 有目录但尚未选定工作空间 → 等待 auto-select
+    if (projectDirectories.length > 0 && selectedWorkspace === null) return;
+
+    if (listMode === 'item') {
+      if (activeView !== 'items') return;
+      if (selectedTodoId !== null) return;
+      if (filteredTodos.length === 0) return;
+      const firstId = filteredTodos[0].id;
+      dispatch({ type: 'SELECT_TODO', payload: firstId });
+      onSelectTodo?.(firstId);
+    } else if (listMode === 'loop') {
+      if (activeView !== 'loops') return;
+      if (selectedLoopId !== null) return;
+      if (loopLoading) return;
+      if (loopList.length === 0) return;
+      const firstId = loopList[0].id;
+      setSelectedLoopId(firstId);
+      onSelectLoop?.(firstId);
+    }
+  }, [
+    directoriesReady, projectDirectories, selectedWorkspace,
+    listMode, activeView,
+    selectedTodoId, filteredTodos, dispatch, onSelectTodo,
+    selectedLoopId, loopLoading, loopList, onSelectLoop,
+  ]);
 
   // 当前 listMode 下"可见可选"的 id 列表，传给 ActionToolbar 用于「全选」/计数。
   // 两种模式都按当前 searchKeyword 过滤后的列表计算，避免「全选」选中隐藏项。
@@ -300,47 +324,6 @@ export function TodoList(props: TodoListProps) {
       }],
     };
   }, [listMode, openItemChangeExecutor, openLoopForceStop]);
-
-  const desktopNavActions = useMemo(
-    () => buildDesktopNavActions(onShowDashboard, onShowMemorial),
-    [onShowDashboard, onShowMemorial],
-  );
-
-  /**
-   * 处理桌面端头部"更多"菜单点击。
-   */
-  const handleHeaderMenuClick = useCallback<NonNullable<MenuProps['onClick']>>(({ key }) => {
-    if (key === 'theme') {
-      toggleTheme();
-      return;
-    }
-    if (key === 'settings') {
-      onShowSettings?.();
-    }
-  }, [onShowSettings, toggleTheme]);
-
-  const headerMenuItems = useMemo<MenuProps['items']>(() => {
-    const items: NonNullable<MenuProps['items']> = [
-      {
-        key: 'theme',
-        icon: themeMode === 'light' ? <MoonOutlined /> : <SunOutlined />,
-        label: themeMode === 'light' ? '暗色' : '亮色',
-      },
-    ];
-
-    if (onShowSettings) {
-      items.push(
-        { type: 'divider' },
-        {
-          key: 'settings',
-          icon: <SettingOutlined />,
-          label: '设置',
-        },
-      );
-    }
-
-    return items;
-  }, [themeMode, onShowSettings]);
 
   const tagMap = useMemo(() => {
     const map = new Map<number, typeof tags[0]>();
@@ -487,146 +470,6 @@ export function TodoList(props: TodoListProps) {
 
   return (
     <div className="todo-list-container">
-      {/* Header */}
-      <div className="todo-list-header">
-        {/* NTD Logo */}
-        <div className="ntd-logo" aria-label="NTD Logo">NTD</div>
-        <div className="header-actions">
-          <div className="header-toolbar">
-            {desktopNavActions.length > 0 && (
-              <div className="header-nav-cluster" aria-label="主导航">
-                {desktopNavActions.map(action => (
-                  <Tooltip key={action.key} title={action.title}>
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={action.icon}
-                      onClick={action.onClick}
-                      className="header-nav-btn"
-                      aria-label={action.ariaLabel}
-                    />
-                  </Tooltip>
-                ))}
-              </div>
-            )}
-
-            {!isMobile && (
-              <Dropdown
-                menu={{ items: headerMenuItems, onClick: handleHeaderMenuClick }}
-                trigger={['click']}
-                placement="bottomRight"
-              >
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<MoreOutlined />}
-                  className="header-overflow-btn"
-                  aria-label="更多操作"
-                />
-              </Dropdown>
-            )}
-
-          {!isMobile && (
-            <div className="header-quick-actions">
-              {/* header 只保留「智能新建」（AI 一句话生成）。普通新建入口已迁到
-                  ActionToolbar 的「新建事项 / 新建环路」按钮，避免两处入口混淆。 */}
-              <Tooltip title="智能新建">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ThunderboltOutlined />}
-                  className="header-primary-action header-primary-action-smart"
-                  onClick={onOpenSmartCreate}
-                  aria-label="智能新建"
-                />
-              </Tooltip>
-            </div>
-          )}
-
-          {isMobile && (
-            <div className="header-nav-cluster" aria-label="移动端操作">
-              <Tooltip title={themeMode === 'light' ? '暗色' : '亮色'}>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={themeMode === 'light' ? <MoonOutlined /> : <SunOutlined />}
-                  onClick={toggleTheme}
-                  className="header-nav-btn"
-                  aria-label={themeMode === 'light' ? '暗色' : '亮色'}
-                />
-              </Tooltip>
-              <Tooltip title="设置">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<SettingOutlined />}
-                  onClick={() => onShowSettings?.()}
-                  className="header-nav-btn"
-                  aria-label="设置"
-                />
-              </Tooltip>
-            </div>
-          )}
-          </div>
-        </div>
-      </div>
-
-      {/* Workspace selector - 在搜索框上方，用于切换不同工作空间。
-          已移除"全部工作空间"选项，强制用户必须选择一个工作空间。 */}
-      <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--color-border-light)' }}>
-        <Dropdown
-          menu={{
-            items: [
-              ...projectDirectories.map(dir => ({
-                key: dir.path,
-                label: dir.name || dir.path,
-                icon: <FolderOpenOutlined />,
-              })),
-              { type: 'divider' as const },
-              {
-                key: '__manage__',
-                label: '管理工作空间',
-                icon: <SettingOutlined />,
-              },
-            ],
-            onClick: ({ key }) => {
-              if (key === '__manage__') {
-                onShowSettings?.();
-              } else {
-                dispatch({ type: 'SELECT_WORKSPACE', payload: key });
-              }
-            },
-          }}
-          trigger={['click']}
-        >
-          <Button
-            type="text"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              width: '100%',
-              justifyContent: 'space-between',
-              padding: '8px 12px',
-              borderRadius: 'var(--radius-md)',
-              background: 'var(--color-bg-elevated)',
-              border: '1px solid var(--color-border)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <ApartmentOutlined style={{ color: 'var(--color-primary)' }} />
-              <span style={{ fontWeight: 500 }}>
-                {selectedWorkspace
-                  ? projectDirectories.find(d => d.path === selectedWorkspace)?.name || selectedWorkspace
-                  : '请选择工作空间'
-                }
-              </span>
-            </div>
-            <DownOutlined style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }} />
-          </Button>
-        </Dropdown>
-      </div>
-
       {/* 搜索框：两种模式都展示（用户反馈：环路原本没有，切换时会跳界面）。
           placeholder 按 listMode 切换，关键词同时匹配事项标题/提示词、环路名称。 */}
       <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--color-border-light)' }}>
@@ -640,20 +483,6 @@ export function TodoList(props: TodoListProps) {
           onChange={(e) => setSearchKeyword(e.target.value)}
           allowClear
           size="small"
-        />
-      </div>
-
-      {/* 列表选择：事项 / 环路 */}
-      <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--color-border-light)' }}>
-        <Segmented
-          block
-          size="small"
-          value={listMode}
-          onChange={(v) => setListMode(v as 'item' | 'loop')}
-          options={[
-            { label: '事项', value: 'item' },
-            { label: '环路', value: 'loop' },
-          ]}
         />
       </div>
 

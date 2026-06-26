@@ -1,25 +1,30 @@
-import { useState, useEffect, useCallback } from 'react';
-import { ConfigProvider, Layout, App as AntApp, message } from 'antd';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { ConfigProvider, Layout, App as AntApp, Drawer, message, Form } from 'antd';
 import { PlusOutlined, ThunderboltOutlined, CloseOutlined, LeftOutlined } from '@ant-design/icons';
 import { AppProvider, useApp } from './hooks/useApp';
 import { useIsMobile } from './hooks/useIsMobile';
 import { useExecutionEvents } from './hooks/useExecutionEvents';
-import { useViewState, type View } from './hooks/useViewState';
+import { useViewState, viewToNavKey, type View } from './hooks/useViewState';
 import { ThemeProvider, useTheme } from './hooks/useTheme';
 import { TodoList } from './components/TodoList';
 import { TodoDetail } from './components/TodoDetail';
 import { Dashboard } from './components/Dashboard';
 import { MemorialBoard } from './components/MemorialBoard';
 import { SettingsPage } from './components/SettingsPage';
+import { SkillsPanel } from './components/SkillsPanel';
+import { SessionManager } from './components/SessionManager';
+import { ProjectDirectoriesPanel } from './components/settings/ProjectDirectoriesPanel';
+import { RuntimePanel } from './components/settings/RuntimePanel';
 import { ExecutionPanel } from './components/ExecutionPanel';
 import { TodoDrawer } from './components/TodoDrawer';
 import { SmartCreateModal } from './components/SmartCreateModal';
 import { LoopDetailPanel } from './components/LoopStudioDetailPanel';
 import { LoopFormModal } from './components/LoopFormModal';
+import { LeftRail, type LeftRailKey } from './components/shell/LeftRail';
 import * as dbLoops from './utils/database/loops';
-import { EXECUTION_PANEL, SIDEBAR_WIDTH } from './constants';
+import { EXECUTION_PANEL, LEFT_RAIL_WIDTH, SIDEBAR_WIDTH } from './constants';
 import * as db from './utils/database';
-import type { Config } from './types';
+import type { Config, ExecutorConfig } from './types';
 import zhCN from 'antd/locale/zh_CN';
 import './App.css';
 
@@ -27,11 +32,23 @@ const { Content } = Layout;
 
 function AppContent() {
   const { state, dispatch, clearSelection } = useApp();
-  const { activeView, selectedPanel, setSelectedPanel, showView, selectTodo, backToList } = useViewState();
+  const { activeView, selectedId, selectedPanel, showView, backToList, pushUrl } = useViewState();
+  const { themeMode, toggleTheme } = useTheme();
 
   const [todoModalOpen, setTodoModalOpen] = useState(false);
   const [smartCreateOpen, setSmartCreateOpen] = useState(false);
   const [fabExpanded, setFabExpanded] = useState(false);
+  const [navDrawerOpen, setNavDrawerOpen] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(() => {
+    try {
+      const saved = localStorage.getItem('ntd_left_rail_collapsed');
+      if (saved === 'true') return true;
+      if (saved === 'false') return false;
+      return true;
+    } catch {
+      return true;
+    }
+  });
   const [appConfig, setAppConfig] = useState<Config | null>(null);
   // 新建环路弹窗（使用 LoopFormModal create 模式）
   const [loopCreateModalOpen, setLoopCreateModalOpen] = useState(false);
@@ -39,6 +56,11 @@ function AppContent() {
   const [selectedLoopId, setSelectedLoopId] = useState<number | null>(null);
   // 环路变更计数，驱动左侧 loop 列表刷新
   const [loopUpdateCount, setLoopUpdateCount] = useState(0);
+  const [forcedListMode, setForcedListMode] = useState<'item' | 'loop' | undefined>(undefined);
+  // 从 activeView 派生出 LeftRailKey，去除独立的状态源
+  const navKey = useMemo<LeftRailKey>(() => {
+    return viewToNavKey(activeView) as LeftRailKey;
+  }, [activeView]);
   const isMobile = useIsMobile();
 
   const [panelCollapsed, setPanelCollapsed] = useState(() => {
@@ -51,6 +73,8 @@ function AppContent() {
 
   useExecutionEvents();
 
+  // settingsTabChanged 事件不再需要 — activeView + activeTab 由 useViewState 统一管理
+
   const hasRunningTasks = Object.keys(state.runningTasks).length > 0;
   const panelHeight = hasRunningTasks ? (panelCollapsed ? EXECUTION_PANEL.collapsed : EXECUTION_PANEL.expanded) : 0;
 
@@ -59,49 +83,84 @@ function AppContent() {
     db.getConfig().then(setAppConfig).catch(() => {});
   }, []);
 
-  // On initial load, restore todo/loop selection from URL (only when loading finishes)
+  // —— 独立页面：「运行管理」与「设置页」共享的配置表单状态 —
+  // RuntimePanel 从设置标签页剥离成独立页面后，需要自己的 Form 实例 + 配置加载/保存逻辑。
+  const [runtimeConfigForm] = Form.useForm();
+  const [runtimeConfigSaving, setRuntimeConfigSaving] = useState(false);
+  // 执行器列表供 executorDisplayNames 使用
+  const [runtimeExecutors, setRuntimeExecutors] = useState<ExecutorConfig[]>([]);
+
+  useEffect(() => {
+    db.getConfig().then((cfg) => {
+      runtimeConfigForm.setFieldsValue(cfg);
+    }).catch(() => {});
+  }, [runtimeConfigForm]);
+
+  useEffect(() => {
+    db.getExecutors().then(setRuntimeExecutors).catch(() => {});
+  }, []);
+
+  const runtimeExecutorDisplayNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const ec of runtimeExecutors) {
+      map[ec.name] = ec.display_name;
+    }
+    return map;
+  }, [runtimeExecutors]);
+
+  const handleRuntimeSaveConfig = useCallback(async () => {
+    try {
+      const values = await runtimeConfigForm.validateFields();
+      setRuntimeConfigSaving(true);
+      await db.updateConfig(values);
+      message.success('配置已保存');
+    } catch (err: any) {
+      if (err?.errorFields) return;
+      message.error('保存失败: ' + (err?.message || String(err)));
+    } finally {
+      setRuntimeConfigSaving(false);
+    }
+  }, [runtimeConfigForm]);
+
+  // URL → React state 恢复（首次加载完成后执行）
   useEffect(() => {
     if (state.loading) return;
-    const params = new URLSearchParams(window.location.search);
-    const todoId = params.get('todo');
-    const loopId = params.get('loop');
-    if (todoId && state.todos.some(t => String(t.id) === todoId)) {
-      dispatch({ type: 'SELECT_TODO', payload: Number(todoId) });
-      setSelectedPanel('detail');
-    } else if (loopId) {
-      setSelectedLoopId(Number(loopId));
-      setSelectedPanel('detail');
+    if (activeView === 'items' && selectedId != null && state.todos.some(t => t.id === selectedId)) {
+      dispatch({ type: 'SELECT_TODO', payload: selectedId });
+      setSelectedLoopId(null);
+    } else if (activeView === 'loops' && selectedId != null) {
+      setSelectedLoopId(selectedId);
+      dispatch({ type: 'SELECT_TODO', payload: null });
+      clearSelection();
+    } else if (activeView !== 'items' && activeView !== 'loops') {
+      // 非列表视图时清除选择
+      setSelectedLoopId(null);
+      dispatch({ type: 'SELECT_TODO', payload: null });
     }
-  }, [state.loading, state.todos, dispatch, setSelectedPanel]);
+  }, [state.loading, state.todos, dispatch, clearSelection, activeView, selectedId]);
 
-  // Browser back/forward: restore loop selection from URL
+  // popstate 由 useViewState 统一处理；这里监听 view/id 变化来同步 React 状态
   useEffect(() => {
-    const onPopState = () => {
-      const params = new URLSearchParams(window.location.search);
-      const todoId = params.get('todo');
-      const loopId = params.get('loop');
-      if (todoId) {
-        // useViewState handles todo selection; just clear loop
-        setSelectedLoopId(null);
-      } else if (loopId) {
-        setSelectedLoopId(Number(loopId));
-        setSelectedPanel('detail');
-        dispatch({ type: 'SELECT_TODO', payload: null });
-        clearSelection();
-      } else {
-        setSelectedLoopId(null);
+    if (activeView === 'items' && selectedId != null) {
+      setSelectedLoopId(null);
+      if (!state.loading) {
+        dispatch({ type: 'SELECT_TODO', payload: selectedId });
       }
-    };
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, [dispatch, clearSelection, setSelectedPanel]);
+    } else if (activeView === 'loops' && selectedId != null) {
+      setSelectedLoopId(selectedId);
+      dispatch({ type: 'SELECT_TODO', payload: null });
+      clearSelection();
+    } else {
+      setSelectedLoopId(null);
+    }
+  }, [activeView, selectedId, dispatch, clearSelection, state.loading]);
 
   const handleSelectTodo = (todoId: string | number | null) => {
     if (todoId != null) {
       // 选中 todo 时清除 loop 选择，避免右侧面板显示冲突
       setSelectedLoopId(null);
       dispatch({ type: 'SELECT_TODO', payload: Number(todoId) });
-      selectTodo(Number(todoId));
+      pushUrl('items', { id: Number(todoId) });
     }
   };
 
@@ -111,12 +170,8 @@ function AppContent() {
     dispatch({ type: 'SELECT_TODO', payload: null });
     clearSelection();
     setSelectedLoopId(loopId);
-    setSelectedPanel('detail');
-    // 更新 URL，支持浏览器前进/后退导航
-    const params = new URLSearchParams();
-    params.set('loop', String(loopId));
-    window.history.pushState(null, '', `/?${params.toString()}`);
-  }, [dispatch, clearSelection, setSelectedPanel]);
+    pushUrl('loops', { id: loopId });
+  }, [dispatch, clearSelection, pushUrl]);
 
   const handleSmartCreateSubmitted = () => {
     db.getAllTodos().then(todos => {
@@ -133,11 +188,83 @@ function AppContent() {
 
   const handleGoToSettings = () => handleShowView('settings');
 
+  const showSettings = useCallback((tab: string | null) => {
+    setSelectedLoopId(null);
+    dispatch({ type: 'SELECT_TODO', payload: null });
+    clearSelection();
+    showView('settings', { tab });
+  }, [clearSelection, dispatch, showView]);
+
+  /**
+   * 切换到独立的配置管理页面（运行管理 / Skills / 工作空间 / 会话）。
+   * 这些页面已从设置页标签页中剥离，独立为左侧导航菜单项。
+   */
+  const showStandaloneSettingsPanel = useCallback((view: View) => {
+    setSelectedLoopId(null);
+    dispatch({ type: 'SELECT_TODO', payload: null });
+    clearSelection();
+    pushUrl(view);
+  }, [clearSelection, dispatch, pushUrl]);
+
+  /**
+   * 切换到“事项/环路”这类列表型入口。
+   * 目标：在桌面端保持三栏结构（左主导航 + 中间列表 + 右工作区），移动端回到列表面板。
+   * 进入后自动选中第一项的工作交由 TodoList 统一处理（需等目录加载 → 工作空间确定）。
+   */
+  const showListSection = useCallback((mode: 'item' | 'loop') => {
+    // 先清除旧选择，再设置新的列表模式
+    setSelectedLoopId(null);
+    dispatch({ type: 'SELECT_TODO', payload: null });
+    clearSelection();
+    setForcedListMode(mode);
+    pushUrl(mode === 'loop' ? 'loops' : 'items');
+  }, [pushUrl, clearSelection, dispatch]);
+
+  /**
+   * 左侧主导航点击处理（桌面侧栏/移动抽屉共用）。
+   */
+  const handleRailSelect = useCallback((key: LeftRailKey) => {
+    setNavDrawerOpen(false);
+    if (key === 'items') {
+      showListSection('item');
+      return;
+    }
+    if (key === 'loops') {
+      showListSection('loop');
+      return;
+    }
+    if (key === 'dashboard') {
+      handleShowView('dashboard');
+      return;
+    }
+    if (key === 'memorial') {
+      handleShowView('memorial');
+      return;
+    }
+    if (key === 'settings') {
+      showSettings(null);
+      return;
+    }
+    if (key === 'settings_projectDirectories') {
+      showStandaloneSettingsPanel('projectDirectories');
+      return;
+    }
+    if (key === 'settings_sessions') {
+      showStandaloneSettingsPanel('sessions');
+      return;
+    }
+    if (key === 'settings_skills') {
+      showStandaloneSettingsPanel('skills');
+      return;
+    }
+    showStandaloneSettingsPanel('runtime');
+  }, [handleShowView, showListSection, showSettings, showStandaloneSettingsPanel]);
+
   // FAB backdrop click to collapse
   const handleFabBackdropClick = () => setFabExpanded(false);
 
   return (
-    <Layout style={{ height: '100vh' }}>
+    <Layout style={{ height: '100vh', flexDirection: isMobile ? 'column' : 'row' }}>
       {/* Mobile FAB Group */}
       {isMobile && selectedPanel === 'list' && (
         <>
@@ -182,46 +309,83 @@ function AppContent() {
         </>
       )}
 
+      {!isMobile && (
+        <div
+          className="ntd-left-rail-slot"
+          style={{
+            width: railCollapsed ? LEFT_RAIL_WIDTH.collapsed : LEFT_RAIL_WIDTH.expanded,
+            height: `calc(100vh - ${panelHeight}px)`,
+          }}
+        >
+          <LeftRail
+            activeKey={navKey}
+            onSelect={handleRailSelect}
+            collapsed={railCollapsed}
+            onToggleCollapsed={() => {
+              const next = !railCollapsed;
+              setRailCollapsed(next);
+              try {
+                localStorage.setItem('ntd_left_rail_collapsed', String(next));
+              } catch {}
+            }}
+            workspace={state.selectedWorkspace}
+            onWorkspaceChange={(workspace) => {
+              dispatch({ type: 'SELECT_WORKSPACE', payload: workspace });
+            }}
+            themeMode={themeMode}
+            toggleTheme={toggleTheme}
+          />
+        </div>
+      )}
+
       <Layout>
         <Content
           style={{
             display: 'flex',
             flexDirection: isMobile ? 'column' : 'row',
-            padding: isMobile ? 0 : 16,
-            paddingBottom: isMobile ? 0 : 16 + panelHeight,
-            gap: isMobile ? 0 : 16,
+            padding: isMobile ? 0 : 12,
+            paddingBottom: isMobile ? 0 : 12 + panelHeight,
+            gap: isMobile ? 0 : 12,
             height: `calc(100vh - ${panelHeight}px)`,
             overflow: 'hidden',
             transition: 'height 0.3s ease, padding-bottom 0.3s ease',
           }}
         >
-          {/* Todo List Panel */}
+          {/* 中间列表面板：仅在「事项」或「环路」导航选中时显示；
+              仪表盘/看板/配置等页面由右侧面板独占，不需要中间列表 */}
           <div
             className={(!isMobile || selectedPanel === 'list') ? 'animate-fade-in' : ''}
             style={{
               width: isMobile ? SIDEBAR_WIDTH.mobile : SIDEBAR_WIDTH.desktop,
               flexShrink: 0,
               height: '100%',
-              display: !isMobile || selectedPanel === 'list' ? 'block' : 'none',
+              display: isMobile
+                ? (selectedPanel === 'list' ? 'block' : 'none')
+                : (activeView === 'items' || activeView === 'loops' ? 'block' : 'none'),
             }}
           >
             <TodoList
               onOpenCreateModal={() => setTodoModalOpen(true)}
-              onOpenSmartCreate={() => setSmartCreateOpen(true)}
-              onSelectTodo={handleSelectTodo}
-              onShowDashboard={() => handleShowView('dashboard')}
-              onShowMemorial={() => handleShowView('memorial')}
+              onSelectTodo={(todoId) => {
+                handleSelectTodo(todoId);
+              }}
               loopUpdateCount={loopUpdateCount}
-              onShowSettings={() => handleShowView('settings')}
-              onSelectLoop={handleSelectLoop}
+              onSelectLoop={(loopId) => {
+                handleSelectLoop(loopId);
+              }}
               onCreateLoop={() => {
                 // 打开 LoopFormModal 创建模式，用户填写完整信息后创建环路
                 setLoopCreateModalOpen(true);
               }}
+              forcedListMode={forcedListMode}
+              onListModeChange={() => {
+                setForcedListMode(undefined);
+              }}
+              activeView={activeView}
             />
           </div>
 
-          {/* Detail Panel */}
+          {/* Right Workspace */}
           <div
             className={(!isMobile || selectedPanel === 'detail') ? 'animate-slide-in-right' : ''}
             style={{
@@ -301,16 +465,62 @@ function AppContent() {
                   }}
                 />
               </div>
+            ) : activeView === 'runtime' ? (
+              // 运行管理 — 独立页面（非设置内嵌标签页）
+              <div className="detail-panel" style={{ height: '100%', overflowY: 'auto', padding: 16 }}>
+                <RuntimePanel
+                  configForm={runtimeConfigForm}
+                  configSaving={runtimeConfigSaving}
+                  handleSaveConfig={handleRuntimeSaveConfig}
+                  executorDisplayNames={runtimeExecutorDisplayNames}
+                />
+              </div>
+            ) : activeView === 'skills' ? (
+              <div className="detail-panel" style={{ height: '100%', overflowY: 'auto', padding: 16 }}>
+                <SkillsPanel />
+              </div>
+            ) : activeView === 'projectDirectories' ? (
+              <div className="detail-panel" style={{ height: '100%', overflowY: 'auto', padding: 16 }}>
+                <ProjectDirectoriesPanel />
+              </div>
+            ) : activeView === 'sessions' ? (
+              <div className="detail-panel" style={{ height: '100%', overflowY: 'auto', padding: 16 }}>
+                <SessionManager />
+              </div>
             ) : activeView === 'settings' ? (
               <SettingsPage onBack={isMobile ? backToList : undefined} />
             ) : activeView === 'memorial' ? (
               <MemorialBoard onBack={isMobile ? backToList : undefined} />
+            ) : activeView === 'items' || activeView === 'loops' ? (
+              // 事项/环路视图但未选中具体条目：展示空白区域，绝不回退到 Dashboard
+              <div />
             ) : (
               <Dashboard onBack={isMobile ? backToList : undefined} />
             )}
           </div>
         </Content>
       </Layout>
+
+      <Drawer
+        open={navDrawerOpen}
+        onClose={() => setNavDrawerOpen(false)}
+        placement="left"
+        width={280}
+        rootClassName="ntd-nav-drawer"
+        styles={{ body: { padding: 0 } }}
+      >
+        <LeftRail
+          activeKey={navKey}
+          onSelect={handleRailSelect}
+          variant="drawer"
+          workspace={state.selectedWorkspace}
+          onWorkspaceChange={(workspace) => {
+            dispatch({ type: 'SELECT_WORKSPACE', payload: workspace });
+          }}
+          themeMode={themeMode}
+          toggleTheme={toggleTheme}
+        />
+      </Drawer>
 
       <TodoDrawer
         open={todoModalOpen}
