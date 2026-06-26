@@ -70,6 +70,11 @@ function AppContent() {
     ? 'detail'
     : selectedPanel;
 
+  // 切换视图或面板时收起 FAB，避免遗留
+  useEffect(() => {
+    setFabExpanded(false);
+  }, [effectiveMobilePanel]);
+
   const [panelCollapsed, setPanelCollapsed] = useState(() => {
     try {
       return localStorage.getItem('execution_panel_collapsed') === 'true';
@@ -174,11 +179,10 @@ function AppContent() {
   // 从左侧环路列表选中一个 loop，在右侧展示 LoopDetailPanel
   const handleSelectLoop = useCallback((loopId: number) => {
     // 清除 todo 选择，避免 state.selectedTodoId 抢占右侧面板
-    dispatch({ type: 'SELECT_TODO', payload: null });
     clearSelection();
     setSelectedLoopId(loopId);
     pushUrl('loops', { id: loopId });
-  }, [dispatch, clearSelection, pushUrl]);
+  }, [clearSelection, pushUrl]);
 
   const handleSmartCreateSubmitted = () => {
     db.getAllTodos().then(todos => {
@@ -198,10 +202,9 @@ function AppContent() {
 
   const showSettings = useCallback((tab: string | null) => {
     setSelectedLoopId(null);
-    dispatch({ type: 'SELECT_TODO', payload: null });
     clearSelection();
     showView('settings', { tab });
-  }, [clearSelection, dispatch, showView]);
+  }, [clearSelection, showView]);
 
   /**
    * 切换到独立的配置管理页面（运行管理 / Skills / 工作空间 / 会话）。
@@ -209,10 +212,9 @@ function AppContent() {
    */
   const showStandaloneSettingsPanel = useCallback((view: View) => {
     setSelectedLoopId(null);
-    dispatch({ type: 'SELECT_TODO', payload: null });
     clearSelection();
     pushUrl(view);
-  }, [clearSelection, dispatch, pushUrl]);
+  }, [clearSelection, pushUrl]);
 
   /**
    * 切换到“事项/环路”这类列表型入口。
@@ -222,11 +224,10 @@ function AppContent() {
   const showListSection = useCallback((mode: 'item' | 'loop') => {
     // 先清除旧选择，再设置新的列表模式
     setSelectedLoopId(null);
-    dispatch({ type: 'SELECT_TODO', payload: null });
     clearSelection();
     setForcedListMode(mode);
     pushUrl(mode === 'loop' ? 'loops' : 'items');
-  }, [pushUrl, clearSelection, dispatch]);
+  }, [pushUrl, clearSelection]);
 
   /**
    * 左侧主导航点击处理（桌面侧栏/移动抽屉共用）。
