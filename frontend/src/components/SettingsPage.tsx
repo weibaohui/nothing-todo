@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Tabs, Form, Button, message } from 'antd';
+import { Tabs, Form, message } from 'antd';
 import {
   SettingOutlined,
   CodeOutlined,
@@ -7,9 +7,9 @@ import {
   SaveOutlined,
   FileTextOutlined,
   InfoCircleOutlined,
-  LeftOutlined,
   CloudOutlined,
 } from '@ant-design/icons';
+import { PageCard } from '@/components/common/PageCard';
 import { useApp } from '@/hooks/useApp';
 import { useViewState } from '@/hooks/useViewState';
 import * as db from '@/utils/database';
@@ -24,12 +24,8 @@ import { CloudSyncPanel } from './settings/CloudSyncPanel';
 
 import { DEFAULT_EXECUTION_TIMEOUT_SECS } from '@/constants';
 
-interface SettingsPageProps {
-  onBack?: () => void;
-}
-
 /** 设置页，负责加载并保存系统配置以及各类管理面板。 */
-export function SettingsPage({ onBack }: SettingsPageProps) {
+export function SettingsPage() {
   const { state, dispatch } = useApp();
   const { tags } = state;
 
@@ -196,28 +192,10 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   }, [pushUrl]);
 
   return (
-    <div
-      className="settings-page-root detail-panel"
-      style={{
-        height: '100%',
-        overflowY: 'auto',
-      }}
+    <PageCard
+      icon={<SettingOutlined />}
+      title="配置管理"
     >
-      <div className="settings-header-card detail-card header-card">
-        {onBack && (
-          <Button
-            type="text"
-            size="small"
-            icon={<LeftOutlined />}
-            onClick={onBack}
-            className="settings-back-btn"
-            aria-label="返回"
-          />
-        )}
-        <div style={{ minWidth: 0 }}>
-          <h2 className="card-title">配置管理</h2>
-        </div>
-      </div>
       <Tabs
         className="settings-tabs"
         items={tabItems}
@@ -227,6 +205,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         activeKey={resolvedTab}
         onChange={handleTabChange}
       />
-    </div>
+    </PageCard>
   );
 }
