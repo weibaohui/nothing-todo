@@ -15,6 +15,7 @@ import { PlusOutlined } from '@ant-design/icons';
 import * as dbLoops from '@/utils/database/loops';
 import * as dbReviewTemplates from '@/utils/database/reviewTemplates';
 import * as dbTodos from '@/utils/database/todos';
+import { getProjectDirectories } from '@/utils/database/todos';
 import type { UpdateLoopRequest } from '@/types/loop';
 import type { ReviewTemplateOption } from '@/types/reviewTemplate';
 import type { Todo } from '@/types/todo';
@@ -77,14 +78,31 @@ export function LoopFormModal({
   const [newTemplateForm] = Form.useForm<{ name: string; description?: string; prompt: string }>();
   // 异常处理 Todo
   const [abnormalHandlerTodoOptions, setAbnormalHandlerTodoOptions] = useState<Todo[]>([]);
+  // 工作空间路径→ID 映射（用于评审模板 API，其过滤/新建需 workspace_id 而非路径字符串）
+  const [pathToWorkspaceId, setPathToWorkspaceId] = useState<Record<string, number>>({});
 
-  // 打开时 + workspace 变化时重新加载评审模板选项（按 workspace 过滤）
+  // 打开时加载工作空间目录列表（建立路径→ID 映射）
   useEffect(() => {
     if (!open) return;
-    dbReviewTemplates.listReviewTemplateOptions(workspaceValue ?? undefined)
+    getProjectDirectories().then((dirs) => {
+      const map: Record<string, number> = {};
+      for (const d of dirs) {
+        if (d.path) map[d.path] = d.id;
+      }
+      setPathToWorkspaceId(map);
+    }).catch(() => { /* 静默 */ });
+  }, [open]);
+
+  /** 根据当前 workspaceValue（路径）推导对应的 workspace_id，用于评审模板 API */
+  const workspaceIdForReview: number | undefined = workspaceValue ? pathToWorkspaceId[workspaceValue] : undefined;
+
+  // 打开时 + workspace 变化时重新加载评审模板选项（按 workspace_id 过滤）
+  useEffect(() => {
+    if (!open) return;
+    dbReviewTemplates.listReviewTemplateOptions(workspaceIdForReview)
       .then(setReviewTemplateOptions)
       .catch(() => { /* 静默 */ });
-  }, [open, workspaceValue]);
+  }, [open, workspaceIdForReview]);
 
   // 打开时加载异常处理 Todo 选项
   useEffect(() => {
@@ -132,12 +150,12 @@ export function LoopFormModal({
     }
   }, [open, mode, initialData, form]);
 
-  // 刷新评审模板（按当前 workspace 过滤）并选中新建的模板
+  // 刷新评审模板（按当前 workspace_id 过滤）并选中新建的模板
   const reloadTemplatesAndSelect = useCallback(async (selectedId: number) => {
-    const opts = await dbReviewTemplates.listReviewTemplateOptions(workspaceValue ?? undefined);
+    const opts = await dbReviewTemplates.listReviewTemplateOptions(workspaceIdForReview);
     setReviewTemplateOptions(opts);
     form.setFieldsValue({ review_template_id: selectedId });
-  }, [form, workspaceValue]);
+  }, [form, workspaceIdForReview]);
 
   // inline 创建评审模板（归属当前选中的工作空间）
   const handleCreateTemplate = useCallback(async () => {
@@ -148,7 +166,7 @@ export function LoopFormModal({
         name: values.name.trim(),
         description: values.description?.trim() || null,
         prompt: values.prompt,
-        workspace: workspaceValue ?? null,
+        workspace_id: workspaceIdForReview ?? null,
       });
       message.success(`已创建模板「${created.name}」`);
       await reloadTemplatesAndSelect(created.id);

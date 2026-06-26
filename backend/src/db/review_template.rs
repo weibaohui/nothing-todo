@@ -28,7 +28,7 @@ pub struct ReviewTemplateInput {
     pub name: String,
     pub description: Option<String>,
     pub prompt: String,
-    pub workspace: Option<String>,
+    pub workspace_id: Option<i64>,
 }
 
 impl From<&CreateReviewTemplateRequest> for ReviewTemplateInput {
@@ -37,7 +37,7 @@ impl From<&CreateReviewTemplateRequest> for ReviewTemplateInput {
             name: r.name.clone(),
             description: r.description.clone(),
             prompt: r.prompt.clone(),
-            workspace: r.workspace.clone(),
+            workspace_id: r.workspace_id,
         }
     }
 }
@@ -48,7 +48,7 @@ impl From<&UpdateReviewTemplateRequest> for ReviewTemplateInput {
             name: r.name.clone(),
             description: r.description.clone(),
             prompt: r.prompt.clone(),
-            workspace: None, // 更新时不修改 workspace
+            workspace_id: None, // 更新时不修改 workspace_id
         }
     }
 }
@@ -61,7 +61,7 @@ fn to_domain(m: review_templates::Model) -> ReviewTemplate {
         name: m.name,
         description: m.description,
         prompt: m.prompt,
-        workspace: m.workspace,
+        workspace_id: m.workspace_id,
         created_at: m.created_at,
         updated_at: m.updated_at,
     }
@@ -72,23 +72,23 @@ fn to_option(m: review_templates::Model) -> ReviewTemplateOption {
         id: m.id,
         name: m.name,
         description: m.description,
-        workspace: m.workspace,
+        workspace_id: m.workspace_id,
     }
 }
 
 impl Database {
     /// 列出全部评审模板，按 id 升序。返回完整模型（含 prompt）。
-    /// 可选按 workspace 过滤（None 或空字符串 = 不过滤）。
+    /// 可选按 workspace_id 过滤（None = 不过滤）。
     /// 设计原因：管理面板需要看 prompt；选项下拉请用 `list_review_template_options`。
     pub async fn list_review_templates(
         &self,
-        workspace: Option<&str>,
+        workspace_id: Option<i64>,
     ) -> Result<Vec<ReviewTemplate>, sea_orm::DbErr> {
         let mut query = review_templates::Entity::find()
             .order_by_asc(review_templates::Column::Id);
 
-        if let Some(ws) = workspace.filter(|s| !s.is_empty()) {
-            query = query.filter(review_templates::Column::Workspace.eq(ws.to_string()));
+        if let Some(ws_id) = workspace_id {
+            query = query.filter(review_templates::Column::WorkspaceId.eq(ws_id));
         }
 
         let models = query.all(&self.conn).await?;
@@ -96,16 +96,16 @@ impl Database {
     }
 
     /// 列出评审模板的轻量选项（不含 prompt），用于 loop 编辑器下拉。
-    /// 可选按 workspace 过滤（None 或空字符串 = 不过滤）。
+    /// 可选按 workspace_id 过滤（None = 不过滤）。
     pub async fn list_review_template_options(
         &self,
-        workspace: Option<&str>,
+        workspace_id: Option<i64>,
     ) -> Result<Vec<ReviewTemplateOption>, sea_orm::DbErr> {
         let mut query = review_templates::Entity::find()
             .order_by_asc(review_templates::Column::Id);
 
-        if let Some(ws) = workspace.filter(|s| !s.is_empty()) {
-            query = query.filter(review_templates::Column::Workspace.eq(ws.to_string()));
+        if let Some(ws_id) = workspace_id {
+            query = query.filter(review_templates::Column::WorkspaceId.eq(ws_id));
         }
 
         let models = query.all(&self.conn).await?;
@@ -140,7 +140,7 @@ impl Database {
             name: ActiveValue::Set(input.name.clone()),
             description: ActiveValue::Set(input.description.clone()),
             prompt: ActiveValue::Set(input.prompt.clone()),
-            workspace: ActiveValue::Set(input.workspace.clone()),
+            workspace_id: ActiveValue::Set(input.workspace_id),
             created_at: ActiveValue::Set(Some(now.clone())),
             updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
@@ -238,7 +238,7 @@ mod tests {
             name: name.to_string(),
             description: Some(format!("{name} 描述")),
             prompt: prompt.to_string(),
-            workspace: None,
+            workspace_id: None,
         }
     }
 
@@ -419,8 +419,8 @@ mod tests {
         let row = db.get_review_template(id).await.expect("get").expect("some");
         assert_eq!(row.name, "默认评审任务");
         assert!(row.prompt.contains("评审") && row.prompt.contains("RATING"));
-        // 默认模板的 workspace 应为 None（全局模板）
-        assert!(row.workspace.is_none(), "default template must be global (no workspace)");
+        // 默认模板的 workspace_id 应为 None（全局模板）
+        assert!(row.workspace_id.is_none(), "default template must be global (no workspace_id)");
     }
 
     #[tokio::test]

@@ -868,8 +868,8 @@ pub struct ReviewTemplate {
     pub name: String,
     pub description: Option<String>,
     pub prompt: String,
-    /// 所属工作空间（目录路径）。None = 全局模板。
-    pub workspace: Option<String>,
+    /// 所属工作空间 ID（project_directories.id）。null = 全局模板。
+    pub workspace_id: Option<i64>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
@@ -883,8 +883,8 @@ pub struct ReviewTemplateOption {
     pub id: i64,
     pub name: String,
     pub description: Option<String>,
-    /// 所属工作空间（目录路径）。None = 全局模板。
-    pub workspace: Option<String>,
+    /// 所属工作空间 ID（project_directories.id）。null = 全局模板。
+    pub workspace_id: Option<i64>,
 }
 
 /// 评审模板创建请求。
@@ -894,9 +894,9 @@ pub struct CreateReviewTemplateRequest {
     #[serde(default)]
     pub description: Option<String>,
     pub prompt: String,
-    /// 所属工作空间（目录路径）。None = 全局模板。
+    /// 所属工作空间 ID（project_directories.id）。null = 全局模板。
     #[serde(default)]
-    pub workspace: Option<String>,
+    pub workspace_id: Option<i64>,
 }
 
 /// 评审模板更新请求（name/prompt 必传，description 可选）。

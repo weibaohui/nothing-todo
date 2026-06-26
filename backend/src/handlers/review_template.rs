@@ -21,10 +21,10 @@ use crate::models::{
     UpdateReviewTemplateRequest,
 };
 
-/// 查询参数：可选的 workspace 过滤。
+/// 查询参数：可选的 workspace_id 过滤。
 #[derive(Debug, Default, Deserialize)]
 pub struct ReviewTemplateQuery {
-    pub workspace: Option<String>,
+    pub workspace_id: Option<i64>,
 }
 
 /// 列表（完整模型，含 prompt）。
@@ -32,7 +32,7 @@ pub async fn list_review_templates(
     State(state): State<AppState>,
     Query(query): Query<ReviewTemplateQuery>,
 ) -> Result<Json<ApiResponse<Vec<ReviewTemplate>>>, AppError> {
-    let templates = state.db.list_review_templates(query.workspace.as_deref()).await?;
+    let templates = state.db.list_review_templates(query.workspace_id).await?;
     Ok(Json(ApiResponse::ok(templates)))
 }
 
@@ -41,7 +41,7 @@ pub async fn list_review_template_options(
     State(state): State<AppState>,
     Query(query): Query<ReviewTemplateQuery>,
 ) -> Result<Json<ApiResponse<Vec<ReviewTemplateOption>>>, AppError> {
-    let opts = state.db.list_review_template_options(query.workspace.as_deref()).await?;
+    let opts = state.db.list_review_template_options(query.workspace_id).await?;
     Ok(Json(ApiResponse::ok(opts)))
 }
 
@@ -75,7 +75,7 @@ pub async fn create_review_template(
         name: name.to_string(),
         description: req.description.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
         prompt: prompt.to_string(),
-        workspace: req.workspace.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+        workspace_id: req.workspace_id,
     };
     let id = state.db.create_review_template(&input).await?;
     let t = state
@@ -104,7 +104,7 @@ pub async fn update_review_template(
         name: name.to_string(),
         description: req.description.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
         prompt: prompt.to_string(),
-        workspace: None, // 更新时不修改 workspace
+        workspace_id: None, // 更新时不修改 workspace_id
     };
     state.db.update_review_template(id, &input).await?;
     let t = state
