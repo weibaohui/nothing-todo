@@ -22,7 +22,6 @@ interface TodoListProps {
   loopUpdateCount?: number;
   forcedListMode?: 'item' | 'loop';
   onListModeChange?: (mode: 'item' | 'loop') => void;
-  activeView: string;
 }
 
 function SkeletonRow() {
@@ -40,7 +39,7 @@ function SkeletonList() {
 }
 
 export function TodoList(props: TodoListProps) {
-  const { onOpenCreateModal, onSelectTodo, onSelectLoop, onCreateLoop, loopUpdateCount, forcedListMode, onListModeChange, activeView } = props;
+  const { onOpenCreateModal, onSelectTodo, onSelectLoop, onCreateLoop, loopUpdateCount, forcedListMode, onListModeChange } = props;
   const { state, dispatch } = useApp();
   const { todos, selectedTodoId, selectedTagId, selectedWorkspace, tags } = state;
   const { message } = AntApp.useApp();
@@ -187,38 +186,6 @@ export function TodoList(props: TodoListProps) {
     if (!keyword) return loopList;
     return loopList.filter(l => (l.name || '').toLowerCase().includes(keyword));
   }, [loopList, searchKeyword]);
-
-  // 事项/环路模式：等目录加载完成 → 工作空间确定后 → 自动选中第一项。
-  // 目的是让右侧直接展示详情，避免显示空白仪表盘页。
-  // 注意：必须检查 activeView 匹配，防止用户已导航离开后 auto-select 又把视图弹回。
-  useEffect(() => {
-    // 等目录加载完成
-    if (!directoriesReady) return;
-    // 有目录但尚未选定工作空间 → 等待 auto-select
-    if (projectDirectories.length > 0 && selectedWorkspace === null) return;
-
-    if (listMode === 'item') {
-      if (activeView !== 'items') return;
-      if (selectedTodoId !== null) return;
-      if (filteredTodos.length === 0) return;
-      const firstId = filteredTodos[0].id;
-      dispatch({ type: 'SELECT_TODO', payload: firstId });
-      onSelectTodo?.(firstId);
-    } else if (listMode === 'loop') {
-      if (activeView !== 'loops') return;
-      if (selectedLoopId !== null) return;
-      if (loopLoading) return;
-      if (loopList.length === 0) return;
-      const firstId = loopList[0].id;
-      setSelectedLoopId(firstId);
-      onSelectLoop?.(firstId);
-    }
-  }, [
-    directoriesReady, projectDirectories, selectedWorkspace,
-    listMode, activeView,
-    selectedTodoId, filteredTodos, dispatch, onSelectTodo,
-    selectedLoopId, loopLoading, loopList, onSelectLoop,
-  ]);
 
   // 当前 listMode 下"可见可选"的 id 列表，传给 ActionToolbar 用于「全选」/计数。
   // 两种模式都按当前 searchKeyword 过滤后的列表计算，避免「全选」选中隐藏项。
