@@ -68,9 +68,9 @@ function AppContent() {
       if (view === 'settings') return 'settings';
       if (view === 'dashboard') return 'dashboard';
       const saved = localStorage.getItem('ntd_list_mode');
-      return saved === 'loop' ? 'loops' : 'inbox';
+      return saved === 'loop' ? 'loops' : 'items';
     } catch {
-      return 'inbox';
+      return 'items';
     }
   });
   const isMobile = useIsMobile();
@@ -191,7 +191,7 @@ function AppContent() {
   }, [clearSelection, dispatch, showView]);
 
   /**
-   * 切换到“收件箱/环路”这类列表型入口。
+   * 切换到“事项/环路”这类列表型入口。
    * 目标：在桌面端保持三栏结构（左主导航 + 中间列表 + 右工作区），移动端回到列表面板。
    */
   const showListSection = useCallback((mode: 'item' | 'loop') => {
@@ -199,7 +199,7 @@ function AppContent() {
     dispatch({ type: 'SELECT_TODO', payload: null });
     clearSelection();
     setForcedListMode(mode);
-    setActiveNavKey(mode === 'loop' ? 'loops' : 'inbox');
+    setActiveNavKey(mode === 'loop' ? 'loops' : 'items');
     backToList();
   }, [backToList, clearSelection, dispatch]);
 
@@ -208,7 +208,7 @@ function AppContent() {
    */
   const handleRailSelect = useCallback((key: LeftRailKey) => {
     setNavDrawerOpen(false);
-    if (key === 'inbox') {
+    if (key === 'items') {
       showListSection('item');
       return;
     }
@@ -349,7 +349,7 @@ function AppContent() {
               onOpenSmartCreate={() => setSmartCreateOpen(true)}
               onOpenNav={() => setNavDrawerOpen(true)}
               onSelectTodo={(todoId) => {
-                setActiveNavKey('inbox');
+                setActiveNavKey('items');
                 handleSelectTodo(todoId);
               }}
               onShowDashboard={() => handleRailSelect('dashboard')}
@@ -367,8 +367,8 @@ function AppContent() {
               forcedListMode={forcedListMode}
               onListModeChange={(mode) => {
                 setForcedListMode(undefined);
-                if (activeNavKey === 'inbox' || activeNavKey === 'loops') {
-                  setActiveNavKey(mode === 'loop' ? 'loops' : 'inbox');
+                if (activeNavKey === 'items' || activeNavKey === 'loops') {
+                  setActiveNavKey(mode === 'loop' ? 'loops' : 'items');
                 }
               }}
             />

@@ -18,7 +18,7 @@ import {
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
 export type LeftRailKey =
-  | 'inbox'
+  | 'items'
   | 'loops'
   | 'dashboard'
   | 'memorial'
@@ -63,9 +63,9 @@ export function LeftRail({
 }: LeftRailProps) {
   const sections = useMemo(() => ([
     {
-      title: '收件箱',
+      title: '事项',
       items: [
-        { key: 'inbox', label: '收件箱', icon: <InboxOutlined />, ariaLabel: '收件箱' },
+        { key: 'items', label: '事项', icon: <InboxOutlined />, ariaLabel: '事项' },
         { key: 'loops', label: '环路', icon: <ApartmentOutlined />, ariaLabel: '环路' },
       ] satisfies LeftRailItem[],
     },

@@ -108,7 +108,7 @@ export function TodoList(props: TodoListProps) {
     setIsLoading(false);
   }, []);
 
-  // 外部导航强制指定 listMode 时（例如左侧主导航点击“收件箱/环路”），
+  // 外部导航强制指定 listMode 时（例如左侧主导航点击“事项/环路”），
   // 需要让内部状态跟随，否则中间列表会停留在用户上次切换的模式。
   useEffect(() => {
     if (!forcedListMode) return;
