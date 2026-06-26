@@ -9,6 +9,7 @@ import {
   InfoCircleOutlined,
   CloudOutlined,
 } from '@ant-design/icons';
+import { PageCard } from '@/components/common/PageCard';
 import { useApp } from '@/hooks/useApp';
 import { useViewState } from '@/hooks/useViewState';
 import * as db from '@/utils/database';
@@ -191,18 +192,10 @@ export function SettingsPage() {
   }, [pushUrl]);
 
   return (
-    <div
-      className="settings-page-root detail-panel"
-      style={{
-        height: '100%',
-        overflowY: 'auto',
-      }}
+    <PageCard
+      icon={<SettingOutlined />}
+      title="配置管理"
     >
-      <div className="settings-header-card detail-card header-card">
-        <div style={{ minWidth: 0 }}>
-          <h2 className="card-title">配置管理</h2>
-        </div>
-      </div>
       <Tabs
         className="settings-tabs"
         items={tabItems}
@@ -212,6 +205,6 @@ export function SettingsPage() {
         activeKey={resolvedTab}
         onChange={handleTabChange}
       />
-    </div>
+    </PageCard>
   );
 }
