@@ -4304,3 +4304,70 @@ code {
 .ntd-nav-drawer .ant-drawer-header {
   display: none;
 }
+
+/* ---------- Page Card ---------- */
+.ntd-page-card {
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--color-border-light);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.ntd-page-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  min-height: 56px;
+  flex-shrink: 0;
+}
+
+.ntd-page-card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ntd-page-card-icon {
+  font-size: 18px;
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+}
+
+.ntd-page-card-title-text {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.ntd-page-card-extra {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ntd-page-card-divider {
+  height: 1px;
+  background: var(--color-border-light);
+  flex-shrink: 0;
+}
+
+.ntd-page-card-content {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+}
+
+/* Dark theme adjustments */
+[data-theme="dark"] .ntd-page-card {
+  border-color: var(--color-border);
+}
+
+[data-theme="dark"] .ntd-page-card-divider {
+  background: var(--color-border);
+}

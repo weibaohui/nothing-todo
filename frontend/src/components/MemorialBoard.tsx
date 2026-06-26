@@ -10,7 +10,9 @@ import {
   FolderOutlined,
   ThunderboltOutlined,
   SyncOutlined,
+  ReadOutlined,
 } from '@ant-design/icons';
+import { PageCard } from '@/components/common/PageCard';
 import { useApp } from '@/hooks/useApp';
 import { KanbanBoard } from './KanbanBoard';
 import { RunningBoard } from './RunningBoard';
@@ -359,20 +361,20 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
   };
 
   return (
-    <div className="memorial-board">
-      <div className="memorial-header">
-        <div className="memorial-header-top">
+    <PageCard
+      icon={<ReadOutlined />}
+      title="看板"
+      extra={
+        <>
           {onBack && (
             <Button
               type="text"
               size="small"
               icon={<LeftOutlined />}
               onClick={onBack}
-              className="memorial-back-btn"
               aria-label="返回"
             />
           )}
-          <h2 className="memorial-title">看板</h2>
           {/* 视图模式切换：四种视图平铺展示。
               为什么新增"环路看板"选项：
               - memorial：按完成时间聚合 todo 的执行结论，适合快速回顾成果
@@ -392,7 +394,10 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
               { label: <span><SyncOutlined /> 环路看板</span>, value: 'loop_kanban' },
             ]}
           />
-        </div>
+        </>
+      }
+    >
+      <div className="memorial-board">
         <div className="memorial-toolbar">
           <Input
             placeholder="搜索任务…"
@@ -446,47 +451,47 @@ export function MemorialBoard({ onBack }: MemorialBoardProps) {
             </div>
           ) : null}
         </div>
-      </div>
 
-      {/* 根据 boardMode 渲染对应视图。
-          为什么 loop_kanban 分支复用 searchText 和 hours：
-          - LoopKanban 支持受控模式，接受外部 searchText/hours 并回传 onChange
-          - 用户从其他视图切换过来时，保持已输入的搜索词和时间窗口，避免状态丢失
-          - onSearchChange/onHoursChange 回传给 MemorialBoard，使得多视图间筛选条件同步
-          为什么 loop_kanban 不传 selectedProject：
-          - loop 没有 workspace 概念，项目过滤仅适用于 todo 维度（memorial/kanban/running）
-      */}
-      {boardMode === 'running' ? (
-        <RunningBoard searchText={searchText} hours={hours} selectedProject={selectedProject} />
-      ) : boardMode === 'kanban' ? (
-        <KanbanBoard searchText={searchText} hours={hours} onSearchChange={setSearchText} onHoursChange={setHours} />
-      ) : boardMode === 'loop_kanban' ? (
-        <LoopKanban searchText={searchText} hours={hours} onSearchChange={setSearchText} onHoursChange={setHours} />
-      ) : loading ? (
-        <div className="memorial-grid">
-          {Array.from({ length: columnCount }).map((_, colIdx) => (
-            <div key={colIdx} className="memorial-column">
-              {Array.from({ length: 6 }).map((__, idx) => (
-                <Card key={`skeleton-${colIdx}-${idx}`} className="memorial-card" size="small" bodyStyle={{ padding: 12 }}>
-                  <Skeleton active paragraph={{ rows: 4 }} />
-                </Card>
-              ))}
-            </div>
-          ))}
-        </div>
-      ) : items.length === 0 ? (
-        <div className="memorial-empty">
-          <Empty description={<span style={{ color: 'var(--color-text-tertiary)' }}>最近 {hours} 小时内暂无完成的任务</span>} />
-        </div>
-      ) : (
-        <div className="memorial-grid">
-          {columns.map((col, colIdx) => (
-            <div key={colIdx} className="memorial-column">
-              {col.map(item => renderCard(item))}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+        {/* 根据 boardMode 渲染对应视图。
+            为什么 loop_kanban 分支复用 searchText 和 hours：
+            - LoopKanban 支持受控模式，接受外部 searchText/hours 并回传 onChange
+            - 用户从其他视图切换过来时，保持已输入的搜索词和时间窗口，避免状态丢失
+            - onSearchChange/onHoursChange 回传给 MemorialBoard，使得多视图间筛选条件同步
+            为什么 loop_kanban 不传 selectedProject：
+            - loop 没有 workspace 概念，项目过滤仅适用于 todo 维度（memorial/kanban/running）
+        */}
+        {boardMode === 'running' ? (
+          <RunningBoard searchText={searchText} hours={hours} selectedProject={selectedProject} />
+        ) : boardMode === 'kanban' ? (
+          <KanbanBoard searchText={searchText} hours={hours} onSearchChange={setSearchText} onHoursChange={setHours} />
+        ) : boardMode === 'loop_kanban' ? (
+          <LoopKanban searchText={searchText} hours={hours} onSearchChange={setSearchText} onHoursChange={setHours} />
+        ) : loading ? (
+          <div className="memorial-grid">
+            {Array.from({ length: columnCount }).map((_, colIdx) => (
+              <div key={colIdx} className="memorial-column">
+                {Array.from({ length: 6 }).map((__, idx) => (
+                  <Card key={`skeleton-${colIdx}-${idx}`} className="memorial-card" size="small" bodyStyle={{ padding: 12 }}>
+                    <Skeleton active paragraph={{ rows: 4 }} />
+                  </Card>
+                ))}
+              </div>
+            ))}
+          </div>
+        ) : items.length === 0 ? (
+          <div className="memorial-empty">
+            <Empty description={<span style={{ color: 'var(--color-text-tertiary)' }}>最近 {hours} 小时内暂无完成的任务</span>} />
+          </div>
+        ) : (
+          <div className="memorial-grid">
+            {columns.map((col, colIdx) => (
+              <div key={colIdx} className="memorial-column">
+                {col.map(item => renderCard(item))}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </PageCard>
   );
 }

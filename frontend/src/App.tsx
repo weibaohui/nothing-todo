@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ConfigProvider, Layout, App as AntApp, Drawer, message, Form } from 'antd';
-import { PlusOutlined, ThunderboltOutlined, CloseOutlined, LeftOutlined } from '@ant-design/icons';
+import { PlusOutlined, ThunderboltOutlined, CloseOutlined, LeftOutlined, PlayCircleOutlined, LaptopOutlined, FolderOutlined } from '@ant-design/icons';
 import { AppProvider, useApp } from './hooks/useApp';
 import { useIsMobile } from './hooks/useIsMobile';
 import { useExecutionEvents } from './hooks/useExecutionEvents';
@@ -21,6 +21,7 @@ import { SmartCreateModal } from './components/SmartCreateModal';
 import { LoopDetailPanel } from './components/LoopStudioDetailPanel';
 import { LoopFormModal } from './components/LoopFormModal';
 import { LeftRail, type LeftRailKey } from './components/shell/LeftRail';
+import { PageCard } from './components/common/PageCard';
 import * as dbLoops from './utils/database/loops';
 import { EXECUTION_PANEL, LEFT_RAIL_WIDTH, SIDEBAR_WIDTH } from './constants';
 import * as db from './utils/database';
@@ -467,26 +468,26 @@ function AppContent() {
               </div>
             ) : activeView === 'runtime' ? (
               // 运行管理 — 独立页面（非设置内嵌标签页）
-              <div className="detail-panel" style={{ height: '100%', overflowY: 'auto', padding: 16 }}>
+              <PageCard icon={<PlayCircleOutlined />} title="运行管理">
                 <RuntimePanel
                   configForm={runtimeConfigForm}
                   configSaving={runtimeConfigSaving}
                   handleSaveConfig={handleRuntimeSaveConfig}
                   executorDisplayNames={runtimeExecutorDisplayNames}
                 />
-              </div>
+              </PageCard>
             ) : activeView === 'skills' ? (
-              <div className="detail-panel" style={{ height: '100%', overflowY: 'auto', padding: 16 }}>
+              <PageCard icon={<ThunderboltOutlined />} title="Skills">
                 <SkillsPanel />
-              </div>
+              </PageCard>
             ) : activeView === 'projectDirectories' ? (
-              <div className="detail-panel" style={{ height: '100%', overflowY: 'auto', padding: 16 }}>
+              <PageCard icon={<FolderOutlined />} title="工作空间">
                 <ProjectDirectoriesPanel />
-              </div>
+              </PageCard>
             ) : activeView === 'sessions' ? (
-              <div className="detail-panel" style={{ height: '100%', overflowY: 'auto', padding: 16 }}>
+              <PageCard icon={<LaptopOutlined />} title="会话">
                 <SessionManager />
-              </div>
+              </PageCard>
             ) : activeView === 'settings' ? (
               <SettingsPage onBack={isMobile ? backToList : undefined} />
             ) : activeView === 'memorial' ? (

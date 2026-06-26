@@ -3,7 +3,9 @@ import { Card, Table, Badge, Tag, Empty, Masonry, App, Button } from 'antd';
 import {
   LeftOutlined,
   ThunderboltOutlined,
+  DashboardOutlined,
 } from '@ant-design/icons';
+import { PageCard } from '@/components/common/PageCard';
 import dayjs from 'dayjs';
 import { useApp } from '@/hooks/useApp';
 import * as db from '@/utils/database';
@@ -193,49 +195,49 @@ export function Dashboard({ onBack }: { onBack?: () => void }) {
   ];
 
   return (
-    <div style={{ height: '100%', overflow: 'auto', padding: '16px 20px', background: 'var(--color-bg-layout)' }}>
-      <style>{`
-        .dashboard-card { transition: border-color 0.2s, box-shadow 0.2s; }
-        .dashboard-card:hover { border-color: var(--color-border); box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
-      `}</style>
-      {onBack && (
-        <Button
-          type="text"
-          size="small"
-          icon={<LeftOutlined />}
-          onClick={onBack}
-          style={{ marginBottom: 12, marginLeft: -4 }}
-          aria-label="返回"
+    <PageCard
+      icon={<DashboardOutlined />}
+      title="仪表盘"
+      extra={
+        onBack ? (
+          <Button type="text" size="small" icon={<LeftOutlined />} onClick={onBack} aria-label="返回" />
+        ) : undefined
+      }
+    >
+      <div style={{ padding: '16px 20px', background: 'var(--color-bg-layout)' }}>
+        <style>{`
+          .dashboard-card { transition: border-color 0.2s, box-shadow 0.2s; }
+          .dashboard-card:hover { border-color: var(--color-border); box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+        `}</style>
+        <TimeRangeSelector
+          timeRange={timeRange}
+          customRange={customRange}
+          onTimeRangeChange={handleTimeRangeChange}
+          onCustomRangeChange={handleCustomRangeChange}
         />
-      )}
-      <TimeRangeSelector
-        timeRange={timeRange}
-        customRange={customRange}
-        onTimeRangeChange={handleTimeRangeChange}
-        onCustomRangeChange={handleCustomRangeChange}
-      />
-      <Masonry
-        columns={{ xs: 1, sm: 1, md: 2, lg: 2, xl: 3 }}
-        gutter={[16, 16]}
-        items={panels.map(p => ({ key: p.key, data: p }))}
-        itemRender={(item) => item.data.render()}
-        fresh
-      />
-      {/* Token 用量统计 — 数据较多，固定置于最近执行记录上方 */}
-      <div style={{ marginTop: 16 }}>
-        <UsageStatsCard since={usageStatsRange.since} until={usageStatsRange.until} />
+        <Masonry
+          columns={{ xs: 1, sm: 1, md: 2, lg: 2, xl: 3 }}
+          gutter={[16, 16]}
+          items={panels.map(p => ({ key: p.key, data: p }))}
+          itemRender={(item) => item.data.render()}
+          fresh
+        />
+        {/* Token 用量统计 — 数据较多，固定置于最近执行记录上方 */}
+        <div style={{ marginTop: 16 }}>
+          <UsageStatsCard since={usageStatsRange.since} until={usageStatsRange.until} />
+        </div>
+        <Card
+          title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ThunderboltOutlined /><span>最近执行记录</span></div>}
+          style={{ borderRadius: 12, marginTop: 16 }}
+          styles={{ body: { padding: '16px 20px' } }}
+        >
+          {stats && stats.recent_executions.length > 0 ? (
+            <Table columns={recentColumns} dataSource={stats.recent_executions} rowKey="id" pagination={false} size="small" scroll={{ x: 'max-content' }} />
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无执行记录" />
+          )}
+        </Card>
       </div>
-      <Card
-        title={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ThunderboltOutlined /><span>最近执行记录</span></div>}
-        style={{ borderRadius: 12, marginTop: 16 }}
-        styles={{ body: { padding: '16px 20px' } }}
-      >
-        {stats && stats.recent_executions.length > 0 ? (
-          <Table columns={recentColumns} dataSource={stats.recent_executions} rowKey="id" pagination={false} size="small" scroll={{ x: 'max-content' }} />
-        ) : (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无执行记录" />
-        )}
-      </Card>
-    </div>
+    </PageCard>
   );
 }
