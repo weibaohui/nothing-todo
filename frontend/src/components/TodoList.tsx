@@ -20,6 +20,7 @@ import { formatRelativeTime } from '@/utils/datetime';
 interface TodoListProps {
   onOpenCreateModal: () => void;
   onOpenSmartCreate: () => void;
+  onOpenNav?: () => void;
   onSelectTodo?: (todoId: string | number) => void;
   onShowDashboard?: () => void;
   onShowMemorial?: () => void;
@@ -27,6 +28,8 @@ interface TodoListProps {
   onSelectLoop?: (loopId: number) => void;
   onCreateLoop?: () => void;
   loopUpdateCount?: number;
+  forcedListMode?: 'item' | 'loop';
+  onListModeChange?: (mode: 'item' | 'loop') => void;
 }
 
 function SkeletonRow() {
@@ -69,7 +72,7 @@ function buildDesktopNavActions(
 }
 
 export function TodoList(props: TodoListProps) {
-  const { onOpenCreateModal, onOpenSmartCreate, onSelectTodo, onShowDashboard, onShowMemorial, onShowSettings, onSelectLoop, onCreateLoop, loopUpdateCount } = props;
+  const { onOpenCreateModal, onOpenSmartCreate, onOpenNav, onSelectTodo, onShowDashboard, onShowMemorial, onShowSettings, onSelectLoop, onCreateLoop, loopUpdateCount, forcedListMode, onListModeChange } = props;
   const { state, dispatch } = useApp();
   const { themeMode, toggleTheme } = useTheme();
   const { todos, selectedTodoId, selectedTagId, selectedWorkspace, tags } = state;
@@ -104,6 +107,14 @@ export function TodoList(props: TodoListProps) {
   useEffect(() => {
     setIsLoading(false);
   }, []);
+
+  // 外部导航强制指定 listMode 时（例如左侧主导航点击“收件箱/环路”），
+  // 需要让内部状态跟随，否则中间列表会停留在用户上次切换的模式。
+  useEffect(() => {
+    if (!forcedListMode) return;
+    if (forcedListMode === listMode) return;
+    setListMode(forcedListMode);
+  }, [forcedListMode, listMode]);
 
   // 进入页面时拉取项目目录；后续 Todo 抽屉新增/删除目录时也会主动重拉，确保分组始终准确。
   // 失败时静默处理：分组视图退化为只显示路径即可，不阻塞主流程。
@@ -146,6 +157,11 @@ export function TodoList(props: TodoListProps) {
   useEffect(() => {
     localStorage.setItem('ntd_list_mode', listMode);
   }, [listMode]);
+
+  // 向壳层同步当前列表模式，便于左侧主导航高亮与全局路由状态保持一致。
+  useEffect(() => {
+    onListModeChange?.(listMode);
+  }, [listMode, onListModeChange]);
 
   // 切换 listMode 时清空选择：todo/loop 虽然 id 都是 number，
   // 但语义不同（同一数字可能指向不同实体），跨模式保留选择会让用户困惑。
@@ -490,7 +506,18 @@ export function TodoList(props: TodoListProps) {
       {/* Header */}
       <div className="todo-list-header">
         {/* NTD Logo */}
-        <div className="ntd-logo" aria-label="NTD Logo">NTD</div>
+        {onOpenNav ? (
+          <button
+            type="button"
+            className="ntd-logo ntd-logo-button"
+            onClick={onOpenNav}
+            aria-label="打开导航"
+          >
+            NTD
+          </button>
+        ) : (
+          <div className="ntd-logo" aria-label="NTD Logo">NTD</div>
+        )}
         <div className="header-actions">
           <div className="header-toolbar">
             {desktopNavActions.length > 0 && (

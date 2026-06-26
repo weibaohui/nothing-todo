@@ -133,6 +133,9 @@ export const SIDEBAR_WIDTH = {
   mobile: '100%',
 } as const;
 
+/** 左侧主导航栏宽度（桌面端）。 */
+export const LEFT_RAIL_WIDTH = 72;
+
 /** 执行面板高度 */
 export const EXECUTION_PANEL = {
   /** 展开时高度。280px 能展示 3-4 条执行记录，过高会挤压上方 Todo 列表可视区。 */

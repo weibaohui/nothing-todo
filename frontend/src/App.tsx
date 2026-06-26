@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { ConfigProvider, Layout, App as AntApp, message } from 'antd';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { ConfigProvider, Layout, App as AntApp, Drawer, message } from 'antd';
 import { PlusOutlined, ThunderboltOutlined, CloseOutlined, LeftOutlined } from '@ant-design/icons';
 import { AppProvider, useApp } from './hooks/useApp';
 import { useIsMobile } from './hooks/useIsMobile';
@@ -16,8 +16,9 @@ import { TodoDrawer } from './components/TodoDrawer';
 import { SmartCreateModal } from './components/SmartCreateModal';
 import { LoopDetailPanel } from './components/LoopStudioDetailPanel';
 import { LoopFormModal } from './components/LoopFormModal';
+import { LeftRail, type LeftRailKey } from './components/shell/LeftRail';
 import * as dbLoops from './utils/database/loops';
-import { EXECUTION_PANEL, SIDEBAR_WIDTH } from './constants';
+import { EXECUTION_PANEL, LEFT_RAIL_WIDTH, SIDEBAR_WIDTH } from './constants';
 import * as db from './utils/database';
 import type { Config } from './types';
 import zhCN from 'antd/locale/zh_CN';
@@ -32,6 +33,7 @@ function AppContent() {
   const [todoModalOpen, setTodoModalOpen] = useState(false);
   const [smartCreateOpen, setSmartCreateOpen] = useState(false);
   const [fabExpanded, setFabExpanded] = useState(false);
+  const [navDrawerOpen, setNavDrawerOpen] = useState(false);
   const [appConfig, setAppConfig] = useState<Config | null>(null);
   // 新建环路弹窗（使用 LoopFormModal create 模式）
   const [loopCreateModalOpen, setLoopCreateModalOpen] = useState(false);
@@ -39,6 +41,15 @@ function AppContent() {
   const [selectedLoopId, setSelectedLoopId] = useState<number | null>(null);
   // 环路变更计数，驱动左侧 loop 列表刷新
   const [loopUpdateCount, setLoopUpdateCount] = useState(0);
+  const [forcedListMode, setForcedListMode] = useState<'item' | 'loop' | undefined>(undefined);
+  const [railFocus, setRailFocus] = useState<LeftRailKey>(() => {
+    try {
+      const saved = localStorage.getItem('ntd_list_mode');
+      return saved === 'loop' ? 'loops' : 'inbox';
+    } catch {
+      return 'inbox';
+    }
+  });
   const isMobile = useIsMobile();
 
   const [panelCollapsed, setPanelCollapsed] = useState(() => {
@@ -129,15 +140,59 @@ function AppContent() {
     setSelectedLoopId(null);
     clearSelection();
     showView(view);
+    setRailFocus(view === 'settings' ? 'settings' : view === 'memorial' ? 'memorial' : 'dashboard');
   }, [clearSelection, showView]);
 
   const handleGoToSettings = () => handleShowView('settings');
+
+  /**
+   * 切换到“收件箱/环路”这类列表型入口。
+   * 目标：在桌面端保持三栏结构（左主导航 + 中间列表 + 右工作区），移动端回到列表面板。
+   */
+  const showListSection = useCallback((mode: 'item' | 'loop') => {
+    setSelectedLoopId(null);
+    dispatch({ type: 'SELECT_TODO', payload: null });
+    clearSelection();
+    setForcedListMode(mode);
+    setRailFocus(mode === 'loop' ? 'loops' : 'inbox');
+    backToList();
+  }, [backToList, clearSelection, dispatch]);
+
+  /**
+   * 左侧主导航点击处理（桌面侧栏/移动抽屉共用）。
+   */
+  const handleRailSelect = useCallback((key: LeftRailKey) => {
+    setNavDrawerOpen(false);
+    if (key === 'inbox') {
+      showListSection('item');
+      return;
+    }
+    if (key === 'loops') {
+      showListSection('loop');
+      return;
+    }
+    if (key === 'settings') {
+      handleShowView('settings');
+      return;
+    }
+    if (key === 'memorial') {
+      handleShowView('memorial');
+      return;
+    }
+    handleShowView('dashboard');
+  }, [handleShowView, showListSection]);
+
+  const activeRailKey = useMemo<LeftRailKey>(() => {
+    if (activeView === 'settings') return 'settings';
+    if (activeView === 'memorial') return 'memorial';
+    return railFocus;
+  }, [activeView, railFocus]);
 
   // FAB backdrop click to collapse
   const handleFabBackdropClick = () => setFabExpanded(false);
 
   return (
-    <Layout style={{ height: '100vh' }}>
+    <Layout style={{ height: '100vh', flexDirection: isMobile ? 'column' : 'row' }}>
       {/* Mobile FAB Group */}
       {isMobile && selectedPanel === 'list' && (
         <>
@@ -182,20 +237,26 @@ function AppContent() {
         </>
       )}
 
+      {!isMobile && (
+        <div style={{ width: LEFT_RAIL_WIDTH, height: `calc(100vh - ${panelHeight}px)` }}>
+          <LeftRail activeKey={activeRailKey} onSelect={handleRailSelect} />
+        </div>
+      )}
+
       <Layout>
         <Content
           style={{
             display: 'flex',
             flexDirection: isMobile ? 'column' : 'row',
-            padding: isMobile ? 0 : 16,
-            paddingBottom: isMobile ? 0 : 16 + panelHeight,
-            gap: isMobile ? 0 : 16,
+            padding: isMobile ? 0 : 12,
+            paddingBottom: isMobile ? 0 : 12 + panelHeight,
+            gap: isMobile ? 0 : 12,
             height: `calc(100vh - ${panelHeight}px)`,
             overflow: 'hidden',
             transition: 'height 0.3s ease, padding-bottom 0.3s ease',
           }}
         >
-          {/* Todo List Panel */}
+          {/* Middle List Panel */}
           <div
             className={(!isMobile || selectedPanel === 'list') ? 'animate-fade-in' : ''}
             style={{
@@ -208,20 +269,34 @@ function AppContent() {
             <TodoList
               onOpenCreateModal={() => setTodoModalOpen(true)}
               onOpenSmartCreate={() => setSmartCreateOpen(true)}
-              onSelectTodo={handleSelectTodo}
-              onShowDashboard={() => handleShowView('dashboard')}
-              onShowMemorial={() => handleShowView('memorial')}
+              onOpenNav={() => setNavDrawerOpen(true)}
+              onSelectTodo={(todoId) => {
+                setRailFocus('inbox');
+                handleSelectTodo(todoId);
+              }}
+              onShowDashboard={() => handleRailSelect('dashboard')}
+              onShowMemorial={() => handleRailSelect('memorial')}
               loopUpdateCount={loopUpdateCount}
-              onShowSettings={() => handleShowView('settings')}
-              onSelectLoop={handleSelectLoop}
+              onShowSettings={() => handleRailSelect('settings')}
+              onSelectLoop={(loopId) => {
+                setRailFocus('loops');
+                handleSelectLoop(loopId);
+              }}
               onCreateLoop={() => {
                 // 打开 LoopFormModal 创建模式，用户填写完整信息后创建环路
                 setLoopCreateModalOpen(true);
               }}
+              forcedListMode={forcedListMode}
+              onListModeChange={(mode) => {
+                setForcedListMode(undefined);
+                if (railFocus === 'inbox' || railFocus === 'loops') {
+                  setRailFocus(mode === 'loop' ? 'loops' : 'inbox');
+                }
+              }}
             />
           </div>
 
-          {/* Detail Panel */}
+          {/* Right Workspace */}
           <div
             className={(!isMobile || selectedPanel === 'detail') ? 'animate-slide-in-right' : ''}
             style={{
@@ -311,6 +386,17 @@ function AppContent() {
           </div>
         </Content>
       </Layout>
+
+      <Drawer
+        open={navDrawerOpen}
+        onClose={() => setNavDrawerOpen(false)}
+        placement="left"
+        width={280}
+        rootClassName="ntd-nav-drawer"
+        styles={{ body: { padding: 0 } }}
+      >
+        <LeftRail activeKey={activeRailKey} onSelect={handleRailSelect} variant="drawer" />
+      </Drawer>
 
       <TodoDrawer
         open={todoModalOpen}
