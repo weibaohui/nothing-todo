@@ -1,5 +1,5 @@
-import { RetweetOutlined } from '@ant-design/icons';
-import { message } from 'antd';
+import { RetweetOutlined, PlusOutlined } from '@ant-design/icons';
+import { Button, message } from 'antd';
 import { ListDetailPage } from './ListDetailPage';
 import { TodoList } from './TodoList';
 import { LoopDetailPanel } from './LoopStudioDetailPanel';
@@ -46,6 +46,7 @@ export function LoopPage({
       onCreateLoop={onCreateLoop}
       forcedListMode={forcedListMode}
       onListModeChange={onListModeChange}
+      hideCreateButton={true}
     />
   );
 
@@ -128,6 +129,16 @@ export function LoopPage({
     <ListDetailPage
       icon={<RetweetOutlined />}
       title="环路"
+      extra={
+        <Button
+          type="primary"
+          size="small"
+          icon={<PlusOutlined />}
+          onClick={onCreateLoop}
+        >
+          新建
+        </Button>
+      }
       listPanel={listPanel}
       detailPanel={detailPanel}
     />

@@ -1,4 +1,5 @@
-import { UnorderedListOutlined } from '@ant-design/icons';
+import { UnorderedListOutlined, PlusOutlined } from '@ant-design/icons';
+import { Button } from 'antd';
 import { ListDetailPage } from './ListDetailPage';
 import { TodoList } from './TodoList';
 import { TodoDetail } from './TodoDetail';
@@ -40,6 +41,7 @@ export function TodoPage({
       onCreateLoop={onCreateLoop}
       forcedListMode={forcedListMode}
       onListModeChange={onListModeChange}
+      hideCreateButton={true}
     />
   );
 
@@ -79,6 +81,16 @@ export function TodoPage({
     <ListDetailPage
       icon={<UnorderedListOutlined />}
       title="事项"
+      extra={
+        <Button
+          type="primary"
+          size="small"
+          icon={<PlusOutlined />}
+          onClick={onOpenCreateModal}
+        >
+          新建
+        </Button>
+      }
       listPanel={listPanel}
       detailPanel={selectedTodoId ? <TodoDetail /> : null}
     />
