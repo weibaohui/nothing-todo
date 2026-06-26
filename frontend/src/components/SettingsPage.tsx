@@ -5,26 +5,18 @@ import {
   CodeOutlined,
   TagOutlined,
   SaveOutlined,
-  FolderOutlined,
-  ThunderboltOutlined,
-  InfoCircleOutlined,
-  PlayCircleOutlined,
-  LaptopOutlined,
   FileTextOutlined,
+  InfoCircleOutlined,
   LeftOutlined,
   CloudOutlined,
 } from '@ant-design/icons';
 import { useApp } from '@/hooks/useApp';
 import * as db from '@/utils/database';
 import type { Config, ExecutorConfig, SlashCommandRule } from '@/types';
-import { SkillsPanel } from './SkillsPanel';
-import { SessionManager } from './SessionManager';
 import { SystemSettingsPanel } from './settings/SystemSettingsPanel';
 import { ExecutorsPanel } from './settings/ExecutorsPanel';
 import { TagsPanel } from './settings/TagsPanel';
-import { ProjectDirectoriesPanel } from './settings/ProjectDirectoriesPanel';
 import { BackupPanel } from './settings/BackupPanel';
-import { RuntimePanel } from './settings/RuntimePanel';
 import { TemplatesPanel } from './settings/TemplatesPanel';
 import { AboutPanel } from './settings/AboutPanel';
 import { CloudSyncPanel } from './settings/CloudSyncPanel';
@@ -44,17 +36,9 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const [configLoading, setConfigLoading] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
 
-  // Executors state (shared between ExecutorsPanel and RuntimePanel)
+  // Executors state
   const [executors, setExecutors] = useState<ExecutorConfig[]>([]);
   const [executorsLoading, setExecutorsLoading] = useState(false);
-
-  const executorDisplayNames = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const ec of executors) {
-      map[ec.name] = ec.display_name;
-    }
-    return map;
-  }, [executors]);
 
   // Load config on mount
   useEffect(() => {
@@ -142,12 +126,13 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
   // Tab 顺序说明：
   // 1. 系统设置、执行器管理、标签管理 → 基础配置优先
-  // 2. 消息、Session 管理 → 用户个性化配置紧随其后
-  // 3. 项目目录、模板管理 → 项目相关
-  // 4. 备份与恢复 → 数据安全（用户配置完毕后最后考虑）
-  // 5. Skills 管理、运行管理 → 高级功能放中间层
-  // 6. 云端同步 → 外部集成邻近放置
-  // 7. 关于 → 信息页末位
+  // 2. 模板管理 → 项目相关
+  // 3. 备份与恢复 → 数据安全
+  // 4. 云端同步 → 外部集成
+  // 5. 关于 → 信息页末位
+  //
+  // 会话管理、工作空间、Skills 管理、运行管理已独立为左侧导航菜单项，
+  // 不再嵌套在设置页的标签页中。
   const tabItems = [
     {
       key: 'system',
@@ -178,16 +163,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       children: <TagsPanel tags={tags} dispatch={dispatch} />,
     },
     {
-      key: 'sessions',
-      label: <span><LaptopOutlined style={{ marginRight: 6 }} />Session 管理</span>,
-      children: <SessionManager />,
-    },
-    {
-      key: 'projectDirectories',
-      label: <span><FolderOutlined style={{ marginRight: 6 }} />工作空间</span>,
-      children: <ProjectDirectoriesPanel />,
-    },
-    {
       key: 'templates',
       label: <span><FileTextOutlined style={{ marginRight: 6 }} />模板管理</span>,
       children: <TemplatesPanel />,
@@ -196,23 +171,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       key: 'backup',
       label: <span><SaveOutlined style={{ marginRight: 6 }} />备份与恢复</span>,
       children: <BackupPanel />,
-    },
-    {
-      key: 'skills',
-      label: <span><ThunderboltOutlined style={{ marginRight: 6 }} />Skills 管理</span>,
-      children: <SkillsPanel />,
-    },
-    {
-      key: 'runtime',
-      label: <span><PlayCircleOutlined style={{ marginRight: 6 }} />运行管理</span>,
-      children: (
-        <RuntimePanel
-          configForm={configForm}
-          configSaving={configSaving}
-          handleSaveConfig={handleSaveConfig}
-          executorDisplayNames={executorDisplayNames}
-        />
-      ),
     },
     {
       key: 'cloudSync',

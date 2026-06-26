@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { ConfigProvider, Layout, App as AntApp, Drawer, message } from 'antd';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { ConfigProvider, Layout, App as AntApp, Drawer, message, Form } from 'antd';
 import { PlusOutlined, ThunderboltOutlined, CloseOutlined, LeftOutlined } from '@ant-design/icons';
 import { AppProvider, useApp } from './hooks/useApp';
 import { useIsMobile } from './hooks/useIsMobile';
@@ -11,6 +11,10 @@ import { TodoDetail } from './components/TodoDetail';
 import { Dashboard } from './components/Dashboard';
 import { MemorialBoard } from './components/MemorialBoard';
 import { SettingsPage } from './components/SettingsPage';
+import { SkillsPanel } from './components/SkillsPanel';
+import { SessionManager } from './components/SessionManager';
+import { ProjectDirectoriesPanel } from './components/settings/ProjectDirectoriesPanel';
+import { RuntimePanel } from './components/settings/RuntimePanel';
 import { ExecutionPanel } from './components/ExecutionPanel';
 import { TodoDrawer } from './components/TodoDrawer';
 import { SmartCreateModal } from './components/SmartCreateModal';
@@ -20,7 +24,7 @@ import { LeftRail, type LeftRailKey } from './components/shell/LeftRail';
 import * as dbLoops from './utils/database/loops';
 import { EXECUTION_PANEL, LEFT_RAIL_WIDTH, SIDEBAR_WIDTH } from './constants';
 import * as db from './utils/database';
-import type { Config } from './types';
+import type { Config, ExecutorConfig } from './types';
 import zhCN from 'antd/locale/zh_CN';
 import './App.css';
 
@@ -108,6 +112,45 @@ function AppContent() {
     db.getConfig().then(setAppConfig).catch(() => {});
   }, []);
 
+  // —— 独立页面：「运行管理」与「设置页」共享的配置表单状态 —
+  // RuntimePanel 从设置标签页剥离成独立页面后，需要自己的 Form 实例 + 配置加载/保存逻辑。
+  const [runtimeConfigForm] = Form.useForm();
+  const [runtimeConfigSaving, setRuntimeConfigSaving] = useState(false);
+  // 执行器列表供 executorDisplayNames 使用
+  const [runtimeExecutors, setRuntimeExecutors] = useState<ExecutorConfig[]>([]);
+
+  useEffect(() => {
+    db.getConfig().then((cfg) => {
+      runtimeConfigForm.setFieldsValue(cfg);
+    }).catch(() => {});
+  }, [runtimeConfigForm]);
+
+  useEffect(() => {
+    db.getExecutors().then(setRuntimeExecutors).catch(() => {});
+  }, []);
+
+  const runtimeExecutorDisplayNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const ec of runtimeExecutors) {
+      map[ec.name] = ec.display_name;
+    }
+    return map;
+  }, [runtimeExecutors]);
+
+  const handleRuntimeSaveConfig = useCallback(async () => {
+    try {
+      const values = await runtimeConfigForm.validateFields();
+      setRuntimeConfigSaving(true);
+      await db.updateConfig(values);
+      message.success('配置已保存');
+    } catch (err: any) {
+      if (err?.errorFields) return;
+      message.error('保存失败: ' + (err?.message || String(err)));
+    } finally {
+      setRuntimeConfigSaving(false);
+    }
+  }, [runtimeConfigForm]);
+
   // On initial load, restore todo/loop selection from URL (only when loading finishes)
   useEffect(() => {
     if (state.loading) return;
@@ -192,6 +235,19 @@ function AppContent() {
   }, [clearSelection, dispatch, showView]);
 
   /**
+   * 切换到独立的配置管理页面（运行管理 / Skills / 工作空间 / 会话）。
+   * 这些页面已从设置页标签页中剥离，独立为左侧导航菜单项。
+   */
+  const showStandaloneSettingsPanel = useCallback((navKey: LeftRailKey) => {
+    setSelectedLoopId(null);
+    dispatch({ type: 'SELECT_TODO', payload: null });
+    clearSelection();
+    setActiveNavKey(navKey);
+    // 保持 activeView 不变（应为 'dashboard'），不触发视图切换，
+    // 让右侧面板根据 activeNavKey 渲染对应的独立页面。
+  }, [clearSelection, dispatch]);
+
+  /**
    * 切换到“事项/环路”这类列表型入口。
    * 目标：在桌面端保持三栏结构（左主导航 + 中间列表 + 右工作区），移动端回到列表面板。
    */
@@ -232,19 +288,19 @@ function AppContent() {
       return;
     }
     if (key === 'settings_projectDirectories') {
-      showSettings('projectDirectories', 'settings_projectDirectories');
+      showStandaloneSettingsPanel('settings_projectDirectories');
       return;
     }
     if (key === 'settings_sessions') {
-      showSettings('sessions', 'settings_sessions');
+      showStandaloneSettingsPanel('settings_sessions');
       return;
     }
     if (key === 'settings_skills') {
-      showSettings('skills', 'settings_skills');
+      showStandaloneSettingsPanel('settings_skills');
       return;
     }
-    showSettings('runtime', 'settings_runtime');
-  }, [handleShowView, showListSection, showSettings]);
+    showStandaloneSettingsPanel('settings_runtime');
+  }, [handleShowView, showListSection, showSettings, showStandaloneSettingsPanel]);
 
   // FAB backdrop click to collapse
   const handleFabBackdropClick = () => setFabExpanded(false);
@@ -454,6 +510,28 @@ function AppContent() {
                     setLoopUpdateCount(c => c + 1);
                   }}
                 />
+              </div>
+            ) : activeNavKey === 'settings_runtime' ? (
+              // 运行管理 — 独立页面（非设置内嵌标签页）
+              <div className="detail-panel" style={{ height: '100%', overflowY: 'auto', padding: 16 }}>
+                <RuntimePanel
+                  configForm={runtimeConfigForm}
+                  configSaving={runtimeConfigSaving}
+                  handleSaveConfig={handleRuntimeSaveConfig}
+                  executorDisplayNames={runtimeExecutorDisplayNames}
+                />
+              </div>
+            ) : activeNavKey === 'settings_skills' ? (
+              <div className="detail-panel" style={{ height: '100%', overflowY: 'auto', padding: 16 }}>
+                <SkillsPanel />
+              </div>
+            ) : activeNavKey === 'settings_projectDirectories' ? (
+              <div className="detail-panel" style={{ height: '100%', overflowY: 'auto', padding: 16 }}>
+                <ProjectDirectoriesPanel />
+              </div>
+            ) : activeNavKey === 'settings_sessions' ? (
+              <div className="detail-panel" style={{ height: '100%', overflowY: 'auto', padding: 16 }}>
+                <SessionManager />
               </div>
             ) : activeView === 'settings' ? (
               <SettingsPage onBack={isMobile ? backToList : undefined} />
