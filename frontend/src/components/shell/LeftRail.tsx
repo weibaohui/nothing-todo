@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { ReactNode } from 'react';
-import { Button, Tooltip, Popover } from 'antd';
+import { Button, Tooltip } from 'antd';
 import type { ButtonProps } from 'antd';
 import {
   InboxOutlined,
@@ -15,7 +15,7 @@ import {
   DoubleRightOutlined,
   DoubleLeftOutlined,
 } from '@ant-design/icons';
-import { WorkspaceSelect } from '@/components/common/WorkspaceSelect';
+import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
 export type LeftRailKey =
   | 'inbox'
@@ -145,71 +145,24 @@ export function LeftRail({
     if (isDrawer || shouldShowLabels) {
       return (
         <div className={isDrawer ? 'ntd-left-rail-drawer-workspace' : 'ntd-left-rail-workspace'}>
-          <div className="ntd-left-rail-workspace-label">工作空间</div>
-          <WorkspaceSelect
+          <WorkspaceSwitcher
             value={workspace ?? null}
-            required
-            onChange={(next) => {
-              if (!next) return;
-              onWorkspaceChange?.(next);
-            }}
-            selectProps={{ size: 'small' }}
+            onChange={(next) => onWorkspaceChange?.(next)}
+            onManage={() => onSelect('settings_projectDirectories')}
+            mode="full"
           />
-          <div className="ntd-left-rail-workspace-actions">
-            <Button
-              type="text"
-              size="small"
-              icon={<SettingOutlined />}
-              onClick={() => onSelect('settings_projectDirectories')}
-              aria-label="管理工作空间"
-              data-testid="left-rail-manage-workspaces"
-            >
-              管理
-            </Button>
-          </div>
         </div>
       );
     }
 
     return (
       <div className="ntd-left-rail-workspace-collapsed">
-        <Popover
-          placement="rightTop"
-          trigger="click"
-          content={
-            <div style={{ width: 260, padding: 10 }}>
-              <div style={{ fontWeight: 600, marginBottom: 8 }}>工作空间</div>
-              <WorkspaceSelect
-                value={workspace ?? null}
-                required
-                onChange={(next) => {
-                  if (!next) return;
-                  onWorkspaceChange?.(next);
-                }}
-                selectProps={{ size: 'small' }}
-              />
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<SettingOutlined />}
-                  onClick={() => onSelect('settings_projectDirectories')}
-                  aria-label="管理工作空间"
-                >
-                  管理
-                </Button>
-              </div>
-            </div>
-          }
-        >
-          <Button
-            type="text"
-            className="ntd-left-rail-workspace-chip"
-            icon={<ApartmentOutlined />}
-            aria-label="切换工作空间"
-            data-testid="left-rail-workspace"
-          />
-        </Popover>
+        <WorkspaceSwitcher
+          value={workspace ?? null}
+          onChange={(next) => onWorkspaceChange?.(next)}
+          onManage={() => onSelect('settings_projectDirectories')}
+          mode="compact"
+        />
       </div>
     );
   };

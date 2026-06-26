@@ -4064,7 +4064,50 @@ code {
   border-bottom: 1px solid var(--color-border-light);
 }
 
-.ntd-left-rail-workspace-chip {
+.ntd-workspace-switcher {
+  width: 100% !important;
+  height: 36px !important;
+  border-radius: 12px !important;
+  padding: 0 10px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  background: var(--color-bg-elevated) !important;
+  border: 1px solid var(--color-border) !important;
+  color: var(--color-text-secondary) !important;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.ntd-workspace-switcher:hover {
+  background: var(--color-bg-hover) !important;
+  border-color: color-mix(in srgb, var(--color-primary) 22%, var(--color-border)) !important;
+}
+
+.ntd-workspace-switcher-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ntd-workspace-switcher-label {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.ntd-workspace-switcher-right {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.ntd-workspace-switcher-compact {
   width: 44px !important;
   height: 44px !important;
   border-radius: 14px !important;
@@ -4072,7 +4115,7 @@ code {
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-.ntd-left-rail-workspace-chip:hover {
+.ntd-workspace-switcher-compact:hover {
   background: var(--color-bg-hover) !important;
   color: var(--color-text) !important;
 }
