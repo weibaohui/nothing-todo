@@ -74,9 +74,6 @@ export function WorkspaceDetailPage({ workspace, onBack }: WorkspaceDetailPagePr
                   <WorkspaceSlashCommandsPanel workspaceId={workspace.id} />
                 </div>
                 <div style={{ marginTop: 24 }}>
-                  <ReviewTemplatesPanel />
-                </div>
-                <div style={{ marginTop: 24 }}>
                   <WorkspaceSettingsPanel workspaceId={workspace.id} />
                 </div>
               </>
@@ -103,9 +100,6 @@ export function WorkspaceDetailPage({ workspace, onBack }: WorkspaceDetailPagePr
                   <WorkspaceAgentPanel workspaceId={workspace.id} />
                   <div style={{ marginTop: 24 }}>
                     <WorkspaceSlashCommandsPanel workspaceId={workspace.id} />
-                  </div>
-                  <div style={{ marginTop: 24 }}>
-                    <ReviewTemplatesPanel />
                   </div>
                   <div style={{ marginTop: 24 }}>
                     <WorkspaceSettingsPanel workspaceId={workspace.id} />
