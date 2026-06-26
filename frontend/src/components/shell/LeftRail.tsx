@@ -69,15 +69,10 @@ export function LeftRail({
 }: LeftRailProps) {
   const sections = useMemo(() => ([
     {
-      title: '事项',
+      title: '工作区',
       items: [
         { key: 'items', label: '事项', icon: <InboxOutlined />, ariaLabel: '事项' },
         { key: 'loops', label: '环路', icon: <ApartmentOutlined />, ariaLabel: '环路' },
-      ] satisfies LeftRailItem[],
-    },
-    {
-      title: '工作区',
-      items: [
         { key: 'dashboard', label: '仪表盘', icon: <DashboardOutlined />, ariaLabel: '仪表盘' },
         { key: 'memorial', label: '看板', icon: <ReadOutlined />, ariaLabel: '看板' },
       ] satisfies LeftRailItem[],
