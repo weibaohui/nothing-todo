@@ -106,7 +106,7 @@ export function SettingsPage() {
 
   // Tab 顺序说明：
   // 1. 系统设置、标签管理 → 基础配置优先
-  // 2. 模板管理 → 项目相关
+  // 2. 事项模板 → 项目相关
   // 3. 备份与恢复 → 数据安全
   // 4. 云端同步 → 外部集成
   // 5. 关于 → 信息页末位
@@ -133,7 +133,7 @@ export function SettingsPage() {
     },
     {
       key: 'templates',
-      label: <span><FileTextOutlined style={{ marginRight: 6 }} />模板管理</span>,
+      label: <span><FileTextOutlined style={{ marginRight: 6 }} />事项模板</span>,
       children: <TemplatesPanel />,
     },
     {

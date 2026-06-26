@@ -232,11 +232,11 @@ export function TemplatesPanel() {
             },
             {
               key: 'system',
-              label: '系统模板',
+              label: '内置模板',
               children: (
                 <div>
                   {templates.filter(t => t.is_system).length === 0 ? (
-                    <Empty description="暂无系统模板" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                    <Empty description="暂无内置模板" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                   ) : (
                     Array.from(new Set(templates.filter(t => t.is_system).map(t => t.category))).sort().map(category => (
                       <Card key={category} title={category || '未分类'} size="small" style={{ marginBottom: 12 }}>
