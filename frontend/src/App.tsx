@@ -257,27 +257,21 @@ function AppContent() {
 
   return (
     <Layout style={{ height: '100vh', flexDirection: isMobile ? 'column' : 'row' }}>
-      {/* Mobile Header with Back Button + Hamburger Menu */}
+      {/* Mobile Header — 返回按钮仅在 items/loops 详情页显示，菜单按钮始终在右侧 */}
       {isMobile && (
         <div className="mobile-header">
-          {(activePanel === 'detail' || (activeView !== 'items' && activeView !== 'loops')) ? (
-            // 返回按钮显示条件：
-            // 1. items/loops 视图处于 detail panel → backToList（回到列表页）
-            // 2. 其他视图（dashboard/memorial/settings 等）→ 回到首页 items
+          {/* items/loops 详情页显示返回按钮，否则空占位保持菜单按钮位置一致 */}
+          {(activeView === 'items' || activeView === 'loops') && activePanel === 'detail' ? (
             <button
               className="mobile-header-menu-btn"
-              onClick={() => {
-                if (activeView === 'items' || activeView === 'loops') {
-                  backToList();
-                } else {
-                  showView('items');
-                }
-              }}
-              aria-label="返回"
+              onClick={backToList}
+              aria-label="返回列表"
             >
               <ArrowLeftOutlined />
             </button>
-          ) : null}
+          ) : (
+            <div style={{ width: 40 }} />
+          )}
           <button
             className="mobile-header-menu-btn"
             onClick={() => setNavDrawerOpen(true)}
