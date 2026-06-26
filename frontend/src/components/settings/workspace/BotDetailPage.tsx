@@ -3,8 +3,9 @@ import { Card, Button, Switch, Input, Select, Tag, message, Modal, Typography, A
 import { LeftOutlined, CopyOutlined } from '@ant-design/icons';
 import * as db from '@/utils/database';
 import type { AgentBot, FeishuPushStatus, WhitelistEntry, FeishuSenderItem } from '@/utils/database';
-import type { FeishuHistoryMessage, FeishuHistoryChat } from '@/types';
+import type { FeishuHistoryMessage, FeishuHistoryChat, ExecutionRecord } from '@/types';
 import { copyToClipboard } from '@/utils/clipboard';
+import { ExecutionDetailModal } from '../messages/ExecutionDetailModal';
 
 const { Paragraph } = Typography;
 
@@ -39,6 +40,8 @@ export function BotDetailPage({ bot, onBack, onRefresh, autoShowHistory = false 
   const [historyIsHistory, setHistoryIsHistory] = useState<boolean | undefined>(undefined);
   const [historySelectedSenderId] = useState<string | undefined>(undefined);
   const [historyViewMsg, setHistoryViewMsg] = useState<string | null>(null);
+  const [execDetailRecord, setExecDetailRecord] = useState<ExecutionRecord | null>(null);
+  const [todoDetail, setTodoDetail] = useState<{ id: number; title: string; prompt: string; status: string } | null>(null);
   const showHistory = autoShowHistory;
 
   // 加载 bot 配置
@@ -93,6 +96,24 @@ export function BotDetailPage({ bot, onBack, onRefresh, autoShowHistory = false 
       message.error('加载历史消息失败');
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const handleViewExecutionRecord = async (recordId: number) => {
+    try {
+      const r = await db.getExecutionRecord(recordId);
+      setExecDetailRecord(r);
+    } catch {
+      message.error('加载执行记录失败');
+    }
+  };
+
+  const handleViewTodo = async (todoId: number) => {
+    try {
+      const t = await db.getTodo(todoId);
+      setTodoDetail({ id: t.id, title: t.title, prompt: t.prompt, status: t.status });
+    } catch {
+      message.error('加载 Todo 详情失败');
     }
   };
 
@@ -291,7 +312,9 @@ export function BotDetailPage({ bot, onBack, onRefresh, autoShowHistory = false 
                 width: 80,
                 render: (_, record) => (
                   record.processed_todo_id ? (
-                    <Typography.Text style={{ fontSize: 12 }}>#{record.processed_todo_id}</Typography.Text>
+                    <Typography.Link style={{ fontSize: 12 }} onClick={() => handleViewTodo(record.processed_todo_id!)}>
+                      #{record.processed_todo_id}
+                    </Typography.Link>
                   ) : (
                     <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>-</span>
                   )
@@ -303,7 +326,9 @@ export function BotDetailPage({ bot, onBack, onRefresh, autoShowHistory = false 
                 width: 80,
                 render: (_, record) => (
                   record.execution_record_id ? (
-                    <Typography.Text style={{ fontSize: 12 }}>#{record.execution_record_id}</Typography.Text>
+                    <Typography.Link style={{ fontSize: 12 }} onClick={() => handleViewExecutionRecord(record.execution_record_id!)}>
+                      #{record.execution_record_id}
+                    </Typography.Link>
                   ) : (
                     <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>-</span>
                   )
@@ -432,6 +457,37 @@ export function BotDetailPage({ bot, onBack, onRefresh, autoShowHistory = false 
         <div style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 400, overflowY: 'auto' }}>
           {historyViewMsg}
         </div>
+      </Modal>
+
+      {/* 执行记录详情弹窗 */}
+      <ExecutionDetailModal record={execDetailRecord} onClose={() => setExecDetailRecord(null)} />
+
+      {/* Todo 详情弹窗 */}
+      <Modal
+        title={todoDetail ? `Todo #${todoDetail.id}` : 'Todo 详情'}
+        open={!!todoDetail}
+        onCancel={() => setTodoDetail(null)}
+        footer={null}
+        width={600}
+      >
+        {todoDetail && (
+          <div>
+            <div style={{ marginBottom: 8 }}>
+              <Tag color={todoDetail.status === 'completed' ? 'green' : todoDetail.status === 'failed' ? 'red' : 'blue'}>
+                {todoDetail.status}
+              </Tag>
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <strong>标题:</strong> <span>{todoDetail.title}</span>
+            </div>
+            <div>
+              <strong>Prompt:</strong>
+              <pre style={{ background: 'var(--color-fill-quaternary)', padding: 8, borderRadius: 4, fontSize: 12, maxHeight: 200, overflow: 'auto', whiteSpace: 'pre-wrap', marginTop: 4 }}>
+                {todoDetail.prompt}
+              </pre>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
