@@ -81,6 +81,7 @@ export function TodoPage({
     <ListDetailPage
       icon={<UnorderedListOutlined />}
       title="事项"
+      storageKey="todo_page_sidebar_collapsed"
       extra={
         <Button
           type="primary"

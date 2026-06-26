@@ -129,6 +129,7 @@ export function LoopPage({
     <ListDetailPage
       icon={<RetweetOutlined />}
       title="环路"
+      storageKey="loop_page_sidebar_collapsed"
       extra={
         <Button
           type="primary"
