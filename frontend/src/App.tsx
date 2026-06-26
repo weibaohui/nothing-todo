@@ -401,7 +401,6 @@ function AppContent() {
               onListModeChange={() => {
                 setForcedListMode(undefined);
               }}
-              activeView={activeView}
             />
           </div>
 
@@ -532,7 +531,6 @@ function AppContent() {
                 onListModeChange={() => {
                   setForcedListMode(undefined);
                 }}
-                activeView={activeView}
               />
             ) : (
               <Dashboard onBack={isMobile ? backToList : undefined} />
