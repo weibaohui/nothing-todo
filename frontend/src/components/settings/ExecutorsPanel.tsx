@@ -146,11 +146,14 @@ export function ExecutorsPanel() {
   return (
     <PageCard icon={<CodeOutlined />} title="执行器">
       <Spin spinning={executorsLoading}>
-        <div style={{ maxWidth: 800 }}>
+        <div style={{ maxWidth: 1000 }}>
         <Paragraph type="secondary" style={{ marginBottom: 16 }}>
           管理执行器的路径、开关状态，并检测二进制是否可用。关闭开关的执行器不会出现在 Todo 的执行器选择列表中。
         </Paragraph>
-        <div style={{ marginBottom: 12 }}>
+        <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ color: 'var(--color-text-secondary)', fontSize: 13 }}>
+            共 {executors.length} 个执行器
+          </span>
           <Button
             type="primary"
             icon={<SearchOutlined />}
@@ -194,170 +197,222 @@ export function ExecutorsPanel() {
             批量检测
           </Button>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {executors.map((ec) => {
-            const detectResult = detectResults[ec.name];
-            const isDetecting = detectingExecutor === ec.name;
-            const isTesting = testingExecutor === ec.name;
-            const isSaving = savingExecutor === ec.name;
-            return (
-              <Card
-                key={ec.name}
-                size="small"
-                style={{
-                  opacity: ec.enabled ? 1 : 0.6,
-                  borderColor: ec.enabled ? undefined : '#d9d9d9',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                  <Switch
-                    checked={ec.enabled}
-                    loading={isSaving}
-                    onChange={async (checked) => {
-                      setSavingExecutor(ec.name);
-                      try {
-                        const updated = await db.updateExecutor(ec.name, { enabled: checked });
-                        setExecutors((prev) => prev.map((e) => e.name === ec.name ? updated : e));
-                      } catch (err: any) {
-                        message.error('更新失败: ' + (err?.message || String(err)));
-                      } finally {
-                        setSavingExecutor(null);
-                      }
-                    }}
-                  />
-                  <span style={{ fontWeight: 500, minWidth: 90 }}>{ec.display_name}</span>
-                  <Input
-                    style={{ flex: 1, minWidth: 200 }}
-                    placeholder="二进制路径或命令名"
-                    defaultValue={ec.path}
-                    onBlur={async (e) => {
-                      const newPath = e.target.value.trim();
-                      if (newPath === ec.path) return;
-                      setSavingExecutor(ec.name);
-                      try {
-                        const updated = await db.updateExecutor(ec.name, { path: newPath });
-                        setExecutors((prev) => prev.map((ex) => ex.name === ec.name ? updated : ex));
-                        setDetectResults((prev) => {
-                          const next = { ...prev };
-                          delete next[ec.name];
-                          return next;
-                        });
-                      } catch (err: any) {
-                        message.error('保存失败: ' + (err?.message || String(err)));
-                      } finally {
-                        setSavingExecutor(null);
-                      }
-                    }}
-                    onPressEnter={(e) => {
-                      (e.target as HTMLInputElement).blur();
-                    }}
-                  />
-                  <Input
-                    style={{ flex: 1, minWidth: 180 }}
-                    placeholder="Session 目录（如 ~/.claude）"
-                    defaultValue={ec.session_dir}
-                    onBlur={async (e) => {
-                      const newDir = e.target.value.trim();
-                      if (newDir === ec.session_dir) return;
-                      setSavingExecutor(ec.name);
-                      try {
-                        const updated = await db.updateExecutor(ec.name, { session_dir: newDir });
-                        setExecutors((prev) => prev.map((ex) => ex.name === ec.name ? updated : ex));
-                      } catch (err: any) {
-                        message.error('保存失败: ' + (err?.message || String(err)));
-                      } finally {
-                        setSavingExecutor(null);
-                      }
-                    }}
-                    onPressEnter={(e) => {
-                      (e.target as HTMLInputElement).blur();
-                    }}
-                  />
-                  <Button
-                    size="small"
-                    icon={<SearchOutlined />}
-                    loading={isDetecting}
-                    onClick={async () => {
-                      setDetectingExecutor(ec.name);
-                      try {
-                        const result = await db.detectExecutor(ec.name);
-                        setDetectResults((prev) => ({ ...prev, [ec.name]: { found: result.binary_found, resolved: result.path_resolved } }));
-                        if (result.binary_found) {
-                          message.success(`${ec.display_name}: 找到 (${result.path_resolved})`);
-                        } else {
-                          message.warning(`${ec.display_name}: 未找到`);
-                        }
-                      } catch (err: any) {
-                        message.error('检测失败: ' + (err?.message || String(err)));
-                      } finally {
-                        setDetectingExecutor(null);
-                      }
-                    }}
-                  >
-                    检测
-                  </Button>
-                  {/* 修复按钮：路径无效时尝试用 which 查找真实路径并自动更新 */}
-                  {!detectResult?.found && (
+
+        <Table
+          rowKey="name"
+          dataSource={executors}
+          pagination={false}
+          size="middle"
+          locale={{ emptyText: <Empty description="暂无执行器" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+          columns={[
+            {
+              title: '状态',
+              dataIndex: 'enabled',
+              key: 'enabled',
+              width: 70,
+              align: 'center',
+              render: (enabled: boolean, record: ExecutorConfig) => (
+                <Switch
+                  size="small"
+                  checked={enabled}
+                  loading={savingExecutor === record.name}
+                  onChange={async (checked) => {
+                    setSavingExecutor(record.name);
+                    try {
+                      const updated = await db.updateExecutor(record.name, { enabled: checked });
+                      setExecutors((prev) => prev.map((e) => e.name === record.name ? updated : e));
+                    } catch (err: any) {
+                      message.error('更新失败: ' + (err?.message || String(err)));
+                    } finally {
+                      setSavingExecutor(null);
+                    }
+                  }}
+                />
+              ),
+            },
+            {
+              title: '执行器',
+              dataIndex: 'display_name',
+              key: 'display_name',
+              width: 110,
+              render: (name: string, record: ExecutorConfig) => (
+                <span style={{ fontWeight: 500, opacity: record.enabled ? 1 : 0.5 }}>{name}</span>
+              ),
+            },
+            {
+              title: '二进制路径',
+              dataIndex: 'path',
+              key: 'path',
+              render: (path: string, record: ExecutorConfig) => (
+                <Input
+                  size="small"
+                  placeholder="二进制路径或命令名"
+                  defaultValue={path}
+                  onBlur={async (e) => {
+                    const newPath = e.target.value.trim();
+                    if (newPath === path) return;
+                    setSavingExecutor(record.name);
+                    try {
+                      const updated = await db.updateExecutor(record.name, { path: newPath });
+                      setExecutors((prev) => prev.map((ex) => ex.name === record.name ? updated : ex));
+                      setDetectResults((prev) => {
+                        const next = { ...prev };
+                        delete next[record.name];
+                        return next;
+                      });
+                    } catch (err: any) {
+                      message.error('保存失败: ' + (err?.message || String(err)));
+                    } finally {
+                      setSavingExecutor(null);
+                    }
+                  }}
+                  onPressEnter={(e) => {
+                    (e.target as HTMLInputElement).blur();
+                  }}
+                />
+              ),
+            },
+            {
+              title: 'Session 目录',
+              dataIndex: 'session_dir',
+              key: 'session_dir',
+              width: 220,
+              render: (sessionDir: string, record: ExecutorConfig) => (
+                <Input
+                  size="small"
+                  placeholder="如 ~/.claude"
+                  defaultValue={sessionDir}
+                  onBlur={async (e) => {
+                    const newDir = e.target.value.trim();
+                    if (newDir === sessionDir) return;
+                    setSavingExecutor(record.name);
+                    try {
+                      const updated = await db.updateExecutor(record.name, { session_dir: newDir });
+                      setExecutors((prev) => prev.map((ex) => ex.name === record.name ? updated : ex));
+                    } catch (err: any) {
+                      message.error('保存失败: ' + (err?.message || String(err)));
+                    } finally {
+                      setSavingExecutor(null);
+                    }
+                  }}
+                  onPressEnter={(e) => {
+                    (e.target as HTMLInputElement).blur();
+                  }}
+                />
+              ),
+            },
+            {
+              title: '检测状态',
+              key: 'detect_status',
+              width: 90,
+              align: 'center',
+              render: (_: unknown, record: ExecutorConfig) => {
+                const detectResult = detectResults[record.name];
+                if (!detectResult) {
+                  return <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>未检测</span>;
+                }
+                return (
+                  <Tooltip title={detectResult.resolved || '未找到'}>
+                    {detectResult.found ? (
+                      <span style={{ color: '#52c41a', fontSize: 12, fontWeight: 500 }}>
+                        ✓ 可用
+                      </span>
+                    ) : (
+                      <span style={{ color: '#ff4d4f', fontSize: 12, fontWeight: 500 }}>
+                        ✗ 不可用
+                      </span>
+                    )}
+                  </Tooltip>
+                );
+              },
+            },
+            {
+              title: '操作',
+              key: 'action',
+              width: 180,
+              render: (_: unknown, record: ExecutorConfig) => {
+                const detectResult = detectResults[record.name];
+                const isDetecting = detectingExecutor === record.name;
+                const isTesting = testingExecutor === record.name;
+                return (
+                  <Space size={4}>
                     <Button
                       size="small"
-                      icon={<BugOutlined />}
+                      icon={<SearchOutlined />}
+                      loading={isDetecting}
                       onClick={async () => {
+                        setDetectingExecutor(record.name);
                         try {
-                          const result = await db.repairExecutor(ec.name);
+                          const result = await db.detectExecutor(record.name);
+                          setDetectResults((prev) => ({ ...prev, [record.name]: { found: result.binary_found, resolved: result.path_resolved } }));
                           if (result.binary_found) {
-                            setDetectResults((prev) => ({ ...prev, [ec.name]: { found: true, resolved: result.path_resolved! } }));
-                            const updated = await db.updateExecutor(ec.name, { path: result.path_resolved!, enabled: true });
-                            setExecutors((prev) => prev.map((e) => e.name === ec.name ? updated : e));
-                            if (result.path_updated) {
-                              message.success(`已修复：${ec.display_name} 路径更新为 ${result.path_resolved}`);
-                            } else {
-                              message.info(`路径已是最新：${result.path_resolved}`);
-                            }
+                            message.success(`${record.display_name}: 找到 (${result.path_resolved})`);
                           } else {
-                            message.error(`未找到 ${ec.display_name}，请手动填写路径`);
+                            message.warning(`${record.display_name}: 未找到`);
                           }
                         } catch (err: any) {
-                          message.error('修复失败: ' + (err?.message || String(err)));
+                          message.error('检测失败: ' + (err?.message || String(err)));
+                        } finally {
+                          setDetectingExecutor(null);
                         }
                       }}
                     >
-                      修复
+                      检测
                     </Button>
-                  )}
-                  <Button
-                    size="small"
-                    type="primary"
-                    ghost
-                    icon={<PlayCircleOutlined />}
-                    loading={isTesting}
-                    onClick={async () => {
-                      setTestingExecutor(ec.name);
-                      try {
-                        const result = await db.testExecutor(ec.name);
-                        setTestModalData({ name: ec.name, result });
-                        setTestModalVisible(true);
-                      } catch (err: any) {
-                        message.error('测试失败: ' + (err?.message || String(err)));
-                      } finally {
-                        setTestingExecutor(null);
-                      }
-                    }}
-                  >
-                    测试
-                  </Button>
-                  {detectResult && (
-                    <Tooltip title={detectResult.resolved || '未找到'}>
-                      {detectResult.found
-                        ? <span style={{ color: '#52c41a', fontSize: 16 }}>&#10003;</span>
-                        : <span style={{ color: '#ff4d4f', fontSize: 16 }}>&#10007;</span>
-                      }
-                    </Tooltip>
-                  )}
-                </div>
-              </Card>
-            );
-          })}
-        </div>
+                    {!detectResult?.found && (
+                      <Button
+                        size="small"
+                        icon={<BugOutlined />}
+                        onClick={async () => {
+                          try {
+                            const result = await db.repairExecutor(record.name);
+                            if (result.binary_found) {
+                              setDetectResults((prev) => ({ ...prev, [record.name]: { found: true, resolved: result.path_resolved! } }));
+                              const updated = await db.updateExecutor(record.name, { path: result.path_resolved!, enabled: true });
+                              setExecutors((prev) => prev.map((e) => e.name === record.name ? updated : e));
+                              if (result.path_updated) {
+                                message.success(`已修复：${record.display_name} 路径更新为 ${result.path_resolved}`);
+                              } else {
+                                message.info(`路径已是最新：${result.path_resolved}`);
+                              }
+                            } else {
+                              message.error(`未找到 ${record.display_name}，请手动填写路径`);
+                            }
+                          } catch (err: any) {
+                            message.error('修复失败: ' + (err?.message || String(err)));
+                          }
+                        }}
+                      >
+                        修复
+                      </Button>
+                    )}
+                    <Button
+                      size="small"
+                      type="primary"
+                      ghost
+                      icon={<PlayCircleOutlined />}
+                      loading={isTesting}
+                      onClick={async () => {
+                        setTestingExecutor(record.name);
+                        try {
+                          const result = await db.testExecutor(record.name);
+                          setTestModalData({ name: record.name, result });
+                          setTestModalVisible(true);
+                        } catch (err: any) {
+                          message.error('测试失败: ' + (err?.message || String(err)));
+                        } finally {
+                          setTestingExecutor(null);
+                        }
+                      }}
+                    >
+                      测试
+                    </Button>
+                  </Space>
+                );
+              },
+            },
+          ]}
+        />
 
         {/* 运行配置区域 */}
         <Card
