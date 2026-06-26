@@ -524,6 +524,14 @@ html, body {
   padding: var(--space-xl);
 }
 
+/* 在 ListDetailPage 内部的详情面板：去掉外层装饰，因为 PageCard 已经提供了 */
+.list-detail-page-right .detail-panel {
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 16px 20px;
+}
+
 .detail-card {
   background: var(--color-bg-elevated);
   border-radius: var(--radius-md);

@@ -47,12 +47,12 @@ export function ListDetailPage({ icon, title, listPanel, detailPanel }: ListDeta
       </div>
 
       <div
+        className="list-detail-page-right"
         style={{
           flex: 1,
           minWidth: 0,
           height: '100%',
           overflow: 'hidden',
-          padding: 16,
         }}
       >
         {detailPanel ?? <EmptyDetailPlaceholder />}
