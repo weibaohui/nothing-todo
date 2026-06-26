@@ -41,12 +41,15 @@ export function useViewState() {
   }, [activeView]);
 
   // Push URL helper — updates history without triggering popstate
-  const pushUrl = useCallback((view: string, todoId?: string | number | null) => {
+  const pushUrl = useCallback((view: string, todoId?: string | number | null, tab?: string | null) => {
     const params = new URLSearchParams();
     if (todoId) {
       params.set('todo', String(todoId));
     } else if (view !== 'dashboard') {
       params.set('view', view);
+      if (typeof tab === 'string' && tab.trim()) {
+        params.set('tab', tab);
+      }
     }
     const qs = params.toString();
     window.history.pushState(null, '', qs ? `/?${qs}` : '/');
@@ -76,12 +79,12 @@ export function useViewState() {
   }, []);
 
   // Navigate to a different view (clears todo selection)
-  const showView = useCallback((view: View) => {
+  const showView = useCallback((view: View, opts?: { tab?: string | null }) => {
     setActiveView(view);
     // On mobile, dashboard renders in the detail panel, so always show it
     const panel: Panel = view === 'dashboard' ? 'detail' : viewToPanel(view);
     setSelectedPanel(panel);
-    pushUrl(view);
+    pushUrl(view, null, opts?.tab ?? null);
   }, [pushUrl]);
 
   // Select a todo (opens detail panel, preserves current view)

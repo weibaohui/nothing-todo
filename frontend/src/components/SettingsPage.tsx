@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Tabs, Form, Button, message } from 'antd';
 import {
   SettingOutlined,
@@ -226,6 +226,37 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     },
   ];
 
+  const knownTabs = useMemo(() => tabItems.map(t => t.key), [tabItems]);
+
+  const getInitialTab = useCallback(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    if (tab && knownTabs.includes(tab)) return tab;
+    return 'system';
+  }, [knownTabs]);
+
+  const [activeTab, setActiveTab] = useState<string>(getInitialTab);
+
+  useEffect(() => {
+    setActiveTab(getInitialTab());
+  }, [getInitialTab]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      setActiveTab(getInitialTab());
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [getInitialTab]);
+
+  const handleTabChange = useCallback((key: string) => {
+    setActiveTab(key);
+    const params = new URLSearchParams(window.location.search);
+    params.set('view', 'settings');
+    params.set('tab', key);
+    window.history.pushState(null, '', `/?${params.toString()}`);
+    window.dispatchEvent(new CustomEvent('settingsTabChanged', { detail: { tab: key } }));
+  }, []);
+
   return (
     <div
       className="settings-page-root detail-panel"
@@ -249,7 +280,14 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           <h2 className="card-title">配置管理</h2>
         </div>
       </div>
-      <Tabs className="settings-tabs" items={tabItems} type="card" size="small" />
+      <Tabs
+        className="settings-tabs"
+        items={tabItems}
+        type="card"
+        size="small"
+        activeKey={activeTab}
+        onChange={handleTabChange}
+      />
     </div>
   );
 }

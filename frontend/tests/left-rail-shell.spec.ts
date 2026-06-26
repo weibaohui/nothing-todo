@@ -15,6 +15,6 @@ test('左侧主导航渲染并支持切换到设置', async ({ page }) => {
   await page.getByTestId('left-rail-toggle').click();
   await expect(page.getByTestId('left-rail-label-inbox')).toBeVisible();
 
-  await page.getByTestId('left-rail-settings').click();
-  await expect(page.getByText('系统设置')).toBeVisible();
+  await page.getByTestId('left-rail-manage-workspaces').click();
+  await expect(page.getByText('添加项目目录')).toBeVisible();
 });

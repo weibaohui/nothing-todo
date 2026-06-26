@@ -3,7 +3,7 @@ import { useApp } from '@/hooks/useApp';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { Button, Dropdown, Empty, Tooltip, Input, Segmented, Skeleton, Checkbox, Modal, App as AntApp } from 'antd';
 import type { MenuProps } from 'antd';
-import { ThunderboltOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, ReadOutlined, SettingOutlined, SunOutlined, MoonOutlined, ApartmentOutlined, FolderOpenOutlined, MoreOutlined, SearchOutlined, DownOutlined, SwapOutlined, StopOutlined } from '@ant-design/icons';
+import { ThunderboltOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, ReadOutlined, SettingOutlined, SunOutlined, MoonOutlined, MoreOutlined, SearchOutlined, SwapOutlined, StopOutlined } from '@ant-design/icons';
 import { useTheme } from '@/hooks/useTheme';
 import { StatusPicker } from './StatusPicker';
 import * as db from '@/utils/database';
@@ -596,62 +596,6 @@ export function TodoList(props: TodoListProps) {
           )}
           </div>
         </div>
-      </div>
-
-      {/* Workspace selector - 在搜索框上方，用于切换不同工作空间。
-          已移除"全部工作空间"选项，强制用户必须选择一个工作空间。 */}
-      <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--color-border-light)' }}>
-        <Dropdown
-          menu={{
-            items: [
-              ...projectDirectories.map(dir => ({
-                key: dir.path,
-                label: dir.name || dir.path,
-                icon: <FolderOpenOutlined />,
-              })),
-              { type: 'divider' as const },
-              {
-                key: '__manage__',
-                label: '管理工作空间',
-                icon: <SettingOutlined />,
-              },
-            ],
-            onClick: ({ key }) => {
-              if (key === '__manage__') {
-                onShowSettings?.();
-              } else {
-                dispatch({ type: 'SELECT_WORKSPACE', payload: key });
-              }
-            },
-          }}
-          trigger={['click']}
-        >
-          <Button
-            type="text"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              width: '100%',
-              justifyContent: 'space-between',
-              padding: '8px 12px',
-              borderRadius: 'var(--radius-md)',
-              background: 'var(--color-bg-elevated)',
-              border: '1px solid var(--color-border)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <ApartmentOutlined style={{ color: 'var(--color-primary)' }} />
-              <span style={{ fontWeight: 500 }}>
-                {selectedWorkspace
-                  ? projectDirectories.find(d => d.path === selectedWorkspace)?.name || selectedWorkspace
-                  : '请选择工作空间'
-                }
-              </span>
-            </div>
-            <DownOutlined style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }} />
-          </Button>
-        </Dropdown>
       </div>
 
       {/* 搜索框：两种模式都展示（用户反馈：环路原本没有，切换时会跳界面）。

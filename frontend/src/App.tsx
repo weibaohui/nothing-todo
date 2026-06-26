@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ConfigProvider, Layout, App as AntApp, Drawer, message } from 'antd';
 import { PlusOutlined, ThunderboltOutlined, CloseOutlined, LeftOutlined } from '@ant-design/icons';
 import { AppProvider, useApp } from './hooks/useApp';
@@ -52,8 +52,21 @@ function AppContent() {
   // 环路变更计数，驱动左侧 loop 列表刷新
   const [loopUpdateCount, setLoopUpdateCount] = useState(0);
   const [forcedListMode, setForcedListMode] = useState<'item' | 'loop' | undefined>(undefined);
-  const [railFocus, setRailFocus] = useState<LeftRailKey>(() => {
+  const [activeNavKey, setActiveNavKey] = useState<LeftRailKey>(() => {
     try {
+      const params = new URLSearchParams(window.location.search);
+      const view = params.get('view');
+      const tab = params.get('tab');
+      if (view === 'settings' && tab) {
+        if (tab === 'projectDirectories') return 'settings_projectDirectories';
+        if (tab === 'sessions') return 'settings_sessions';
+        if (tab === 'skills') return 'settings_skills';
+        if (tab === 'runtime') return 'settings_runtime';
+        return 'settings';
+      }
+      if (view === 'memorial') return 'memorial';
+      if (view === 'settings') return 'settings';
+      if (view === 'dashboard') return 'dashboard';
       const saved = localStorage.getItem('ntd_list_mode');
       return saved === 'loop' ? 'loops' : 'inbox';
     } catch {
@@ -71,6 +84,20 @@ function AppContent() {
   });
 
   useExecutionEvents();
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const custom = event as CustomEvent<{ tab?: string }>;
+      const tab = custom.detail?.tab;
+      if (tab === 'projectDirectories') setActiveNavKey('settings_projectDirectories');
+      else if (tab === 'sessions') setActiveNavKey('settings_sessions');
+      else if (tab === 'skills') setActiveNavKey('settings_skills');
+      else if (tab === 'runtime') setActiveNavKey('settings_runtime');
+      else setActiveNavKey('settings');
+    };
+    window.addEventListener('settingsTabChanged', handler);
+    return () => window.removeEventListener('settingsTabChanged', handler);
+  }, []);
 
   const hasRunningTasks = Object.keys(state.runningTasks).length > 0;
   const panelHeight = hasRunningTasks ? (panelCollapsed ? EXECUTION_PANEL.collapsed : EXECUTION_PANEL.expanded) : 0;
@@ -150,10 +177,18 @@ function AppContent() {
     setSelectedLoopId(null);
     clearSelection();
     showView(view);
-    setRailFocus(view === 'settings' ? 'settings' : view === 'memorial' ? 'memorial' : 'dashboard');
+    setActiveNavKey(view === 'settings' ? 'settings' : view === 'memorial' ? 'memorial' : 'dashboard');
   }, [clearSelection, showView]);
 
   const handleGoToSettings = () => handleShowView('settings');
+
+  const showSettings = useCallback((tab: string | null, navKey: LeftRailKey) => {
+    setSelectedLoopId(null);
+    dispatch({ type: 'SELECT_TODO', payload: null });
+    clearSelection();
+    setActiveNavKey(navKey);
+    showView('settings', { tab });
+  }, [clearSelection, dispatch, showView]);
 
   /**
    * 切换到“收件箱/环路”这类列表型入口。
@@ -164,7 +199,7 @@ function AppContent() {
     dispatch({ type: 'SELECT_TODO', payload: null });
     clearSelection();
     setForcedListMode(mode);
-    setRailFocus(mode === 'loop' ? 'loops' : 'inbox');
+    setActiveNavKey(mode === 'loop' ? 'loops' : 'inbox');
     backToList();
   }, [backToList, clearSelection, dispatch]);
 
@@ -181,22 +216,34 @@ function AppContent() {
       showListSection('loop');
       return;
     }
-    if (key === 'settings') {
-      handleShowView('settings');
+    if (key === 'dashboard') {
+      setActiveNavKey('dashboard');
+      handleShowView('dashboard');
       return;
     }
     if (key === 'memorial') {
+      setActiveNavKey('memorial');
       handleShowView('memorial');
       return;
     }
-    handleShowView('dashboard');
-  }, [handleShowView, showListSection]);
-
-  const activeRailKey = useMemo<LeftRailKey>(() => {
-    if (activeView === 'settings') return 'settings';
-    if (activeView === 'memorial') return 'memorial';
-    return railFocus;
-  }, [activeView, railFocus]);
+    if (key === 'settings') {
+      showSettings(null, 'settings');
+      return;
+    }
+    if (key === 'settings_projectDirectories') {
+      showSettings('projectDirectories', 'settings_projectDirectories');
+      return;
+    }
+    if (key === 'settings_sessions') {
+      showSettings('sessions', 'settings_sessions');
+      return;
+    }
+    if (key === 'settings_skills') {
+      showSettings('skills', 'settings_skills');
+      return;
+    }
+    showSettings('runtime', 'settings_runtime');
+  }, [handleShowView, showListSection, showSettings]);
 
   // FAB backdrop click to collapse
   const handleFabBackdropClick = () => setFabExpanded(false);
@@ -256,7 +303,7 @@ function AppContent() {
           }}
         >
           <LeftRail
-            activeKey={activeRailKey}
+            activeKey={activeNavKey}
             onSelect={handleRailSelect}
             collapsed={railCollapsed}
             onToggleCollapsed={() => {
@@ -265,6 +312,10 @@ function AppContent() {
               try {
                 localStorage.setItem('ntd_left_rail_collapsed', String(next));
               } catch {}
+            }}
+            workspace={state.selectedWorkspace}
+            onWorkspaceChange={(workspace) => {
+              dispatch({ type: 'SELECT_WORKSPACE', payload: workspace });
             }}
           />
         </div>
@@ -298,7 +349,7 @@ function AppContent() {
               onOpenSmartCreate={() => setSmartCreateOpen(true)}
               onOpenNav={() => setNavDrawerOpen(true)}
               onSelectTodo={(todoId) => {
-                setRailFocus('inbox');
+                setActiveNavKey('inbox');
                 handleSelectTodo(todoId);
               }}
               onShowDashboard={() => handleRailSelect('dashboard')}
@@ -306,7 +357,7 @@ function AppContent() {
               loopUpdateCount={loopUpdateCount}
               onShowSettings={() => handleRailSelect('settings')}
               onSelectLoop={(loopId) => {
-                setRailFocus('loops');
+                setActiveNavKey('loops');
                 handleSelectLoop(loopId);
               }}
               onCreateLoop={() => {
@@ -316,8 +367,8 @@ function AppContent() {
               forcedListMode={forcedListMode}
               onListModeChange={(mode) => {
                 setForcedListMode(undefined);
-                if (railFocus === 'inbox' || railFocus === 'loops') {
-                  setRailFocus(mode === 'loop' ? 'loops' : 'inbox');
+                if (activeNavKey === 'inbox' || activeNavKey === 'loops') {
+                  setActiveNavKey(mode === 'loop' ? 'loops' : 'inbox');
                 }
               }}
             />
@@ -422,7 +473,15 @@ function AppContent() {
         rootClassName="ntd-nav-drawer"
         styles={{ body: { padding: 0 } }}
       >
-        <LeftRail activeKey={activeRailKey} onSelect={handleRailSelect} variant="drawer" />
+        <LeftRail
+          activeKey={activeNavKey}
+          onSelect={handleRailSelect}
+          variant="drawer"
+          workspace={state.selectedWorkspace}
+          onWorkspaceChange={(workspace) => {
+            dispatch({ type: 'SELECT_WORKSPACE', payload: workspace });
+          }}
+        />
       </Drawer>
 
       <TodoDrawer
