@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useApp } from '@/hooks/useApp';
-import { Empty, Input, Segmented, Skeleton, Checkbox, Modal, App as AntApp } from 'antd';
+import { Empty, Input, Skeleton, Checkbox, Modal, App as AntApp } from 'antd';
 import { ClockCircleOutlined, InboxOutlined, SearchOutlined, SwapOutlined, StopOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import * as db from '@/utils/database';
@@ -440,20 +440,6 @@ export function TodoList(props: TodoListProps) {
           onChange={(e) => setSearchKeyword(e.target.value)}
           allowClear
           size="small"
-        />
-      </div>
-
-      {/* 列表选择：事项 / 环路 */}
-      <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--color-border-light)' }}>
-        <Segmented
-          block
-          size="small"
-          value={listMode}
-          onChange={(v) => setListMode(v as 'item' | 'loop')}
-          options={[
-            { label: '事项', value: 'item' },
-            { label: '环路', value: 'loop' },
-          ]}
         />
       </div>
 
