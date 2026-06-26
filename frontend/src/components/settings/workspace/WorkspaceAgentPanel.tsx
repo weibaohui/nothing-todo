@@ -282,9 +282,25 @@ export function WorkspaceAgentPanel({ workspaceId, onBotChanged }: WorkspaceAgen
                 title: '操作',
                 key: 'actions',
                 render: (_: any, bot: AgentBot) => (
-                  <Button size="small" icon={<SwapOutlined />} onClick={() => openMoveModal(bot.id)}>
-                    移动到当前
-                  </Button>
+                  <Popconfirm
+                    title="确定将此智能体移动到当前工作空间？原有绑定将失效"
+                    onConfirm={async () => {
+                      try {
+                        await db.moveBotToWorkspace(bot.id, workspaceId);
+                        message.success('已移动到当前工作空间');
+                        loadBots();
+                        onBotChanged?.();
+                      } catch (err: any) {
+                        message.error('移动失败: ' + (err?.message || String(err)));
+                      }
+                    }}
+                    okText="确认"
+                    cancelText="取消"
+                  >
+                    <Button size="small" icon={<SwapOutlined />}>
+                      移动到当前
+                    </Button>
+                  </Popconfirm>
                 ),
               },
             ]}
