@@ -1,9 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useApp } from '@/hooks/useApp';
-import { useIsMobile } from '@/hooks/useIsMobile';
-import { Button, Dropdown, Empty, Tooltip, Input, Segmented, Skeleton, Checkbox, Modal, App as AntApp } from 'antd';
-import type { MenuProps } from 'antd';
-import { ThunderboltOutlined, ClockCircleOutlined, InboxOutlined, DashboardOutlined, ReadOutlined, SettingOutlined, MoreOutlined, SearchOutlined, SwapOutlined, StopOutlined } from '@ant-design/icons';
+import { Empty, Input, Segmented, Skeleton, Checkbox, Modal, App as AntApp } from 'antd';
+import { ClockCircleOutlined, InboxOutlined, SearchOutlined, SwapOutlined, StopOutlined } from '@ant-design/icons';
 import { StatusPicker } from './StatusPicker';
 import * as db from '@/utils/database';
 import type { ProjectDirectory, Todo } from '@/types';
@@ -18,12 +16,7 @@ import { formatRelativeTime } from '@/utils/datetime';
 
 interface TodoListProps {
   onOpenCreateModal: () => void;
-  onOpenSmartCreate: () => void;
-  onOpenNav?: () => void;
   onSelectTodo?: (todoId: string | number) => void;
-  onShowDashboard?: () => void;
-  onShowMemorial?: () => void;
-  onShowSettings?: () => void;
   onSelectLoop?: (loopId: number) => void;
   onCreateLoop?: () => void;
   loopUpdateCount?: number;
@@ -45,37 +38,11 @@ function SkeletonList() {
   );
 }
 
-/**
- * 构建桌面端头部高频导航按钮。
- */
-function buildDesktopNavActions(
-  onShowDashboard: TodoListProps['onShowDashboard'],
-  onShowMemorial: TodoListProps['onShowMemorial'],
-) {
-  return [
-    {
-      key: 'dashboard',
-      title: '仪表盘',
-      icon: <DashboardOutlined />,
-      onClick: onShowDashboard ? () => onShowDashboard() : undefined,
-      ariaLabel: '仪表盘',
-    },
-    {
-      key: 'memorial',
-      title: '看板',
-      icon: <ReadOutlined />,
-      onClick: onShowMemorial ? () => onShowMemorial() : undefined,
-      ariaLabel: '看板',
-    },
-  ].filter(action => typeof action.onClick === 'function');
-}
-
 export function TodoList(props: TodoListProps) {
-  const { onOpenCreateModal, onOpenSmartCreate, onOpenNav, onSelectTodo, onShowDashboard, onShowMemorial, onShowSettings, onSelectLoop, onCreateLoop, loopUpdateCount, forcedListMode, onListModeChange } = props;
+  const { onOpenCreateModal, onSelectTodo, onSelectLoop, onCreateLoop, loopUpdateCount, forcedListMode, onListModeChange } = props;
   const { state, dispatch } = useApp();
   const { todos, selectedTodoId, selectedTagId, selectedWorkspace, tags } = state;
   const { message } = AntApp.useApp();
-  const isMobile = useIsMobile();
   const [isLoading, setIsLoading] = useState(true);
   // 搜索关键字状态，用于按标题或提示词过滤 todo 列表
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -315,37 +282,6 @@ export function TodoList(props: TodoListProps) {
     };
   }, [listMode, openItemChangeExecutor, openLoopForceStop]);
 
-  const desktopNavActions = useMemo(
-    () => buildDesktopNavActions(onShowDashboard, onShowMemorial),
-    [onShowDashboard, onShowMemorial],
-  );
-
-  /**
-   * 处理桌面端头部"更多"菜单点击。
-   */
-  const handleHeaderMenuClick = useCallback<NonNullable<MenuProps['onClick']>>(({ key }) => {
-    if (key === 'settings') {
-      onShowSettings?.();
-    }
-  }, [onShowSettings]);
-
-  const headerMenuItems = useMemo<MenuProps['items']>(() => {
-    const items: NonNullable<MenuProps['items']> = [];
-
-    if (onShowSettings) {
-      items.push(
-        { type: 'divider' },
-        {
-          key: 'settings',
-          icon: <SettingOutlined />,
-          label: '设置',
-        },
-      );
-    }
-
-    return items;
-  }, [onShowSettings]);
-
   const tagMap = useMemo(() => {
     const map = new Map<number, typeof tags[0]>();
     for (const tag of tags) map.set(tag.id, tag);
@@ -491,91 +427,6 @@ export function TodoList(props: TodoListProps) {
 
   return (
     <div className="todo-list-container">
-      {/* Header */}
-      <div className="todo-list-header">
-        {/* NTD Logo */}
-        {onOpenNav ? (
-          <button
-            type="button"
-            className="ntd-logo ntd-logo-button"
-            onClick={onOpenNav}
-            aria-label="打开导航"
-          >
-            NTD
-          </button>
-        ) : (
-          <div className="ntd-logo" aria-label="NTD Logo">NTD</div>
-        )}
-        <div className="header-actions">
-          <div className="header-toolbar">
-            {desktopNavActions.length > 0 && (
-              <div className="header-nav-cluster" aria-label="主导航">
-                {desktopNavActions.map(action => (
-                  <Tooltip key={action.key} title={action.title}>
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={action.icon}
-                      onClick={action.onClick}
-                      className="header-nav-btn"
-                      aria-label={action.ariaLabel}
-                    />
-                  </Tooltip>
-                ))}
-              </div>
-            )}
-
-            {!isMobile && (
-              <Dropdown
-                menu={{ items: headerMenuItems, onClick: handleHeaderMenuClick }}
-                trigger={['click']}
-                placement="bottomRight"
-              >
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<MoreOutlined />}
-                  className="header-overflow-btn"
-                  aria-label="更多操作"
-                />
-              </Dropdown>
-            )}
-
-          {!isMobile && (
-            <div className="header-quick-actions">
-              {/* header 只保留「智能新建」（AI 一句话生成）。普通新建入口已迁到
-                  ActionToolbar 的「新建事项 / 新建环路」按钮，避免两处入口混淆。 */}
-              <Tooltip title="智能新建">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ThunderboltOutlined />}
-                  className="header-primary-action header-primary-action-smart"
-                  onClick={onOpenSmartCreate}
-                  aria-label="智能新建"
-                />
-              </Tooltip>
-            </div>
-          )}
-
-          {isMobile && (
-            <div className="header-nav-cluster" aria-label="移动端操作">
-              <Tooltip title="设置">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<SettingOutlined />}
-                  onClick={() => onShowSettings?.()}
-                  className="header-nav-btn"
-                  aria-label="设置"
-                />
-              </Tooltip>
-            </div>
-          )}
-          </div>
-        </div>
-      </div>
-
       {/* 搜索框：两种模式都展示（用户反馈：环路原本没有，切换时会跳界面）。
           placeholder 按 listMode 切换，关键词同时匹配事项标题/提示词、环路名称。 */}
       <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--color-border-light)' }}>

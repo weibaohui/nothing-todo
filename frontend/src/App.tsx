@@ -349,16 +349,11 @@ function AppContent() {
           >
             <TodoList
               onOpenCreateModal={() => setTodoModalOpen(true)}
-              onOpenSmartCreate={() => setSmartCreateOpen(true)}
-              onOpenNav={() => setNavDrawerOpen(true)}
               onSelectTodo={(todoId) => {
                 setActiveNavKey('items');
                 handleSelectTodo(todoId);
               }}
-              onShowDashboard={() => handleRailSelect('dashboard')}
-              onShowMemorial={() => handleRailSelect('memorial')}
               loopUpdateCount={loopUpdateCount}
-              onShowSettings={() => handleRailSelect('settings')}
               onSelectLoop={(loopId) => {
                 setActiveNavKey('loops');
                 handleSelectLoop(loopId);
