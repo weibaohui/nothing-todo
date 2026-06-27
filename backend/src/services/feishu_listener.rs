@@ -1,7 +1,6 @@
 use dashmap::DashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use std::sync::RwLock;
 
 use crate::feishu::sdk::config::Config as FeishuSdkConfig;
 use crate::feishu::sdk::token_manager::TokenManager;
@@ -11,7 +10,6 @@ use crate::feishu::{
 };
 
 use crate::service_context::ServiceContext;
-use crate::config::Config as AppConfig;
 use crate::task_manager::TaskManager;
 use crate::db::{Database, NewFeishuMessage};
 use crate::models::{AgentBot, BotConfig, build_trigger_params};
@@ -30,7 +28,6 @@ pub struct FeishuListener {
 
 struct ListenerMessageContext<'a> {
     db: &'a Arc<Database>,
-    config: &'a Arc<RwLock<AppConfig>>,
     token_manager: &'a Arc<TokenManager>,
     credentials: &'a DashMap<i64, (String, String, String)>,
     debounce: &'a Arc<MessageDebounce>,
@@ -151,7 +148,6 @@ impl FeishuListener {
         let bot_open_id = real_bot_open_id;
         let bot_config_clone = bot_config;
         let credentials = self.bot_credentials.clone();
-        let config = self.ctx.config.clone();
         let token_manager = self.token_manager.clone();
         let debounce = self.debounce.clone();
         let task_manager = self.ctx.task_manager.clone();
@@ -160,7 +156,6 @@ impl FeishuListener {
             while let Some(msg) = rx.recv().await {
                 let context = ListenerMessageContext {
                     db: &db,
-                    config: &config,
                     token_manager: &token_manager,
                     credentials: &credentials,
                     debounce: &debounce,
