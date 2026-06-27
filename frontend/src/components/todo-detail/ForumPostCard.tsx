@@ -1,4 +1,5 @@
 import { Tag, Badge } from 'antd';
+import { StarFilled } from '@ant-design/icons';
 import { ExecutorBadge } from '@/components/ExecutorBadge';
 import { formatLocalDateTime, formatDurationSec } from '@/utils/datetime';
 import { getElapsedSeconds } from './helpers';
@@ -104,6 +105,12 @@ export function ForumPostCard({
         </span>
         {record.executor && <ExecutorBadge executor={record.executor} />}
         {record.model && <Tag color="#3b82f6" style={{ fontSize: 10, padding: '0 6px', lineHeight: '18px', margin: 0 }}>{record.model}</Tag>}
+        {record.rating != null && (
+          <span style={{ color: '#faad14', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 2 }}>
+            <StarFilled style={{ fontSize: 10 }} />
+            {record.rating}
+          </span>
+        )}
         <Tag color={record.trigger_type === 'cron' ? '#8b5cf6' : record.trigger_type?.startsWith('hook:') ? '#a855f7' : '#6b7280'} style={{ fontSize: 10, padding: '0 6px', lineHeight: '18px', margin: 0 }}>
           {record.trigger_type === 'cron' ? 'Cron' : record.trigger_type?.startsWith('hook:') ? 'Hook' : '手动'}
         </Tag>

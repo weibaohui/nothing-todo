@@ -3,7 +3,7 @@ import { useApp } from '@/hooks/useApp';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useExecutionHistory } from '@/hooks/useExecutionHistory';
 import { Button, Empty, App, Pagination, Modal, Input, Select } from 'antd';
-import { CheckCircleOutlined, ReloadOutlined, ThunderboltOutlined, FullscreenOutlined, FullscreenExitOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { TodoDrawer } from './TodoDrawer';
 import { parseLogsToMessages } from './ChatView';
 import { BREAKPOINTS, EXPORT } from '@/constants';
@@ -30,7 +30,6 @@ export function TodoDetail({ hideTitleRow = false, onOpenPost }: TodoDetailProps
   const selectedTodo = todos.find(t => t.id === selectedTodoId);
 
   const [todoDrawerOpen, setTodoDrawerOpen] = useState(false);
-  const [isHistoryFullscreen, setIsHistoryFullscreen] = useState(false);
   // viewMode 仅窄屏模式使用（PostDetailDrawer 内部自己管理）
   const [viewMode, setViewMode] = useState<'log' | 'chat' | 'command'>('log');
 
@@ -366,14 +365,6 @@ export function TodoDetail({ hideTitleRow = false, onOpenPost }: TodoDetailProps
             >
               刷新
             </Button>
-            <Button
-              type="text"
-              size="small"
-              icon={<FullscreenOutlined />}
-              onClick={() => setIsHistoryFullscreen(true)}
-            >
-              放大
-            </Button>
           </div>
         </div>
         {records.length === 0 ? (
@@ -465,79 +456,6 @@ export function TodoDetail({ hideTitleRow = false, onOpenPost }: TodoDetailProps
           }
         }}
       />
-
-      <Modal
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 4px' }}>
-            <span style={{ fontWeight: 600 }}>执行历史</span>
-            <Button
-              type="text"
-              size="small"
-              icon={<FullscreenExitOutlined />}
-              onClick={() => setIsHistoryFullscreen(false)}
-            >
-              退出全屏
-            </Button>
-          </div>
-        }
-        open={isHistoryFullscreen}
-        onCancel={() => setIsHistoryFullscreen(false)}
-        footer={null}
-        width="100%"
-        style={{ top: 0, height: '100vh' }}
-        bodyStyle={{ padding: 0, height: 'calc(100vh - 55px)', overflow: 'hidden' }}
-        closable={false}
-        maskClosable
-        destroyOnClose={false}
-      >
-        {records.length === 0 ? (
-          <Empty description="暂无执行记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '16px 20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexShrink: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Select
-                  size="small"
-                  value={historyStatusFilter}
-                  onChange={setHistoryStatusFilter}
-                  style={{ width: 100 }}
-                  options={[
-                    { value: 'all', label: '全部' },
-                    { value: 'running', label: '进行中' },
-                    { value: 'success', label: '成功' },
-                    { value: 'failed', label: '失败' },
-                  ]}
-                />
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ReloadOutlined />}
-                  onClick={() => loadExecutionRecords(historyPage, historyLimit)}
-                  loading={isExecuting}
-                >
-                  刷新
-                </Button>
-              </div>
-            </div>
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
-              <ForumPostList
-                sessionGroups={sessionGroups}
-                selectedRecordId={selectedHistoryRecordId}
-                onSelectRecord={(id) => {
-                  setSelectedHistoryRecordId(id);
-                  if (selectedTodoId && onOpenPost) {
-                    onOpenPost(selectedTodoId, id);
-                  }
-                }}
-                historyTotal={historyTotal}
-                historyLimit={historyLimit}
-                historyPage={historyPage}
-                onPageChange={handleHistoryPageChange}
-              />
-            </div>
-          </div>
-        )}
-      </Modal>
 
       <Modal
         title={<><ThunderboltOutlined style={{ marginRight: 8 }} />带参执行</>}

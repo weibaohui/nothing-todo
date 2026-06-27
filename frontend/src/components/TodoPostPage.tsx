@@ -21,9 +21,9 @@ import { CommandPanel } from "@/components/CommandPanel";
 import { CollapsibleConclusion } from "./todo-detail/CollapsibleConclusion";
 import { ReplyInput } from "./todo-detail/ReplyInput";
 import { RefreshBtn } from "./todo-detail/LogViewHeader";
-import { groupBySession } from "./todo-detail/helpers";
+import { LOG_TYPE_COLORS, LOG_TYPE_LABELS } from "@/constants";
+import { groupBySession, formatLogTime, getElapsedSeconds } from "./todo-detail/helpers";
 import { formatLocalDateTime, formatDurationSec } from "@/utils/datetime";
-import { getElapsedSeconds } from "./todo-detail/helpers";
 import { supportsResume } from "@/types";
 import { parseLogsToMessages } from "./ChatView";
 import { conversationToYaml } from "@/utils/markdown";
@@ -37,10 +37,9 @@ import {
   Popover,
   InputNumber,
   Space,
-  Tooltip,
   message as antdMessage,
 } from "antd";
-import { StarOutlined, StarFilled, FileTextOutlined } from "@ant-design/icons";
+import { StarOutlined, StarFilled, FileTextOutlined, CaretDownOutlined, CaretUpOutlined, CopyOutlined } from "@ant-design/icons";
 
 /**
  * 全屏帖子详情页 —— 按 session_id 加载同 session 的所有记录。
@@ -594,28 +593,8 @@ function LogDrawer({
       width="60%"
       styles={{ body: { padding: "12px 16px", display: "flex", flexDirection: "column" } }}
     >
-      {/* 执行命令 */}
-      {record?.command && (
-        <Tooltip title="点击复制命令">
-          <div
-            onClick={async () => {
-              try {
-                const ok = await copyToClipboard(record.command || "");
-                antdMessage[ok ? "success" : "error"](ok ? "已复制" : "复制失败");
-              } catch { antdMessage.error("复制失败"); }
-            }}
-            style={{
-              fontSize: 11, color: "var(--color-text-quaternary)", marginBottom: 12,
-              fontFamily: "var(--font-mono)", overflow: "hidden",
-              textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer",
-              padding: "6px 10px", background: "var(--color-bg-elevated)", borderRadius: 6,
-              border: "1px solid var(--color-border-light)",
-            }}
-          >
-            {record.command}
-          </div>
-        </Tooltip>
-      )}
+      {/* 执行命令 —— 可折叠，默认收缩 */}
+      {record?.command && <CollapsibleCommand command={record.command} />}
 
       {/* 元信息行：评分 + 导出 */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
@@ -658,20 +637,103 @@ function LogDrawer({
         ) : (
           <div
             style={{
-              background: "var(--log-bg)", color: "var(--log-text)",
-              padding: 12, borderRadius: 8, fontFamily: "var(--font-mono)",
-              fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-all",
+              background: "var(--log-bg)",
+              color: "var(--log-text)",
+              padding: 12,
+              borderRadius: 8,
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
             }}
           >
-            {displayLogs.map((log: LogEntry, i: number) => (
-              <div key={i}>
-                [{log.type}] {log.content}
+            {displayLogs.length === 0 ? (
+              <div style={{ color: "var(--log-text-muted)" }}>
+                {isLoadingLogs ? "加载中..." : "暂无日志"}
               </div>
-            ))}
+            ) : (
+              displayLogs.map((log: LogEntry, idx: number) => (
+                <div key={idx} style={{ marginBottom: 4, display: "flex", gap: 8 }}>
+                  <span style={{ color: "var(--log-text-muted)", flexShrink: 0 }}>
+                    {formatLogTime(log.timestamp || "")}
+                  </span>
+                  <span style={{ color: LOG_TYPE_COLORS[log.type || ""] || "var(--log-text)", fontWeight: 500 }}>
+                    [{LOG_TYPE_LABELS[log.type || ""] || log.type}]
+                  </span>
+                  <span>{log.content}</span>
+                </div>
+              ))
+            )}
           </div>
         )}
       </div>
     </Drawer>
+  );
+}
+
+// ─── 可折叠命令 ────────────────────────────────────────────
+
+/**
+ * 可折叠的命令展示，默认收缩。
+ * 折叠态显示命令前 60 字 + 复制按钮；
+ * 展开态显示完整命令文本。
+ */
+function CollapsibleCommand({ command }: { command: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      const ok = await copyToClipboard(command);
+      antdMessage[ok ? "success" : "error"](ok ? "已复制" : "复制失败");
+    } catch {
+      antdMessage.error("复制失败");
+    }
+  };
+
+  const truncated = command.length > 60 ? command.substring(0, 60) + "..." : command;
+
+  return (
+    <div
+      style={{
+        marginBottom: 12,
+        padding: "8px 12px",
+        background: "var(--log-bg)",
+        borderRadius: 6,
+        border: "1px solid var(--color-border-light)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <Button
+          type="text"
+          size="small"
+          icon={expanded ? <CaretUpOutlined /> : <CaretDownOutlined />}
+          onClick={() => setExpanded(!expanded)}
+          style={{ flexShrink: 0, padding: "0 4px" }}
+        />
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontSize: 11,
+            fontFamily: "var(--font-mono)",
+            color: "var(--log-text)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: expanded ? "pre-wrap" : "nowrap",
+            wordBreak: "break-all",
+            cursor: "pointer",
+          }}
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? command : truncated}
+        </span>
+        <Button
+          type="text"
+          size="small"
+          icon={<CopyOutlined />}
+          onClick={handleCopy}
+          style={{ flexShrink: 0 }}
+        />
+      </div>
+    </div>
   );
 }
 
