@@ -46,6 +46,7 @@ pub struct ExecutionRecordQuery<'a> {
     pub limit: i64,
     pub offset: i64,
     pub status: Option<&'a str>,
+    pub hours: Option<u32>,
 }
 
 /// `get_execution_summary` 使用的固定 SQL 字面量。
@@ -142,6 +143,16 @@ impl Database {
         let filter = match query.status {
             Some("all") | None => base_filter,
             Some(s) => base_filter.and(execution_records::Column::Status.eq(s)),
+        };
+
+        use sea_orm::Condition;
+        let filter = if let Some(h) = query.hours.filter(|&h| h > 0) {
+            let time_expr = sea_orm::sea_query::Expr::cust(&format!(
+                "started_at >= datetime('now', '-{} hours')", h
+            ));
+            filter.add(time_expr)
+        } else {
+            filter
         };
 
         let limit_u = if query.limit < 0 { 0 } else { query.limit as u64 };

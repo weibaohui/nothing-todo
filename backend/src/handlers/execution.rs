@@ -51,6 +51,7 @@ pub async fn get_execution_records(
             limit,
             offset,
             status,
+            hours: query.hours,
         })
         .await?;
 
@@ -62,17 +63,6 @@ pub async fn get_execution_records(
         let ws_todos = state.db.get_todos_by_workspace_id(Some(wid)).await.unwrap_or_default();
         let ws_todo_ids: std::collections::HashSet<i64> = ws_todos.iter().map(|t| t.id).collect();
         records.into_iter().filter(|r| ws_todo_ids.contains(&r.todo_id)).collect()
-    } else {
-        records
-    };
-
-    // 按 hours 过滤：只保留 finished_at 在最近 N 小时内的记录
-    let records = if let Some(h) = query.hours.filter(|&h| h > 0) {
-        let cutoff = chrono::Utc::now() - chrono::Duration::hours(h as i64);
-        let cutoff_str = cutoff.format("%Y-%m-%dT%H:%M:%S").to_string();
-        records.into_iter().filter(|r| {
-            r.finished_at.as_deref().map_or(false, |t| t >= cutoff_str.as_str())
-        }).collect()
     } else {
         records
     };
@@ -372,6 +362,7 @@ pub async fn get_running_board(
             limit,
             offset,
             status: None,
+            hours: query.hours,
         })
         .await?;
 
@@ -382,17 +373,6 @@ pub async fn get_running_board(
         let ws_todos = state.db.get_todos_by_workspace_id(Some(wid)).await.unwrap_or_default();
         let ws_todo_ids: std::collections::HashSet<i64> = ws_todos.iter().map(|t| t.id).collect();
         records.into_iter().filter(|r| ws_todo_ids.contains(&r.todo_id)).collect()
-    } else {
-        records
-    };
-
-    // 按 hours 过滤：只保留 finished_at 在最近 N 小时内的记录
-    let records = if let Some(h) = query.hours.filter(|&h| h > 0) {
-        let cutoff = chrono::Utc::now() - chrono::Duration::hours(h as i64);
-        let cutoff_str = cutoff.format("%Y-%m-%dT%H:%M:%S").to_string();
-        records.into_iter().filter(|r| {
-            r.finished_at.as_deref().map_or(false, |t| t >= cutoff_str.as_str())
-        }).collect()
     } else {
         records
     };

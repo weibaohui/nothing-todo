@@ -752,14 +752,18 @@ impl Database {
         loop_id: i64,
         limit: u64,
         offset: u64,
+        hours: Option<u32>,
     ) -> Result<Vec<loop_executions::Model>, sea_orm::DbErr> {
-        loop_executions::Entity::find()
+        let mut query = loop_executions::Entity::find()
             .filter(loop_executions::Column::LoopId.eq(loop_id))
-            .order_by_desc(loop_executions::Column::StartedAt)
-            .limit(limit)
-            .offset(offset)
-            .all(&self.conn)
-            .await
+            .order_by_desc(loop_executions::Column::StartedAt);
+        if let Some(h) = hours.filter(|&h| h > 0) {
+            let time_expr = sea_orm::sea_query::Expr::cust(&format!(
+                "started_at >= datetime('now', '-{} hours')", h
+            ));
+            query = query.filter(time_expr);
+        }
+        query.limit(limit).offset(offset).all(&self.conn).await
     }
 
     pub async fn count_loop_executions(&self, loop_id: i64) -> Result<i64, sea_orm::DbErr> {

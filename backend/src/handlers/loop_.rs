@@ -603,16 +603,8 @@ pub async fn list_executions(
     let limit = q.limit.unwrap_or(DEFAULT_PAGE_LIMIT).min(MAX_PAGE_LIMIT);
     let page = q.page.unwrap_or(1).max(1);
     let offset = (page - 1) * limit;
-    let records = state.db.list_loop_executions(loop_id, limit, offset).await?;
+    let records = state.db.list_loop_executions(loop_id, limit, offset, q.hours).await?;
     let total = state.db.count_loop_executions(loop_id).await?;
-    // 按 hours 过滤
-    let records = if let Some(h) = q.hours.filter(|&h| h > 0) {
-        let cutoff = chrono::Utc::now() - chrono::Duration::hours(h as i64);
-        let cutoff_str = cutoff.format("%Y-%m-%dT%H:%M:%S").to_string();
-        records.into_iter().filter(|r| r.started_at >= cutoff_str).collect()
-    } else {
-        records
-    };
     // 批量查询各执行记录的待审批数量
     let exec_ids: Vec<i64> = records.iter().map(|r| r.id).collect();
     let pending_counts = state.db.count_pending_approvals_by_execution_ids(&exec_ids).await?;
