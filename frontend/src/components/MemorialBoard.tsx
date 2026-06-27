@@ -1,8 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Card, Segmented, Skeleton, Empty, Input } from 'antd';
 import {
-  CheckCircleOutlined,
-  CloseCircleOutlined,
   AppstoreOutlined,
   ProfileOutlined,
   SearchOutlined,
@@ -247,26 +245,6 @@ export function MemorialBoard() {
     return cols;
   }, [filteredItems, columnCount, loading]);
 
-  const successCount = filteredItems.filter(i => i.execution_status === 'success').length;
-  const failedCount = filteredItems.filter(i => i.execution_status === 'failed').length;
-
-  const kanbanStats = useMemo(() => {
-    const cutoff = hours ? Date.now() - hours * 3600 * 1000 : 0;
-    return state.todos.filter(t => {
-      if ((t.status === 'completed' || t.status === 'failed') && cutoff > 0) {
-        const tUpdated = new Date(t.updated_at).getTime();
-        if (isNaN(tUpdated) || tUpdated < cutoff) return false;
-      }
-      if (searchText.trim()) {
-        const q = searchText.toLowerCase();
-        return t.title.toLowerCase().includes(q) || (t.prompt && t.prompt.toLowerCase().includes(q));
-      }
-      return true;
-    });
-  }, [state.todos, searchText, hours]);
-  const kanbanStatsCount = { pending: 0, running: 0, completed: 0, failed: 0 };
-  kanbanStats.forEach(t => { if (kanbanStatsCount[t.status] !== undefined) kanbanStatsCount[t.status]++; });
-
   const renderCard = (item: RecentCompletedTodo) => {
     const isSuccess = item.execution_status === 'success';
     const expanded = expandedIds.has(item.todo_id);
@@ -404,25 +382,6 @@ export function MemorialBoard() {
             }}
           />
           {/* 项目过滤已移除：工作空间切换由左上角 WorkspaceSwitcher 统一管理 */}
-          {boardMode === 'memorial' ? (
-            <div className="memorial-summary">
-              <span className="memorial-stat-dot memorial-stat-all">共 <strong>{filteredItems.length}</strong> 条</span>
-              <span className="memorial-stat-dot memorial-stat-success">
-                <CheckCircleOutlined /> <strong>{successCount}</strong> 成功
-              </span>
-              <span className="memorial-stat-dot memorial-stat-failed">
-                <CloseCircleOutlined /> <strong>{failedCount}</strong> 失败
-              </span>
-            </div>
-          ) : boardMode === 'kanban' ? (
-            <div className="memorial-summary">
-              <span className="memorial-stat-dot memorial-stat-all">共 <strong>{kanbanStats.length}</strong> 条</span>
-              <span className="memorial-stat-dot" style={{ color: '#3b82f6' }}>待办 <strong>{kanbanStatsCount.pending}</strong></span>
-              <span className="memorial-stat-dot" style={{ color: '#f59e0b' }}>进行中 <strong>{kanbanStatsCount.running}</strong></span>
-              <span className="memorial-stat-dot" style={{ color: '#22c55e' }}>已完成 <strong>{kanbanStatsCount.completed}</strong></span>
-              <span className="memorial-stat-dot" style={{ color: '#ef4444' }}>失败 <strong>{kanbanStatsCount.failed}</strong></span>
-            </div>
-          ) : null}
         </div>
 
         {/* 根据 boardMode 渲染对应视图。
