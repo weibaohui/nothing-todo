@@ -190,7 +190,7 @@ export function LoopMobilePage({
         initialData={loopDetail ? {
           name: loopDetail.name,
           description: loopDetail.description,
-          workspace: loopDetail.workspace,
+          workspace_id: loopDetail.workspace_id,
           webhook_enabled: loopDetail.webhook_enabled,
           icon: loopDetail.icon,
           review_template_id: loopDetail.review_template_id ?? null,

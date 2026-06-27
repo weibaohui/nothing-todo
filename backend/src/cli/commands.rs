@@ -90,9 +90,9 @@ pub enum TodoAction {
         #[arg(short, long)]
         executor: Option<String>,
 
-        /// Working directory
-        #[arg(short, long)]
-        workspace: Option<String>,
+        /// Working directory ID (project_directories.id). 唯一键，CLI 不再支持 path。
+        #[arg(short = 'w', long = "workspace-id")]
+        workspace_id: Option<i64>,
 
         /// Tag IDs (comma-separated)
         #[arg(long)]
@@ -154,9 +154,9 @@ pub enum TodoAction {
         #[arg(long)]
         executor: Option<String>,
 
-        /// New working directory
-        #[arg(long)]
-        workspace: Option<String>,
+        /// New working directory ID (project_directories.id)
+        #[arg(long = "workspace-id")]
+        workspace_id: Option<i64>,
 
         /// New tag IDs (comma-separated)
         #[arg(long)]
@@ -268,9 +268,10 @@ pub enum TagAction {
 pub enum LoopAction {
     /// List all loops
     List {
-        /// Filter by workspace
-        #[arg(long)]
-        workspace: Option<String>,
+        /// Filter by workspace ID (unique key; use --workspace-id instead of path
+        /// since path is not unique across project_directories).
+        #[arg(long = "workspace-id")]
+        workspace_id: Option<i64>,
     },
     /// Get loop details
     Get {
@@ -393,7 +394,7 @@ async fn handle_todo(
     fields: &Option<String>,
 ) -> Result<()> {
     match action {
-        TodoAction::Create { title, prompt, file, stdin, executor, workspace, tags, schedule } => {
+        TodoAction::Create { title, prompt, file, stdin, executor, workspace_id, tags, schedule } => {
             let mut req = if *stdin {
                 // Read from stdin
                 let value = read_stdin_json()?;
@@ -412,10 +413,12 @@ async fn handle_todo(
                         acceptance_criteria: value.get("acceptance_criteria").and_then(|v| v.as_str()).map(|s| s.to_string()),
                         auto_review_enabled: value.get("auto_review_enabled").and_then(|v| v.as_bool()),
                         webhook_enabled: None,
+                        // stdin 路径下 workspace_id 由 JSON body 提供；若 body 没传则 fallback 到 CLI 参数；
+                        // 闭包内部不能 `?`，因此取不到时填 0，由下面 outer 检查 fail-fast。
+                        workspace_id: value.get("workspace_id").and_then(|v| v.as_i64())
+                            .or(*workspace_id)
+                            .unwrap_or(0),
                     });
-                    if workspace.is_some() {
-                        // workspace is sent separately in the full JSON body
-                    }
                     req
             } else {
                 let title = title.clone().ok_or_else(|| anyhow::anyhow!("Title is required. Use --stdin to read from stdin."))?;
@@ -436,6 +439,8 @@ async fn handle_todo(
                     acceptance_criteria: None,
                     webhook_enabled: None,
                     auto_review_enabled: None,
+                    // 非 stdin 模式下 workspace_id 必填：CLI 唯一标识符是 id 而非 path
+                    workspace_id: workspace_id.ok_or_else(|| anyhow::anyhow!("--workspace-id is required"))?,
                 }
             };
 
@@ -445,6 +450,11 @@ async fn handle_todo(
                     req.scheduler_enabled = Some(true);
                     req.scheduler_config = Some(s.clone());
                 }
+            }
+
+            // stdin 闭包不能 `?`，这里做统一的 fail-fast：workspace_id=0 表示上游未传
+            if req.workspace_id == 0 {
+                return Err(anyhow::anyhow!("workspace_id is required (pass --workspace-id or include in stdin JSON)").into());
             }
 
             let resp: ClientResponse<Todo> = client.post("/todos", &req).await?;
@@ -496,7 +506,7 @@ async fn handle_todo(
             let resp: ClientResponse<Todo> = client.get(&format!("/todos/{}", id)).await?;
             print_response(resp, output, fields)?;
         }
-        TodoAction::Update { id, title, prompt, file, stdin, status, executor, workspace, tags, schedule } => {
+        TodoAction::Update { id, title, prompt, file, stdin, status, executor, workspace_id, tags, schedule } => {
             let mut req = if *stdin {
                 read_stdin_json()?
             } else {
@@ -510,7 +520,7 @@ async fn handle_todo(
                     "prompt": prompt_content,
                     "status": status,
                     "executor": executor,
-                    "workspace": workspace,
+                    "workspace_id": workspace_id,
                 })
             };
 
@@ -519,7 +529,7 @@ async fn handle_todo(
             if let Some(p) = prompt { req["prompt"] = p.clone().into(); }
             if let Some(s) = status { req["status"] = s.clone().into(); }
             if let Some(e) = executor { req["executor"] = e.clone().into(); }
-            if let Some(w) = workspace { req["workspace"] = w.clone().into(); }
+            if let Some(w) = workspace_id { req["workspace_id"] = Value::from(*w as i64); }
             if let Some(t) = tags {
                 let tag_ids: Vec<i64> = t.split(',').filter_map(|s| s.trim().parse().ok()).collect();
                 req["tag_ids"] = tag_ids.into();
@@ -646,9 +656,9 @@ async fn handle_loop(
     fields: &Option<String>,
 ) -> Result<()> {
     match action {
-        LoopAction::List { workspace } => {
-            let path = if let Some(w) = workspace {
-                format!("/loops?workspace={}", w)
+        LoopAction::List { workspace_id } => {
+            let path = if let Some(wid) = workspace_id {
+                format!("/loops?workspace_id={}", wid)
             } else {
                 "/loops".to_string()
             };

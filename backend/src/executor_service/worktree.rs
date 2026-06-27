@@ -2,7 +2,7 @@
 //!
 //! 这里只放 worktree 相关的细粒度辅助函数。每个函数 ≤ 30 行，职责单一。
 //! 编排层（stages::start_todo_and_prepare_spawn）调用这里的 helper 完成：
-//!   1. 根据 todo.workspace 决定是否开 worktree（`resolve_worktree_context`）
+//!   1. 根据 todo.workspace_path 决定是否开 worktree（`resolve_worktree_context`）
 //!   2. 把 worktree 路径回写到 execution_records（`record_worktree_path`）
 //!   3. 执行结束后清理 worktree（`cleanup_worktree_if_needed`）
 //!   4. 杀进程组（`kill_process_tree`，command-group 集成）
@@ -13,33 +13,33 @@ use crate::services::worktree::WorktreeService;
 
 /// issue #643: 单次执行使用的 worktree 上下文。
 ///
-/// - `effective_workspace`: 子进程的 cwd。None=继续用 todo.workspace；
+/// - `effective_workspace_path`: 子进程的 cwd。None=继续用 todo.workspace_path；
 ///   Some(p)=worktree 目录被 ntd 接管，子进程在 worktree 内运行。
 /// - `record_path`: 回写到 execution_records.worktree_path 的值（None=无需记录）。
 /// - `auto_cleanup`: 终态时是否需要调用 WorktreeService::cleanup_worktree。
 #[derive(Debug, Clone, Default)]
 pub(crate) struct WorktreeContext {
-    pub effective_workspace: Option<String>,
+    pub effective_workspace_path: Option<String>,
     pub record_path: Option<String>,
     pub auto_cleanup: bool,
 }
 
-/// 根据 todo.workspace 或显式 workspace 找到对应的 project_directory，决定是否开 worktree。
+/// 根据 todo.workspace_path 或显式 workspace_path 找到对应的 project_directory，决定是否开 worktree。
 ///
-/// 优先使用 todo.workspace；当 todo 为 None 时回退到 `explicit_workspace`（loop 场景）。
+/// 优先使用 todo.workspace_path；当 todo 为 None 时回退到 `explicit_workspace_path`（loop 场景）。
 ///
 /// 不在 `WorktreeContext` 内持有数据库句柄——这是个**纯异步查询**函数，方便在
 /// run_todo_execution 主路径上独立调用并把结果 move 进 spawn 闭包。
 pub(crate) async fn resolve_worktree_context(
     db: &Database,
     todo: &Option<Todo>,
-    explicit_workspace: Option<&str>,
+    explicit_workspace_path: Option<&str>,
 ) -> WorktreeContext {
-    // 没有 todo（被 hook 删除）/ 没有 workspace 关联项目目录——不启用 worktree
+    // 没有 todo（被 hook 删除）/ 没有 workspace_path 关联项目目录——不启用 worktree
     let t = todo.as_ref();
     let ws = t
-        .and_then(|t| t.workspace.as_deref())
-        .or(explicit_workspace)
+        .and_then(|t| t.workspace_path.as_deref())
+        .or(explicit_workspace_path)
         .map(|s| s.to_string());
     let Some(ws) = ws else {
         return WorktreeContext::default();
@@ -58,13 +58,13 @@ pub(crate) async fn resolve_worktree_context(
     let svc = WorktreeService::new();
     match svc.create_worktree(&ws, todo_id) {
         Ok(wt_path) => WorktreeContext {
-            effective_workspace: Some(wt_path.clone()),
+            effective_workspace_path: Some(wt_path.clone()),
             record_path: Some(wt_path),
             auto_cleanup: dir.auto_cleanup,
         },
         Err(e) => {
             tracing::warn!(
-                workspace = %ws,
+                workspace_path = %ws,
                 todo_id = todo_id,
                 error = %e,
                 "failed to create git worktree, falling back to original workspace"
@@ -117,7 +117,7 @@ mod tests {
     #[test]
     fn test_cleanup_worktree_if_needed_disabled() {
         let ctx = WorktreeContext {
-            effective_workspace: None,
+            effective_workspace_path: None,
             record_path: Some("/tmp/ntd-643-disabled".into()),
             auto_cleanup: false,
         };
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn test_cleanup_worktree_if_needed_no_path() {
         let ctx = WorktreeContext {
-            effective_workspace: None,
+            effective_workspace_path: None,
             record_path: None,
             auto_cleanup: true,
         };
@@ -138,7 +138,7 @@ mod tests {
     #[test]
     fn test_worktree_context_default_is_disabled() {
         let ctx = WorktreeContext::default();
-        assert!(ctx.effective_workspace.is_none());
+        assert!(ctx.effective_workspace_path.is_none());
         assert!(ctx.record_path.is_none());
         assert!(!ctx.auto_cleanup);
     }

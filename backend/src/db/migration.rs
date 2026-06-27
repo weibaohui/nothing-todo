@@ -66,6 +66,8 @@ pub(super) fn all_migrations() -> Vec<Box<dyn Migration>> {
         Box::new(V31AddTodosWorkspaceId),
         Box::new(V32ReviewTemplatesWorkspaceId),
         Box::new(V33ReviewTemplatesEnsureWorkspaceId),
+        Box::new(V34MigrateOrphansToTempWorkspace),
+        Box::new(V35RenameWorkspaceToWorkspacePath),
     ]
 }
 
@@ -955,15 +957,16 @@ mod v1_helpers_tests {
             .expect(":memory: db must open")
     }
 
-    /// 分支 1: 列存在 → true。v1 init 已经把 todos.workspace 加进去。
+    /// 分支 1: 列存在 → true。V35 已把 todos.workspace 重命名为 workspace_path，
+    /// fresh DB 上应能探测到新列名。
     #[tokio::test]
     async fn table_has_column_returns_true_when_column_exists() {
         let db = fresh_db().await;
         assert!(
-            table_has_column(&db, "todos", "workspace")
+            table_has_column(&db, "todos", "workspace_path")
                 .await
                 .expect("probe must succeed"),
-            "todos.workspace is added by v1, must be detected"
+            "todos.workspace_path is added by v1 (renamed by V35), must be detected"
         );
     }
 
@@ -2298,10 +2301,19 @@ async fn v15_review_templates(db: &Database) -> Result<(), sea_orm::DbErr> {
     // 设计选择：把指向 todo_type=1 的 loop_steps 和 loop_hooks 行也一起删掉（因为
     // 这些 step / hook 的 step / target 本身就是评审模板，已无意义）。
     // 影响面：仅限历史脏数据；fresh DB 没有这些 row，DELETE 0 行无副作用。
-    db.exec(
-        "DELETE FROM loop_steps WHERE todo_id IN (SELECT id FROM todos WHERE todo_type = 1)"
-    )
-    .await?;
+    // fresh DB（V7 已直接用 step_id 建表，V13 跳过 RENAME）没有 todo_id 列；
+    // 用 table_has_column 区分两条路径，确保 legacy 与 fresh 升级都能跑通。
+    if table_has_column(db, "loop_steps", "todo_id").await? {
+        db.exec(
+            "DELETE FROM loop_steps WHERE todo_id IN (SELECT id FROM todos WHERE todo_type = 1)"
+        )
+        .await?;
+    } else {
+        db.exec(
+            "DELETE FROM loop_steps WHERE step_id IN (SELECT id FROM todos WHERE todo_type = 1)"
+        )
+        .await?;
+    }
     db.exec(
         "DELETE FROM loop_hooks WHERE target_todo_id IN (SELECT id FROM todos WHERE todo_type = 1)"
     )
@@ -3575,6 +3587,178 @@ impl Migration for V33ReviewTemplatesEnsureWorkspaceId {
         }
         db.exec("ALTER TABLE review_templates ADD COLUMN workspace_id INTEGER").await?;
         tracing::info!("V33: added review_templates.workspace_id column");
+        Ok(())
+    }
+}
+
+/// V34 迁移：把历史遗留下来的「没有工作空间」事项 / 环路绑定到「临时工作空间」。
+///
+/// 背景：之前没有强制要求选工作空间，老库里一部分 `todos.workspace = ''` 和
+/// `loops.workspace = ''`。V30/V31 引入按 `workspace_id` 过滤后，这部分数据
+/// 在 UI 里「看不见」了。本迁移：
+/// 1) 若 `/tmp` 不存在则在 `project_directories` 表创建一条 (path='/tmp', name='临时工作空间') 记录；
+/// 2) 把 `todos` 中 `workspace` 为空或 `workspace_id` 为 0/空 的行指向该目录；
+/// 3) 把 `loops` 中 `workspace` 为空的行同步设置 `workspace = '/tmp'`（loops 表无 workspace_id 列）。
+///
+/// 幂等：WHERE 子句只会命中还没迁移过的行；即使重复执行也是安全的。
+pub(super) struct V34MigrateOrphansToTempWorkspace;
+#[async_trait::async_trait]
+impl Migration for V34MigrateOrphansToTempWorkspace {
+    fn version(&self) -> i64 { 34 }
+    fn name(&self) -> &'static str { "migrate_orphans_to_temp_workspace" }
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        const TEMP_PATH: &str = "/tmp";
+        const TEMP_NAME: &str = "临时工作空间";
+
+        // 1) 查找 /tmp 是否已经存在（项目里现成的 helper）。
+        let existing = get_project_directory_id_by_path(db, TEMP_PATH).await?;
+        let temp_id: i64 = if let Some(id) = existing {
+            id
+        } else {
+            // 用 V1 创建表时的最小列集合（5 列）做 INSERT，兼容所有迁移历史：
+            //   - V1 时只有 id/path/name/created_at/updated_at
+            //   - V5 才追加 git_worktree_enabled / auto_cleanup
+            //   - 如果环境是新建库（V1 直接建表后没有 V5 走完），写 7 列会因列数不匹配而失败。
+            // 这里先按 5 列插入，V5 触发器/默认值会负责把后续字段补成 0。
+            let now = crate::models::utc_timestamp();
+            let insert = sea_orm::Statement::from_sql_and_values(
+                sea_orm::DbBackend::Sqlite,
+                "INSERT INTO project_directories (path, name, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)",
+                vec![TEMP_PATH.into(), TEMP_NAME.into(), now.into()],
+            );
+            db.conn.execute(insert).await?;
+            // 重新查一次拿 id。
+            get_project_directory_id_by_path(db, TEMP_PATH)
+                .await?
+                .ok_or_else(|| {
+                    sea_orm::DbErr::Custom(
+                        "V34: temp workspace row missing after insert".to_string(),
+                    )
+                })?
+        };
+
+        // 2) 迁移 todos：workspace 文本为空、workspace_id 缺失或为 0 的行
+        let todos_sql = "UPDATE todos \
+                        SET workspace = ?1, workspace_id = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') \
+                        WHERE deleted_at IS NULL \
+                          AND (workspace IS NULL OR workspace = '' OR workspace_id IS NULL OR workspace_id = 0)";
+        let todos_stmt = sea_orm::Statement::from_sql_and_values(
+            sea_orm::DbBackend::Sqlite,
+            todos_sql.to_string(),
+            vec![TEMP_PATH.into(), temp_id.into()],
+        );
+        let todos_rows = db.conn.execute(todos_stmt).await?.rows_affected();
+
+        // 3) 迁移 loops：workspace 为空的行（loops 表没有 workspace_id 列，仅按路径过滤）
+        let loops_stmt = sea_orm::Statement::from_sql_and_values(
+            sea_orm::DbBackend::Sqlite,
+            "UPDATE loops \
+             SET workspace = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') \
+             WHERE workspace IS NULL OR workspace = ''",
+            vec![TEMP_PATH.into()],
+        );
+        let loops_rows = db.conn.execute(loops_stmt).await?.rows_affected();
+
+        tracing::info!(
+            "V34: migrated {} todo(s) and {} loop(s) to temp workspace (id={})",
+            todos_rows,
+            loops_rows,
+            temp_id
+        );
+        Ok(())
+    }
+}
+
+/// 按 path 查询 project_directories.id。SELECT 在 SQLite 中无副作用，
+/// 不存在返回 None，SQL 报错才传播。V34 用它判断「/tmp 是否已注册」。
+async fn get_project_directory_id_by_path(
+    db: &Database,
+    path: &str,
+) -> Result<Option<i64>, sea_orm::DbErr> {
+    let stmt = sea_orm::Statement::from_sql_and_values(
+        sea_orm::DbBackend::Sqlite,
+        "SELECT id FROM project_directories WHERE path = ?1",
+        vec![path.into()],
+    );
+    // query_one 返回 Option<Row>；再取出 id 列。
+    let row = db.conn.query_one(stmt).await?;
+    let Some(row) = row else { return Ok(None) };
+    // sea-orm 1.0 Row::try_get_by(col_name) 是稳定接口。
+    let id: Option<i64> = row.try_get_by("id").ok().flatten();
+    Ok(id)
+}
+
+/// V35 迁移：把 `workspace` 列统一改成 `workspace_path`，并为 `loops` 表新增 `workspace_id` 列。
+///
+/// 背景：
+/// - `todos.workspace` / `loops.workspace` 当前是「项目目录路径」语义，但历史上字段名含糊
+///   （曾被用来存 id 或 name），给筛选 / 跨表 join 带来大量歧义。
+/// - `todos` 已有 `workspace_id`，但 `loops` 一直没有，CLI 与 handler 无法按 id 过滤环路。
+/// - 命名规则统一为：筛选与外键只用 `workspace_id`；路径只用 `workspace_path`；名称走 `name`。
+///
+/// 迁移步骤（幂等）：
+/// 1. 若 `todos.workspace` 列存在 → 重命名为 `todos.workspace_path`（SQLite 3.25+ 支持 RENAME COLUMN）。
+/// 2. 若 `loops.workspace` 列存在 → 重命名为 `loops.workspace_path`。
+/// 3. 若 `loops.workspace_id` 列不存在 → 新增并回填：按 `workspace_path` 匹配 `project_directories.path`。
+/// 4. 若 `todos.workspace_id` 为 0/空 且 `workspace_path` 非空 → 同样回填。
+///
+/// 注：本迁移只动 schema，不删任何业务数据；上层代码（entity / DAO / handler）会在同 PR 内同步改名。
+pub(super) struct V35RenameWorkspaceToWorkspacePath;
+#[async_trait::async_trait]
+impl Migration for V35RenameWorkspaceToWorkspacePath {
+    fn version(&self) -> i64 { 35 }
+    fn name(&self) -> &'static str { "rename_workspace_to_workspace_path" }
+
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        // 1) todos.workspace → todos.workspace_path
+        if table_has_column(db, "todos", "workspace").await?
+            && !table_has_column(db, "todos", "workspace_path").await?
+        {
+            db.exec("ALTER TABLE todos RENAME COLUMN workspace TO workspace_path")
+                .await?;
+            tracing::info!("V35: todos.workspace renamed to workspace_path");
+        }
+
+        // 2) loops.workspace → loops.workspace_path
+        if table_has_column(db, "loops", "workspace").await?
+            && !table_has_column(db, "loops", "workspace_path").await?
+        {
+            db.exec("ALTER TABLE loops RENAME COLUMN workspace TO workspace_path")
+                .await?;
+            tracing::info!("V35: loops.workspace renamed to workspace_path");
+        }
+
+        // 3) loops.workspace_id：新增 + 回填
+        if !table_has_column(db, "loops", "workspace_id").await? {
+            db.exec("ALTER TABLE loops ADD COLUMN workspace_id INTEGER")
+                .await?;
+            tracing::info!("V35: loops.workspace_id column added");
+        }
+        // 回填：loops.workspace_path → project_directories.id
+        db.exec(
+            "UPDATE loops
+             SET workspace_id = (
+                 SELECT pd.id FROM project_directories pd
+                 WHERE pd.path = loops.workspace_path
+                 LIMIT 1
+             )
+             WHERE workspace_path IS NOT NULL AND workspace_path != ''",
+        )
+        .await?;
+
+        // 4) todos.workspace_id 回填：现有列允许 0/空，仅当非 0 且有 workspace_path 但 id 为 0 时回填
+        db.exec(
+            "UPDATE todos
+             SET workspace_id = (
+                 SELECT pd.id FROM project_directories pd
+                 WHERE pd.path = todos.workspace_path
+                 LIMIT 1
+             )
+             WHERE workspace_path IS NOT NULL AND workspace_path != ''
+               AND (workspace_id IS NULL OR workspace_id = 0)",
+        )
+        .await?;
+
         Ok(())
     }
 }

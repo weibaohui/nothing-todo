@@ -50,8 +50,10 @@ pub struct CloudTodoItem {
     pub scheduler_config: Option<String>,
     #[serde(default)]
     pub tag_names: Vec<String>,
+    /// 工作空间 ID（project_directories.id），唯一键。
+    /// 同步 payload 不再带路径——破坏式变更，所有调用方必须改为传 id。
     #[serde(default)]
-    pub workspace: Option<String>,
+    pub workspace_id: Option<i64>,
     #[serde(default)]
     pub worktree: Option<String>,
 }
@@ -288,6 +290,9 @@ async fn merge_cloud_todos_to_local(
         if title.is_empty() {
             continue;
         }
+        // 按 id 解析 path：handler 层负责把 id 解析为 path 后下传 DAO；
+        // 无 workspace 的云端项 fallback 到 /tmp 临时目录（V34 迁移策略）。
+        let resolved_workspace = resolve_cloud_workspace(db, item.workspace_id).await?;
         let key = title.to_lowercase();
         match conflict_mode {
             "skip" => {
@@ -295,9 +300,19 @@ async fn merge_cloud_todos_to_local(
                 if local_by_title.contains_key(&key) {
                     continue;
                 }
-                let new_id = db.create_todo(title, &item.prompt).await.map_err(|e| e.to_string())?;
+                let new_id = db.create_todo_with_extras(
+                    title,
+                    &item.prompt,
+                    None,
+                    None,
+                    false,
+                    resolved_workspace.id,
+                    &resolved_workspace.path,
+                )
+                .await
+                .map_err(|e| e.to_string())?;
                 affected += 1;
-                tracing::info!("pull: 新增 todo id={} title={}", new_id, title);
+                tracing::info!("pull: 新增 todo id={} title={} workspace_id={}", new_id, title, resolved_workspace.id);
             }
             "overwrite" => {
                 if let Some(&id) = local_by_title.get(&key) {
@@ -313,19 +328,33 @@ async fn merge_cloud_todos_to_local(
                         scheduler_enabled: None,
                         scheduler_config: None,
                         scheduler_timezone: None,
-                        workspace: item.workspace.as_deref(),
+                        workspace_id: Some(resolved_workspace.id),
                         webhook_enabled: None,
                         acceptance_criteria: None,
                         auto_review_enabled: None,
                     })
                     .await
                     .map_err(|e| e.to_string())?;
+                    // 同步 cwd 字段：handler 层负责 id→path 解析，DAO 只负责写入
+                    db.update_todo_workspace(id, Some(resolved_workspace.id), Some(&resolved_workspace.path))
+                        .await
+                        .map_err(|e| e.to_string())?;
                     affected += 1;
-                    tracing::info!("pull: 覆盖 todo id={} title={}", id, title);
+                    tracing::info!("pull: 覆盖 todo id={} title={} workspace_id={}", id, title, resolved_workspace.id);
                 } else {
-                    let new_id = db.create_todo(title, &item.prompt).await.map_err(|e| e.to_string())?;
+                    let new_id = db.create_todo_with_extras(
+                        title,
+                        &item.prompt,
+                        None,
+                        None,
+                        false,
+                        resolved_workspace.id,
+                        &resolved_workspace.path,
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
                     affected += 1;
-                    tracing::info!("pull: 新增 todo id={} title={}", new_id, title);
+                    tracing::info!("pull: 新增 todo id={} title={} workspace_id={}", new_id, title, resolved_workspace.id);
                 }
             }
             "rename" => {
@@ -335,20 +364,66 @@ async fn merge_cloud_todos_to_local(
                 } else {
                     title.to_string()
                 };
-                let new_id = db.create_todo(&final_title, &item.prompt).await.map_err(|e| e.to_string())?;
+                let new_id = db.create_todo_with_extras(
+                    &final_title,
+                    &item.prompt,
+                    None,
+                    None,
+                    false,
+                    resolved_workspace.id,
+                    &resolved_workspace.path,
+                )
+                .await
+                .map_err(|e| e.to_string())?;
                 affected += 1;
-                tracing::info!("pull: 新增 todo id={} title={}", new_id, final_title);
+                tracing::info!("pull: 新增 todo id={} title={} workspace_id={}", new_id, final_title, resolved_workspace.id);
             }
             _ => {
                 // 未知策略：当作 skip 处理
                 if !local_by_title.contains_key(&key) {
-                    let _new_id = db.create_todo(title, &item.prompt).await.map_err(|e| e.to_string())?;
+                    let _new_id = db.create_todo_with_extras(
+                        title,
+                        &item.prompt,
+                        None,
+                        None,
+                        false,
+                        resolved_workspace.id,
+                        &resolved_workspace.path,
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
                     affected += 1;
                 }
             }
         }
     }
     Ok(affected)
+}
+
+/// 云端 payload 给的 `workspace_id` 在本地可能不存在（云端项目未在本机注册），
+/// 这种情况下 fallback 到「/tmp」临时目录（V34 迁移策略）—— 保证 sync 不会因为
+/// workspace 不存在而整条流失败。
+async fn resolve_cloud_workspace(
+    db: &Database,
+    workspace_id: Option<i64>,
+) -> Result<crate::db::project_directory::ProjectDirectory, String> {
+    if let Some(wid) = workspace_id {
+        if let Some(dir) = db.get_project_directory_by_id(wid).await.map_err(|e| e.to_string())? {
+            return Ok(dir);
+        }
+    }
+    // 回退：查 /tmp 是否已注册，没有则建一条 name='临时工作空间' 的目录记录。
+    if let Some(existing) = db.get_project_directory_by_path("/tmp").await.map_err(|e| e.to_string())? {
+        return Ok(existing);
+    }
+    let new_id = db
+        .create_project_directory("/tmp", Some("临时工作空间"), false, false)
+        .await
+        .map_err(|e| e.to_string())?;
+    db.get_project_directory_by_id(new_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "创建 /tmp fallback 失败".to_string())
 }
 
 fn local_todos_to_cloud(todos: Vec<Todo>, tag_map: HashMap<i64, String>) -> CloudSyncData {
@@ -369,7 +444,7 @@ fn local_todos_to_cloud(todos: Vec<Todo>, tag_map: HashMap<i64, String>) -> Clou
                 scheduler_enabled: t.scheduler_enabled,
                 scheduler_config: t.scheduler_config,
                 tag_names,
-                workspace: t.workspace,
+                workspace_id: t.workspace_id,
                 worktree: None,
             }
         })

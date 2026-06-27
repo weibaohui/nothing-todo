@@ -41,8 +41,8 @@ pub(crate) struct PreparedExecution {
     pub record_id: i64,
     /// todo 在并发控制 / pre-hook / executor 选择中都用到，必须保留；load_todo 失败时为 None。
     pub todo: Option<crate::models::Todo>,
-    /// 仅 spawn 阶段用于 effective_workspace 回退。
-    pub todo_workspace: Option<String>,
+    /// 仅 spawn 阶段用于 effective_workspace_path 回退。
+    pub todo_workspace_path: Option<String>,
     pub timeout_secs: u64,
 }
 
@@ -54,8 +54,8 @@ pub(crate) struct SpawnInputs {
     pub prepared: PreparedExecution,
     pub todo_title: String,
     pub executor_spawn: Arc<dyn CodeExecutor>,
-    /// spawn 阶段实际使用的 cwd：worktree 路径优先，回退到 todo.workspace。
-    pub effective_workspace: Option<String>,
+    /// spawn 阶段实际使用的 cwd：worktree 路径优先，回退到 todo.workspace_path。
+    pub effective_workspace_path: Option<String>,
     pub execution_timeout_secs: u64,
     pub worktree_ctx: WorktreeContext,
 }
@@ -78,11 +78,11 @@ pub(crate) struct SpawnRuntime {
     pub execution_timeout_secs: u64,
     pub feishu_bot_id: Option<i64>,
     pub feishu_receive_id: Option<String>,
-    /// spawn 阶段实际使用的 cwd：worktree 路径优先，回退到 todo.workspace。
-    /// 修复 issue #660 重构中的回归：原代码在 spawn 闭包内用 effective_workspace
-    /// 决定子进程 cwd，但拆分到 spawn_executor_child 后误用了 todo_workspace，
-    /// 导致启用 worktree 时子进程仍在原始 workspace 内运行。
-    pub effective_workspace: Option<String>,
+    /// spawn 阶段实际使用的 cwd：worktree 路径优先，回退到 todo.workspace_path。
+    /// 修复 issue #660 重构中的回归：原代码在 spawn 闭包内用 effective_workspace_path
+    /// 决定子进程 cwd，但拆分到 spawn_executor_child 后误用了 todo_workspace_path，
+    /// 导致启用 worktree 时子进程仍在原始 workspace_path 内运行。
+    pub effective_workspace_path: Option<String>,
     pub prepared: PreparedExecution,
 }
 

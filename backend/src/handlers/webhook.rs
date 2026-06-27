@@ -130,7 +130,7 @@ async fn trigger_todo_webhook_internal(
             step_id: None,
             feishu_bot_id: None,
             feishu_receive_id: None,
-            workspace: todo.workspace.clone(),
+            workspace_path: todo.workspace_path.clone(),
             workspace_id: None,
         },
     ).await;

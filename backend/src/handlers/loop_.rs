@@ -24,7 +24,8 @@ use serde::Deserialize;
 use crate::handlers::{AppError, AppState};
 use crate::models::{
     self,
-    ApiResponse, CreateLoopRequest, CreateLoopStepRequest, CreateTriggerRequest,
+    ApiResponse, BatchCopyLoopWorkspaceRequest, BatchUpdateLoopWorkspaceRequest,
+    BatchWorkspaceResult, CreateLoopRequest, CreateLoopStepRequest, CreateTriggerRequest,
     LoopDetail, LoopDto, LoopExecutionDetail, LoopExecutionDto, LoopExecutionTokenSummary,
     LoopListItem, LoopStepDto, LoopStepExecutionDto, LoopTriggerDto, ReorderLoopStepsRequest,
     UpdateLoopRequest, UpdateLoopStatusRequest, UpdateLoopStepRequest,
@@ -41,8 +42,11 @@ pub async fn list_loops(
     State(state): State<AppState>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<impl IntoResponse, AppError> {
-    let workspace = params.get("workspace").map(|s| s.as_str());
-    let rows = state.db.list_loops_with_counts(workspace).await?;
+    // 筛选约定：必须用 workspace_id（唯一键）。前端 listLoops 已切到 id 过滤。
+    let workspace_id: Option<i64> = params
+        .get("workspace_id")
+        .and_then(|s| s.parse().ok());
+    let rows = state.db.list_loops_with_counts(workspace_id).await?;
     let items: Vec<LoopListItem> = rows.into_iter().map(Into::into).collect();
     // 批量查询所有 loop 的标签映射，避免逐条 N+1 查询
     let loop_ids: Vec<i64> = items.iter().map(|item| item.loop_.id).collect();
@@ -65,10 +69,13 @@ pub async fn create_loop(
     if req.name.trim().is_empty() {
         return Err(AppError::BadRequest("name 不能为空".to_string()));
     }
-    // 创建环路前校验工作空间必填
-    if req.workspace.trim().is_empty() {
-        return Err(AppError::BadRequest("workspace 不能为空".to_string()));
-    }
+    // 工作空间必填且必须存在：handler 强制把 id 解析为 path 后再下传 DAO，
+    // 避免 DAO 再做路径反查，也保证 workspace_id / workspace_path 双字段同步写入。
+    let workspace = state
+        .db
+        .get_project_directory_by_id(req.workspace_id)
+        .await?
+        .ok_or_else(|| AppError::BadRequest(format!("工作空间 {} 不存在", req.workspace_id)))?;
     // 创建环路前校验标签约束：环路只能选择一个标签
     if req.tag_ids.len() > 1 {
         return Err(AppError::BadRequest("环路只能选择一个标签".to_string()));
@@ -78,7 +85,8 @@ pub async fn create_loop(
         .create_loop(
             req.name.trim(),
             &req.description,
-            Some(req.workspace.trim()),
+            Some(req.workspace_id),
+            Some(workspace.path.as_str()),
             req.webhook_enabled,
             &req.icon,
             req.review_template_id,
@@ -126,13 +134,29 @@ pub async fn update_loop(
         .get_loop(id)
         .await?
         .ok_or(AppError::NotFound)?;
+    // 工作空间切换是可选的；只有显式传 workspace_id 才查 path，保证 cwd 与筛选键同步更新。
+    // 不传则保留原工作空间不变——避免误清空。
+    let mut workspace_id: Option<i64> = req.workspace_id;
+    let mut workspace_path: Option<String> = None;
+    if let Some(wid) = workspace_id {
+        let dir = state
+            .db
+            .get_project_directory_by_id(wid)
+            .await?
+            .ok_or_else(|| AppError::BadRequest(format!("工作空间 {} 不存在", wid)))?;
+        workspace_path = Some(dir.path);
+    }
+    // 把外部传入 id 再带回去，DAO 内部用 id 写入并保持 cwd 字段同步
+    let _ = workspace_id.take();
+    let workspace_id_for_dao: Option<i64> = req.workspace_id;
     state
         .db
         .update_loop(
             id,
             req.name.trim(),
             &req.description,
-            req.workspace.as_deref(),
+            workspace_id_for_dao,
+            workspace_path.as_deref(),
             req.webhook_enabled,
             &req.icon,
             req.review_template_id,
@@ -719,12 +743,64 @@ pub async fn get_execution(
     }))
 }
 
+// ====== 批量 workspace 操作 ======
+
+/// PUT /api/loops/batch-workspace — 批量移动环路到其他工作空间
+pub async fn batch_move_loops_workspace(
+    State(state): State<AppState>,
+    Json(req): Json<BatchUpdateLoopWorkspaceRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    if req.ids.is_empty() {
+        return Err(AppError::BadRequest("ids 不能为空".to_string()));
+    }
+    // 工作空间 id 必填且必须存在；handler 在此层把 id 解析为 path，
+    // DAO 一次写入 workspace_id + workspace_path 两列保证双字段同步。
+    let dir = state
+        .db
+        .get_project_directory_by_id(req.workspace_id)
+        .await?
+        .ok_or_else(|| AppError::BadRequest(format!("工作空间 {} 不存在", req.workspace_id)))?;
+    let rows_affected = state
+        .db
+        .batch_update_loops_workspace(&req.ids, req.workspace_id, &dir.path)
+        .await?;
+    Ok(ApiResponse::ok(BatchWorkspaceResult {
+        updated_count: rows_affected as i64,
+        total: req.ids.len() as i64,
+    }))
+}
+
+/// POST /api/loops/batch-copy-workspace — 批量复制环路到其他工作空间
+pub async fn batch_copy_loops_workspace(
+    State(state): State<AppState>,
+    Json(req): Json<BatchCopyLoopWorkspaceRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    if req.ids.is_empty() {
+        return Err(AppError::BadRequest("ids 不能为空".to_string()));
+    }
+    let dir = state
+        .db
+        .get_project_directory_by_id(req.workspace_id)
+        .await?
+        .ok_or_else(|| AppError::BadRequest(format!("工作空间 {} 不存在", req.workspace_id)))?;
+    let created_ids = state
+        .db
+        .batch_copy_loops_to_workspace(&req.ids, req.workspace_id, &dir.path)
+        .await?;
+    Ok(ApiResponse::ok(BatchWorkspaceResult {
+        updated_count: created_ids.len() as i64,
+        total: req.ids.len() as i64,
+    }))
+}
+
 // ====== 路由表 ======
 
 pub fn loop_routes() -> axum::Router<AppState> {
     use axum::routing::{get, post, put};
     axum::Router::new()
         .route("/api/loops", get(list_loops).post(create_loop))
+        .route("/api/loops/batch-workspace", put(batch_move_loops_workspace))
+        .route("/api/loops/batch-copy-workspace", post(batch_copy_loops_workspace))
         .route("/api/loops/{id}", get(get_loop).put(update_loop).delete(delete_loop))
         .route("/api/loops/{id}/status", put(update_loop_status))
         .route("/api/loops/{id}/tags", put(update_loop_tags))

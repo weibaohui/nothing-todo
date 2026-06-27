@@ -48,8 +48,9 @@ interface LeftRailProps {
   variant?: LeftRailVariant;
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
-  workspace?: string | null;
-  onWorkspaceChange?: (workspace: string) => void;
+  /** 当前选中的工作空间 ID（project_directories.id，唯一键）。null 表示未选。 */
+  workspace?: number | null;
+  onWorkspaceChange?: (workspaceId: number) => void;
   themeMode: 'light' | 'dark';
   toggleTheme: () => void;
 }

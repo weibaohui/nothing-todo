@@ -8,8 +8,10 @@ import type { ProjectDirectory } from '@/types';
 export type WorkspaceSwitcherMode = 'full' | 'compact';
 
 interface WorkspaceSwitcherProps {
-  value: string | null;
-  onChange: (workspace: string) => void;
+  /** 当前选中的工作空间 ID（project_directories.id），唯一键 */
+  value: number | null;
+  /** 选中工作空间后回传 id */
+  onChange: (workspaceId: number) => void;
   onManage: () => void;
   mode?: WorkspaceSwitcherMode;
 }
@@ -51,15 +53,15 @@ export function WorkspaceSwitcher({ value, onChange, onManage, mode = 'full' }: 
   }, [loadDirs]);
 
   const selectedLabel = useMemo(() => {
-    if (!value) return '请选择工作空间';
-    const found = dirs.find(d => d.path === value);
-    return found?.name || value;
+    if (value == null) return '请选择工作空间';
+    const found = dirs.find(d => d.id === value);
+    return found?.name || found?.path || String(value);
   }, [dirs, value]);
 
   const menuItems = useMemo<NonNullable<MenuProps['items']>>(() => {
     const items: NonNullable<MenuProps['items']> = [
       ...dirs.map(dir => ({
-        key: dir.path,
+        key: String(dir.id),
         label: dir.name || dir.path,
         icon: <FolderOpenOutlined />,
       })),
@@ -78,7 +80,9 @@ export function WorkspaceSwitcher({ value, onChange, onManage, mode = 'full' }: 
       onManage();
       return;
     }
-    onChange(String(key));
+    // menu key 是 dir.id 字符串化；解析回 number 抛出给上层
+    const id = Number(key);
+    if (Number.isFinite(id)) onChange(id);
   }, [onChange, onManage]);
 
   if (mode === 'compact') {

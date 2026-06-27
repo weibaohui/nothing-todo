@@ -1,7 +1,6 @@
 use dashmap::DashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use std::sync::RwLock;
 
 use crate::feishu::sdk::config::Config as FeishuSdkConfig;
 use crate::feishu::sdk::token_manager::TokenManager;
@@ -11,7 +10,6 @@ use crate::feishu::{
 };
 
 use crate::service_context::ServiceContext;
-use crate::config::Config as AppConfig;
 use crate::task_manager::TaskManager;
 use crate::db::{Database, NewFeishuMessage};
 use crate::models::{AgentBot, BotConfig, build_trigger_params};
@@ -30,7 +28,6 @@ pub struct FeishuListener {
 
 struct ListenerMessageContext<'a> {
     db: &'a Arc<Database>,
-    config: &'a Arc<RwLock<AppConfig>>,
     token_manager: &'a Arc<TokenManager>,
     credentials: &'a DashMap<i64, (String, String, String)>,
     debounce: &'a Arc<MessageDebounce>,
@@ -151,7 +148,6 @@ impl FeishuListener {
         let bot_open_id = real_bot_open_id;
         let bot_config_clone = bot_config;
         let credentials = self.bot_credentials.clone();
-        let config = self.ctx.config.clone();
         let token_manager = self.token_manager.clone();
         let debounce = self.debounce.clone();
         let task_manager = self.ctx.task_manager.clone();
@@ -160,7 +156,6 @@ impl FeishuListener {
             while let Some(msg) = rx.recv().await {
                 let context = ListenerMessageContext {
                     db: &db,
-                    config: &config,
                     token_manager: &token_manager,
                     credentials: &credentials,
                     debounce: &debounce,
@@ -1170,7 +1165,9 @@ impl FeishuListener {
                         path = dir.path,
                     );
 
-                    match db.create_todo_with_extras(&todo_title, &todo_prompt, None, None, false, Some(dir.id)).await {
+                    // workspace_id 必填；handler 层按 dir.id + dir.path 双字段下传，
+                    // DAO 一次写入 workspace_id + workspace_path 保持两列同步。
+                    match db.create_todo_with_extras(&todo_title, &todo_prompt, None, None, false, dir.id, &dir.path).await {
                         Ok(todo_id) => {
                             match db.create_feishu_project_binding(bot_id, channel, chat_type, dir.id, todo_id).await {
                                 Ok(binding_id) => {
@@ -1813,10 +1810,8 @@ struct SlashCommandMatch<'a> {
 #[cfg(test)]
 mod tests {
     use super::FeishuListener;
-    use crate::config::{Config as AppConfig, SlashCommandRule};
     use crate::models::{BotConfig, ExecutionRecord, ExecutionStatus};
     use crate::db::feishu_project_binding::FeishuProjectBinding;
-    use std::sync::{Arc, RwLock};
 
     #[test]
     fn test_parse_slash_command_exact_first_token() {
@@ -1952,7 +1947,7 @@ mod tests {
             scheduler_timezone: None,
             scheduler_next_run_at: None,
             task_id: None,
-            workspace: None,
+            workspace_path: None,
             workspace_id: None,
             webhook_enabled: false,
             acceptance_criteria: None,

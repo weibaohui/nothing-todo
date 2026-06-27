@@ -345,7 +345,7 @@ async fn execute_review_instance(
         step_id: None,
         feishu_bot_id: None,
         feishu_receive_id: None,
-        workspace: None,
+        workspace_path: None,
         workspace_id: None,
     };
     let exec_result = super::run_todo_execution(request).await;

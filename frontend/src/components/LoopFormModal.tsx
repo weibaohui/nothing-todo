@@ -8,6 +8,10 @@
 // - 工作空间与评审模板联动：选择工作空间后过滤可选的评审模板
 //
 // 被 LoopStudioDetailPanel（编辑）和 App.tsx（新建）共用。
+//
+// 约定（破坏式更新）：
+// - 工作空间在组件之间一律以 id（project_directories.id，number）传递，path 仅后端 cwd 内部使用。
+// - 内部状态 `workspaceValue: number | null`；保存时把 id 直接送进 dbLoops.createLoop/updateLoop。
 
 import { useEffect, useState, useCallback } from 'react';
 import { App as AntApp, Drawer, Form, Input, InputNumber, Select, Button, Checkbox, Modal, Switch } from 'antd';
@@ -15,10 +19,10 @@ import { PlusOutlined } from '@ant-design/icons';
 import * as dbLoops from '@/utils/database/loops';
 import * as dbReviewTemplates from '@/utils/database/reviewTemplates';
 import * as dbTodos from '@/utils/database/todos';
-import { getProjectDirectories } from '@/utils/database/todos';
 import type { UpdateLoopRequest } from '@/types/loop';
 import type { ReviewTemplateOption } from '@/types/reviewTemplate';
 import type { Todo } from '@/types/todo';
+import { getWorkspaceDisplayName, useProjectDirectories } from '@/utils/workspaceDisplay';
 import { TagCheckCardGroup } from './TagCheckCard';
 import { WorkspaceSelect } from './common/WorkspaceSelect';
 
@@ -30,11 +34,17 @@ interface LoopFormModalProps {
   mode: 'create' | 'edit';
   /** 编辑模式必传，创建模式不传 */
   loopId?: number;
-  /** 编辑模式预填数据（创建模式不传） */
+  /**
+   * 编辑模式预填数据（创建模式不传）。
+   * `workspace_id` 是 project_directories.id 唯一键；
+   * path 仅作为展示兜底，不再作为 API 主键。
+   */
   initialData?: {
     name: string;
     description: string;
-    workspace: string | null;
+    workspace_id: number | null;
+    /** 仅用于展示 name/path 兜底（不再写入 API payload） */
+    workspace_path?: string | null;
     webhook_enabled: boolean;
     icon: string;
     review_template_id: number | null;
@@ -48,6 +58,8 @@ interface LoopFormModalProps {
   /** 保存成功回调（创建模式回传新 loopId） */
   onSaved: (loopId?: number) => void;
   onClose: () => void;
+  /** 打开创建模式时自动选中的工作空间 ID */
+  defaultWorkspaceId?: number | null;
 }
 
 // ---------- Form values type ----------
@@ -62,15 +74,15 @@ type FormValues = UpdateLoopRequest & {
 // ---------- component ----------
 
 export function LoopFormModal({
-  open, mode, loopId, initialData, tags, onSaved, onClose,
+  open, mode, loopId, initialData, tags, onSaved, onClose, defaultWorkspaceId,
 }: LoopFormModalProps) {
   const { message } = AntApp.useApp();
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<FormValues>();
   // 标签选中态（单选）
   const [editingTag, setEditingTag] = useState<number | null>(null);
-  // 工作空间受控值（与 form.setFieldsValue 配合，避免直接操作 form 内部状态）
-  const [workspaceValue, setWorkspaceValue] = useState<string | null>(null);
+  // 工作空间受控值：以 id（project_directories.id）为唯一键传递
+  const [workspaceId, setWorkspaceId] = useState<number | null>(null);
   // 评审模板
   const [reviewTemplateOptions, setReviewTemplateOptions] = useState<ReviewTemplateOption[]>([]);
   const [creatingTemplate, setCreatingTemplate] = useState(false);
@@ -78,39 +90,25 @@ export function LoopFormModal({
   const [newTemplateForm] = Form.useForm<{ name: string; description?: string; prompt: string }>();
   // 异常处理 Todo
   const [abnormalHandlerTodoOptions, setAbnormalHandlerTodoOptions] = useState<Todo[]>([]);
-  // 工作空间路径→ID 映射（用于评审模板 API，其过滤/新建需 workspace_id 而非路径字符串）
-  const [pathToWorkspaceId, setPathToWorkspaceId] = useState<Record<string, number>>({});
+  // 工作空间目录（id 是唯一键，byId Map 用来 O(1) 反查 path/name）
+  const { dirs: projectDirs } = useProjectDirectories();
 
-  // 打开时加载工作空间目录列表（建立路径→ID 映射）
+  // 打开时 + 工作空间变化时重新加载评审模板选项（按 workspace_id 过滤）
   useEffect(() => {
     if (!open) return;
-    getProjectDirectories().then((dirs) => {
-      const map: Record<string, number> = {};
-      for (const d of dirs) {
-        if (d.path) map[d.path] = d.id;
-      }
-      setPathToWorkspaceId(map);
-    }).catch(() => { /* 静默 */ });
-  }, [open]);
-
-  /** 根据当前 workspaceValue（路径）推导对应的 workspace_id，用于评审模板 API */
-  const workspaceIdForReview: number | undefined = workspaceValue ? pathToWorkspaceId[workspaceValue] : undefined;
-
-  // 打开时 + workspace 变化时重新加载评审模板选项（按 workspace_id 过滤）
-  useEffect(() => {
-    if (!open) return;
-    dbReviewTemplates.listReviewTemplateOptions(workspaceIdForReview)
+    dbReviewTemplates.listReviewTemplateOptions(workspaceId ?? undefined)
       .then(setReviewTemplateOptions)
       .catch(() => { /* 静默 */ });
-  }, [open, workspaceIdForReview]);
+  }, [open, workspaceId]);
 
   // 打开时加载异常处理 Todo 选项
+  // 必须按当前 loop 的 workspace_id 过滤——异常处理 handler 跨工作空间串进来会触发错乱执行。
   useEffect(() => {
     if (!open) return;
-    dbTodos.getAllTodos()
+    dbTodos.getAllTodos(workspaceId ?? undefined)
       .then(setAbnormalHandlerTodoOptions)
       .catch(() => { /* 静默 */ });
-  }, [open]);
+  }, [open, workspaceId]);
 
   // 打开时（仅编辑模式）预填表单
   useEffect(() => {
@@ -124,7 +122,7 @@ export function LoopFormModal({
         review_template_id: initialData.review_template_id ?? null,
         abnormal_handler_todo_id: initialData.abnormal_handler_todo_id ?? null,
       });
-      setWorkspaceValue(initialData.workspace ?? null);
+      setWorkspaceId(initialData.workspace_id ?? null);
       // 解析 limits_config
       try {
         const lc = JSON.parse(initialData.limits_config || '{}');
@@ -146,16 +144,17 @@ export function LoopFormModal({
       form.resetFields();
       form.setFieldsValue({ webhook_enabled: false });
       setEditingTag(null);
-      setWorkspaceValue(null);
+      // 自动选中当前工作空间
+      setWorkspaceId(defaultWorkspaceId ?? null);
     }
-  }, [open, mode, initialData, form]);
+  }, [open, mode, initialData, form, defaultWorkspaceId]);
 
   // 刷新评审模板（按当前 workspace_id 过滤）并选中新建的模板
   const reloadTemplatesAndSelect = useCallback(async (selectedId: number) => {
-    const opts = await dbReviewTemplates.listReviewTemplateOptions(workspaceIdForReview);
+    const opts = await dbReviewTemplates.listReviewTemplateOptions(workspaceId ?? undefined);
     setReviewTemplateOptions(opts);
     form.setFieldsValue({ review_template_id: selectedId });
-  }, [form, workspaceIdForReview]);
+  }, [form, workspaceId]);
 
   // inline 创建评审模板（归属当前选中的工作空间）
   const handleCreateTemplate = useCallback(async () => {
@@ -166,7 +165,7 @@ export function LoopFormModal({
         name: values.name.trim(),
         description: values.description?.trim() || null,
         prompt: values.prompt,
-        workspace_id: workspaceIdForReview ?? null,
+        workspace_id: workspaceId ?? null,
       });
       message.success(`已创建模板「${created.name}」`);
       await reloadTemplatesAndSelect(created.id);
@@ -177,7 +176,7 @@ export function LoopFormModal({
     } finally {
       setCreatingTemplateSaving(false);
     }
-  }, [newTemplateForm, workspaceValue, message, reloadTemplatesAndSelect]);
+  }, [newTemplateForm, workspaceId, message, reloadTemplatesAndSelect]);
 
   // 保存（创建 / 编辑共用）
   const handleSave = useCallback(async () => {
@@ -194,10 +193,17 @@ export function LoopFormModal({
         ? JSON.stringify(values.abnormal_handler_trigger_on)
         : '["capped_step","capped_token","failed"]';
 
+      // 工作空间必填校验：保存时若未选择 id 直接报错
+      if (workspaceId == null) {
+        message.error('请选择工作空间');
+        setSaving(false);
+        return;
+      }
+
       const basePayload = {
         name: values.name.trim(),
         description: values.description ?? '',
-        workspace: workspaceValue ?? null,
+        workspace_id: workspaceId,
         webhook_enabled: values.webhook_enabled === true,
         icon: values.icon ?? 'loop',
         review_template_id: values.review_template_id ?? null,
@@ -208,16 +214,10 @@ export function LoopFormModal({
       };
 
       if (mode === 'create') {
-        // 创建模式：工作空间必填
-        if (!workspaceValue?.trim()) {
-          message.error('请选择工作空间');
-          setSaving(false);
-          return;
-        }
         const res = await dbLoops.createLoop({
           name: basePayload.name,
           description: basePayload.description,
-          workspace: workspaceValue.trim(),
+          workspace_id: basePayload.workspace_id,
           webhook_enabled: basePayload.webhook_enabled,
           tag_ids: basePayload.tag_ids,
           icon: basePayload.icon,
@@ -241,7 +241,7 @@ export function LoopFormModal({
     } finally {
       setSaving(false);
     }
-  }, [form, editingTag, workspaceValue, mode, loopId, message, onSaved, onClose]);
+  }, [form, editingTag, workspaceId, mode, loopId, message, onSaved, onClose]);
 
   return (
     <>
@@ -275,18 +275,18 @@ export function LoopFormModal({
             工作空间与评审模板
           </div>
           <div style={{ background: 'var(--color-bg-elevated, #f8fafc)', padding: 12, borderRadius: 8 }}>
-            {/* 工作空间：创建模式必填，编辑模式可选 */}
+            {/* 工作空间：创建模式必填，编辑模式可选；value/onChange 以 id 为唯一键 */}
             <Form.Item
-              label={<>工作空间 {mode === 'create' && <span style={{ color: '#ff4d4f' }}>*</span>}</>
-            }
+              label={<>工作空间 {mode === 'create' && <span style={{ color: '#ff4d4f' }}>*</span>}</>}
               tooltip="此 loop 所属的工作空间，切换后评审模板自动过滤"
               rules={mode === 'create' ? [{ required: true, message: '请选择工作空间' }] : []}
             >
               <WorkspaceSelect
-                value={workspaceValue}
+                value={workspaceId}
                 onChange={(v) => {
-                  setWorkspaceValue(v);
-                  form.setFieldsValue({ workspace: v, review_template_id: null });
+                  setWorkspaceId(v);
+                  // 切换工作空间时清掉已选模板，避免跨工作空间串模板
+                  form.setFieldsValue({ review_template_id: null });
                 }}
                 required={mode === 'create'}
               />
@@ -313,12 +313,8 @@ export function LoopFormModal({
                 placeholder="使用默认评审模板"
                 showSearch
                 optionFilterProp="label"
-                options={
-                  workspaceValue
-                    ? reviewTemplateOptions.map(t => ({ value: t.id, label: t.name }))
-                    : reviewTemplateOptions.map(t => ({ value: t.id, label: t.name }))
-                }
-                notFoundContent={workspaceValue ? '暂无模板，可点击"新建模板"' : '请先选择工作空间'}
+                options={reviewTemplateOptions.map(t => ({ value: t.id, label: t.name }))}
+                notFoundContent={workspaceId != null ? '暂无模板，可点击"新建模板"' : '请先选择工作空间'}
               />
             </Form.Item>
           </div>
@@ -419,8 +415,8 @@ export function LoopFormModal({
             <Input.TextArea rows={8} placeholder="你是一个评审师…" />
           </Form.Item>
           <div style={{ fontSize: 12, color: 'var(--color-text-tertiary, #94a3b8)', marginTop: -8 }}>
-            {workspaceValue
-              ? `新建模板将归属于当前工作空间「${workspaceValue}」`
+            {workspaceId != null
+              ? `新建模板将归属于当前工作空间「${getWorkspaceDisplayName(projectDirs, workspaceId)}」`
               : '不选择工作空间则新建全局模板'}
           </div>
         </Form>

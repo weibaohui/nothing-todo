@@ -158,7 +158,7 @@ impl MessageDebounce {
                         step_id: None,
                         feishu_bot_id: if last.binding_id.is_some() { Some(last.bot_id) } else { None },
                         feishu_receive_id: if last.binding_id.is_some() { Some(last.sender.clone()) } else { None },
-                        workspace: None,
+                        workspace_path: None,
                         workspace_id: last.workspace_id,
                     })
                     .await;

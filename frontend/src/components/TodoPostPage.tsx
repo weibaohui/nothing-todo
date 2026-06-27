@@ -5,6 +5,7 @@ import {
   App,
   Tag,
   Drawer,
+  Tooltip,
 } from "antd";
 import {
   ArrowLeftOutlined,
@@ -39,7 +40,7 @@ import {
   Space,
   message as antdMessage,
 } from "antd";
-import { StarOutlined, StarFilled, FileTextOutlined, CaretDownOutlined, CaretUpOutlined, CopyOutlined } from "@ant-design/icons";
+import { StarOutlined, StarFilled, FileTextOutlined, CaretDownOutlined, CaretUpOutlined, CopyOutlined, BranchesOutlined } from "@ant-design/icons";
 
 /**
  * 全屏帖子详情页 —— 按 session_id 加载同 session 的所有记录。
@@ -501,6 +502,9 @@ function PostCard({
         </div>
       )}
 
+      {/* worktree 路径：仅当 record.worktree_path 非空时渲染，与 RecordDetailView 同款展示 */}
+      <WorktreePathDisplay worktreePath={record.worktree_path ?? null} />
+
       {/* 统计 */}
       <div style={{
         display: "flex", gap: 16, marginTop: 8, fontSize: 11,
@@ -812,5 +816,50 @@ function RatingControl({
     >
       <Button type="text" size="small" icon={<StarOutlined />}>评分</Button>
     </Popover>
+  );
+}
+
+/**
+ * 与 RecordDetailView 中的 WorktreePathDisplay 保持一致：
+ * - 未启用 worktree 时（`worktree_path` 为 null 或空串）整段不渲染。
+ * - 路径过长时只展示尾部，tooltip 显示完整路径。
+ * - 点击整行复制完整路径，HTTP 环境自动 fallback 到 execCommand。
+ *
+ * 与 desktop 详情页的展示语义完全一致，便于用户在任何入口都能定位 worktree 目录。
+ */
+function WorktreePathDisplay({ worktreePath }: { worktreePath: string | null }) {
+  if (!worktreePath) return null;
+
+  // 路径过长时只展示尾部，鼠标悬停 tooltip 显示完整路径
+  const displayPath = worktreePath.length > 60
+    ? `…${worktreePath.slice(-59)}`
+    : worktreePath;
+
+  return (
+    <Tooltip title={worktreePath}>
+      <div
+        onClick={async () => {
+          // 复用统一复制工具：HTTPS 走 navigator.clipboard，HTTP 环境 fallback 到 execCommand
+          const ok = await copyToClipboard(worktreePath);
+          antdMessage[ok ? 'success' : 'error'](ok ? '已复制 worktree 路径' : '复制失败');
+        }}
+        style={{
+          fontSize: 11,
+          color: 'var(--color-text-quaternary)',
+          marginBottom: 12,
+          fontFamily: 'var(--font-mono)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        <BranchesOutlined style={{ fontSize: 11, color: 'var(--color-primary)' }} />
+        <span>Worktree: {displayPath}</span>
+      </div>
+    </Tooltip>
   );
 }

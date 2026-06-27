@@ -115,7 +115,7 @@ pub(crate) async fn start_todo_and_prepare_spawn(
     let worktree_ctx = resolve_worktree_context(
         &prepared.request.db,
         &prepared.todo,
-        prepared.request.workspace.as_deref(),
+        prepared.request.workspace_path.as_deref(),
     )
     .await;
     record_worktree_path(
@@ -139,18 +139,18 @@ pub(crate) async fn start_todo_and_prepare_spawn(
 
     register_websocket_task_info(&prepared, &todo_title, &executor_spawn).await;
 
-    // effective_workspace 优先级：worktree 路径 > todo.workspace > request.workspace（loop 场景）
-    let effective_workspace = worktree_ctx
-        .effective_workspace
+    // effective_workspace_path 优先级：worktree 路径 > todo.workspace_path > request.workspace_path（loop 场景）
+    let effective_workspace_path = worktree_ctx
+        .effective_workspace_path
         .clone()
-        .or(prepared.todo_workspace.clone())
-        .or(prepared.request.workspace.clone());
+        .or(prepared.todo_workspace_path.clone())
+        .or(prepared.request.workspace_path.clone());
 
     Ok(SpawnInputs {
         prepared,
         todo_title,
         executor_spawn,
-        effective_workspace,
+        effective_workspace_path,
         execution_timeout_secs,
         worktree_ctx,
     })

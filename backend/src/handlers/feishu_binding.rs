@@ -134,15 +134,16 @@ pub async fn create_binding(
         let existing = state.db.get_todo(tid).await?
             .ok_or_else(|| AppError::BadRequest("指定的 Todo 不存在".to_string()))?;
 
-        let workspace_changed = existing.workspace.as_ref().map(|w| w.as_str()) != Some(&dir.path);
-        if workspace_changed && existing.workspace.is_some() {
+        // workspace 字段已统一为 id，路径一致性等价于 id 一致性
+        let workspace_changed = existing.workspace_id.is_some() && existing.workspace_id != Some(dir.id);
+        if workspace_changed {
             tracing::warn!(
-                "[binding] binding todo {} to a different workspace (was: {:?}, now: {}), session history may be misaligned",
-                tid, existing.workspace, dir.path
+                "[binding] binding todo {} to a different workspace_id (was: {:?}, now: {}), session history may be misaligned",
+                tid, existing.workspace_id, dir.id
             );
         }
 
-        if let Err(e) = state.db.update_todo_workspace(tid, Some(&dir.path)).await {
+        if let Err(e) = state.db.update_todo_workspace(tid, Some(dir.id), Some(&dir.path)).await {
             tracing::warn!("[binding] failed to update todo {} workspace: {e}", tid);
         }
         tid
@@ -163,7 +164,7 @@ pub async fn create_binding(
             &todo_prompt,
             req.executor.as_deref().filter(|s| !s.is_empty()),
         ).await?;
-        if let Err(e) = state.db.update_todo_workspace(new_todo_id, Some(&dir.path)).await {
+        if let Err(e) = state.db.update_todo_workspace(new_todo_id, Some(dir.id), Some(&dir.path)).await {
             tracing::warn!("[binding] failed to set todo workspace: {e}");
         }
         new_todo_id

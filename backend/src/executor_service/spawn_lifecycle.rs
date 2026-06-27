@@ -13,6 +13,7 @@
 use std::sync::Arc;
 
 use command_group::AsyncCommandGroup;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
@@ -54,7 +55,7 @@ pub(crate) async fn run_spawned_executor_task(spawned: super::types::SpawnInputs
     let Some(mut child) = try_spawn_executor_child(&runtime).await else {
         return;
     };
-    save_child_pid_and_close_stdin(&mut child, &runtime.db, runtime.record_id).await;
+    save_child_pid_and_close_stdin(&mut child, runtime.executor_spawn.as_ref(), &runtime.db, runtime.record_id).await;
 
     let (log_flusher, stdout_task, stderr_task, flush_timer) =
         setup_log_capture_pipeline_for(&runtime, &mut child).await;
@@ -148,12 +149,37 @@ pub(crate) async fn handle_spawn_failure(
 /// 关 stdin 是必须的：不少 executor 在执行完后会再读一次 stdin，没有 EOF 就会 hang。
 /// PID 写库是为了后续 cancel / status 查询能定位进程；child.id() == None 表示
 /// 进程已退出（race），跳过写库即可。
+///
+/// `executor` 用于查询 `stdin_payload()`：部分执行器（pi 等）需要在关闭 stdin 之前
+/// 预写自动应答，避免子进程卡在交互式 prompt 上；等价于 `echo y | pi -p ...`。
 pub(crate) async fn save_child_pid_and_close_stdin(
     child: &mut command_group::AsyncGroupChild,
+    executor: &dyn crate::adapters::CodeExecutor,
     db: &Database,
     record_id: i64,
 ) {
-    // Close stdin immediately so child processes get EOF when they try to read it.
+    // 若执行器声明需要预写 stdin（典型场景：pi 启用 Worktree 后会在交互式 prompt
+    // 卡住，等价于 `echo y | pi ...` 的管道输入），先一次性写入再关闭 stdin。
+    // 写入失败不视为致命：关 stdin 本身仍能让子进程正常退出。
+    if let Some(payload) = executor.stdin_payload() {
+        if let Some(stdin) = child.inner().stdin.as_mut() {
+            if let Err(e) = stdin.write_all(payload.as_bytes()).await {
+                tracing::warn!(
+                    "[spawn] 写入执行器 stdin payload 失败: executor={} err={}",
+                    executor.executor_type().as_str(),
+                    e
+                );
+            }
+            if let Err(e) = stdin.flush().await {
+                tracing::warn!(
+                    "[spawn] flush 执行器 stdin 失败: executor={} err={}",
+                    executor.executor_type().as_str(),
+                    e
+                );
+            }
+        }
+    }
+    // 关 stdin 让子进程在读完 payload 后立即收到 EOF，避免挂起。
     drop(child.inner().stdin.take());
     let child_id = child.id().unwrap_or(0);
     if child_id > 0 {
@@ -165,19 +191,19 @@ pub(crate) async fn save_child_pid_and_close_stdin(
 
 /// 构造 executor 子进程命令，统一设置 stdout/stderr/stdin 为 piped。
 ///
-/// workspace 设置为 `cmd.current_dir`，但仅在 todo 指定 workspace 时生效——
-/// 没设 workspace 的 todo 让 executor 用 daemon 当前目录即可。
+/// workspace_path 设置为 `cmd.current_dir`，但仅在 todo 指定 workspace_path 时生效——
+/// 没设 workspace_path 的 todo 让 executor 用 daemon 当前目录即可。
 pub(crate) fn build_executor_command(
     executable_path: &str,
     command_args: &[String],
-    workspace: Option<&str>,
+    workspace_path: Option<&str>,
 ) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new(executable_path);
     cmd.args(command_args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .stdin(std::process::Stdio::piped());
-    if let Some(ws) = workspace {
+    if let Some(ws) = workspace_path {
         cmd.current_dir(ws);
     }
     cmd
@@ -191,7 +217,7 @@ pub(crate) fn spawn_executor_child(
     let mut cmd = build_executor_command(
         &runtime.prepared.executable_path,
         &runtime.prepared.command_args,
-        runtime.effective_workspace.as_deref(),
+        runtime.effective_workspace_path.as_deref(),
     );
     cmd.group_spawn()
 }
@@ -257,9 +283,9 @@ pub(crate) fn move_into_runtime(spawned: super::types::SpawnInputs) -> SpawnRunt
         execution_timeout_secs: spawned.execution_timeout_secs,
         feishu_bot_id: prepared.request.feishu_bot_id,
         feishu_receive_id: prepared.request.feishu_receive_id.clone(),
-        // 关键：把 effective_workspace 整字段 move 进 runtime，
-        // 避免 spawn_executor_child 误用 todo_workspace（worktree 失效）。
-        effective_workspace: spawned.effective_workspace,
+        // 关键：把 effective_workspace_path 整字段 move 进 runtime，
+        // 避免 spawn_executor_child 误用 todo_workspace_path（worktree 失效）。
+        effective_workspace_path: spawned.effective_workspace_path,
         prepared,
     }
 }
@@ -665,19 +691,19 @@ mod tests {
         assert_eq!(std_args[1], "build me a web app");
     }
 
-    /// `SpawnRuntime` 持有 `effective_workspace` 字段；`prepared.todo_workspace` 与
-    /// `effective_workspace` 是两个独立字段（issue #660 重构中的回归测试）。
+    /// `SpawnRuntime` 持有 `effective_workspace_path` 字段；`prepared.todo_workspace_path` 与
+    /// `effective_workspace_path` 是两个独立字段（issue #660 重构中的回归测试）。
     #[test]
-    fn test_spawn_runtime_carries_effective_workspace() {
+    fn test_spawn_runtime_carries_effective_workspace_path() {
         fn _assert_field(rt: &SpawnRuntime) -> Option<&String> {
-            rt.effective_workspace.as_ref()
+            rt.effective_workspace_path.as_ref()
         }
         fn _assert_distinct_fields(
             rt: &SpawnRuntime,
         ) -> (Option<&String>, Option<&String>) {
             (
-                rt.effective_workspace.as_ref(),
-                rt.prepared.todo_workspace.as_ref(),
+                rt.effective_workspace_path.as_ref(),
+                rt.prepared.todo_workspace_path.as_ref(),
             )
         }
     }

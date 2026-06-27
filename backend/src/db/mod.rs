@@ -812,7 +812,7 @@ mod tests {
             scheduler_enabled: None,
             scheduler_config: None,
             scheduler_timezone: None,
-            workspace: None,
+            workspace_id: None,
             webhook_enabled: None,
             acceptance_criteria: None,
             auto_review_enabled: None,
@@ -975,7 +975,7 @@ mod tests {
             scheduler_enabled: Some(true),
             scheduler_config: Some("0 0 * * *"),
             scheduler_timezone: None,
-            workspace: Some("/tmp/workspace"),
+            workspace_id: Some(1),
             webhook_enabled: None,
             acceptance_criteria: None,
             auto_review_enabled: None,
@@ -989,7 +989,8 @@ mod tests {
         assert_eq!(todo.executor, Some("opencode".to_string()));
         assert!(todo.scheduler_enabled);
         assert_eq!(todo.scheduler_config, Some("0 0 * * *".to_string()));
-        assert_eq!(todo.workspace, Some("/tmp/workspace".to_string()));
+        // workspace_id 已写入：handler 端会按 id 反查 path 后双写，这里只校验 id 已落库
+        assert_eq!(todo.workspace_id, Some(1));
     }
 
     #[tokio::test]

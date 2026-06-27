@@ -447,7 +447,7 @@ impl LoopRunner {
 
             // 4f. 执行
             let record_id = match self
-                .start_step_todo_with_prompt(&todo, &trigger_type, idx as i64, step_exec.id, &enhanced_prompt, loop_.workspace.clone())
+                .start_step_todo_with_prompt(&todo, &trigger_type, idx as i64, step_exec.id, &enhanced_prompt, loop_.workspace_path.clone())
                 .await
             {
                 Ok(rid) => rid,
@@ -616,7 +616,7 @@ impl LoopRunner {
         loop_idx: i64,
         step_exec_id: i64,
         enhanced_prompt: &str,
-        workspace: Option<String>,
+        workspace_path: Option<String>,
     ) -> Result<i64, String> {
         let request = RunTodoExecutionRequest {
             db: self.ctx.db.clone(),
@@ -643,7 +643,7 @@ impl LoopRunner {
             step_id: None,
             feishu_bot_id: None,
             feishu_receive_id: None,
-            workspace,
+            workspace_path,
             workspace_id: None,
         };
         let result = run_todo_execution_with_params(request).await;
@@ -1009,7 +1009,7 @@ impl LoopRunner {
                 step_id: None,
                 feishu_bot_id: None,
                 feishu_receive_id: None,
-                workspace: None,
+                workspace_path: None,
                 workspace_id: None,
             };
             let exec_result = crate::executor_service::run_todo_execution(request).await;
@@ -1232,7 +1232,7 @@ impl LoopRunner {
             step_id: None,
             feishu_bot_id: None,
             feishu_receive_id: None,
-            workspace: handler_todo.workspace.clone(),
+            workspace_path: handler_todo.workspace_path.clone(),
             workspace_id: None,
         };
 

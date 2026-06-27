@@ -23,8 +23,11 @@ interface TodoState {
   selectedTodoId: number | null;
   /** null = no tag selected (show all); number = filtered view */
   selectedTagId: number | null;
-  /** null = show all workspaces; string = filter by workspace path */
-  selectedWorkspace: string | null;
+  /**
+   * null = show all workspaces; number = filter by workspace id (唯一键).
+   * 组件间一律传 id，path 仅后端内部 cwd 用。
+   */
+  selectedWorkspace: number | null;
 }
 
 // ─── Actions ─────────────────────────────────────────────────
@@ -44,16 +47,19 @@ type TodoAction =
   | { type: 'DELETE_TODO'; payload: number }        // remove by id
   | { type: 'SELECT_TODO'; payload: number | null } // open detail / close detail
   | { type: 'SELECT_TAG'; payload: number | null }   // filter by tag / clear filter
-  | { type: 'SELECT_WORKSPACE'; payload: string | null } // filter by workspace / clear filter
+  | { type: 'SELECT_WORKSPACE'; payload: number | null } // filter by workspace id / clear filter
   | { type: 'ADD_TAG'; payload: Tag }               // create tag
   | { type: 'DELETE_TAG'; payload: number }         // remove tag by id
   | { type: 'UPDATE_TODO_STATUS'; payload: { id: number; status: Todo['status'] } }; // quick status toggle
 
-// 从 localStorage 读取上次选中的 workspace，刷新后保持选择
-function getInitialWorkspace(): string | null {
+// 从 localStorage 读取上次选中的 workspace id，刷新后保持选择。
+// 字符串 → 数字：旧数据可能残留 path 字符串，统一按 Number 解析；失败时回退到 null。
+function getInitialWorkspace(): number | null {
   try {
     const saved = localStorage.getItem('selected_workspace');
-    return saved || null;
+    if (!saved) return null;
+    const n = Number(saved);
+    return Number.isFinite(n) && n > 0 ? n : null;
   } catch {
     return null;
   }
@@ -88,10 +94,10 @@ function reducer(state: TodoState, action: TodoAction): TodoState {
     case 'SELECT_TODO': return { ...state, selectedTodoId: action.payload };
     case 'SELECT_TAG': return { ...state, selectedTagId: action.payload };
     case 'SELECT_WORKSPACE': {
-      // 持久化到 localStorage，刷新后保持选择
+      // 持久化到 localStorage，刷新后保持选择（id 持久化为字符串）。
       try {
-        if (action.payload) {
-          localStorage.setItem('selected_workspace', action.payload);
+        if (action.payload != null) {
+          localStorage.setItem('selected_workspace', String(action.payload));
         } else {
           localStorage.removeItem('selected_workspace');
         }
