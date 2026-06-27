@@ -18,7 +18,11 @@ import { DetailHeader } from './todo-detail/DetailHeader';
 import { HistoryList } from './todo-detail/HistoryList';
 import { RecordDetailView } from './todo-detail/RecordDetailView';
 
-export function TodoDetail() {
+interface TodoDetailProps {
+  hideTitleRow?: boolean;
+}
+
+export function TodoDetail({ hideTitleRow = false }: TodoDetailProps) {
   const { state, dispatch } = useApp();
   const { message } = App.useApp();
   const { todos, selectedTodoId, executionRecords, runningTasks } = state;
@@ -340,6 +344,7 @@ export function TodoDetail() {
         onOpenExecuteWithArgs={handleOpenExecuteWithArgs}
         onExecute={handleExecute}
         onStatusChange={handleStatusChange}
+        hideTitleRow={hideTitleRow}
       />
 
       {/* Execution History */}

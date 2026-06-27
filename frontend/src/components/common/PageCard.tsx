@@ -13,6 +13,7 @@ import type { ReactNode, CSSProperties } from 'react';
  * @param title    - 页面标题文本
  * @param extra    - 标题栏右侧的操作按钮区域
  * @param children - 页面内容（渲染在横线下方）
+ * @param showHeader - 是否显示顶部标题栏，默认为 true
  * @param className - 自定义类名
  * @param style - 自定义样式
  * @param contentClassName - 内容区域自定义类名
@@ -23,6 +24,7 @@ export function PageCard({
   title,
   extra,
   children,
+  showHeader = true,
   className,
   style,
   contentClassName,
@@ -32,6 +34,7 @@ export function PageCard({
   title?: ReactNode;
   extra?: ReactNode;
   children: ReactNode;
+  showHeader?: boolean;
   className?: string;
   style?: CSSProperties;
   contentClassName?: string;
@@ -39,16 +42,20 @@ export function PageCard({
 }) {
   return (
     <div className={`ntd-page-card ${className || ''}`} style={style}>
-      {/* 顶部标题栏：图标 + 标题 + 操作按钮 */}
-      <div className="ntd-page-card-header">
-        <div className="ntd-page-card-title">
-          {icon && <span className="ntd-page-card-icon">{icon}</span>}
-          {title && <span className="ntd-page-card-title-text">{title}</span>}
-        </div>
-        {extra && <div className="ntd-page-card-extra">{extra}</div>}
-      </div>
-      {/* 横线分隔 */}
-      <div className="ntd-page-card-divider" />
+      {showHeader && (
+        <>
+          {/* 顶部标题栏：图标 + 标题 + 操作按钮 */}
+          <div className="ntd-page-card-header">
+            <div className="ntd-page-card-title">
+              {icon && <span className="ntd-page-card-icon">{icon}</span>}
+              {title && <span className="ntd-page-card-title-text">{title}</span>}
+            </div>
+            {extra && <div className="ntd-page-card-extra">{extra}</div>}
+          </div>
+          {/* 横线分隔 */}
+          <div className="ntd-page-card-divider" />
+        </>
+      )}
       {/* 内容区域 */}
       <div className={`ntd-page-card-content ${contentClassName || ''}`} style={contentStyle}>
         {children}

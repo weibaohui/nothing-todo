@@ -3,9 +3,6 @@ import { Button } from 'antd';
 import { ListDetailPage } from './ListDetailPage';
 import { TodoList } from './TodoList';
 import { TodoDetail } from './TodoDetail';
-import { EmptyDetailPlaceholder } from './EmptyDetailPlaceholder';
-import { useIsMobile } from '@/hooks/useIsMobile';
-import { SIDEBAR_WIDTH } from '@/constants';
 
 interface TodoPageProps {
   selectedTodoId: string | number | null;
@@ -19,8 +16,12 @@ interface TodoPageProps {
   effectiveMobilePanel: 'list' | 'detail';
 }
 
+/**
+ * 桌面端事项页面组件
+ * 使用 ListDetailPage 实现左侧列表 + 右侧详情的双栏布局
+ * 移动端逻辑已独立到 TodoMobilePage 组件
+ */
 export function TodoPage({
-  selectedTodoId,
   onOpenCreateModal,
   onSelectTodo,
   loopUpdateCount,
@@ -28,10 +29,8 @@ export function TodoPage({
   onCreateLoop,
   forcedListMode,
   onListModeChange,
-  effectiveMobilePanel,
+  selectedTodoId,
 }: TodoPageProps) {
-  const isMobile = useIsMobile();
-
   const listPanel = (
     <TodoList
       onOpenCreateModal={onOpenCreateModal}
@@ -44,38 +43,6 @@ export function TodoPage({
       hideCreateButton={true}
     />
   );
-
-  const detailPanel = selectedTodoId ? <TodoDetail /> : <EmptyDetailPlaceholder />;
-
-  if (isMobile) {
-    return (
-      <>
-        <div
-          className={effectiveMobilePanel === 'list' ? 'animate-fade-in' : ''}
-          style={{
-            width: SIDEBAR_WIDTH.mobile,
-            flexShrink: 0,
-            height: '100%',
-            display: effectiveMobilePanel === 'list' ? 'block' : 'none',
-          }}
-        >
-          {listPanel}
-        </div>
-        <div
-          className={effectiveMobilePanel === 'detail' ? 'animate-slide-in-right' : ''}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            height: '100%',
-            overflow: 'hidden',
-            display: effectiveMobilePanel === 'detail' ? 'block' : 'none',
-          }}
-        >
-          {detailPanel}
-        </div>
-      </>
-    );
-  }
 
   return (
     <ListDetailPage

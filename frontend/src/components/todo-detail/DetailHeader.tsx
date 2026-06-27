@@ -13,6 +13,7 @@ import type { Todo } from '@/types';
 export function DetailHeader({
   selectedTodo, executor, isExecuting, summary, currentTodoProgress,
   records, onDelete, onTodoDrawerOpen, onOpenExecuteWithArgs, onExecute, onStatusChange,
+  hideTitleRow = false,
 }: {
   selectedTodo: Todo;
   executor: string;
@@ -25,6 +26,7 @@ export function DetailHeader({
   onOpenExecuteWithArgs: () => void;
   onExecute: () => Promise<void>;
   onStatusChange: (status: string) => Promise<void>;
+  hideTitleRow?: boolean;
 }) {
   const { message } = App.useApp();
   const webhookUrl = `${window.location.origin}/webhook/trigger/todo/${selectedTodo.id}`;
@@ -32,16 +34,18 @@ export function DetailHeader({
   return (
     <>
       <div className="detail-card header-card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-          <StatusPicker value={selectedTodo.status} onChange={onStatusChange} disabled={isExecuting} />
-          <h2 className="card-title" style={{ margin: 0, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedTodo.title}</h2>
-          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-            <Button type="text" icon={<EditOutlined />} onClick={onTodoDrawerOpen} className="icon-btn" aria-label="编辑任务" />
-            <Popconfirm title="删除任务" description="确定要删除吗？" onConfirm={onDelete}>
-              <Button type="text" danger icon={<DeleteOutlined />} className="icon-btn" aria-label="删除任务" />
-            </Popconfirm>
+        {!hideTitleRow && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <StatusPicker value={selectedTodo.status} onChange={onStatusChange} disabled={isExecuting} />
+            <h2 className="card-title" style={{ margin: 0, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedTodo.title}</h2>
+            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+              <Button type="text" icon={<EditOutlined />} onClick={onTodoDrawerOpen} className="icon-btn" aria-label="编辑任务" />
+              <Popconfirm title="删除任务" description="确定要删除吗？" onConfirm={onDelete}>
+                <Button type="text" danger icon={<DeleteOutlined />} className="icon-btn" aria-label="删除任务" />
+              </Popconfirm>
+            </div>
           </div>
-        </div>
+        )}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <ExecutorBadge executor={executor} />
