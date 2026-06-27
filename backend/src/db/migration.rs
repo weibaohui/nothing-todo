@@ -68,6 +68,7 @@ pub(super) fn all_migrations() -> Vec<Box<dyn Migration>> {
         Box::new(V33ReviewTemplatesEnsureWorkspaceId),
         Box::new(V34MigrateOrphansToTempWorkspace),
         Box::new(V35RenameWorkspaceToWorkspacePath),
+        Box::new(V36SlashCommandLoopSupport),
     ]
 }
 
