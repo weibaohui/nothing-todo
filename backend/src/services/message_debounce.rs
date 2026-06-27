@@ -146,8 +146,8 @@ impl MessageDebounce {
 
                     // 根据 trigger_type 分发到不同的处理函数
                     let result: Result<crate::executor_service::ExecutionResult, ()> = match last.trigger_type.as_str() {
-                        "default_response_loop" => {
-                            // 环路默认响应：直接触发环路执行
+                        "default_response_loop" | "slash_command_loop" => {
+                            // 环路默认响应 或 斜杠命令触发环路：直接触发环路执行
                             Self::handle_default_response_loop(
                                 &db,
                                 &task_manager,

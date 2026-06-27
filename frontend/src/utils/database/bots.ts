@@ -23,7 +23,9 @@ export interface WorkspaceSlashCommand {
   id: number;
   workspace_id: number;
   slash_command: string;
+  command_type: 'todo' | 'loop';
   todo_id: number;
+  loop_id: number | null;
   enabled: boolean;
   created_at: string;
   updated_at: string;
@@ -31,13 +33,17 @@ export interface WorkspaceSlashCommand {
 
 export interface CreateWorkspaceSlashCommandParams {
   slash_command: string;
+  command_type?: 'todo' | 'loop';
   todo_id: number;
+  loop_id?: number | null;
   enabled?: boolean;
 }
 
 export interface UpdateWorkspaceSlashCommandParams {
   slash_command?: string;
+  command_type?: 'todo' | 'loop';
   todo_id?: number;
+  loop_id?: number | null;
   enabled?: boolean;
 }
 

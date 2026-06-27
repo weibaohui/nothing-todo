@@ -3763,3 +3763,33 @@ impl Migration for V35RenameWorkspaceToWorkspacePath {
     }
 }
 
+/// V36: 扩展 workspace_slash_commands 表支持环路
+///
+/// 添加 command_type ('todo' | 'loop') 和 loop_id 列，
+/// 使斜杠命令可以触发 todo 或环路。
+pub(super) struct V36SlashCommandLoopSupport;
+
+#[async_trait::async_trait]
+impl Migration for V36SlashCommandLoopSupport {
+    fn version(&self) -> i64 { 36 }
+    fn name(&self) -> &'static str { "slash_command_loop_support" }
+
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        // 添加 command_type 列（默认为 'todo' 保持向后兼容）
+        if !table_has_column(db, "workspace_slash_commands", "command_type").await? {
+            db.exec("ALTER TABLE workspace_slash_commands ADD COLUMN command_type TEXT NOT NULL DEFAULT 'todo'")
+                .await?;
+            tracing::info!("V36: workspace_slash_commands.command_type column added");
+        }
+
+        // 添加 loop_id 列（可为空，只有 command_type='loop' 时才有值）
+        if !table_has_column(db, "workspace_slash_commands", "loop_id").await? {
+            db.exec("ALTER TABLE workspace_slash_commands ADD COLUMN loop_id INTEGER")
+                .await?;
+            tracing::info!("V36: workspace_slash_commands.loop_id column added");
+        }
+
+        Ok(())
+    }
+}
+

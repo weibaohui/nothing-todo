@@ -621,19 +621,40 @@ impl FeishuListener {
             // 没匹配上规则 → 走默认回复路径，保持向后兼容
             return Self::dispatch_default_response(context, msg, prep).await;
         };
-        // 防御：rule 关联的 todo 可能已被删，没拿到 todo 就不 push
-        let Ok(Some(todo)) = context.db.get_todo(rule.todo_id).await else {
-            tracing::error!("Failed to fetch todo {} for slash command", rule.todo_id);
-            return;
-        };
-        // 命令体可能为空（如 /j 直接触发），此时直接用命令名作为 trigger 参数字符串
-        let trigger_str = if command_ctx.body.is_empty() {
-            command_ctx.command.to_string()
-        } else {
-            format!("{} {}", command_ctx.command, command_ctx.body)
-        };
-        let (_, params) = build_trigger_params(&trigger_str);
-        Self::push_slash_command_message(context.debounce, context.bot_id, msg, prep.chat_type, &todo, command_ctx.body, params, Some(workspace_id));
+
+        // 根据 command_type 分发到 todo 或 loop 处理
+        match rule.command_type.as_str() {
+            "loop" => {
+                // 斜杠命令触发环路
+                let Some(loop_id) = rule.loop_id else {
+                    tracing::error!("slash command {} has loop_id=null, skipping", command_ctx.command);
+                    return;
+                };
+                Self::push_slash_command_loop_message(
+                    context.debounce,
+                    context.bot_id,
+                    msg,
+                    prep.chat_type,
+                    loop_id,
+                    command_ctx.body,
+                    Some(workspace_id),
+                );
+            }
+            _ => {
+                // 默认为 todo 类型（保持向后兼容）
+                let Ok(Some(todo)) = context.db.get_todo(rule.todo_id).await else {
+                    tracing::error!("Failed to fetch todo {} for slash command", rule.todo_id);
+                    return;
+                };
+                let trigger_str = if command_ctx.body.is_empty() {
+                    command_ctx.command.to_string()
+                } else {
+                    format!("{} {}", command_ctx.command, command_ctx.body)
+                };
+                let (_, params) = build_trigger_params(&trigger_str);
+                Self::push_slash_command_message(context.debounce, context.bot_id, msg, prep.chat_type, &todo, command_ctx.body, params, Some(workspace_id));
+            }
+        }
     }
 
     /// 阶段 6a-i：查 enabled 的斜杠命令规则（按 workspace 查询）
@@ -671,6 +692,35 @@ impl FeishuListener {
             executor: todo.executor.clone(),
             trigger_type: "slash_command".to_string(),
             params: Some(params),
+            message_id: Some(msg.id.clone()),
+            resume_session_id: None,
+            resume_message: None,
+            binding_id: None,
+            workspace_id,
+        });
+    }
+
+    /// 阶段 6a-iii：把斜杠命令触发环路的消息塞进 debounce
+    fn push_slash_command_loop_message(
+        debounce: &Arc<MessageDebounce>,
+        bot_id: i64,
+        msg: &ChannelMessage,
+        chat_type: &str,
+        loop_id: i64,
+        body: &str,
+        workspace_id: Option<i64>,
+    ) {
+        debounce.push(PendingMessage {
+            bot_id,
+            chat_id: msg.channel.clone(),
+            chat_type: chat_type.to_string(),
+            sender: msg.sender.clone(),
+            content: body.to_string(),
+            todo_id: loop_id, // 复用 todo_id 字段存储 loop_id
+            todo_prompt: String::new(), // 环路不使用 todo_prompt
+            executor: None,
+            trigger_type: "slash_command_loop".to_string(),
+            params: None,
             message_id: Some(msg.id.clone()),
             resume_session_id: None,
             resume_message: None,
