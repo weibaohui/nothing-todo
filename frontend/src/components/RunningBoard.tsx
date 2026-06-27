@@ -219,7 +219,7 @@ export function RunningBoard({ searchText, hours, selectedProject }: RunningBoar
   const [activeKey, setActiveKey] = useState<RunningBoardColumn>('running');
   const [drawerRecord, setDrawerRecord] = useState<ExecutionRecord | null>(null);
 
-  const { records, scheduledTodos, loading, refresh } = useRunningBoard(state.selectedWorkspace);
+  const { records, scheduledTodos, loading, refresh } = useRunningBoard(state.selectedWorkspace, hours);
   useAutoRefreshRunningBoard(refresh);
 
   // 切换工作空间后立即拉取该 workspace 的 todo，保证数据最新。

@@ -65,6 +65,18 @@ pub async fn get_execution_records(
     } else {
         records
     };
+
+    // 按 hours 过滤：只保留 finished_at 在最近 N 小时内的记录
+    let records = if let Some(h) = query.hours.filter(|&h| h > 0) {
+        let cutoff = chrono::Utc::now() - chrono::Duration::hours(h as i64);
+        let cutoff_str = cutoff.format("%Y-%m-%dT%H:%M:%S").to_string();
+        records.into_iter().filter(|r| {
+            r.finished_at.as_deref().map_or(false, |t| t >= cutoff_str.as_str())
+        }).collect()
+    } else {
+        records
+    };
+
     Ok(ApiResponse::ok(ExecutionRecordsPage {
         records,
         total,
@@ -339,6 +351,9 @@ pub struct RunningBoardQuery {
     /// 按工作空间 ID 过滤；不传返回全部。
     #[serde(default)]
     pub workspace_id: Option<i64>,
+    /// 按最近 N 小时过滤（对 execution records 生效）；不传或 0 表示不过滤。
+    #[serde(default)]
+    pub hours: Option<u32>,
 }
 
 pub async fn get_running_board(
@@ -367,6 +382,17 @@ pub async fn get_running_board(
         let ws_todos = state.db.get_todos_by_workspace_id(Some(wid)).await.unwrap_or_default();
         let ws_todo_ids: std::collections::HashSet<i64> = ws_todos.iter().map(|t| t.id).collect();
         records.into_iter().filter(|r| ws_todo_ids.contains(&r.todo_id)).collect()
+    } else {
+        records
+    };
+
+    // 按 hours 过滤：只保留 finished_at 在最近 N 小时内的记录
+    let records = if let Some(h) = query.hours.filter(|&h| h > 0) {
+        let cutoff = chrono::Utc::now() - chrono::Duration::hours(h as i64);
+        let cutoff_str = cutoff.format("%Y-%m-%dT%H:%M:%S").to_string();
+        records.into_iter().filter(|r| {
+            r.finished_at.as_deref().map_or(false, |t| t >= cutoff_str.as_str())
+        }).collect()
     } else {
         records
     };

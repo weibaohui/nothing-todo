@@ -41,7 +41,7 @@ function classifyRecord(record: ExecutionRecord): RunningBoardColumn {
   return 'failed';
 }
 
-export function useRunningBoard(workspaceId?: number | null): RunningBoardState {
+export function useRunningBoard(workspaceId?: number | null, hours?: number): RunningBoardState {
   const [records, setRecords] = useState<ExecutionRecord[]>([]);
   const [scheduledTodos, setScheduledTodos] = useState<ScheduledTodo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,7 +54,7 @@ export function useRunningBoard(workspaceId?: number | null): RunningBoardState 
       setRecords([]); // 切换 workspace 时先清空，避免旧数据闪烁
       setScheduledTodos([]);
       // 运行看板不分页，拉取最近的一批数据即可
-      const data = await db.getRunningBoardData(undefined, 200, workspaceId ?? undefined);
+      const data = await db.getRunningBoardData(undefined, 200, workspaceId ?? undefined, hours);
       if (mountedRef.current) {
         setRecords(data.records);
         setScheduledTodos(data.scheduled_todos);
@@ -68,7 +68,7 @@ export function useRunningBoard(workspaceId?: number | null): RunningBoardState 
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [workspaceId]);
+  }, [workspaceId, hours]);
 
   useEffect(() => {
     mountedRef.current = true;

@@ -590,6 +590,9 @@ pub async fn reorder_loop_steps(
 pub struct ExecutionPageQuery {
     pub page: Option<u64>,
     pub limit: Option<u64>,
+    /// 按最近 N 小时过滤（对 started_at 生效）；不传或 0 表示不过滤。
+    #[serde(default)]
+    pub hours: Option<u32>,
 }
 
 pub async fn list_executions(
@@ -602,6 +605,14 @@ pub async fn list_executions(
     let offset = (page - 1) * limit;
     let records = state.db.list_loop_executions(loop_id, limit, offset).await?;
     let total = state.db.count_loop_executions(loop_id).await?;
+    // 按 hours 过滤
+    let records = if let Some(h) = q.hours.filter(|&h| h > 0) {
+        let cutoff = chrono::Utc::now() - chrono::Duration::hours(h as i64);
+        let cutoff_str = cutoff.format("%Y-%m-%dT%H:%M:%S").to_string();
+        records.into_iter().filter(|r| r.started_at >= cutoff_str).collect()
+    } else {
+        records
+    };
     // 批量查询各执行记录的待审批数量
     let exec_ids: Vec<i64> = records.iter().map(|r| r.id).collect();
     let pending_counts = state.db.count_pending_approvals_by_execution_ids(&exec_ids).await?;

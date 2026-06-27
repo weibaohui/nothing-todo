@@ -432,6 +432,9 @@ pub struct TodoIdQuery {
     /// 按工作空间 ID 过滤；不传则不过滤。当提供 todo_id 或 step_id 时忽略此字段。
     #[serde(default)]
     pub workspace_id: Option<i64>,
+    /// 按最近 N 小时过滤（对 finished_at 生效）；不传或 0 表示不过滤。
+    #[serde(default)]
+    pub hours: Option<u32>,
 }
 
 /// 批量更新事项执行器请求体。
