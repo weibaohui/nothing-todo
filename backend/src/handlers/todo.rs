@@ -7,9 +7,9 @@ use crate::db::TodoUpdate;
 use crate::handlers::{ApiJson, AppError, AppState};
 // todo hook 已整块移除（plan `purring-forging-petal`），HookContext 不再导入。
 use crate::models::{
-    utc_timestamp, ApiResponse, BatchCopyTodoWorkspacePathRequest,
+    utc_timestamp, ApiResponse, BatchCopyTodoWorkspaceRequest,
     BatchUpdateTodoExecutorRequest, BatchUpdateTodoResult,
-    BatchUpdateTodoWorkspacePathRequest, BatchWorkspaceResult,
+    BatchUpdateTodoWorkspaceRequest, BatchWorkspaceResult,
     CreateTodoRequest, RecentCompletedTodo, Todo, UpdateTagsRequest, UpdateTodoRequest,
 };
 
@@ -69,13 +69,21 @@ pub async fn create_todo(
         .clone()
         .unwrap_or_else(|| "claudecode".to_string());
 
+    // 工作空间 id 必填且必须存在：handler 按 id 解析出 path 后再下传，
+    // DAO 一次写入 workspace_id + workspace_path 两列保证双字段同步。
+    let dir = state
+        .db
+        .get_project_directory_by_id(req.workspace_id)
+        .await?
+        .ok_or_else(|| AppError::BadRequest(format!("工作空间 {} 不存在", req.workspace_id)))?;
     let id = state.db.create_todo_with_extras(
         title,
         &prompt,
         Some(&executor),
         req.acceptance_criteria.as_deref(),
         req.webhook_enabled.unwrap_or(false),
-        None, // workspace_id 由调用方在创建后通过 update_todo_workspace 单独设置
+        req.workspace_id,
+        &dir.path,
     ).await?;
 
     // Update executor if specified
@@ -147,8 +155,10 @@ pub async fn create_todo(
         scheduler_timezone: scheduler_timezone.clone(),
         scheduler_next_run_at: None,
         task_id: None,
+        // cwd 字段保留为 None：handler 已通过 create_todo_with_extras 把 path 同步写入 DB，
+        // 这里只对外回传 workspace_id；前端不再消费 workspace_path。
         workspace_path: None,
-        workspace_id: None,
+        workspace_id: Some(req.workspace_id),
         webhook_enabled: req.webhook_enabled.unwrap_or(false),
         acceptance_criteria: req.acceptance_criteria.clone(),
         todo_type: 0,
@@ -181,7 +191,19 @@ pub async fn update_todo(
     };
     let new_status = req.status.unwrap_or(current.status);
     let executor = req.executor.or(current.executor);
-    let workspace_path = req.workspace_path.or(current.workspace_path);
+    // 工作空间切换是可选的；只有显式传 workspace_id 才把 id + 解析得到的 path 一并下传。
+    // 不传则保持原工作空间不变——DAO 端 workspace_id=None 时不动这一列。
+    let new_workspace_id = req.workspace_id;
+    let new_workspace_path: Option<String> = if let Some(wid) = new_workspace_id {
+        let dir = state
+            .db
+            .get_project_directory_by_id(wid)
+            .await?
+            .ok_or_else(|| AppError::BadRequest(format!("工作空间 {} 不存在", wid)))?;
+        Some(dir.path)
+    } else {
+        None
+    };
 
     let scheduler_config = req
         .scheduler_config
@@ -215,13 +237,23 @@ pub async fn update_todo(
             scheduler_enabled: req.scheduler_enabled,
             scheduler_config: scheduler_config.as_deref(),
             scheduler_timezone: scheduler_timezone.as_deref(),
-            workspace_path: workspace_path.as_deref(),
+            workspace_id: new_workspace_id,
             webhook_enabled: req.webhook_enabled,
             acceptance_criteria: req.acceptance_criteria.as_deref(),
             auto_review_enabled: req.auto_review_enabled,
         })
         .await
         .map_err(AppError::from)?;
+
+    // 工作空间双字段同步：TodoUpdate 只写了 workspace_id，cwd path 由 update_todo_workspace 单独补齐
+    // （handler 已经按 id 查到 path，避免 DAO 再做反查）。
+    if let (Some(wid), Some(wpath)) = (new_workspace_id, new_workspace_path.as_deref()) {
+        state
+            .db
+            .update_todo_workspace(id, Some(wid), Some(wpath))
+            .await
+            .map_err(AppError::from)?;
+    }
 
     // todo hook 已整块移除（plan `purring-forging-petal`）：todo 不再持有
     // inline hooks 列表，也不会在状态变化时 fire 任何 hook。原先的两步
@@ -335,17 +367,20 @@ pub async fn batch_update_todos_executor(
 /// PUT /api/todos/batch-workspace — 批量移动事项到其他工作空间
 pub async fn batch_move_todos_workspace(
     State(state): State<AppState>,
-    ApiJson(req): ApiJson<BatchUpdateTodoWorkspacePathRequest>,
+    ApiJson(req): ApiJson<BatchUpdateTodoWorkspaceRequest>,
 ) -> Result<ApiResponse<BatchWorkspaceResult>, AppError> {
     if req.ids.is_empty() {
         return Err(AppError::BadRequest("ids 不能为空".to_string()));
     }
-    if req.workspace_path.trim().is_empty() {
-        return Err(AppError::BadRequest("workspace 不能为空".to_string()));
-    }
+    // handler 把 id 解析为 path 后下传 DAO；DAO 一次写入 workspace_id + workspace_path。
+    let dir = state
+        .db
+        .get_project_directory_by_id(req.workspace_id)
+        .await?
+        .ok_or_else(|| AppError::BadRequest(format!("工作空间 {} 不存在", req.workspace_id)))?;
     let rows_affected = state
         .db
-        .batch_update_todos_workspace(&req.ids, req.workspace_path.trim())
+        .batch_update_todos_workspace(&req.ids, req.workspace_id, &dir.path)
         .await?;
     Ok(ApiResponse::ok(BatchWorkspaceResult {
         updated_count: rows_affected as i64,
@@ -356,17 +391,19 @@ pub async fn batch_move_todos_workspace(
 /// POST /api/todos/batch-copy-workspace — 批量复制事项到其他工作空间
 pub async fn batch_copy_todos_workspace(
     State(state): State<AppState>,
-    ApiJson(req): ApiJson<BatchCopyTodoWorkspacePathRequest>,
+    ApiJson(req): ApiJson<BatchCopyTodoWorkspaceRequest>,
 ) -> Result<ApiResponse<BatchWorkspaceResult>, AppError> {
     if req.ids.is_empty() {
         return Err(AppError::BadRequest("ids 不能为空".to_string()));
     }
-    if req.workspace_path.trim().is_empty() {
-        return Err(AppError::BadRequest("workspace 不能为空".to_string()));
-    }
+    let dir = state
+        .db
+        .get_project_directory_by_id(req.workspace_id)
+        .await?
+        .ok_or_else(|| AppError::BadRequest(format!("工作空间 {} 不存在", req.workspace_id)))?;
     let created_ids = state
         .db
-        .batch_copy_todos_to_workspace(&req.ids, req.workspace_path.trim())
+        .batch_copy_todos_to_workspace(&req.ids, req.workspace_id, &dir.path)
         .await?;
     Ok(ApiResponse::ok(BatchWorkspaceResult {
         updated_count: created_ids.len() as i64,

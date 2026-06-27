@@ -1170,7 +1170,9 @@ impl FeishuListener {
                         path = dir.path,
                     );
 
-                    match db.create_todo_with_extras(&todo_title, &todo_prompt, None, None, false, Some(dir.id)).await {
+                    // workspace_id 必填；handler 层按 dir.id + dir.path 双字段下传，
+                    // DAO 一次写入 workspace_id + workspace_path 保持两列同步。
+                    match db.create_todo_with_extras(&todo_title, &todo_prompt, None, None, false, dir.id, &dir.path).await {
                         Ok(todo_id) => {
                             match db.create_feishu_project_binding(bot_id, channel, chat_type, dir.id, todo_id).await {
                                 Ok(binding_id) => {
@@ -1813,10 +1815,8 @@ struct SlashCommandMatch<'a> {
 #[cfg(test)]
 mod tests {
     use super::FeishuListener;
-    use crate::config::{Config as AppConfig, SlashCommandRule};
     use crate::models::{BotConfig, ExecutionRecord, ExecutionStatus};
     use crate::db::feishu_project_binding::FeishuProjectBinding;
-    use std::sync::{Arc, RwLock};
 
     #[test]
     fn test_parse_slash_command_exact_first_token() {

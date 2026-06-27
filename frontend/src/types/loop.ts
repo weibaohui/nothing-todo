@@ -33,7 +33,11 @@ export interface LoopDto {
   id: number;
   name: string;
   description: string;
-  workspace_path: string | null;
+  /**
+   * 工作空间 ID（project_directories.id），唯一键。
+   * 组件间统一传 id，path 不再上送 API；前端展示用 project_directories.name/path 自行查询。
+   */
+  workspace_id: number | null;
   webhook_enabled: boolean;
   status: string;
   /** 标签 ID 列表（单选，复用 Todo 的标签体系） */
@@ -204,7 +208,8 @@ export interface LoopDetail {
   id: number;
   name: string;
   description: string;
-  workspace_path: string | null;
+  /** 工作空间 ID（project_directories.id，唯一键）。组件间统一以 id 传递，path 不再上送。 */
+  workspace_id: number | null;
   webhook_enabled: boolean;
   status: string;
   /** 标签 ID 列表（单选，复用 Todo 的标签体系） */
@@ -229,7 +234,8 @@ export interface LoopListItem {
   id: number;
   name: string;
   description: string;
-  workspace_path: string | null;
+  /** 工作空间 ID（project_directories.id，唯一键）。组件间统一以 id 传递，path 不再上送。 */
+  workspace_id: number | null;
   webhook_enabled: boolean;
   status: string;
   /** 标签 ID 列表（单选，复用 Todo 的标签体系） */
@@ -283,11 +289,14 @@ export interface LoopExecutionListResponse {
 export interface CreateLoopRequest {
   name: string;
   description?: string;
-  /** 工作空间目录路径（对应 project_directories.path），必填。 */
-  workspace_path: string;
+  /**
+   * 工作空间 ID（project_directories.id），必填、唯一键。
+   * 不再接受路径——避免 path 不唯一带来的歧义。
+   */
+  workspace_id: number;
   webhook_enabled?: boolean;
   tag_ids?: number[];
-  /** 创建时可选预绑定单个标签；省略时后端按空标签处理，兼容旧调用方。 */
+  /** 创建时可选预绑定单个标签；省略时后端按空标签处理。 */
   icon?: string;
   review_template_id?: number | null;
   /** 限制条件 JSON 字符串 */
@@ -301,7 +310,12 @@ export interface CreateLoopRequest {
 export interface UpdateLoopRequest {
   name: string;
   description: string;
-  workspace_path: string | null;
+  /**
+   * 工作空间 ID（project_directories.id）。
+   * undefined = 保持原工作空间；显式赋值（包含 null）= 迁移/清空。
+   * 不接受路径——handler 一律按 id 解析 cwd 路径写入两列。
+   */
+  workspace_id?: number | null;
   webhook_enabled: boolean;
   icon: string;
   review_template_id?: number | null;

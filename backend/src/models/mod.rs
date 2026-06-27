@@ -106,8 +106,13 @@ pub struct Todo {
     pub scheduler_next_run_at: Option<String>,
     #[serde(default)]
     pub task_id: Option<String>,
+    /// 工作空间目录路径（cwd，仅后端内部使用，不通过 API 暴露给前端）。
+    /// 业务层（前端 / CLI / sync）只通过 `workspace_id` 标识工作空间，
+    /// path 字段保留供 executor_service / worktree 等需要 cwd 的子系统使用。
     #[serde(default)]
     pub workspace_path: Option<String>,
+    /// 所属工作空间 ID（project_directories.id），唯一键。
+    /// 业务层（前端 / CLI / API）统一以此作为工作空间标识符。
     #[serde(default)]
     pub workspace_id: Option<i64>,
     #[serde(default)]
@@ -350,6 +355,9 @@ pub struct CreateTodoRequest {
     pub webhook_enabled: Option<bool>,
     #[serde(default)]
     pub auto_review_enabled: Option<bool>,
+    /// 工作空间 ID（project_directories.id），唯一键。
+    /// 创建时必填；handler 据此查 path 写入 DB cwd 字段。
+    pub workspace_id: i64,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -368,8 +376,11 @@ pub struct UpdateTodoRequest {
     pub scheduler_config: Option<String>,
     #[serde(default)]
     pub scheduler_timezone: Option<String>,
+    /// 工作空间 ID（project_directories.id）。
+    /// None=保持当前工作空间，Some(id)=迁移到该工作空间。
+    /// 不接受路径——handler 一律按 id 解析 cwd 路径写入两列。
     #[serde(default)]
-    pub workspace_path: Option<String>,
+    pub workspace_id: Option<i64>,
     #[serde(default)]
     pub webhook_enabled: Option<bool>,
     #[serde(default)]
@@ -436,30 +447,34 @@ pub struct BatchUpdateTodoResult {
 
 /// 批量更新事项工作空间请求体（移动到其他工作空间）。
 #[derive(Debug, Clone, Deserialize)]
-pub struct BatchUpdateTodoWorkspacePathRequest {
+pub struct BatchUpdateTodoWorkspaceRequest {
     pub ids: Vec<i64>,
-    pub workspace_path: String,
+    /// 目标工作空间 ID（project_directories.id）。
+    pub workspace_id: i64,
 }
 
 /// 批量复制事项到其他工作空间请求体。
 #[derive(Debug, Clone, Deserialize)]
-pub struct BatchCopyTodoWorkspacePathRequest {
+pub struct BatchCopyTodoWorkspaceRequest {
     pub ids: Vec<i64>,
-    pub workspace_path: String,
+    /// 目标工作空间 ID（project_directories.id）。
+    pub workspace_id: i64,
 }
 
 /// 批量更新环路工作空间请求体（移动到其他工作空间）。
 #[derive(Debug, Clone, Deserialize)]
-pub struct BatchUpdateLoopWorkspacePathRequest {
+pub struct BatchUpdateLoopWorkspaceRequest {
     pub ids: Vec<i64>,
-    pub workspace_path: String,
+    /// 目标工作空间 ID（project_directories.id）。
+    pub workspace_id: i64,
 }
 
 /// 批量复制环路到其他工作空间请求体。
 #[derive(Debug, Clone, Deserialize)]
-pub struct BatchCopyLoopWorkspacePathRequest {
+pub struct BatchCopyLoopWorkspaceRequest {
     pub ids: Vec<i64>,
-    pub workspace_path: String,
+    /// 目标工作空间 ID（project_directories.id）。
+    pub workspace_id: i64,
 }
 
 /// 批量 workspace 操作返回结果（通用）。
@@ -1210,16 +1225,18 @@ mod tests {
 
     #[test]
     fn test_create_todo_request_deserialize() {
-        let json = r#"{"title":"Test","prompt":"Do this","tag_ids":[1,2]}"#;
+        let json = r#"{"title":"Test","prompt":"Do this","tag_ids":[1,2],"workspace_id":42}"#;
         let req: CreateTodoRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.title, "Test");
         assert_eq!(req.prompt, "Do this");
         assert_eq!(req.tag_ids, vec![1, 2]);
+        assert_eq!(req.workspace_id, 42);
     }
 
     #[test]
     fn test_create_todo_request_default_tag_ids() {
-        let json = r#"{"title":"Test","prompt":"Do this"}"#;
+        // workspace_id 必填：缺失则反序列化失败，这是 API 契约的一部分。
+        let json = r#"{"title":"Test","prompt":"Do this","workspace_id":1}"#;
         let req: CreateTodoRequest = serde_json::from_str(json).unwrap();
         assert!(req.tag_ids.is_empty());
     }

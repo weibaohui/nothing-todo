@@ -75,7 +75,8 @@ export function TodoList(props: TodoListProps) {
   // 批量工作空间操作 Modal（事项/环路共用）
   const [workspaceBatchModalOpen, setWorkspaceBatchModalOpen] = useState(false);
   const [workspaceBatchMode, setWorkspaceBatchMode] = useState<'copy' | 'move'>('copy');
-  const [workspaceBatchTarget, setWorkspaceBatchTarget] = useState<string | null>(null);
+  // target 改为工作空间 id（project_directories.id 唯一键），不再用 path。
+  const [workspaceBatchTarget, setWorkspaceBatchTarget] = useState<number | null>(null);
   const [pendingWorkspaceBatchIds, setPendingWorkspaceBatchIds] = useState<number[]>([]);
   const [workspaceBatchProcessing, setWorkspaceBatchProcessing] = useState(false);
   const [workspaceBatchContext, setWorkspaceBatchContext] = useState<'item' | 'loop'>('item');
@@ -115,27 +116,24 @@ export function TodoList(props: TodoListProps) {
     return () => window.removeEventListener('projectDirectoryAdded', handleDirAdded); // 清理：卸载时移除监听
   }, [reloadProjectDirectories]);
 
-  // 当目录列表加载完成后，若当前未选中任何工作空间且存在目录，自动选中第一个
+  // 当目录列表加载完成后，若当前未选中任何工作空间且存在目录，自动选中第一个。
+  // 自动选中用 id 而非 path —— selectedWorkspace 现已统一为 project_directories.id。
   useEffect(() => {
     if (projectDirectories.length > 0 && selectedWorkspace === null) {
-      dispatch({ type: 'SELECT_WORKSPACE', payload: projectDirectories[0].path });
+      dispatch({ type: 'SELECT_WORKSPACE', payload: projectDirectories[0].id });
     }
   }, [projectDirectories, selectedWorkspace, dispatch]);
 
   // 当列表切换到「环路」时，自动加载 loop 列表；或环路变更时刷新
   // 必须等待项目目录加载完成且工作空间已确定，否则请求不携带 workspace 参数返回错误数据。
-  // 筛选必须用 id：selectedWorkspace 是路径字符串，这里从 projectDirectories 反查 workspace_id
-  // 再传给 listLoops（path 不唯一，id 唯一）。
+  // selectedWorkspace 现在就是 id（唯一键），直接传给 listLoops 即可，不需要再做 path→id 推导。
   useEffect(() => {
     if (listMode !== 'loop') return;
     if (!directoriesReady) return;
     // 已有目录但尚未选定工作空间 → 等待 auto-select 后再加载
     if (projectDirectories.length > 0 && selectedWorkspace === null) return;
-    const workspaceId = selectedWorkspace
-      ? projectDirectories.find(d => d.path === selectedWorkspace)?.id ?? null
-      : null;
     setLoopLoading(true);
-    dbLoops.listLoops(workspaceId)
+    dbLoops.listLoops(selectedWorkspace)
       .then(setLoopList)
       .catch(() => setLoopList([]))
       .finally(() => setLoopLoading(false));
@@ -177,9 +175,9 @@ export function TodoList(props: TodoListProps) {
       : todos;
     
     // 按 workspace 过滤：selectedWorkspace 为 null 时显示全部，
-    // 否则只显示匹配 workspace 路径的 todo
+    // 否则只显示匹配 workspace id 的 todo
     if (selectedWorkspace !== null) {
-      result = result.filter(todo => todo.workspace_path === selectedWorkspace);
+      result = result.filter(todo => todo.workspace_id === selectedWorkspace);
     }
     
     // 再按关键字搜索（匹配标题或提示词）
@@ -266,7 +264,8 @@ export function TodoList(props: TodoListProps) {
   const handleConfirmWorkspaceBatch = useCallback(async () => {
     const ids = pendingWorkspaceBatchIds;
     const target = workspaceBatchTarget;
-    if (ids.length === 0 || !target?.trim()) return;
+    // target 是工作空间 id；null/undefined 都视为未选
+    if (ids.length === 0 || target == null) return;
     setWorkspaceBatchProcessing(true);
     try {
       const mode = workspaceBatchMode;
@@ -275,21 +274,25 @@ export function TodoList(props: TodoListProps) {
 
       if (context === 'item') {
         if (mode === 'copy') {
-          result = await db.batchCopyTodosWorkspace(ids, target.trim());
+          result = await db.batchCopyTodosWorkspace(ids, target);
         } else {
-          result = await db.batchMoveTodosWorkspace(ids, target.trim());
+          result = await db.batchMoveTodosWorkspace(ids, target);
         }
       } else {
         if (mode === 'copy') {
-          result = await dbLoops.batchCopyLoopsWorkspace(ids, target.trim());
+          result = await dbLoops.batchCopyLoopsWorkspace(ids, target);
         } else {
-          result = await dbLoops.batchMoveLoopsWorkspace(ids, target.trim());
+          result = await dbLoops.batchMoveLoopsWorkspace(ids, target);
         }
       }
 
       const actionLabel = mode === 'copy' ? '复制' : '移动';
+      // 提示用工作空间展示名（name 优先、path 兜底），不再直接拼接 id。
+      const targetName = projectDirectories.find(d => d.id === target)?.name
+        ?? projectDirectories.find(d => d.id === target)?.path
+        ?? String(target);
       if (result.updated_count === result.total) {
-        message.success(`已${actionLabel} ${result.updated_count} 项到「${target.trim()}」`);
+        message.success(`已${actionLabel} ${result.updated_count} 项到「${targetName}」`);
       } else {
         message.warning(`${actionLabel}成功 ${result.updated_count} 条，失败 ${result.total - result.updated_count} 条`);
       }
@@ -301,11 +304,8 @@ export function TodoList(props: TodoListProps) {
           dispatch({ type: 'UPDATE_TODO', payload: todo });
         }
       } else {
-        // 环路模式：刷新 loop 列表。筛选必须用 id：路径反查 workspace_id。
-        const workspaceId = selectedWorkspace
-          ? projectDirectories.find(d => d.path === selectedWorkspace)?.id ?? null
-          : null;
-        const loops = await dbLoops.listLoops(workspaceId);
+        // 环路模式：刷新 loop 列表。selectedWorkspace 现已统一为 id，直接传即可。
+        const loops = await dbLoops.listLoops(selectedWorkspace);
         setLoopList(loops);
       }
 
@@ -316,7 +316,7 @@ export function TodoList(props: TodoListProps) {
     } finally {
       setWorkspaceBatchProcessing(false);
     }
-  }, [pendingWorkspaceBatchIds, workspaceBatchTarget, workspaceBatchMode, workspaceBatchContext, message, dispatch, selectedWorkspace]);
+  }, [pendingWorkspaceBatchIds, workspaceBatchTarget, workspaceBatchMode, workspaceBatchContext, message, dispatch, selectedWorkspace, projectDirectories]);
 
   // 确认更换执行器（事项模式）
   const handleConfirmChangeExecutor = useCallback(async (executor: string) => {
@@ -678,7 +678,7 @@ export function TodoList(props: TodoListProps) {
         okText={workspaceBatchMode === 'copy' ? '确认复制' : '确认移动'}
         cancelText="取消"
         confirmLoading={workspaceBatchProcessing}
-        okButtonProps={{ disabled: !workspaceBatchTarget?.trim() }}
+        okButtonProps={{ disabled: workspaceBatchTarget == null }}
         destroyOnClose
       >
         <p>

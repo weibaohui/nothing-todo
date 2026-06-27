@@ -17,7 +17,10 @@ pub struct TodoUpdate<'a> {
     pub scheduler_enabled: Option<bool>,
     pub scheduler_config: Option<&'a str>,
     pub scheduler_timezone: Option<&'a str>,
-    pub workspace_path: Option<&'a str>,
+    /// 工作空间 ID（project_directories.id）。
+    /// None=保持当前工作空间，Some(id)=迁移到该工作空间（handler 同时传 path）。
+    /// 不接受路径——DAO 不再单独接受 path 入参。
+    pub workspace_id: Option<i64>,
     pub webhook_enabled: Option<bool>,
     pub acceptance_criteria: Option<&'a str>,
     pub auto_review_enabled: Option<bool>,
@@ -62,6 +65,8 @@ impl Database {
             scheduler_timezone,
             scheduler_next_run_at,
             task_id: m.task_id,
+            // cwd 字段保留——后端 executor_service / worktree / spawn_lifecycle 等
+            // 子系统仍按 path 字符串读取 cwd。API 层不再把 workspace_path 暴露给前端。
             workspace_path: m.workspace_path,
             workspace_id: m.workspace_id,
             webhook_enabled: m.webhook_enabled.unwrap_or(false),
@@ -141,11 +146,17 @@ impl Database {
 
     /// 创建 Todo，可指定执行器。
     /// executor 为 None、空串或仅空白时默认为 claudecode（防止空/空白字符串污染 DB）。
+    ///
+    /// 注意：本方法保留 path-only 语义作为「最简 helper」专用入口——调用方（feishu_listener /
+    /// sync.rs 等）已经决定好了 workspace，没有工作空间语义可推导时不应使用本方法。
+    /// 业务 API 入口请用 `create_todo_with_extras`（强制 workspace_id + workspace_path 双字段）。
     pub async fn create_todo_with_executor(&self, title: &str, prompt: &str, executor: Option<&str>) -> Result<i64, sea_orm::DbErr> {
-        self.create_todo_with_extras(title, prompt, executor, None, false, None).await
+        self.create_todo_with_extras(title, prompt, executor, None, false, 0, "").await
     }
 
     /// 创建 Todo，带所有可选字段。
+    /// 工作空间必填且必须存在：handler 在调用本方法前已经按 id 解析得到 path，
+    /// 这里同时写入 workspace_id（筛选键）+ workspace_path（cwd）保证双字段同步。
     pub async fn create_todo_with_extras(
         &self,
         title: &str,
@@ -153,7 +164,8 @@ impl Database {
         executor: Option<&str>,
         acceptance_criteria: Option<&str>,
         webhook_enabled: bool,
-        workspace_id: Option<i64>,
+        workspace_id: i64,
+        workspace_path: &str,
     ) -> Result<i64, sea_orm::DbErr> {
         let now = crate::models::utc_timestamp();
         let executor_str = executor
@@ -171,7 +183,8 @@ impl Database {
             webhook_enabled: ActiveValue::Set(Some(webhook_enabled)),
             auto_review_enabled: ActiveValue::Set(Some(false)),
             todo_type: ActiveValue::Set(Some(0)),
-            workspace_id: ActiveValue::Set(workspace_id.or(Some(0))),
+            workspace_id: ActiveValue::Set(Some(workspace_id)),
+            workspace_path: ActiveValue::Set(Some(workspace_path.to_string())),
             ..Default::default()
         };
         let inserted = am.insert(&self.conn).await?;
@@ -204,13 +217,11 @@ impl Database {
                 am.scheduler_timezone = ActiveValue::Set(Some(tz.to_string()));
             }
         }
-        if let Some(ws) = update.workspace_path {
-            let ws = ws.trim();
-            if ws.is_empty() {
-                am.workspace_path = ActiveValue::Set(None);
-            } else {
-                am.workspace_path = ActiveValue::Set(Some(ws.to_string()));
-            }
+        if let Some(wid) = update.workspace_id {
+            // handler 必须把 id 解析为 path 后再传 workspace_path；
+            // DAO 只接 id 写筛选列，path 由 ActiveValue::Unchanged 保持旧值。
+            // 真正的 cwd 同步交给 handler 调用 update_todo_workspace 完成。
+            am.workspace_id = ActiveValue::Set(Some(wid));
         }
         if let Some(webhook_enabled) = update.webhook_enabled {
             am.webhook_enabled = ActiveValue::Set(Some(webhook_enabled));
@@ -302,25 +313,28 @@ impl Database {
     }
 
     /// 批量更新事项工作空间（移动到其他工作空间）。
-    /// 单条 SQL，原子语义。
+    /// 单条 SQL，原子语义：handler 已按 id 解析得到 path，DAO 一次写入 id + path。
     pub async fn batch_update_todos_workspace(
         &self,
         ids: &[i64],
-        workspace: &str,
+        workspace_id: i64,
+        workspace_path: &str,
     ) -> Result<u64, sea_orm::DbErr> {
-        if ids.is_empty() || workspace.trim().is_empty() {
+        if ids.is_empty() || workspace_path.trim().is_empty() {
             return Ok(0);
         }
         let now = crate::models::utc_timestamp();
         let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{}", i)).collect();
         let in_clause = placeholders.join(",");
-        let ws_idx = ids.len() + 1;
-        let now_idx = ids.len() + 2;
+        let ws_id_idx = ids.len() + 1;
+        let ws_path_idx = ids.len() + 2;
+        let now_idx = ids.len() + 3;
         let sql = format!(
-            "UPDATE todos SET workspace_path = ?{ws_idx}, updated_at = ?{now_idx} WHERE id IN ({in_clause})"
+            "UPDATE todos SET workspace_id = ?{ws_id_idx}, workspace_path = ?{ws_path_idx}, updated_at = ?{now_idx} WHERE id IN ({in_clause})"
         );
         let mut vals: Vec<sea_orm::Value> = ids.iter().map(|id| (*id).into()).collect();
-        vals.push(workspace.trim().to_string().into());
+        vals.push(workspace_id.into());
+        vals.push(workspace_path.trim().to_string().into());
         vals.push(now.into());
         let stmt = sea_orm::Statement::from_sql_and_values(sea_orm::DbBackend::Sqlite, sql, vals);
         let rows_affected = self.conn.execute(stmt).await?.rows_affected();
@@ -329,16 +343,18 @@ impl Database {
 
     /// 批量复制事项到目标工作空间。
     /// 读取源事项的完整数据，在目标工作空间下创建副本。
+    /// 入参 id + path 由 handler 解析后传入，DAO 双字段写入保证同步。
     pub async fn batch_copy_todos_to_workspace(
         &self,
         ids: &[i64],
-        target_workspace: &str,
+        target_workspace_id: i64,
+        target_workspace_path: &str,
     ) -> Result<Vec<i64>, sea_orm::DbErr> {
-        if ids.is_empty() || target_workspace.trim().is_empty() {
+        if ids.is_empty() || target_workspace_path.trim().is_empty() {
             return Ok(vec![]);
         }
         let now = crate::models::utc_timestamp();
-        let ws = target_workspace.trim().to_string();
+        let ws = target_workspace_path.trim().to_string();
         let mut created_ids = Vec::new();
 
         for &id in ids {
@@ -358,6 +374,7 @@ impl Database {
                     scheduler_enabled: ActiveValue::Set(model.scheduler_enabled),
                     scheduler_config: ActiveValue::Set(model.scheduler_config),
                     scheduler_timezone: ActiveValue::Set(model.scheduler_timezone),
+                    workspace_id: ActiveValue::Set(Some(target_workspace_id)),
                     workspace_path: ActiveValue::Set(Some(ws.clone())),
                     webhook_enabled: ActiveValue::Set(model.webhook_enabled),
                     acceptance_criteria: ActiveValue::Set(model.acceptance_criteria),
@@ -376,12 +393,16 @@ impl Database {
         Ok(created_ids)
     }
 
+    /// 按 id 单独更新 todo 工作空间（含 cwd path 双字段同步）。
+    /// id=None 表示「清空工作空间」：handler 解析用户意图后调用此方法，
+    /// DAO 只负责把 id + path 同时写进 DB，不会做反查。
     pub async fn update_todo_workspace(
         &self,
         id: i64,
-        workspace: Option<&str>,
+        workspace_id: Option<i64>,
+        workspace_path: Option<&str>,
     ) -> Result<(), sea_orm::DbErr> {
-        let ws = workspace.and_then(|s| {
+        let ws_path = workspace_path.and_then(|s| {
             let trimmed = s.trim();
             if trimmed.is_empty() {
                 None
@@ -392,7 +413,8 @@ impl Database {
         let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
-            workspace_path: ActiveValue::Set(ws),
+            workspace_id: ActiveValue::Set(workspace_id),
+            workspace_path: ActiveValue::Set(ws_path),
             updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };

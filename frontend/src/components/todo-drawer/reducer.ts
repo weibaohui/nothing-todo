@@ -22,8 +22,8 @@ export interface TodoFormState {
   selectedTags: number[];
   /** 执行器名称 */
   executor: string;
-  /** 工作目录路径 */
-  workspacePath: string;
+  /** 工作空间 ID（project_directories.id）。组件间统一以 id 传递，path 仅后端 cwd 内部使用。 */
+  workspaceId: number | null;
   /** 是否启用 Webhook 触发 */
   webhookEnabled: boolean;
   /** 是否启用调度器 */
@@ -48,7 +48,7 @@ export const initialFormState: TodoFormState = {
   prompt: '',
   selectedTags: [],
   executor: DEFAULT_EXECUTOR,
-  workspacePath: '',
+  workspaceId: null,
   webhookEnabled: false,
   schedulerEnabled: false,
   schedulerConfig: '',
@@ -76,7 +76,7 @@ export function todoFormReducer(state: TodoFormState, action: TodoFormAction): T
           prompt: action.todo.prompt || '',
           selectedTags: action.todo.tag_ids || [],
           executor: action.todo.executor || DEFAULT_EXECUTOR,
-          workspacePath: action.todo.workspace_path || '',
+          workspaceId: action.todo.workspace_id ?? null,
           webhookEnabled: action.todo.webhook_enabled || false,
           schedulerEnabled: action.todo.scheduler_enabled || false,
           schedulerConfig: action.todo.scheduler_config || '',

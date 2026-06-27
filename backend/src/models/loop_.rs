@@ -86,7 +86,10 @@ pub struct LoopDto {
     pub id: i64,
     pub name: String,
     pub description: String,
-    pub workspace_path: Option<String>,
+    /// 所属工作空间 ID（project_directories.id），唯一键。
+    /// 路径不再作为 API 字段返回——cwd 在后端内部从 project_directories 解析，
+    /// 前端展示用 project_directories.name，避免长路径重复上送。
+    pub workspace_id: Option<i64>,
     pub webhook_enabled: bool,
     pub status: String,
     /// 标签 ID 列表（单选，复用 Todo 的标签体系）
@@ -109,7 +112,7 @@ impl From<loops::Model> for LoopDto {
             id: m.id,
             name: m.name,
             description: m.description,
-            workspace_path: m.workspace_path,
+            workspace_id: m.workspace_id,
             webhook_enabled: m.webhook_enabled,
             status: m.status,
             tag_ids: vec![],
@@ -360,8 +363,9 @@ pub struct CreateLoopRequest {
     pub name: String,
     #[serde(default)]
     pub description: String,
-    /// 工作空间目录路径（必填，对应 project_directories.path）。
-    pub workspace_path: String,
+    /// 工作空间 ID（project_directories.id），必填、唯一键。
+    /// 不再接受路径——避免 path 不唯一带来的歧义。
+    pub workspace_id: i64,
     #[serde(default)]
     pub webhook_enabled: bool,
     #[serde(default)]
@@ -386,7 +390,11 @@ fn default_abnormal_trigger_on() -> String { "[\"capped_step\",\"capped_token\",
 pub struct UpdateLoopRequest {
     pub name: String,
     pub description: String,
-    pub workspace_path: Option<String>,
+    /// 工作空间 ID（project_directories.id）。
+    /// None=保持当前工作空间，Some(id)=迁移到该工作空间。
+    /// 不接受路径——handler 一律按 id 解析 cwd 路径写入两列。
+    #[serde(default)]
+    pub workspace_id: Option<i64>,
     #[serde(default)]
     pub webhook_enabled: bool,
     pub icon: String,

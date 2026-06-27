@@ -37,7 +37,8 @@ impl Database {
         &self,
         name: &str,
         description: &str,
-        workspace: Option<&str>,
+        workspace_id: Option<i64>,
+        workspace_path: Option<&str>,
         webhook_enabled: bool,
         icon: &str,
         review_template_id: Option<i64>,
@@ -49,7 +50,10 @@ impl Database {
         let am = loops::ActiveModel {
             name: ActiveValue::Set(name.to_string()),
             description: ActiveValue::Set(description.to_string()),
-            workspace_path: ActiveValue::Set(workspace.map(|s| s.to_string())),
+            // 双字段同源写入：handler 必须保证 id 解析得到的 path 与 workspace_path 一致，
+            // 任何不一致都意味着上游解析有 bug——DAO 不再单独接受「只传 path」。
+            workspace_id: ActiveValue::Set(workspace_id),
+            workspace_path: ActiveValue::Set(workspace_path.map(|s| s.to_string())),
             webhook_enabled: ActiveValue::Set(webhook_enabled),
             icon: ActiveValue::Set(icon.to_string()),
             review_template_id: ActiveValue::Set(review_template_id),
@@ -69,7 +73,8 @@ impl Database {
         id: i64,
         name: &str,
         description: &str,
-        workspace: Option<&str>,
+        workspace_id: Option<i64>,
+        workspace_path: Option<&str>,
         webhook_enabled: bool,
         icon: &str,
         review_template_id: Option<i64>,
@@ -83,7 +88,14 @@ impl Database {
             let mut am: loops::ActiveModel = c.into();
             am.name = ActiveValue::Set(name.to_string());
             am.description = ActiveValue::Set(description.to_string());
-            am.workspace_path = ActiveValue::Set(workspace.map(|s| s.to_string()));
+            // workspace 同步更新：handler 在传 id 时也会同时给 path；
+            // 只传 id 不传 path 视为「只更新筛选键，cwd 保持不变」，反之亦然。
+            if let Some(wid) = workspace_id {
+                am.workspace_id = ActiveValue::Set(Some(wid));
+            }
+            if let Some(wpath) = workspace_path {
+                am.workspace_path = ActiveValue::Set(Some(wpath.to_string()));
+            }
             am.webhook_enabled = ActiveValue::Set(webhook_enabled);
             am.icon = ActiveValue::Set(icon.to_string());
             am.review_template_id = ActiveValue::Set(review_template_id);
@@ -125,26 +137,33 @@ impl Database {
 
     /// 批量更新环路工作空间（移动到其他工作空间）。
     /// 连带移动步骤关联的所有 todo 到同一目标工作空间。
+    ///
+    /// 入参是 `project_directories.id`（唯一键）；handler 负责把 id 解析为 path 后传进来，
+    /// DAO 仅按 (workspace_id, workspace_path) 双写以保证 cwd 字段与筛选字段同步。
     pub async fn batch_update_loops_workspace(
         &self,
         ids: &[i64],
-        workspace: &str,
+        workspace_id: i64,
+        workspace_path: &str,
     ) -> Result<u64, sea_orm::DbErr> {
-        if ids.is_empty() || workspace.trim().is_empty() {
+        if ids.is_empty() || workspace_path.trim().is_empty() {
             return Ok(0);
         }
         let now = crate::models::utc_timestamp();
-        let ws = workspace.trim();
+        let ws = workspace_path.trim();
 
-        // 1. 更新 loops 表
+        // 1. 更新 loops 表：按 id 筛选的回路同时写 workspace_id 与 workspace_path，
+        //    保证「筛选用 id / cwd 用 path」两条路在批量迁移后保持一致。
         let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{}", i)).collect();
         let in_clause = placeholders.join(",");
-        let ws_idx = ids.len() + 1;
-        let now_idx = ids.len() + 2;
+        let ws_id_idx = ids.len() + 1;
+        let ws_path_idx = ids.len() + 2;
+        let now_idx = ids.len() + 3;
         let sql = format!(
-            "UPDATE loops SET workspace_path = ?{ws_idx}, updated_at = ?{now_idx} WHERE id IN ({in_clause})"
+            "UPDATE loops SET workspace_id = ?{ws_id_idx}, workspace_path = ?{ws_path_idx}, updated_at = ?{now_idx} WHERE id IN ({in_clause})"
         );
         let mut vals: Vec<sea_orm::Value> = ids.iter().map(|id| (*id).into()).collect();
+        vals.push(workspace_id.into());
         vals.push(ws.to_string().into());
         vals.push(now.clone().into());
         let stmt = sea_orm::Statement::from_sql_and_values(sea_orm::DbBackend::Sqlite, sql, vals);
@@ -155,12 +174,14 @@ impl Database {
         if !todo_ids.is_empty() {
             let t_placeholders: Vec<String> = (1..=todo_ids.len()).map(|i| format!("?{}", i)).collect();
             let t_in_clause = t_placeholders.join(",");
-            let t_ws_idx = todo_ids.len() + 1;
-            let t_now_idx = todo_ids.len() + 2;
+            let t_ws_id_idx = todo_ids.len() + 1;
+            let t_ws_path_idx = todo_ids.len() + 2;
+            let t_now_idx = todo_ids.len() + 3;
             let t_sql = format!(
-                "UPDATE todos SET workspace_path = ?{t_ws_idx}, updated_at = ?{t_now_idx} WHERE id IN ({t_in_clause})"
+                "UPDATE todos SET workspace_id = ?{t_ws_id_idx}, workspace_path = ?{t_ws_path_idx}, updated_at = ?{t_now_idx} WHERE id IN ({t_in_clause})"
             );
             let mut t_vals: Vec<sea_orm::Value> = todo_ids.iter().map(|id| (*id).into()).collect();
+            t_vals.push(workspace_id.into());
             t_vals.push(ws.to_string().into());
             t_vals.push(now.into());
             let t_stmt = sea_orm::Statement::from_sql_and_values(sea_orm::DbBackend::Sqlite, t_sql, t_vals);
@@ -172,15 +193,19 @@ impl Database {
 
     /// 批量复制环路到目标工作空间。
     /// 连带复制步骤关联的 todo 到目标工作空间，并让复制后的 steps 指向新 todo。
+    ///
+    /// 入参是 `project_directories.id` + `workspace_path`：handler 已经把 id 解析为 path 传进来，
+    /// DAO 仅做写入；拆分参数是为了让 SQL 一次完成 id + path 双写，避免再次回查。
     pub async fn batch_copy_loops_to_workspace(
         &self,
         ids: &[i64],
-        target_workspace: &str,
+        target_workspace_id: i64,
+        target_workspace_path: &str,
     ) -> Result<Vec<i64>, sea_orm::DbErr> {
-        if ids.is_empty() || target_workspace.trim().is_empty() {
+        if ids.is_empty() || target_workspace_path.trim().is_empty() {
             return Ok(vec![]);
         }
-        let ws = target_workspace.trim().to_string();
+        let ws = target_workspace_path.trim().to_string();
         let mut created_ids = Vec::new();
 
         // 用于记录已复制的 todo_id → new_todo_id 映射，避免同一 todo 被多个 step 重复复制
@@ -195,7 +220,8 @@ impl Database {
                 .create_loop(
                     &format!("{}(副本)", source.name),
                     &source.description,
-                    Some(&ws),
+                    Some(target_workspace_id),
+                    Some(ws.as_str()),
                     source.webhook_enabled,
                     &source.icon,
                     source.review_template_id,
@@ -230,7 +256,7 @@ impl Database {
                     cached
                 } else {
                     // 复制 source todo 到目标工作空间
-                    match self.copy_todo_to_workspace(s.todo_id, &ws).await? {
+                    match self.copy_todo_to_workspace(s.todo_id, target_workspace_id, &ws).await? {
                         Some(copied_id) => {
                             todo_copy_map.insert(s.todo_id, copied_id);
                             copied_id
@@ -308,7 +334,7 @@ impl Database {
 
     /// 复制单个 todo 到目标工作空间并返回新 todo_id。
     /// 同时复制 tag 关联。
-    async fn copy_todo_to_workspace(&self, todo_id: i64, target_workspace: &str) -> Result<Option<i64>, sea_orm::DbErr> {
+    async fn copy_todo_to_workspace(&self, todo_id: i64, target_workspace_id: i64, target_workspace: &str) -> Result<Option<i64>, sea_orm::DbErr> {
         use crate::db::entity::todos;
         use sea_orm::ColumnTrait;
 
@@ -332,6 +358,7 @@ impl Database {
             scheduler_enabled: ActiveValue::Set(model.scheduler_enabled),
             scheduler_config: ActiveValue::Set(model.scheduler_config),
             scheduler_timezone: ActiveValue::Set(model.scheduler_timezone),
+            workspace_id: ActiveValue::Set(Some(target_workspace_id)),
             workspace_path: ActiveValue::Set(Some(target_workspace.to_string())),
             webhook_enabled: ActiveValue::Set(model.webhook_enabled),
             acceptance_criteria: ActiveValue::Set(model.acceptance_criteria),
@@ -380,6 +407,7 @@ impl Database {
             .create_loop(
                 &format!("{}(副本)", source.name),
                 &source.description,
+                source.workspace_id,
                 source.workspace_path.as_deref(),
                 source.webhook_enabled,
                 &source.icon,

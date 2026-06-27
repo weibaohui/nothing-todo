@@ -524,7 +524,7 @@ function AppContent() {
             dispatch({ type: 'SET_TODOS', payload: todos });
           });
         }}
-        defaultWorkspace={state.selectedWorkspace}
+        defaultWorkspaceId={state.selectedWorkspace}
       />
 
       <SmartCreateModal
@@ -558,7 +558,7 @@ function AppContent() {
           setLoopCreateModalOpen(false);
         }}
         onClose={() => setLoopCreateModalOpen(false)}
-        defaultWorkspace={state.selectedWorkspace}
+        defaultWorkspaceId={state.selectedWorkspace}
       />
     </Layout>
   );

@@ -183,8 +183,8 @@ function LoopCard({ loop, selected, onClick, checked, onToggleCheck, projectDirs
   tags?: Array<{ id: number; name: string; color: string }>;
 }) {
   const status: LoopStatus = (loop.status as LoopStatus) ?? 'paused';
-  // 通过 projectDirs 查找工作空间的可读名称，降级到路径
-  const workspaceName = getWorkspaceDisplayName(projectDirs, loop.workspace_path);
+  // 通过 projectDirs 查找工作空间的可读名称（id→name 优先、path 兜底）
+  const workspaceName = getWorkspaceDisplayName(projectDirs, loop.workspace_id);
   // 副标题优先用工作空间名称, 缺则降级到 description
   const subtitle = workspaceName || loop.description || '';
 

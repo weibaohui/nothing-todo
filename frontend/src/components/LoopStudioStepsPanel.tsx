@@ -17,7 +17,6 @@ import * as dbLoops from '@/utils/database/loops';
 import * as db from '@/utils/database';
 import {
   getWorkspaceDisplayName,
-  getWorkspaceIdByPath,
   useProjectDirectories,
 } from '@/utils/workspaceDisplay';
 import type { LoopStepDto, CreateLoopStepRequest } from '@/types/loop';
@@ -32,12 +31,12 @@ interface StepsPanelProps {
   maxStepExecutions?: number | null;
   /** Loop 的最大 Token 数限制，来自 loop.limits_config.max_total_tokens */
   maxTotalTokens?: number | null;
-  /** Loop 所属工作空间路径（来自 loop.workspace_path 字段，对应 project_directories.path）。
-   *  用于过滤「关联环节」候选 todo，并把 path 转成 name 展示给用户。 */
-  workspacePath?: string | null;
+  /** Loop 所属工作空间 ID（project_directories.id，唯一键）。
+   *  用于过滤「关联环节」候选 todo，并把 id 转成 name 展示给用户。 */
+  workspaceId?: number | null;
 }
 
-export function LoopStepsPanel({ loopId, steps, onChanged, maxStepExecutions, maxTotalTokens, workspacePath }: StepsPanelProps) {
+export function LoopStepsPanel({ loopId, steps, onChanged, maxStepExecutions, maxTotalTokens, workspaceId }: StepsPanelProps) {
   const { message } = AntApp.useApp();
   // 工作空间目录（低基数集合，一次性拉取，避免每次打开 modal 都重复请求）
   const { dirs: projectDirs } = useProjectDirectories();
@@ -55,7 +54,7 @@ export function LoopStepsPanel({ loopId, steps, onChanged, maxStepExecutions, ma
     form.resetFields();
     await loadCandidatesForCurrentLoop(null);
     setModalOpen(true);
-  }, [form, workspacePath]);
+  }, [form, workspaceId]);
 
   // 点击流程图节点打开编辑
   const handleSelectStep = useCallback(async (step: LoopStepDto) => {
@@ -76,16 +75,15 @@ export function LoopStepsPanel({ loopId, steps, onChanged, maxStepExecutions, ma
       review_type: step.review_type ?? 'ai',
     });
     setModalOpen(true);
-  }, [form, workspacePath]);
+  }, [form, workspaceId]);
 
   /**
    * 按 loop 所属工作空间加载候选 todo 列表。
    *
    * 设计取舍：
-   * - workspacePath 非空 → 在已缓存的 projectDirs 中查到 workspace_id，
-   *   调 getAllTodos(workspaceId) 只拿同空间下的事项，避免误把别的工作空间的事项
-   *   串到当前 loop 的环节里。
-   * - workspacePath 为空 → 回退到不过滤（getAllTodos()），保持旧行为，不丢选项。
+   * - workspaceId 非空 → 调 getAllTodos(workspaceId) 只拿同空间下的事项，
+   *   避免误把别的工作空间的事项串到当前 loop 的环节里。
+   * - workspaceId 为空 → 回退到不过滤（getAllTodos()），保持旧行为，不丢选项。
    * - 编辑环节时，已关联的 todo 若不在过滤结果里，额外补回，保证用户至少能看到
    *   当前环节指向的 todo 仍然可选（避免「换工作空间 → 旧 todo 从下拉消失 → 选不回去」
    *   的死循环）。
@@ -94,8 +92,7 @@ export function LoopStepsPanel({ loopId, steps, onChanged, maxStepExecutions, ma
    */
   const loadCandidatesForCurrentLoop = useCallback(async (stepForEdit: LoopStepDto | null) => {
     try {
-      const workspaceId = getWorkspaceIdByPath(projectDirs, workspacePath);
-      const list = await db.getAllTodos(workspaceId);
+      const list = await db.getAllTodos(workspaceId ?? undefined);
       // 编辑模式下若已绑定的 todo 不在过滤结果里，附加一次单条查询补回选项，
       // 确保用户依然能在下拉里看到/选中当前关联的 todo。
       // 不附加 workspaceId 过滤，因为这条记录可能原本属于其他工作空间。
@@ -114,7 +111,7 @@ export function LoopStepsPanel({ loopId, steps, onChanged, maxStepExecutions, ma
       // 拉取失败兜底为空数组；用户看到「暂无待关联的事项」即可，不阻塞流程
       setCandidates([]);
     }
-  }, [projectDirs, workspacePath]);
+  }, [workspaceId]);
 
   // 保存
   const handleSave = useCallback(async () => {
@@ -252,7 +249,7 @@ export function LoopStepsPanel({ loopId, steps, onChanged, maxStepExecutions, ma
           <Form.Item label="关联环节" name="todo_id" rules={[{ required: true, message: '请选择关联的环节' }]}>
             <Select
               showSearch
-              placeholder={workspacePath ? `仅显示「${getWorkspaceDisplayName(projectDirs, workspacePath)}」工作空间下的事项` : '选择已有的环节'}
+              placeholder={workspaceId != null ? `仅显示「${getWorkspaceDisplayName(projectDirs, workspaceId)}」工作空间下的事项` : '选择已有的环节'}
               optionFilterProp="label"
               onChange={handleTodoChange}
               options={candidates.map(c => ({
@@ -260,7 +257,7 @@ export function LoopStepsPanel({ loopId, steps, onChanged, maxStepExecutions, ma
                 value: c.id,
               }))}
               notFoundContent={
-                <Empty description={workspacePath ? `「${getWorkspaceDisplayName(projectDirs, workspacePath)}」下暂无待关联的事项` : '暂无待关联的事项'} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                <Empty description={workspaceId != null ? `「${getWorkspaceDisplayName(projectDirs, workspaceId)}」下暂无待关联的事项` : '暂无待关联的事项'} image={Empty.PRESENTED_IMAGE_SIMPLE} />
               }
             />
           </Form.Item>

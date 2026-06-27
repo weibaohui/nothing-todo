@@ -204,15 +204,15 @@ export async function forceStopLoops(
 /** 批量移动环路到其他工作空间。 */
 export async function batchMoveLoopsWorkspace(
   ids: number[],
-  workspace_path: string,
+  workspace_id: number,
 ): Promise<{ updated_count: number; total: number }> {
-  return unwrap(await api.put('/api/loops/batch-workspace', { ids, workspace_path }));
+  return unwrap(await api.put('/api/loops/batch-workspace', { ids, workspace_id }));
 }
 
 /** 批量复制环路到其他工作空间。 */
 export async function batchCopyLoopsWorkspace(
   ids: number[],
-  workspace_path: string,
+  workspace_id: number,
 ): Promise<{ updated_count: number; total: number }> {
-  return unwrap(await api.post('/api/loops/batch-copy-workspace', { ids, workspace_path }));
+  return unwrap(await api.post('/api/loops/batch-copy-workspace', { ids, workspace_id }));
 }

@@ -37,7 +37,7 @@ export async function updateTodo(
   executor?: string,
   scheduler_enabled?: boolean,
   scheduler_config?: string | null,
-  workspace_path?: string | null,
+  workspace_id?: number | null,
   webhook_enabled?: boolean,
   acceptance_criteria?: string | null,
   auto_review_enabled?: boolean,
@@ -46,7 +46,7 @@ export async function updateTodo(
   if (executor !== undefined) body.executor = executor;
   if (scheduler_enabled !== undefined) body.scheduler_enabled = scheduler_enabled;
   if (scheduler_config !== undefined) body.scheduler_config = scheduler_config;
-  if (workspace_path !== undefined) body.workspace_path = workspace_path;
+  if (workspace_id !== undefined) body.workspace_id = workspace_id;
   if (webhook_enabled !== undefined) body.webhook_enabled = webhook_enabled;
   if (acceptance_criteria !== undefined) body.acceptance_criteria = acceptance_criteria;
   if (auto_review_enabled !== undefined) body.auto_review_enabled = auto_review_enabled;
@@ -83,17 +83,17 @@ export async function batchUpdateTodosExecutor(
 /** 批量移动事项到其他工作空间。 */
 export async function batchMoveTodosWorkspace(
   ids: number[],
-  workspace_path: string,
+  workspace_id: number,
 ): Promise<{ updated_count: number; total: number }> {
-  return unwrap(await api.put('/api/todos/batch-workspace', { ids, workspace_path }));
+  return unwrap(await api.put('/api/todos/batch-workspace', { ids, workspace_id }));
 }
 
 /** 批量复制事项到其他工作空间。 */
 export async function batchCopyTodosWorkspace(
   ids: number[],
-  workspace_path: string,
+  workspace_id: number,
 ): Promise<{ updated_count: number; total: number }> {
-  return unwrap(await api.post('/api/todos/batch-copy-workspace', { ids, workspace_path }));
+  return unwrap(await api.post('/api/todos/batch-copy-workspace', { ids, workspace_id }));
 }
 
 // Tag APIs

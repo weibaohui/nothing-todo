@@ -67,8 +67,11 @@ export function LoopDetailPanel({
   const [maxStepExecutions, setMaxStepExecutions] = useState<number | null>(null);
   const [maxTotalTokens, setMaxTotalTokens] = useState<number | null>(null);
   // 编辑弹窗预填数据，从 detail 提取
+  // 工作空间以 id（project_directories.id）为主键，path 仅作为展示兜底。
   const [editInitialData, setEditInitialData] = useState<{
-    name: string; description: string; workspace_path: string | null;
+    name: string; description: string;
+    workspace_id: number | null;
+    workspace_path?: string | null;
     webhook_enabled: boolean;
     icon: string; review_template_id: number | null;
     tag_ids: number[]; limits_config: string | null;
@@ -113,7 +116,7 @@ export function LoopDetailPanel({
     setEditInitialData({
       name: detail.name,
       description: detail.description,
-      workspace_path: detail.workspace_path,
+      workspace_id: detail.workspace_id,
       webhook_enabled: detail.webhook_enabled,
       icon: detail.icon,
       review_template_id: detail.review_template_id ?? null,
@@ -215,9 +218,9 @@ export function LoopDetailPanel({
             </span>
           } />
           <DetailField label="关联工作空间" value={
-            detail.workspace_path ? (() => {
-              const displayName = getWorkspaceDisplayName(projectDirs, detail.workspace_path);
-              const dir = projectDirs.find(d => d.path === detail.workspace_path);
+            detail.workspace_id != null ? (() => {
+              const displayName = getWorkspaceDisplayName(projectDirs, detail.workspace_id);
+              const dir = projectDirs.find(d => d.id === detail.workspace_id);
               return dir ? (
                 <div>
                   <div style={{ fontWeight: 500 }}>{displayName}</div>
@@ -350,7 +353,7 @@ export function LoopDetailPanel({
           onChanged={() => { reload(); onChanged(); }}
           maxStepExecutions={maxStepExecutions}
           maxTotalTokens={maxTotalTokens}
-          workspacePath={detail.workspace_path}
+          workspaceId={detail.workspace_id}
         />
       </DetailSection>
 

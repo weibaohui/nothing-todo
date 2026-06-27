@@ -25,11 +25,11 @@ interface TodoDrawerProps {
   tags: Array<{ id: number; name: string; color: string }>;
   onClose: () => void;
   onSaved: (todo?: Todo) => void;
-  /** 打开创建模式时自动选中的工作空间路径 */
-  defaultWorkspace?: string | null;
+  /** 打开创建模式时自动选中的工作空间 ID（project_directories.id） */
+  defaultWorkspaceId?: number | null;
 }
 
-export function TodoDrawer({ open, todo, tags, onClose, onSaved, defaultWorkspace }: TodoDrawerProps) {
+export function TodoDrawer({ open, todo, tags, onClose, onSaved, defaultWorkspaceId }: TodoDrawerProps) {
   const { message } = App.useApp();
   const isEditMode = todo !== null;
 
@@ -48,7 +48,7 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved, defaultWorkspac
 
   // 从 formState 中解构出常用的字段
   const {
-    title, prompt, selectedTags, executor, workspacePath,
+    title, prompt, selectedTags, executor, workspaceId,
     webhookEnabled, schedulerEnabled, schedulerConfig, acceptanceCriteria,
   } = formState;
 
@@ -136,11 +136,12 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved, defaultWorkspac
   }, [open, todo]);
 
   // 创建模式下自动选中当前工作空间（打开时 todo=null 触发）
+  // 工作空间以 id（number）传递，不再用 path 字符串。
   useEffect(() => {
-    if (open && !todo && defaultWorkspace) {
-      setField('workspacePath', defaultWorkspace);
+    if (open && !todo && defaultWorkspaceId != null) {
+      setField('workspaceId', defaultWorkspaceId);
     }
-  }, [open, todo, defaultWorkspace, setField]);
+  }, [open, todo, defaultWorkspaceId, setField]);
 
   const handleSkillClick = useCallback((skill: SkillMeta) => {
     insertTextAtCursor(`/${skill.name}`);
@@ -182,21 +183,22 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved, defaultWorkspac
     }
 
     // 创建模式：工作空间为必填项
-    if (!isEditMode && !workspacePath.trim()) {
+    if (!isEditMode && workspaceId == null) {
       message.error('请选择工作空间');
       return;
     }
 
     setLoading(true);
     try {
-      const trimmedWorkspace = workspacePath.trim() || null;
+      // 直接把 id 传给后端 updateTodo；handler 负责按 id 反查 cwd path。
+      const workspaceToSave = workspaceId;
 
       if (isEditMode && todo) {
-        // WorkspaceSelect 只允许从下拉列表选择有效路径，无需二次校验
+        // WorkspaceSelect 只允许从下拉列表选择，无需二次校验
         await db.updateTodo(
           todo.id, title.trim(), prompt.trim(), todo.status,
           executor, schedulerEnabled, schedulerConfig || null,
-          trimmedWorkspace,
+          workspaceToSave,
           webhookEnabled,
           acceptanceCriteria || null,
         );
@@ -213,10 +215,7 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved, defaultWorkspac
           webhookEnabled,
         );
 
-        // WorkspaceSelect 只允许从下拉列表选择，无需二次校验
-        const workspaceToSave = trimmedWorkspace;
-
-        if (workspaceToSave || schedulerEnabled || executor !== DEFAULT_EXECUTOR || webhookEnabled) {
+        if (workspaceToSave != null || schedulerEnabled || executor !== DEFAULT_EXECUTOR || webhookEnabled) {
           await db.updateTodo(
             newTodo.id, newTodo.title, newTodo.prompt, newTodo.status,
             executor, schedulerEnabled, schedulerConfig || null,
@@ -312,8 +311,8 @@ export function TodoDrawer({ open, todo, tags, onClose, onSaved, defaultWorkspac
               工作空间 <span style={{ color: '#ff4d4f' }}>*</span>
             </div>
             <WorkspaceSelect
-              value={workspacePath}
-              onChange={(v) => setField('workspacePath', v ?? '')}
+              value={workspaceId}
+              onChange={(v) => setField('workspaceId', v)}
               required
             />
           </div>
