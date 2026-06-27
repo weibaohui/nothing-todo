@@ -36,7 +36,7 @@ export type View =
   | 'sessions'
   | 'executors';
 
-export type Panel = 'list' | 'detail';
+export type Panel = 'list' | 'detail' | 'post';
 
 const ALL_VIEWS: View[] = [
   'items', 'loops',
@@ -65,19 +65,27 @@ function getInitialTab(): string | null {
 }
 
 function getInitialPanel(): Panel {
-  // 移动端使用 panel 参数区分列表/详情页面
-  // 桌面端忽略此参数，始终显示 list+detail 双栏布局
+  // 桌面端使用 panel 参数区分列表/帖子详情页面
   const panel = new URLSearchParams(window.location.search).get('panel') as Panel | null;
-  return panel === 'detail' ? 'detail' : 'list';
+  if (panel === 'detail' || panel === 'post') return panel;
+  return 'list';
 }
 
-function buildUrl(view: View, opts?: { id?: number | null; tab?: string | null; panel?: Panel }): string {
+function getInitialRecordId(): number | null {
+  const record = new URLSearchParams(window.location.search).get('record');
+  if (!record) return null;
+  const n = Number(record);
+  return Number.isFinite(n) ? n : null;
+}
+
+function buildUrl(view: View, opts?: { id?: number | null; tab?: string | null; panel?: Panel; record?: number | null }): string {
   const params = new URLSearchParams();
   params.set('view', view);
   if (opts?.id != null) params.set('id', String(opts.id));
   if (typeof opts?.tab === 'string' && opts.tab.trim()) params.set('tab', opts.tab);
-  // 只有移动端需要 panel 参数，桌面端不需要（双栏布局始终显示）
-  if (opts?.panel === 'detail') params.set('panel', 'detail');
+  // panel 参数：detail 用于移动端，post 用于帖子详情页
+  if (opts?.panel === 'detail' || opts?.panel === 'post') params.set('panel', opts.panel);
+  if (opts?.record != null) params.set('record', String(opts.record));
   const qs = params.toString();
   return qs ? `/?${qs}` : '/';
 }
@@ -109,32 +117,34 @@ export function useViewState() {
   const [selectedId, setSelectedId] = useState<number | null>(getInitialId);
   // tab 只用于 settings view，暴露给 SettingsPage 使用
   const [activeTab, setActiveTab] = useState<string | null>(getInitialTab);
-  // panel 只用于移动端 list/detail 独立页面，桌面端忽略（始终显示双栏）
+  // panel：list=列表，detail=移动端详情，post=帖子详情（桌面端全屏）
   const [activePanel, setActivePanel] = useState<Panel>(getInitialPanel);
+  // record：帖子详情页中选中的执行记录 ID
+  const [selectedRecordId, setSelectedRecordId] = useState<number | null>(getInitialRecordId);
 
   // 统一 push URL + React state — 用于视图间导航（首页 → 各视图）
-  const pushUrl = useCallback((view: View, opts?: { id?: number | null; tab?: string | null; panel?: Panel }) => {
+  const pushUrl = useCallback((view: View, opts?: { id?: number | null; tab?: string | null; panel?: Panel; record?: number | null }) => {
     const url = buildUrl(view, opts);
     window.history.pushState(null, '', url);
     setActiveView(view);
     setSelectedId(opts?.id ?? null);
     setActiveTab(opts?.tab ?? null);
-    // panel 仅在移动端有意义，桌面端始终为 list
     setActivePanel(opts?.panel ?? 'list');
+    setSelectedRecordId(opts?.record ?? null);
   }, []);
 
-  // replaceUrl — 用于移动端 list/detail 内部切换，不污染浏览器历史
-  // 桌面端也可以用，保持行为一致
-  const replaceUrl = useCallback((view: View, opts?: { id?: number | null; tab?: string | null; panel?: Panel }) => {
+  // replaceUrl — 用于切换不污染浏览器历史
+  const replaceUrl = useCallback((view: View, opts?: { id?: number | null; tab?: string | null; panel?: Panel; record?: number | null }) => {
     const url = buildUrl(view, opts);
     window.history.replaceState(null, '', url);
     setActiveView(view);
     setSelectedId(opts?.id ?? null);
     setActiveTab(opts?.tab ?? null);
     setActivePanel(opts?.panel ?? 'list');
+    setSelectedRecordId(opts?.record ?? null);
   }, []);
 
-  // 统一 popstate 处理 — 替代了之前分散在 App.tsx / SettingsPage 的三个监听器
+  // 统一 popstate 处理
   useEffect(() => {
     const onPopState = () => {
       const params = new URLSearchParams(window.location.search);
@@ -142,13 +152,15 @@ export function useViewState() {
       const idStr = params.get('id');
       const tab = params.get('tab');
       const panel = params.get('panel') as Panel | null;
+      const recordStr = params.get('record');
       const resolvedView = view && ALL_VIEWS.includes(view) ? view : 'items';
       const resolvedId = idStr ? (Number.isFinite(Number(idStr)) ? Number(idStr) : null) : null;
+      const resolvedRecord = recordStr ? (Number.isFinite(Number(recordStr)) ? Number(recordStr) : null) : null;
       setActiveView(resolvedView);
       setSelectedId(resolvedId);
       setActiveTab(tab || null);
-      // panel 只在移动端使用，桌面端始终为 list
-      setActivePanel(panel === 'detail' ? 'detail' : 'list');
+      setActivePanel(panel === 'detail' || panel === 'post' ? panel : 'list');
+      setSelectedRecordId(resolvedRecord);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -182,6 +194,7 @@ export function useViewState() {
     activeTab,
     activePanel,
     selectedPanel,
+    selectedRecordId,
     showView,
     selectTodo,
     backToList,

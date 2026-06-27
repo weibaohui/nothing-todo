@@ -7,6 +7,7 @@ import { useExecutionEvents } from './hooks/useExecutionEvents';
 import { useViewState, viewToNavKey, type View } from './hooks/useViewState';
 import { ThemeProvider, useTheme } from './hooks/useTheme';
 import { TodoPage } from './components/TodoPage';
+import { TodoPostPage } from './components/TodoPostPage';
 import { LoopPage } from './components/LoopPage';
 import { TodoMobilePage } from './components/mobile/TodoMobilePage';
 import { LoopMobilePage } from './components/mobile/LoopMobilePage';
@@ -34,7 +35,7 @@ const { Content } = Layout;
 
 function AppContent() {
   const { state, dispatch, clearSelection } = useApp();
-  const { activeView, selectedId, activePanel, showView, pushUrl, replaceUrl, backToList } = useViewState();
+  const { activeView, selectedId, activePanel, selectedRecordId, showView, pushUrl, replaceUrl, backToList } = useViewState();
   const { themeMode, toggleTheme } = useTheme();
 
   const [todoModalOpen, setTodoModalOpen] = useState(false);
@@ -68,9 +69,10 @@ function AppContent() {
   // 手机端有效面板：
   // - items/loops 视图：使用 activePanel（来自 URL，支持 list/detail 独立页面）
   // - 其他视图（dashboard/memorial/settings 等）：始终显示 detail（全屏页面）
+  // - post 面板仅桌面端使用，移动端降级为 list
   const effectiveMobilePanel = isMobile && activeView !== 'items' && activeView !== 'loops'
     ? 'detail'
-    : activePanel;
+    : activePanel === 'post' ? 'list' : activePanel;
 
   // 切换视图或面板时收起 FAB，避免遗留
   useEffect(() => {
@@ -154,6 +156,11 @@ function AppContent() {
       replaceUrl('items', { id: Number(todoId), panel: 'detail' });
     }
   };
+
+  /** 点击帖子时跳转到全屏帖子详情页 */
+  const handleOpenPost = useCallback((todoId: number, recordId: number) => {
+    pushUrl('items', { id: todoId, panel: 'post', record: recordId });
+  }, [pushUrl]);
 
   // 从左侧环路列表选中一个 loop，在右侧展示 LoopDetailPanel
   const handleSelectLoop = useCallback((loopId: number) => {
@@ -380,8 +387,17 @@ function AppContent() {
             transition: 'height 0.3s ease, padding-bottom 0.3s ease',
           }}
         >
+          {/* 帖子详情页：panel=post 时全屏显示帖子内容 */}
+          {activeView === 'items' && activePanel === 'post' && selectedId != null && selectedRecordId != null && (
+            <TodoPostPage
+              todoId={selectedId}
+              recordId={selectedRecordId}
+              onBack={() => replaceUrl('items', { id: selectedId, panel: 'list' })}
+            />
+          )}
+
           {/* 事项页面：移动端与桌面端独立组件 */}
-          {activeView === 'items' && (
+          {activeView === 'items' && activePanel !== 'post' && (
             isMobile ? (
               <TodoMobilePage
                 selectedTodoId={state.selectedTodoId}
@@ -405,6 +421,7 @@ function AppContent() {
                 forcedListMode={forcedListMode}
                 onListModeChange={() => setForcedListMode(undefined)}
                 effectiveMobilePanel={effectiveMobilePanel}
+                onOpenPost={handleOpenPost}
               />
             )
           )}
