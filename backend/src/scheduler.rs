@@ -488,7 +488,7 @@ impl TodoScheduler {
                             feishu_bot_id: None,
                             step_id: None,
                             feishu_receive_id: None,
-                            workspace: None,
+                            workspace_path: None,
                             workspace_id: None,
                         })
                         .await;

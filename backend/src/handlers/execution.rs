@@ -226,7 +226,7 @@ pub async fn execute_handler(
         step_id: None,
         feishu_bot_id: None,
         feishu_receive_id: None,
-        workspace: None,
+        workspace_path: None,
         workspace_id: None,
     })
     .await;
@@ -503,7 +503,7 @@ pub async fn resume_execution_handler(
         step_id: None,
         feishu_bot_id: None,
         feishu_receive_id: None,
-        workspace: None,
+        workspace_path: None,
         workspace_id: None,
     })
     .await?;
@@ -660,7 +660,7 @@ pub async fn smart_create_handler(
         step_id: None,
         feishu_bot_id: None,
         feishu_receive_id: None,
-        workspace: None,
+        workspace_path: None,
         workspace_id: None,
     })
     .await?;

@@ -17,7 +17,9 @@ pub struct Model {
     pub scheduler_config: Option<String>,
     pub scheduler_timezone: Option<String>,
     pub task_id: Option<String>,
-    pub workspace: Option<String>,
+    /// 该 todo 所属的工作空间目录路径（对应 project_directories.path）。
+    /// 注意：path 不唯一，筛选与外键只用 workspace_id；path 只用于 cwd/worktree。
+    pub workspace_path: Option<String>,
     /// 该 todo 所属的工作空间 ID（关联 project_directories.id）
     pub workspace_id: Option<i64>,
     pub webhook_enabled: Option<bool>,

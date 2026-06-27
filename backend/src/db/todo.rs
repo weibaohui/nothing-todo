@@ -17,7 +17,7 @@ pub struct TodoUpdate<'a> {
     pub scheduler_enabled: Option<bool>,
     pub scheduler_config: Option<&'a str>,
     pub scheduler_timezone: Option<&'a str>,
-    pub workspace: Option<&'a str>,
+    pub workspace_path: Option<&'a str>,
     pub webhook_enabled: Option<bool>,
     pub acceptance_criteria: Option<&'a str>,
     pub auto_review_enabled: Option<bool>,
@@ -62,7 +62,7 @@ impl Database {
             scheduler_timezone,
             scheduler_next_run_at,
             task_id: m.task_id,
-            workspace: m.workspace,
+            workspace_path: m.workspace_path,
             workspace_id: m.workspace_id,
             webhook_enabled: m.webhook_enabled.unwrap_or(false),
             acceptance_criteria: m.acceptance_criteria,
@@ -204,12 +204,12 @@ impl Database {
                 am.scheduler_timezone = ActiveValue::Set(Some(tz.to_string()));
             }
         }
-        if let Some(ws) = update.workspace {
+        if let Some(ws) = update.workspace_path {
             let ws = ws.trim();
             if ws.is_empty() {
-                am.workspace = ActiveValue::Set(None);
+                am.workspace_path = ActiveValue::Set(None);
             } else {
-                am.workspace = ActiveValue::Set(Some(ws.to_string()));
+                am.workspace_path = ActiveValue::Set(Some(ws.to_string()));
             }
         }
         if let Some(webhook_enabled) = update.webhook_enabled {
@@ -301,6 +301,81 @@ impl Database {
         self.exec_update(am).await
     }
 
+    /// 批量更新事项工作空间（移动到其他工作空间）。
+    /// 单条 SQL，原子语义。
+    pub async fn batch_update_todos_workspace(
+        &self,
+        ids: &[i64],
+        workspace: &str,
+    ) -> Result<u64, sea_orm::DbErr> {
+        if ids.is_empty() || workspace.trim().is_empty() {
+            return Ok(0);
+        }
+        let now = crate::models::utc_timestamp();
+        let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{}", i)).collect();
+        let in_clause = placeholders.join(",");
+        let ws_idx = ids.len() + 1;
+        let now_idx = ids.len() + 2;
+        let sql = format!(
+            "UPDATE todos SET workspace_path = ?{ws_idx}, updated_at = ?{now_idx} WHERE id IN ({in_clause})"
+        );
+        let mut vals: Vec<sea_orm::Value> = ids.iter().map(|id| (*id).into()).collect();
+        vals.push(workspace.trim().to_string().into());
+        vals.push(now.into());
+        let stmt = sea_orm::Statement::from_sql_and_values(sea_orm::DbBackend::Sqlite, sql, vals);
+        let rows_affected = self.conn.execute(stmt).await?.rows_affected();
+        Ok(rows_affected)
+    }
+
+    /// 批量复制事项到目标工作空间。
+    /// 读取源事项的完整数据，在目标工作空间下创建副本。
+    pub async fn batch_copy_todos_to_workspace(
+        &self,
+        ids: &[i64],
+        target_workspace: &str,
+    ) -> Result<Vec<i64>, sea_orm::DbErr> {
+        if ids.is_empty() || target_workspace.trim().is_empty() {
+            return Ok(vec![]);
+        }
+        let now = crate::models::utc_timestamp();
+        let ws = target_workspace.trim().to_string();
+        let mut created_ids = Vec::new();
+
+        for &id in ids {
+            // 直接查询 sea-orm entity，获取原始模型
+            let source_model = todos::Entity::find_by_id(id)
+                .filter(todos::Column::DeletedAt.is_null())
+                .one(&self.conn)
+                .await?;
+            if let Some(model) = source_model {
+                let am = todos::ActiveModel {
+                    title: ActiveValue::Set(model.title),
+                    prompt: ActiveValue::Set(model.prompt),
+                    status: ActiveValue::Set(model.status),
+                    created_at: ActiveValue::Set(Some(now.clone())),
+                    updated_at: ActiveValue::Set(Some(now.clone())),
+                    executor: ActiveValue::Set(model.executor),
+                    scheduler_enabled: ActiveValue::Set(model.scheduler_enabled),
+                    scheduler_config: ActiveValue::Set(model.scheduler_config),
+                    scheduler_timezone: ActiveValue::Set(model.scheduler_timezone),
+                    workspace_path: ActiveValue::Set(Some(ws.clone())),
+                    webhook_enabled: ActiveValue::Set(model.webhook_enabled),
+                    acceptance_criteria: ActiveValue::Set(model.acceptance_criteria),
+                    auto_review_enabled: ActiveValue::Set(model.auto_review_enabled),
+                    todo_type: ActiveValue::Set(model.todo_type),
+                    task_id: ActiveValue::Set(None),
+                    parent_todo_id: ActiveValue::Set(model.parent_todo_id),
+                    review_template_id: ActiveValue::Set(model.review_template_id),
+                    kind: ActiveValue::Set(model.kind),
+                    ..Default::default()
+                };
+                let inserted = am.insert(&self.conn).await?;
+                created_ids.push(inserted.id);
+            }
+        }
+        Ok(created_ids)
+    }
+
     pub async fn update_todo_workspace(
         &self,
         id: i64,
@@ -317,7 +392,7 @@ impl Database {
         let now = crate::models::utc_timestamp();
         let am = todos::ActiveModel {
             id: ActiveValue::Unchanged(id),
-            workspace: ActiveValue::Set(ws),
+            workspace_path: ActiveValue::Set(ws),
             updated_at: ActiveValue::Set(Some(now)),
             ..Default::default()
         };
@@ -643,7 +718,7 @@ impl Database {
                     scheduler_enabled: m.scheduler_enabled.unwrap_or(false),
                     scheduler_config: m.scheduler_config,
                     tag_names,
-                    workspace: m.workspace.clone(),
+                    workspace_path: m.workspace_path.clone(),
                     worktree: None,
                 }
             })
@@ -694,7 +769,7 @@ impl Database {
                     scheduler_enabled: m.scheduler_enabled.unwrap_or(false),
                     scheduler_config: m.scheduler_config,
                     tag_names,
-                    workspace: m.workspace.clone(),
+                    workspace_path: m.workspace_path.clone(),
                     worktree: None,
                 }
             })
@@ -752,7 +827,7 @@ impl Database {
         // 导入 todo
         for todo in todos_in {
             let now = crate::models::utc_timestamp();
-            let workspace = todo.workspace.clone();
+            let workspace_path = todo.workspace_path.clone();
             let am = todos::ActiveModel {
                 title: ActiveValue::Set(todo.title.clone()),
                 prompt: ActiveValue::Set(Some(todo.prompt.clone())),
@@ -760,7 +835,7 @@ impl Database {
                 executor: ActiveValue::Set(todo.executor.clone()),
                 scheduler_enabled: ActiveValue::Set(Some(todo.scheduler_enabled)),
                 scheduler_config: ActiveValue::Set(todo.scheduler_config.clone()),
-                workspace: ActiveValue::Set(workspace),
+                workspace_path: ActiveValue::Set(workspace_path),
                 created_at: ActiveValue::Set(Some(now.clone())),
                 updated_at: ActiveValue::Set(Some(now)),
                 ..Default::default()
@@ -849,7 +924,7 @@ impl Database {
                 am.executor = ActiveValue::Set(todo.executor.clone());
                 am.scheduler_enabled = ActiveValue::Set(Some(todo.scheduler_enabled));
                 am.scheduler_config = ActiveValue::Set(todo.scheduler_config.clone());
-                am.workspace = ActiveValue::Set(todo.workspace.clone());
+                am.workspace_path = ActiveValue::Set(todo.workspace_path.clone());
                 am.updated_at = ActiveValue::Set(Some(crate::models::utc_timestamp()));
                 let saved = am.update(&txn).await?;
 
@@ -881,7 +956,7 @@ impl Database {
             } else {
                 // 新建
                 let now = crate::models::utc_timestamp();
-                let workspace = todo.workspace.clone();
+                let workspace_path = todo.workspace_path.clone();
                 let am = todos::ActiveModel {
                     title: ActiveValue::Set(todo.title.clone()),
                     prompt: ActiveValue::Set(Some(todo.prompt.clone())),
@@ -889,7 +964,7 @@ impl Database {
                     executor: ActiveValue::Set(todo.executor.clone()),
                     scheduler_enabled: ActiveValue::Set(Some(todo.scheduler_enabled)),
                     scheduler_config: ActiveValue::Set(todo.scheduler_config.clone()),
-                    workspace: ActiveValue::Set(workspace),
+                    workspace_path: ActiveValue::Set(workspace_path),
                     created_at: ActiveValue::Set(Some(now.clone())),
                     updated_at: ActiveValue::Set(Some(now)),
                     ..Default::default()

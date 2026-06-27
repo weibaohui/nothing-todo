@@ -10,8 +10,8 @@
 //! 与现有 webhook/tag 等模块风格保持一致（直接用 sea_orm::DatabaseConnection，
 //! 不抽象 DAO trait，因为 codebase 其它 db 文件都这样做）。
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
-    Set, DbBackend,
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter,
+    QueryOrder, QuerySelect, Set, Statement, DbBackend,
 };
 
 use crate::db::entity::{
@@ -49,7 +49,7 @@ impl Database {
         let am = loops::ActiveModel {
             name: ActiveValue::Set(name.to_string()),
             description: ActiveValue::Set(description.to_string()),
-            workspace: ActiveValue::Set(workspace.map(|s| s.to_string())),
+            workspace_path: ActiveValue::Set(workspace.map(|s| s.to_string())),
             webhook_enabled: ActiveValue::Set(webhook_enabled),
             icon: ActiveValue::Set(icon.to_string()),
             review_template_id: ActiveValue::Set(review_template_id),
@@ -83,7 +83,7 @@ impl Database {
             let mut am: loops::ActiveModel = c.into();
             am.name = ActiveValue::Set(name.to_string());
             am.description = ActiveValue::Set(description.to_string());
-            am.workspace = ActiveValue::Set(workspace.map(|s| s.to_string()));
+            am.workspace_path = ActiveValue::Set(workspace.map(|s| s.to_string()));
             am.webhook_enabled = ActiveValue::Set(webhook_enabled);
             am.icon = ActiveValue::Set(icon.to_string());
             am.review_template_id = ActiveValue::Set(review_template_id);
@@ -123,6 +123,246 @@ impl Database {
         Ok(())
     }
 
+    /// 批量更新环路工作空间（移动到其他工作空间）。
+    /// 连带移动步骤关联的所有 todo 到同一目标工作空间。
+    pub async fn batch_update_loops_workspace(
+        &self,
+        ids: &[i64],
+        workspace: &str,
+    ) -> Result<u64, sea_orm::DbErr> {
+        if ids.is_empty() || workspace.trim().is_empty() {
+            return Ok(0);
+        }
+        let now = crate::models::utc_timestamp();
+        let ws = workspace.trim();
+
+        // 1. 更新 loops 表
+        let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{}", i)).collect();
+        let in_clause = placeholders.join(",");
+        let ws_idx = ids.len() + 1;
+        let now_idx = ids.len() + 2;
+        let sql = format!(
+            "UPDATE loops SET workspace_path = ?{ws_idx}, updated_at = ?{now_idx} WHERE id IN ({in_clause})"
+        );
+        let mut vals: Vec<sea_orm::Value> = ids.iter().map(|id| (*id).into()).collect();
+        vals.push(ws.to_string().into());
+        vals.push(now.clone().into());
+        let stmt = sea_orm::Statement::from_sql_and_values(sea_orm::DbBackend::Sqlite, sql, vals);
+        self.conn.execute(stmt).await?.rows_affected();
+
+        // 2. 收集所有步骤关联的 todo_id 并批量迁移
+        let todo_ids = self.collect_todo_ids_from_loops(ids).await?;
+        if !todo_ids.is_empty() {
+            let t_placeholders: Vec<String> = (1..=todo_ids.len()).map(|i| format!("?{}", i)).collect();
+            let t_in_clause = t_placeholders.join(",");
+            let t_ws_idx = todo_ids.len() + 1;
+            let t_now_idx = todo_ids.len() + 2;
+            let t_sql = format!(
+                "UPDATE todos SET workspace_path = ?{t_ws_idx}, updated_at = ?{t_now_idx} WHERE id IN ({t_in_clause})"
+            );
+            let mut t_vals: Vec<sea_orm::Value> = todo_ids.iter().map(|id| (*id).into()).collect();
+            t_vals.push(ws.to_string().into());
+            t_vals.push(now.into());
+            let t_stmt = sea_orm::Statement::from_sql_and_values(sea_orm::DbBackend::Sqlite, t_sql, t_vals);
+            self.conn.execute(t_stmt).await?;
+        }
+
+        Ok(ids.len() as u64)
+    }
+
+    /// 批量复制环路到目标工作空间。
+    /// 连带复制步骤关联的 todo 到目标工作空间，并让复制后的 steps 指向新 todo。
+    pub async fn batch_copy_loops_to_workspace(
+        &self,
+        ids: &[i64],
+        target_workspace: &str,
+    ) -> Result<Vec<i64>, sea_orm::DbErr> {
+        if ids.is_empty() || target_workspace.trim().is_empty() {
+            return Ok(vec![]);
+        }
+        let ws = target_workspace.trim().to_string();
+        let mut created_ids = Vec::new();
+
+        // 用于记录已复制的 todo_id → new_todo_id 映射，避免同一 todo 被多个 step 重复复制
+        let mut todo_copy_map: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+
+        for &id in ids {
+            let source = match self.get_loop(id).await? {
+                Some(l) => l,
+                None => continue,
+            };
+            let new_loop = self
+                .create_loop(
+                    &format!("{}(副本)", source.name),
+                    &source.description,
+                    Some(&ws),
+                    source.webhook_enabled,
+                    &source.icon,
+                    source.review_template_id,
+                    Some(source.limits_config.as_str()),
+                    source.abnormal_handler_todo_id,
+                    &source.abnormal_handler_trigger_on,
+                )
+                .await?;
+
+            // 复制 triggers
+            let triggers = self.list_triggers_by_loop(id).await?;
+            for t in triggers {
+                self.create_trigger(
+                    new_loop.id,
+                    &t.trigger_type,
+                    &t.config,
+                    t.enabled != 0,
+                    t.priority,
+                )
+                .await?;
+            }
+
+            // 复制 steps：每个 step 关联的 todo 也要复制到目标工作空间
+            // 先分两遍走：第一遍创建所有步骤并建立新/旧 id 映射，
+            // 第二遍修复 success_goto_step_id / fail_goto_step_id 的引用。
+            let steps = self.list_loop_steps_by_loop(id).await?;
+            // old_step_id → (new_step_id, old_success_goto, old_fail_goto)
+            let mut step_map: Vec<(i64, i64, Option<i64>, Option<i64>)> = Vec::new();
+
+            for s in &steps {
+                let new_todo_id = if let Some(&cached) = todo_copy_map.get(&s.todo_id) {
+                    cached
+                } else {
+                    // 复制 source todo 到目标工作空间
+                    match self.copy_todo_to_workspace(s.todo_id, &ws).await? {
+                        Some(copied_id) => {
+                            todo_copy_map.insert(s.todo_id, copied_id);
+                            copied_id
+                        }
+                        None => s.todo_id, // 回退：继续使用原始 todo_id
+                    }
+                };
+
+                let new_step = self.create_loop_step(
+                    new_loop.id,
+                    &s.name,
+                    &s.description,
+                    new_todo_id,
+                    &s.run_mode,
+                    s.skip_on_source_failed != 0,
+                    s.min_rating,
+                    &s.unrated_policy,
+                    s.enabled != 0,
+                    &s.on_success,
+                    None, // success_goto 第二遍再补
+                    &s.on_rating_fail,
+                    None, // fail_goto 第二遍再补
+                    &s.review_type,
+                )
+                .await?;
+
+                step_map.push((s.id, new_step.id, s.success_goto_step_id, s.fail_goto_step_id));
+            }
+
+            // 第二遍：更新有 goto 引用的步骤，把旧 step_id 换成新 step_id
+            let old_to_new: std::collections::HashMap<i64, i64> = step_map.iter().map(|(old, new, _, _)| (*old, *new)).collect();
+            for (old_id, new_id, old_success_goto, old_fail_goto) in &step_map {
+                let new_success_goto = old_success_goto.and_then(|g| old_to_new.get(&g).copied());
+                let new_fail_goto = old_fail_goto.and_then(|g| old_to_new.get(&g).copied());
+
+                if new_success_goto.is_some() || new_fail_goto.is_some() {
+                    let now = crate::models::utc_timestamp();
+                    let existing = loop_steps::Entity::find_by_id(*new_id).one(&self.conn).await?;
+                    if let Some(c) = existing {
+                        let mut am: loop_steps::ActiveModel = c.into();
+                        if let Some(goto) = new_success_goto {
+                            am.success_goto_step_id = ActiveValue::Set(Some(goto));
+                        }
+                        if let Some(goto) = new_fail_goto {
+                            am.fail_goto_step_id = ActiveValue::Set(Some(goto));
+                        }
+                        am.update(&self.conn).await?;
+                    }
+                }
+            }
+
+            created_ids.push(new_loop.id);
+        }
+
+        Ok(created_ids)
+    }
+
+    // ─── 辅助方法 ──────────────────────────────────────────────
+
+    /// 从指定 loop_ids 的所有步骤中收集去重的 todo_id 列表。
+    async fn collect_todo_ids_from_loops(&self, loop_ids: &[i64]) -> Result<Vec<i64>, sea_orm::DbErr> {
+        use sea_orm::ColumnTrait;
+        let mut seen = std::collections::HashSet::new();
+        for &lid in loop_ids {
+            let steps = loop_steps::Entity::find()
+                .filter(loop_steps::Column::LoopId.eq(lid))
+                .all(&self.conn)
+                .await?;
+            for s in steps {
+                seen.insert(s.todo_id);
+            }
+        }
+        Ok(seen.into_iter().collect())
+    }
+
+    /// 复制单个 todo 到目标工作空间并返回新 todo_id。
+    /// 同时复制 tag 关联。
+    async fn copy_todo_to_workspace(&self, todo_id: i64, target_workspace: &str) -> Result<Option<i64>, sea_orm::DbErr> {
+        use crate::db::entity::todos;
+        use sea_orm::ColumnTrait;
+
+        let source_model = todos::Entity::find_by_id(todo_id)
+            .filter(todos::Column::DeletedAt.is_null())
+            .one(&self.conn)
+            .await?;
+        let model = match source_model {
+            Some(m) => m,
+            None => return Ok(None),
+        };
+
+        let now = crate::models::utc_timestamp();
+        let am = todos::ActiveModel {
+            title: ActiveValue::Set(model.title),
+            prompt: ActiveValue::Set(model.prompt),
+            status: ActiveValue::Set(model.status),
+            created_at: ActiveValue::Set(Some(now.clone())),
+            updated_at: ActiveValue::Set(Some(now.clone())),
+            executor: ActiveValue::Set(model.executor),
+            scheduler_enabled: ActiveValue::Set(model.scheduler_enabled),
+            scheduler_config: ActiveValue::Set(model.scheduler_config),
+            scheduler_timezone: ActiveValue::Set(model.scheduler_timezone),
+            workspace_path: ActiveValue::Set(Some(target_workspace.to_string())),
+            webhook_enabled: ActiveValue::Set(model.webhook_enabled),
+            acceptance_criteria: ActiveValue::Set(model.acceptance_criteria),
+            auto_review_enabled: ActiveValue::Set(model.auto_review_enabled),
+            todo_type: ActiveValue::Set(model.todo_type),
+            task_id: ActiveValue::Set(None),
+            parent_todo_id: ActiveValue::Set(model.parent_todo_id),
+            review_template_id: ActiveValue::Set(model.review_template_id),
+            kind: ActiveValue::Set(model.kind),
+            ..Default::default()
+        };
+        let inserted = am.insert(&self.conn).await?;
+        let new_id = inserted.id;
+
+        // 复制 tag 关联
+        use crate::db::entity::todo_tags;
+        let old_tags = todo_tags::Entity::find()
+            .filter(todo_tags::Column::TodoId.eq(todo_id))
+            .all(&self.conn)
+            .await?;
+        for t in old_tags {
+            let tag_am = todo_tags::ActiveModel {
+                todo_id: ActiveValue::Set(new_id),
+                tag_id: ActiveValue::Set(t.tag_id),
+            };
+            tag_am.insert(&self.conn).await?;
+        }
+
+        Ok(Some(new_id))
+    }
+
     /// 复制 loop 及其所有 trigger.step；execution 不复制。
     ///
     /// 用于 UI 的「另存为」/「复制为新版本」按钮。
@@ -140,7 +380,7 @@ impl Database {
             .create_loop(
                 &format!("{}(副本)", source.name),
                 &source.description,
-                source.workspace.as_deref(),
+                source.workspace_path.as_deref(),
                 source.webhook_enabled,
                 &source.icon,
                 source.review_template_id,
@@ -842,14 +1082,31 @@ impl Database {
     // ====== 辅助：批量取 loop + 计数 ======
 
     /// 一次 SQL 把所有 loop + 它的 trigger.step 数 + 最近一次 execution 状态拉出来。
-    /// 供左侧 LoopList 用,避免 N+1。
-    pub async fn list_loops_with_counts(
-        &self,
-        workspace: Option<&str>,
-    ) -> Result<Vec<LoopListRow>, sea_orm::DbErr> {
-        use sea_orm::{ConnectionTrait, Statement};
-        let sql = match workspace {
-            Some(_) => "SELECT l.id, l.name, l.description, l.workspace, \
+    /// 供左侧 LoopList 用,避免 N+1。按 workspace_id 过滤（唯一键，符合"筛选必须用 id"约定）。
+        pub async fn list_loops_with_counts(
+            &self,
+            workspace_id: Option<i64>,
+        ) -> Result<Vec<LoopListRow>, sea_orm::DbErr> {
+            use sea_orm::{ConnectionTrait, Statement};
+            let sql = match workspace_id {
+                Some(_) => "SELECT l.id, l.name, l.description, l.workspace_path, \
+                              l.status, l.color, l.icon, l.limits_config, l.review_template_id, \
+                              l.webhook_enabled, \
+                              l.abnormal_handler_todo_id, l.abnormal_handler_trigger_on, \
+                              l.created_at, l.updated_at, \
+                              (SELECT COUNT(*) FROM loop_triggers t WHERE t.loop_id = l.id) as trigger_count, \
+                              (SELECT COUNT(*) FROM loop_steps s WHERE s.loop_id = l.id) as step_count, \
+                              (SELECT le.status FROM loop_executions le \
+                               WHERE le.loop_id = l.id ORDER BY le.started_at DESC LIMIT 1) as last_execution_status, \
+                              (SELECT le.started_at FROM loop_executions le \
+                               WHERE le.loop_id = l.id ORDER BY le.started_at DESC LIMIT 1) as last_execution_at, \
+                              (SELECT COUNT(*) FROM loop_step_executions lse \
+                               INNER JOIN loop_executions le2 ON le2.id = lse.loop_execution_id \
+                               WHERE le2.loop_id = l.id AND lse.approval_status = 'pending') as pending_approval_count \
+                       FROM loops l \
+                       WHERE l.workspace_id = ?1 \
+                       ORDER BY l.updated_at DESC",
+                None => "SELECT l.id, l.name, l.description, l.workspace_path, \
                           l.status, l.color, l.icon, l.limits_config, l.review_template_id, \
                           l.webhook_enabled, \
                           l.abnormal_handler_todo_id, l.abnormal_handler_trigger_on, \
@@ -863,37 +1120,20 @@ impl Database {
                           (SELECT COUNT(*) FROM loop_step_executions lse \
                            INNER JOIN loop_executions le2 ON le2.id = lse.loop_execution_id \
                            WHERE le2.loop_id = l.id AND lse.approval_status = 'pending') as pending_approval_count \
-                   FROM loops l \
-                   WHERE l.workspace = ?1 \
-                   ORDER BY l.updated_at DESC",
-            None => "SELECT l.id, l.name, l.description, l.workspace, \
-                      l.status, l.color, l.icon, l.limits_config, l.review_template_id, \
-                      l.webhook_enabled, \
-                      l.abnormal_handler_todo_id, l.abnormal_handler_trigger_on, \
-                      l.created_at, l.updated_at, \
-                      (SELECT COUNT(*) FROM loop_triggers t WHERE t.loop_id = l.id) as trigger_count, \
-                      (SELECT COUNT(*) FROM loop_steps s WHERE s.loop_id = l.id) as step_count, \
-                      (SELECT le.status FROM loop_executions le \
-                       WHERE le.loop_id = l.id ORDER BY le.started_at DESC LIMIT 1) as last_execution_status, \
-                      (SELECT le.started_at FROM loop_executions le \
-                       WHERE le.loop_id = l.id ORDER BY le.started_at DESC LIMIT 1) as last_execution_at, \
-                      (SELECT COUNT(*) FROM loop_step_executions lse \
-                       INNER JOIN loop_executions le2 ON le2.id = lse.loop_execution_id \
-                       WHERE le2.loop_id = l.id AND lse.approval_status = 'pending') as pending_approval_count \
-                   FROM loops l \
-                   ORDER BY l.updated_at DESC",
-        };
-        let rows = if let Some(w) = workspace {
-            self.conn
-                .query_all(
-                    Statement::from_sql_and_values(sea_orm::DbBackend::Sqlite, sql, [w.to_string().into()])
-                )
-                .await?
-        } else {
-            self.conn
-                .query_all(Statement::from_string(sea_orm::DbBackend::Sqlite, sql))
-                .await?
-        };
+                       FROM loops l \
+                       ORDER BY l.updated_at DESC",
+            };
+            let rows = if let Some(wid) = workspace_id {
+                self.conn
+                    .query_all(
+                        Statement::from_sql_and_values(sea_orm::DbBackend::Sqlite, sql, [wid.into()])
+                    )
+                    .await?
+            } else {
+                self.conn
+                    .query_all(Statement::from_string(sea_orm::DbBackend::Sqlite, sql))
+                    .await?
+            };
         let mut out = Vec::with_capacity(rows.len());
         for row in rows {
             out.push(LoopListRow {
@@ -901,7 +1141,8 @@ impl Database {
                     id: row.try_get_by::<i64, _>("id")?,
                     name: row.try_get_by::<String, _>("name")?,
                     description: row.try_get_by::<String, _>("description")?,
-                    workspace: row.try_get_by::<Option<String>, _>("workspace")?,
+                    workspace_path: row.try_get_by::<Option<String>, _>("workspace_path")?,
+                    workspace_id: row.try_get_by::<Option<i64>, _>("workspace_id")?,
                     webhook_enabled: row.try_get_by::<bool, _>("webhook_enabled")?,
                     status: row.try_get_by::<String, _>("status")?,
                     color: row.try_get_by::<String, _>("color")?,

@@ -244,7 +244,7 @@ pub(crate) struct SelectedExecutor {
     pub command_args: Vec<String>,
     pub executable_path: String,
     pub executor_str: String,
-    pub todo_workspace: Option<String>,
+    pub todo_workspace_path: Option<String>,
     pub session_id_for_executor: Option<String>,
 }
 
@@ -256,7 +256,7 @@ pub(crate) async fn select_executor_and_build_command(
     todo: &Option<crate::models::Todo>,
     message: &str,
 ) -> Result<SelectedExecutor, ExecutionResult> {
-    let (todo_workspace, todo_executor) = extract_todo_executor_fields(todo);
+    let (todo_workspace_path, todo_executor) = extract_todo_executor_fields(todo);
     let executor_type =
         resolve_executor_type(request.req_executor.as_deref(), todo_executor.as_deref());
     let executor =
@@ -271,7 +271,7 @@ pub(crate) async fn select_executor_and_build_command(
         command_args,
         executable_path,
         executor_str,
-        todo_workspace,
+        todo_workspace_path,
         session_id_for_executor: request.resume_session_id.clone(),
     })
 }
@@ -281,7 +281,7 @@ fn extract_todo_executor_fields(
     todo: &Option<crate::models::Todo>,
 ) -> (Option<String>, Option<String>) {
     (
-        todo.as_ref().and_then(|t| t.workspace.clone()),
+        todo.as_ref().and_then(|t| t.workspace_path.clone()),
         todo.as_ref().and_then(|t| t.executor.clone()),
     )
 }
@@ -347,9 +347,9 @@ pub(crate) async fn create_run_execution_record(
         Ok(id) => id,
         Err(e) => return Err(e),
     };
-    // todo_workspace 优先来自 todo；当 todo 不存在（loop 环节执行）时回退到 request.workspace，
+    // todo_workspace_path 优先来自 todo；当 todo 不存在（loop 环节执行）时回退到 request.workspace_path，
     // 确保 worktree 创建失败后子进程 cwd 仍然是 loop 的 workspace。
-    let todo_workspace = selected.todo_workspace.or_else(|| request.workspace.clone());
+    let todo_workspace_path = selected.todo_workspace_path.or_else(|| request.workspace_path.clone());
     Ok(super::types::PreparedExecution {
         request,
         task_guard: task_state.task_guard,
@@ -361,7 +361,7 @@ pub(crate) async fn create_run_execution_record(
         executor_str: selected.executor_str,
         record_id,
         todo,
-        todo_workspace,
+        todo_workspace_path,
         timeout_secs,
     })
 }

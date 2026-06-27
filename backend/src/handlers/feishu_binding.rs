@@ -134,11 +134,11 @@ pub async fn create_binding(
         let existing = state.db.get_todo(tid).await?
             .ok_or_else(|| AppError::BadRequest("指定的 Todo 不存在".to_string()))?;
 
-        let workspace_changed = existing.workspace.as_ref().map(|w| w.as_str()) != Some(&dir.path);
-        if workspace_changed && existing.workspace.is_some() {
+        let workspace_path_changed = existing.workspace_path.as_ref().map(|w| w.as_str()) != Some(&dir.path);
+        if workspace_path_changed && existing.workspace_path.is_some() {
             tracing::warn!(
-                "[binding] binding todo {} to a different workspace (was: {:?}, now: {}), session history may be misaligned",
-                tid, existing.workspace, dir.path
+                "[binding] binding todo {} to a different workspace_path (was: {:?}, now: {}), session history may be misaligned",
+                tid, existing.workspace_path, dir.path
             );
         }
 

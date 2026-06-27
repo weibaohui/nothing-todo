@@ -12,7 +12,11 @@ pub struct Model {
     pub name: String,
     #[sea_orm(default_value = "")]
     pub description: String,
-    pub workspace: Option<String>,
+    /// Loop 所属的工作空间目录路径（对应 project_directories.path）。
+    /// path 不唯一，筛选只用 workspace_id；path 只用于 cwd/worktree。
+    pub workspace_path: Option<String>,
+    /// Loop 所属的工作空间 ID（关联 project_directories.id）。
+    pub workspace_id: Option<i64>,
     #[sea_orm(default_value = false)]
     pub webhook_enabled: bool,
     /// enabled | paused

@@ -7,7 +7,9 @@ use crate::db::TodoUpdate;
 use crate::handlers::{ApiJson, AppError, AppState};
 // todo hook 已整块移除（plan `purring-forging-petal`），HookContext 不再导入。
 use crate::models::{
-    utc_timestamp, ApiResponse, BatchUpdateTodoExecutorRequest, BatchUpdateTodoResult,
+    utc_timestamp, ApiResponse, BatchCopyTodoWorkspacePathRequest,
+    BatchUpdateTodoExecutorRequest, BatchUpdateTodoResult,
+    BatchUpdateTodoWorkspacePathRequest, BatchWorkspaceResult,
     CreateTodoRequest, RecentCompletedTodo, Todo, UpdateTagsRequest, UpdateTodoRequest,
 };
 
@@ -145,7 +147,7 @@ pub async fn create_todo(
         scheduler_timezone: scheduler_timezone.clone(),
         scheduler_next_run_at: None,
         task_id: None,
-        workspace: None,
+        workspace_path: None,
         workspace_id: None,
         webhook_enabled: req.webhook_enabled.unwrap_or(false),
         acceptance_criteria: req.acceptance_criteria.clone(),
@@ -179,7 +181,7 @@ pub async fn update_todo(
     };
     let new_status = req.status.unwrap_or(current.status);
     let executor = req.executor.or(current.executor);
-    let workspace = req.workspace.or(current.workspace);
+    let workspace_path = req.workspace_path.or(current.workspace_path);
 
     let scheduler_config = req
         .scheduler_config
@@ -213,7 +215,7 @@ pub async fn update_todo(
             scheduler_enabled: req.scheduler_enabled,
             scheduler_config: scheduler_config.as_deref(),
             scheduler_timezone: scheduler_timezone.as_deref(),
-            workspace: workspace.as_deref(),
+            workspace_path: workspace_path.as_deref(),
             webhook_enabled: req.webhook_enabled,
             acceptance_criteria: req.acceptance_criteria.as_deref(),
             auto_review_enabled: req.auto_review_enabled,
@@ -326,6 +328,48 @@ pub async fn batch_update_todos_executor(
         .await?;
     Ok(ApiResponse::ok(BatchUpdateTodoResult {
         updated_count: rows_affected as i64,
+        total: req.ids.len() as i64,
+    }))
+}
+
+/// PUT /api/todos/batch-workspace — 批量移动事项到其他工作空间
+pub async fn batch_move_todos_workspace(
+    State(state): State<AppState>,
+    ApiJson(req): ApiJson<BatchUpdateTodoWorkspacePathRequest>,
+) -> Result<ApiResponse<BatchWorkspaceResult>, AppError> {
+    if req.ids.is_empty() {
+        return Err(AppError::BadRequest("ids 不能为空".to_string()));
+    }
+    if req.workspace_path.trim().is_empty() {
+        return Err(AppError::BadRequest("workspace 不能为空".to_string()));
+    }
+    let rows_affected = state
+        .db
+        .batch_update_todos_workspace(&req.ids, req.workspace_path.trim())
+        .await?;
+    Ok(ApiResponse::ok(BatchWorkspaceResult {
+        updated_count: rows_affected as i64,
+        total: req.ids.len() as i64,
+    }))
+}
+
+/// POST /api/todos/batch-copy-workspace — 批量复制事项到其他工作空间
+pub async fn batch_copy_todos_workspace(
+    State(state): State<AppState>,
+    ApiJson(req): ApiJson<BatchCopyTodoWorkspacePathRequest>,
+) -> Result<ApiResponse<BatchWorkspaceResult>, AppError> {
+    if req.ids.is_empty() {
+        return Err(AppError::BadRequest("ids 不能为空".to_string()));
+    }
+    if req.workspace_path.trim().is_empty() {
+        return Err(AppError::BadRequest("workspace 不能为空".to_string()));
+    }
+    let created_ids = state
+        .db
+        .batch_copy_todos_to_workspace(&req.ids, req.workspace_path.trim())
+        .await?;
+    Ok(ApiResponse::ok(BatchWorkspaceResult {
+        updated_count: created_ids.len() as i64,
         total: req.ids.len() as i64,
     }))
 }

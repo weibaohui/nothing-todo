@@ -51,7 +51,7 @@ pub struct CloudTodoItem {
     #[serde(default)]
     pub tag_names: Vec<String>,
     #[serde(default)]
-    pub workspace: Option<String>,
+    pub workspace_path: Option<String>,
     #[serde(default)]
     pub worktree: Option<String>,
 }
@@ -313,7 +313,7 @@ async fn merge_cloud_todos_to_local(
                         scheduler_enabled: None,
                         scheduler_config: None,
                         scheduler_timezone: None,
-                        workspace: item.workspace.as_deref(),
+                        workspace_path: item.workspace_path.as_deref(),
                         webhook_enabled: None,
                         acceptance_criteria: None,
                         auto_review_enabled: None,
@@ -369,7 +369,7 @@ fn local_todos_to_cloud(todos: Vec<Todo>, tag_map: HashMap<i64, String>) -> Clou
                 scheduler_enabled: t.scheduler_enabled,
                 scheduler_config: t.scheduler_config,
                 tag_names,
-                workspace: t.workspace,
+                workspace_path: t.workspace_path,
                 worktree: None,
             }
         })

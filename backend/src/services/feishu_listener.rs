@@ -1952,7 +1952,7 @@ mod tests {
             scheduler_timezone: None,
             scheduler_next_run_at: None,
             task_id: None,
-            workspace: None,
+            workspace_path: None,
             workspace_id: None,
             webhook_enabled: false,
             acceptance_criteria: None,

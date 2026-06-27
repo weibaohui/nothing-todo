@@ -86,7 +86,7 @@ pub struct LoopDto {
     pub id: i64,
     pub name: String,
     pub description: String,
-    pub workspace: Option<String>,
+    pub workspace_path: Option<String>,
     pub webhook_enabled: bool,
     pub status: String,
     /// 标签 ID 列表（单选，复用 Todo 的标签体系）
@@ -109,7 +109,7 @@ impl From<loops::Model> for LoopDto {
             id: m.id,
             name: m.name,
             description: m.description,
-            workspace: m.workspace,
+            workspace_path: m.workspace_path,
             webhook_enabled: m.webhook_enabled,
             status: m.status,
             tag_ids: vec![],
@@ -360,8 +360,8 @@ pub struct CreateLoopRequest {
     pub name: String,
     #[serde(default)]
     pub description: String,
-    /// 工作空间（项目目录路径），必填。
-    pub workspace: String,
+    /// 工作空间目录路径（必填，对应 project_directories.path）。
+    pub workspace_path: String,
     #[serde(default)]
     pub webhook_enabled: bool,
     #[serde(default)]
@@ -386,7 +386,7 @@ fn default_abnormal_trigger_on() -> String { "[\"capped_step\",\"capped_token\",
 pub struct UpdateLoopRequest {
     pub name: String,
     pub description: String,
-    pub workspace: Option<String>,
+    pub workspace_path: Option<String>,
     #[serde(default)]
     pub webhook_enabled: bool,
     pub icon: String,

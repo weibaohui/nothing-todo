@@ -107,7 +107,7 @@ pub struct Todo {
     #[serde(default)]
     pub task_id: Option<String>,
     #[serde(default)]
-    pub workspace: Option<String>,
+    pub workspace_path: Option<String>,
     #[serde(default)]
     pub workspace_id: Option<i64>,
     #[serde(default)]
@@ -369,7 +369,7 @@ pub struct UpdateTodoRequest {
     #[serde(default)]
     pub scheduler_timezone: Option<String>,
     #[serde(default)]
-    pub workspace: Option<String>,
+    pub workspace_path: Option<String>,
     #[serde(default)]
     pub webhook_enabled: Option<bool>,
     #[serde(default)]
@@ -430,6 +430,41 @@ pub struct BatchUpdateTodoExecutorRequest {
 /// 批量更新事项执行器返回结果。
 #[derive(Debug, Clone, Serialize)]
 pub struct BatchUpdateTodoResult {
+    pub updated_count: i64,
+    pub total: i64,
+}
+
+/// 批量更新事项工作空间请求体（移动到其他工作空间）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct BatchUpdateTodoWorkspacePathRequest {
+    pub ids: Vec<i64>,
+    pub workspace_path: String,
+}
+
+/// 批量复制事项到其他工作空间请求体。
+#[derive(Debug, Clone, Deserialize)]
+pub struct BatchCopyTodoWorkspacePathRequest {
+    pub ids: Vec<i64>,
+    pub workspace_path: String,
+}
+
+/// 批量更新环路工作空间请求体（移动到其他工作空间）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct BatchUpdateLoopWorkspacePathRequest {
+    pub ids: Vec<i64>,
+    pub workspace_path: String,
+}
+
+/// 批量复制环路到其他工作空间请求体。
+#[derive(Debug, Clone, Deserialize)]
+pub struct BatchCopyLoopWorkspacePathRequest {
+    pub ids: Vec<i64>,
+    pub workspace_path: String,
+}
+
+/// 批量 workspace 操作返回结果（通用）。
+#[derive(Debug, Clone, Serialize)]
+pub struct BatchWorkspaceResult {
     pub updated_count: i64,
     pub total: i64,
 }
@@ -966,7 +1001,7 @@ pub struct TodoBackup {
     pub scheduler_enabled: bool,
     pub scheduler_config: Option<String>,
     pub tag_names: Vec<String>,
-    pub workspace: Option<String>,
+    pub workspace_path: Option<String>,
     pub worktree: Option<String>,
 }
 

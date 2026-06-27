@@ -165,19 +165,19 @@ pub(crate) async fn save_child_pid_and_close_stdin(
 
 /// 构造 executor 子进程命令，统一设置 stdout/stderr/stdin 为 piped。
 ///
-/// workspace 设置为 `cmd.current_dir`，但仅在 todo 指定 workspace 时生效——
-/// 没设 workspace 的 todo 让 executor 用 daemon 当前目录即可。
+/// workspace_path 设置为 `cmd.current_dir`，但仅在 todo 指定 workspace_path 时生效——
+/// 没设 workspace_path 的 todo 让 executor 用 daemon 当前目录即可。
 pub(crate) fn build_executor_command(
     executable_path: &str,
     command_args: &[String],
-    workspace: Option<&str>,
+    workspace_path: Option<&str>,
 ) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new(executable_path);
     cmd.args(command_args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .stdin(std::process::Stdio::piped());
-    if let Some(ws) = workspace {
+    if let Some(ws) = workspace_path {
         cmd.current_dir(ws);
     }
     cmd
@@ -191,7 +191,7 @@ pub(crate) fn spawn_executor_child(
     let mut cmd = build_executor_command(
         &runtime.prepared.executable_path,
         &runtime.prepared.command_args,
-        runtime.effective_workspace.as_deref(),
+        runtime.effective_workspace_path.as_deref(),
     );
     cmd.group_spawn()
 }
@@ -257,9 +257,9 @@ pub(crate) fn move_into_runtime(spawned: super::types::SpawnInputs) -> SpawnRunt
         execution_timeout_secs: spawned.execution_timeout_secs,
         feishu_bot_id: prepared.request.feishu_bot_id,
         feishu_receive_id: prepared.request.feishu_receive_id.clone(),
-        // 关键：把 effective_workspace 整字段 move 进 runtime，
-        // 避免 spawn_executor_child 误用 todo_workspace（worktree 失效）。
-        effective_workspace: spawned.effective_workspace,
+        // 关键：把 effective_workspace_path 整字段 move 进 runtime，
+        // 避免 spawn_executor_child 误用 todo_workspace_path（worktree 失效）。
+        effective_workspace_path: spawned.effective_workspace_path,
         prepared,
     }
 }
@@ -665,19 +665,19 @@ mod tests {
         assert_eq!(std_args[1], "build me a web app");
     }
 
-    /// `SpawnRuntime` 持有 `effective_workspace` 字段；`prepared.todo_workspace` 与
-    /// `effective_workspace` 是两个独立字段（issue #660 重构中的回归测试）。
+    /// `SpawnRuntime` 持有 `effective_workspace_path` 字段；`prepared.todo_workspace_path` 与
+    /// `effective_workspace_path` 是两个独立字段（issue #660 重构中的回归测试）。
     #[test]
-    fn test_spawn_runtime_carries_effective_workspace() {
+    fn test_spawn_runtime_carries_effective_workspace_path() {
         fn _assert_field(rt: &SpawnRuntime) -> Option<&String> {
-            rt.effective_workspace.as_ref()
+            rt.effective_workspace_path.as_ref()
         }
         fn _assert_distinct_fields(
             rt: &SpawnRuntime,
         ) -> (Option<&String>, Option<&String>) {
             (
-                rt.effective_workspace.as_ref(),
-                rt.prepared.todo_workspace.as_ref(),
+                rt.effective_workspace_path.as_ref(),
+                rt.prepared.todo_workspace_path.as_ref(),
             )
         }
     }
