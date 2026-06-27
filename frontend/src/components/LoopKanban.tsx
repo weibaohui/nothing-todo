@@ -304,11 +304,13 @@ function useLoopExecutions(workspaceId?: number | null) {
 
   // 加载环路列表：按 workspace_id 过滤（如果传了）。
   useEffect(() => {
+    let ignore = false;
     setLoading(true);
     dbLoops.listLoops(workspaceId ?? undefined)
-      .then(setAllLoops)
-      .catch(() => setAllLoops([]))
-      .finally(() => setLoading(false));
+      .then(data => { if (!ignore) setAllLoops(data); })
+      .catch(() => { if (!ignore) setAllLoops([]); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
   }, [workspaceId]);
 
   // 环路列表加载后，批量并发拉取每个环路的执行历史。
