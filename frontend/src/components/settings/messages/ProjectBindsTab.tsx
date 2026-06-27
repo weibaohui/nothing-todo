@@ -35,19 +35,17 @@ export function ProjectBindsTab() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [b, d, t] = await Promise.all([
+      const [b, d, bindings] = await Promise.all([
         db.getAgentBots(),
         db.getProjectDirectories(),
-        db.getAllTodos(),
+        selectedBotId !== undefined
+          ? db.getFeishuBindings(selectedBotId)
+          : db.getFeishuBindings(),
       ]);
       setBots(b.filter(bot => bot.bot_type === 'feishu'));
       setDirectories(d);
-      setTodos(t);
-
-      const bindings = selectedBotId !== undefined
-        ? await db.getFeishuBindings(selectedBotId)
-        : await db.getFeishuBindings();
       setBindings(bindings);
+      setTodos([]); // todos 按需加载：用户在 Modal 中选定项目目录后再拉取
 
       // Initialize radio selection to the currently-enabled binding
       const activeBinding = bindings.find(binding => binding.enabled);
@@ -62,6 +60,15 @@ export function ProjectBindsTab() {
   };
 
   useEffect(() => { loadAll(); }, []);
+
+  // 用户选定项目目录后，只拉取该 workspace 下的 todo，不再拉全量。
+  useEffect(() => {
+    if (selectedDirId == null) {
+      setTodos([]);
+      return;
+    }
+    db.getAllTodos(selectedDirId).then(setTodos).catch(() => {});
+  }, [selectedDirId]);
 
   const handleBotChange = async (botId: number | undefined) => {
     setSelectedBotId(botId);
@@ -206,14 +213,12 @@ export function ProjectBindsTab() {
    * 若用户尚未选择目录，则显示所有有 workspace 的 Todo。
    */
   const projectTodos = useMemo(() => {
-    const selectedDir = directories.find(d => d.id === selectedDirId);
-    const dirPath = selectedDir?.path;
-    return todos.filter(t => {
-      if (!t.workspace_path) return false;
-      // 若已选目录，仅显示 workspace_path 与目录路径一致的 Todo
-      return dirPath ? t.workspace_path === dirPath : true;
-    });
-  }, [todos, directories, selectedDirId]);
+    // selectedDirId 已传给 getAllTodos 过滤后端数据；但用户可能切换目录后未触发重载，
+    // 这里再补一道前端过滤（按 workspace_id 匹配），保证目录切换后下拉立即更新。
+    return selectedDirId != null
+      ? todos.filter(t => t.workspace_id === selectedDirId)
+      : todos;
+  }, [todos, selectedDirId]);
 
   return (
     <Spin spinning={loading}>
@@ -377,10 +382,14 @@ export function ProjectBindsTab() {
               style={{ width: '100%', marginBottom: 12 }}
               value={selectedTodoId}
               onChange={setSelectedTodoId}
-              options={projectTodos.map(t => ({
-                label: `#${t.id} ${t.title} ${t.workspace_path ? `· ${t.workspace_path}` : ''}`,
-                value: t.id,
-              }))}
+              options={projectTodos.map(t => {
+                const dir = directories.find(d => d.id === t.workspace_id);
+                const wsLabel = dir?.name || dir?.path || '';
+                return {
+                  label: `#${t.id} ${t.title}${wsLabel ? ` · ${wsLabel}` : ''}`,
+                  value: t.id,
+                };
+              })}
             />
           </>
         ) : (
