@@ -3,9 +3,6 @@ import { Button, message } from 'antd';
 import { ListDetailPage } from './ListDetailPage';
 import { TodoList } from './TodoList';
 import { LoopDetailPanel } from './LoopStudioDetailPanel';
-import { EmptyDetailPlaceholder } from './EmptyDetailPlaceholder';
-import { useIsMobile } from '@/hooks/useIsMobile';
-import { SIDEBAR_WIDTH } from '@/constants';
 import * as dbLoops from '@/utils/database/loops';
 
 interface LoopPageProps {
@@ -22,6 +19,11 @@ interface LoopPageProps {
   effectiveMobilePanel: 'list' | 'detail';
 }
 
+/**
+ * 桌面端环路页面组件
+ * 使用 ListDetailPage 实现左侧列表 + 右侧详情的双栏布局
+ * 移动端逻辑已独立到 LoopMobilePage 组件
+ */
 export function LoopPage({
   selectedLoopId,
   tags,
@@ -33,10 +35,7 @@ export function LoopPage({
   forcedListMode,
   onListModeChange,
   onLoopChanged,
-  effectiveMobilePanel,
 }: LoopPageProps) {
-  const isMobile = useIsMobile();
-
   const listPanel = (
     <TodoList
       onOpenCreateModal={onOpenCreateModal}
@@ -75,7 +74,7 @@ export function LoopPage({
           await dbLoops.deleteLoop(selectedLoopId);
           message.success('已删除');
           onLoopChanged();
-        } catch (err) {
+        } catch {
           message.error('删除失败，环路可能正在被引用');
         }
       }}
@@ -94,36 +93,6 @@ export function LoopPage({
       onChanged={onLoopChanged}
     />
   ) : null;
-
-  if (isMobile) {
-    return (
-      <>
-        <div
-          className={effectiveMobilePanel === 'list' ? 'animate-fade-in' : ''}
-          style={{
-            width: SIDEBAR_WIDTH.mobile,
-            flexShrink: 0,
-            height: '100%',
-            display: effectiveMobilePanel === 'list' ? 'block' : 'none',
-          }}
-        >
-          {listPanel}
-        </div>
-        <div
-          className={effectiveMobilePanel === 'detail' ? 'animate-slide-in-right' : ''}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            height: '100%',
-            overflow: 'hidden',
-            display: effectiveMobilePanel === 'detail' ? 'block' : 'none',
-          }}
-        >
-          {detailPanel ?? <EmptyDetailPlaceholder />}
-        </div>
-      </>
-    );
-  }
 
   return (
     <ListDetailPage

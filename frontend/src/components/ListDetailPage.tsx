@@ -4,7 +4,6 @@ import { Button } from 'antd';
 import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 import { PageCard } from './common/PageCard';
 import { EmptyDetailPlaceholder } from './EmptyDetailPlaceholder';
-import { useIsMobile } from '@/hooks/useIsMobile';
 import { SIDEBAR_WIDTH } from '@/constants';
 
 interface ListDetailPageProps {
@@ -16,6 +15,11 @@ interface ListDetailPageProps {
   storageKey?: string;
 }
 
+/**
+ * 桌面端列表-详情双栏布局组件
+ * 左侧为可折叠的列表侧边栏，右侧为详情内容区
+ * 移动端逻辑已独立到 mobile/TodoMobilePage 和 mobile/LoopMobilePage
+ */
 export function ListDetailPage({
   icon,
   title,
@@ -24,12 +28,11 @@ export function ListDetailPage({
   detailPanel,
   storageKey = 'list_detail_sidebar_collapsed',
 }: ListDetailPageProps) {
-  const isMobile = useIsMobile();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
       return localStorage.getItem(storageKey) === 'true';
     } catch {
-      return true; // 默认展开
+      return true;
     }
   });
 
@@ -42,19 +45,6 @@ export function ListDetailPage({
   const toggleSidebar = () => {
     setSidebarCollapsed(v => !v);
   };
-
-  if (isMobile) {
-    return (
-      <>
-        <div style={{ width: SIDEBAR_WIDTH.mobile, flexShrink: 0, height: '100%' }}>
-          {listPanel}
-        </div>
-        <div style={{ flex: 1, minWidth: 0, height: '100%', overflow: 'hidden' }}>
-          {detailPanel ?? <EmptyDetailPlaceholder />}
-        </div>
-      </>
-    );
-  }
 
   const headerExtra = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

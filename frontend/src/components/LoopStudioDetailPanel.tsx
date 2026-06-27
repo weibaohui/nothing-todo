@@ -42,6 +42,7 @@ interface LoopDetailPanelProps {
   onDelete: () => void;
   onToggleStatus: () => void;
   onChanged: () => void;
+  hideTitleRow?: boolean;
 }
 
 export function LoopDetailPanel({
@@ -52,6 +53,7 @@ export function LoopDetailPanel({
   onDelete,
   onToggleStatus,
   onChanged,
+  hideTitleRow = false,
 }: LoopDetailPanelProps) {
   const { message } = AntApp.useApp();
   const [detail, setDetail] = useState<LoopDetail | null>(null);
@@ -149,43 +151,47 @@ export function LoopDetailPanel({
   return (
     // 父容器已 overflow:auto, 这里只负责垂直 padding, 不再 height:100%
     <div className="loop-detail-panel detail-panel" style={{ padding: 'var(--space-xl)' }}>
-      {/* Header: 标签色条 + 标题 + 操作按钮 */}
-      <div className="loop-detail-header" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        {(() => {
-          const tag = tags.find(t => detail.tag_ids?.includes(t.id));
-          return <span style={{ width: 4, height: 24, background: tag?.color || '#722ed1', borderRadius: 2 }} />;
-        })()}
-        <h2 style={{ margin: 0, fontSize: 18, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-text, #0f172a)' }}>
-          {detail.name}
-        </h2>
-        <span style={{ color: 'var(--color-text-tertiary, #94a3b8)', fontSize: 12 }}>#{detail.id}</span>
-        <Space size={4}>
-          <Tooltip title="手动触发">
-            <Button
-              size="small" type="primary"
-              icon={<ThunderboltOutlined />}
-              onClick={onTrigger}
-              disabled={detail.status !== 'enabled'}
-            />
-          </Tooltip>
-          <Tooltip title="复制">
-            <Button size="small" icon={<CopyOutlined />} onClick={onDuplicate} />
-          </Tooltip>
-          <Tooltip title="编辑">
-            <Button size="small" icon={<EditOutlined />} onClick={handleOpenEdit} />
-          </Tooltip>
-          <Popconfirm
-            title="删除 loop"
-            description="将级联删除 triggers/steps,无法恢复"
-            okType="danger"
-            onConfirm={onDelete}
-          >
-            <Tooltip title="删除">
-              <Button size="small" danger icon={<DeleteOutlined />} />
-            </Tooltip>
-          </Popconfirm>
-        </Space>
-      </div>
+      {!hideTitleRow && (
+        <>
+          {/* Header: 标签色条 + 标题 + 操作按钮 */}
+          <div className="loop-detail-header" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+            {(() => {
+              const tag = tags.find(t => detail.tag_ids?.includes(t.id));
+              return <span style={{ width: 4, height: 24, background: tag?.color || '#722ed1', borderRadius: 2 }} />;
+            })()}
+            <h2 style={{ margin: 0, fontSize: 18, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-text, #0f172a)' }}>
+              {detail.name}
+            </h2>
+            <span style={{ color: 'var(--color-text-tertiary, #94a3b8)', fontSize: 12 }}>#{detail.id}</span>
+            <Space size={4}>
+              <Tooltip title="手动触发">
+                <Button
+                  size="small" type="primary"
+                  icon={<ThunderboltOutlined />}
+                  onClick={onTrigger}
+                  disabled={detail.status !== 'enabled'}
+                />
+              </Tooltip>
+              <Tooltip title="复制">
+                <Button size="small" icon={<CopyOutlined />} onClick={onDuplicate} />
+              </Tooltip>
+              <Tooltip title="编辑">
+                <Button size="small" icon={<EditOutlined />} onClick={handleOpenEdit} />
+              </Tooltip>
+              <Popconfirm
+                title="删除 loop"
+                description="将级联删除 triggers/steps,无法恢复"
+                okType="danger"
+                onConfirm={onDelete}
+              >
+                <Tooltip title="删除">
+                  <Button size="small" danger icon={<DeleteOutlined />} />
+                </Tooltip>
+              </Popconfirm>
+            </Space>
+          </div>
+        </>
+      )}
 
       {detail.description && (
         <div style={{ color: 'var(--color-text-secondary, #475569)', fontSize: 13, marginBottom: 16 }}>{detail.description}</div>

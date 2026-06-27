@@ -8,6 +8,8 @@ import { useViewState, viewToNavKey, type View } from './hooks/useViewState';
 import { ThemeProvider, useTheme } from './hooks/useTheme';
 import { TodoPage } from './components/TodoPage';
 import { LoopPage } from './components/LoopPage';
+import { TodoMobilePage } from './components/mobile/TodoMobilePage';
+import { LoopMobilePage } from './components/mobile/LoopMobilePage';
 import { Dashboard } from './components/Dashboard';
 import { MemorialBoard } from './components/MemorialBoard';
 import { SettingsPage } from './components/SettingsPage';
@@ -378,36 +380,66 @@ function AppContent() {
             transition: 'height 0.3s ease, padding-bottom 0.3s ease',
           }}
         >
-          {/* 事项页面 */}
+          {/* 事项页面：移动端与桌面端独立组件 */}
           {activeView === 'items' && (
-            <TodoPage
-              selectedTodoId={state.selectedTodoId}
-              onOpenCreateModal={() => setTodoModalOpen(true)}
-              onSelectTodo={handleSelectTodo}
-              loopUpdateCount={loopUpdateCount}
-              onSelectLoop={handleSelectLoop}
-              onCreateLoop={() => setLoopCreateModalOpen(true)}
-              forcedListMode={forcedListMode}
-              onListModeChange={() => setForcedListMode(undefined)}
-              effectiveMobilePanel={effectiveMobilePanel}
-            />
+            isMobile ? (
+              <TodoMobilePage
+                selectedTodoId={state.selectedTodoId}
+                onOpenCreateModal={() => setTodoModalOpen(true)}
+                onSelectTodo={handleSelectTodo}
+                loopUpdateCount={loopUpdateCount}
+                onSelectLoop={handleSelectLoop}
+                onCreateLoop={() => setLoopCreateModalOpen(true)}
+                forcedListMode={forcedListMode}
+                onListModeChange={() => setForcedListMode(undefined)}
+                effectiveMobilePanel={effectiveMobilePanel}
+              />
+            ) : (
+              <TodoPage
+                selectedTodoId={state.selectedTodoId}
+                onOpenCreateModal={() => setTodoModalOpen(true)}
+                onSelectTodo={handleSelectTodo}
+                loopUpdateCount={loopUpdateCount}
+                onSelectLoop={handleSelectLoop}
+                onCreateLoop={() => setLoopCreateModalOpen(true)}
+                forcedListMode={forcedListMode}
+                onListModeChange={() => setForcedListMode(undefined)}
+                effectiveMobilePanel={effectiveMobilePanel}
+              />
+            )
           )}
 
-          {/* 环路页面 */}
+          {/* 环路页面：移动端与桌面端独立组件 */}
           {activeView === 'loops' && (
-            <LoopPage
-              selectedLoopId={selectedLoopId}
-              tags={state.tags}
-              onOpenCreateModal={() => setTodoModalOpen(true)}
-              onSelectTodo={handleSelectTodo}
-              loopUpdateCount={loopUpdateCount}
-              onSelectLoop={handleSelectLoop}
-              onCreateLoop={() => setLoopCreateModalOpen(true)}
-              forcedListMode={forcedListMode}
-              onListModeChange={() => setForcedListMode(undefined)}
-              onLoopChanged={() => setLoopUpdateCount(c => c + 1)}
-              effectiveMobilePanel={effectiveMobilePanel}
-            />
+            isMobile ? (
+              <LoopMobilePage
+                selectedLoopId={selectedLoopId}
+                tags={state.tags}
+                onOpenCreateModal={() => setTodoModalOpen(true)}
+                onSelectTodo={handleSelectTodo}
+                loopUpdateCount={loopUpdateCount}
+                onSelectLoop={handleSelectLoop}
+                onCreateLoop={() => setLoopCreateModalOpen(true)}
+                forcedListMode={forcedListMode}
+                onListModeChange={() => setForcedListMode(undefined)}
+                onLoopChanged={() => setLoopUpdateCount(c => c + 1)}
+                effectiveMobilePanel={effectiveMobilePanel}
+              />
+            ) : (
+              <LoopPage
+                selectedLoopId={selectedLoopId}
+                tags={state.tags}
+                onOpenCreateModal={() => setTodoModalOpen(true)}
+                onSelectTodo={handleSelectTodo}
+                loopUpdateCount={loopUpdateCount}
+                onSelectLoop={handleSelectLoop}
+                onCreateLoop={() => setLoopCreateModalOpen(true)}
+                forcedListMode={forcedListMode}
+                onListModeChange={() => setForcedListMode(undefined)}
+                onLoopChanged={() => setLoopUpdateCount(c => c + 1)}
+                effectiveMobilePanel={effectiveMobilePanel}
+              />
+            )
           )}
 
           {/* 非事项/环路视图：右侧独占 */}
