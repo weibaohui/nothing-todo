@@ -215,7 +215,7 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
     let displayTriggerType: string | undefined;
 
     if (runIdx === 0) {
-      const recordResult = cache.todoResults[todo.id] || state.executionRecords[todo.id]?.[0]?.result;
+      const recordResult = state.executionRecords[todo.id]?.[0]?.result;
       resultText = recordResult || '';
       displayModel = todoExecutionRecord?.model;
       displayUsage = todoExecutionRecord?.usage;
@@ -242,7 +242,6 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
       displayRating = cachedRun.rating;
     }
 
-    const isLoadingResult = cache.loadingResults.has(todo.id);
     const isLoadingRun = cache.loadingRunIndex[todo.id] != null && cache.loadingRunIndex[todo.id] === runIdx && runIdx > 0;
     const runCount = cache.totalRunsCache[todo.id] ?? (isFinished ? 1 : 0);
 
@@ -273,7 +272,7 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
           resultExpanded={resultExpanded}
           onTogglePrompt={() => togglePrompt(todo.id)}
           onToggleResult={() => handleToggleResult(todo)}
-          isLoadingResult={isLoadingResult}
+          isLoadingResult={false}
           runCount={runCount}
           selectedRun={runIdx}
           onSelectRun={(index) => cache.handleSelectRun(todo.id, index)}
