@@ -319,17 +319,18 @@ impl CodeExecutor for PiExecutor {
     }
 
     /// 支持 session 的命令参数
-    /// pi 使用 --continue 恢复（不需要指定 session id，pi 会自动找当前目录最近的 session）
-    fn command_args_with_session(&self, message: &str, _session_id: Option<&str>, is_resume: bool) -> Vec<String> {
+    /// pi 使用 --session <session_id> 恢复会话
+    fn command_args_with_session(&self, message: &str, session_id: Option<&str>, is_resume: bool) -> Vec<String> {
         let mut args = vec![
             "-p".to_string(),
             "--mode".to_string(),
             "json".to_string(),
         ];
         if is_resume {
-            // 恢复模式：只用 --continue，让 pi 自动找最近 session
-            // 注意：pi 的 session 按项目目录存储，必须确保 cwd 与原 session 创建时一致
-            args.push("--continue".to_string());
+            if let Some(sid) = session_id {
+                args.push("--session".to_string());
+                args.push(sid.to_string());
+            }
         }
         args.push(message.to_string());
         args
@@ -463,18 +464,25 @@ mod tests {
     fn test_command_args_with_session_resume() {
         let executor = PiExecutor::new("pi".to_string());
         let args = executor.command_args_with_session("hello", Some("session123"), true);
-        // pi resume 只用 --continue，session 按目录自动管理，不需要传 session_id
-        assert!(args.contains(&"--continue".to_string()));
-        // session_id 参数被忽略
-        assert!(!args.contains(&"session123".to_string()));
+        // pi resume 使用 --session <session_id>
+        assert!(args.contains(&"--session".to_string()));
+        assert!(args.contains(&"session123".to_string()));
     }
 
     #[test]
     fn test_command_args_with_session_no_resume() {
         let executor = PiExecutor::new("pi".to_string());
         let args = executor.command_args_with_session("hello", Some("session123"), false);
-        // 不使用 --continue，只在新 session 执行
-        assert!(!args.contains(&"--continue".to_string()));
+        // 非 resume 模式不使用 --session
+        assert!(!args.contains(&"--session".to_string()));
+    }
+
+    #[test]
+    fn test_command_args_with_session_resume_no_id() {
+        let executor = PiExecutor::new("pi".to_string());
+        let args = executor.command_args_with_session("hello", None, true);
+        // resume 模式但没有 session_id 时，不加 --session（降级为新 session）
+        assert!(!args.contains(&"--session".to_string()));
     }
 
     #[test]

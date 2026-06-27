@@ -336,6 +336,7 @@ mod tests {
             name: "新模板".to_string(),
             description: Some("描述".to_string()),
             prompt: "你是一个评审师".to_string(),
+            workspace_id: None,
         };
         let id = db.create_review_template(&input).await.expect("create");
         let row = db.get_review_template(id).await.expect("get").expect("some");
@@ -351,6 +352,7 @@ mod tests {
             name: "no-desc".to_string(),
             description: None,
             prompt: "p".to_string(),
+            workspace_id: None,
         };
         let id = db.create_review_template(&input).await.expect("create");
         let row = db.get_review_template(id).await.expect("get").expect("some");
@@ -372,6 +374,7 @@ mod tests {
             name: "new".to_string(),
             description: Some("new-desc".to_string()),
             prompt: "new-prompt".to_string(),
+            workspace_id: None,
         };
         db.update_review_template(id, &input).await.expect("update");
         let after = db.get_review_template(id).await.expect("get").expect("some");
@@ -445,6 +448,7 @@ mod tests {
             name: "默认评审任务".to_string(),
             description: None,
             prompt: "user-customized prompt".to_string(),
+            workspace_id: None,
         }).await.expect("update");
         let id2 = db.ensure_default_review_template().await.expect("ensure 2");
         assert_eq!(id, id2);

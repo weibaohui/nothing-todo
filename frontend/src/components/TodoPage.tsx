@@ -14,6 +14,7 @@ interface TodoPageProps {
   forcedListMode?: 'item' | 'loop';
   onListModeChange: () => void;
   effectiveMobilePanel: 'list' | 'detail';
+  onOpenPost?: (todoId: number, recordId: number) => void;
 }
 
 /**
@@ -30,6 +31,7 @@ export function TodoPage({
   forcedListMode,
   onListModeChange,
   selectedTodoId,
+  onOpenPost,
 }: TodoPageProps) {
   const listPanel = (
     <TodoList
@@ -60,7 +62,7 @@ export function TodoPage({
         </Button>
       }
       listPanel={listPanel}
-      detailPanel={selectedTodoId ? <TodoDetail /> : null}
+      detailPanel={selectedTodoId ? <TodoDetail onOpenPost={onOpenPost} /> : null}
     />
   );
 }
