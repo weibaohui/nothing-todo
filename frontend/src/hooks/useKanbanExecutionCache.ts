@@ -1,16 +1,11 @@
 /**
- * useKanbanExecutionCache — execution record caching for the Kanban board.
+ * useKanbanExecutionCache — 看板视图执行记录数据源。
  *
- * Encapsulates:
- * - Eager cache prefetch for completed/failed todos (execRecordCache, totalRunsCache)
- * - Run-history switching with on-demand pagination (runDataCache, selectedRunIndex)
- * - Lazy result text fetching on card expansion (todoResults, loadingResults)
- *
- * All state is local; callers pass the full todo list and store records,
- * and receive derived cache state plus callbacks bound to the cache setters.
+ * 不再做本地缓存（之前因缓存导致切 workspace 后数据不刷新），
+ * 所有数据直接走 API 或 storeRecords（全局 store 里的执行记录）。
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import type { Todo, ExecutionRecord } from '@/types';
 import * as db from '@/utils/database';
 
@@ -18,13 +13,11 @@ interface UseKanbanExecutionCacheOptions {
   todos: Todo[];
   /** executionRecords from global store, keyed by todoId */
   storeRecords: Record<number, ExecutionRecord[]>;
+  /** 当前选中的 workspace_id，透传到 API */
+  workspaceId?: number | null;
 }
 
 interface UseKanbanExecutionCacheResult {
-  // Cached "latest result" for each todo (used by collapsed cards)
-  todoResults: Record<number, string>;
-  loadingResults: Set<number>;
-
   // Per-todo run index selection
   selectedRunIndex: Record<number, number>;
   totalRunsCache: Record<number, number>;
@@ -32,110 +25,46 @@ interface UseKanbanExecutionCacheResult {
   loadingRunIndex: Record<number, number | null>;
 
   // Actions
-  toggleResult: (todo: Todo) => Promise<void>;
+  toggleResult: (todo: Todo) => Promise<string | null>;
   handleSelectRun: (todoId: number, runIndex: number) => Promise<void>;
 
-  // Get the best available record for a todo (store > cache)
+  // Get the best available record for a todo (store > API)
   getRecordForTodo: (todoId: number) => ExecutionRecord | null;
 }
 
 export function useKanbanExecutionCache({
-  todos,
   storeRecords,
+  workspaceId,
 }: UseKanbanExecutionCacheOptions): UseKanbanExecutionCacheResult {
-  // ─── Eager cache prefetch ────────────────────────────────
-  // Cache of the "latest record" for each finished todo (used by collapsed cards)
-  const [execRecordCache, setExecRecordCache] = useState<Record<number, ExecutionRecord>>({});
-  // Tracks which todos we've already attempted to fetch (avoid duplicate requests)
-  const fetchAttempted = useRef<Set<number>>(new Set());
-
-  // ─── Run-history switching ───────────────────────────────
   const [selectedRunIndex, setSelectedRunIndex] = useState<Record<number, number>>({});
   const [totalRunsCache, setTotalRunsCache] = useState<Record<number, number>>({});
   const [runDataCache, setRunDataCache] = useState<Record<number, (ExecutionRecord | null)[]>>({});
   const [loadingRunIndex, setLoadingRunIndex] = useState<Record<number, number | null>>({});
 
-  // ─── Lazy result text ───────────────────────────────────
-  const [todoResults, setTodoResults] = useState<Record<number, string>>({});
-  const [loadingResults, setLoadingResults] = useState<Set<number>>(new Set());
+  // 点击展开时从 API 拉取最新执行结果（不做本地缓存）
+  const toggleResult = useCallback(async (todo: Todo): Promise<string | null> => {
+    // 优先走 store 数据，不需要额外请求
+    const storeRecord = storeRecords[todo.id]?.[0];
+    if (storeRecord?.result) return storeRecord.result;
 
-  // ─── Eagerly prefetch latest record for finished todos ───
-
-  useEffect(() => {
-    const finished = todos.filter(t => t.status === 'completed' || t.status === 'failed');
-    for (const todo of finished) {
-      if (fetchAttempted.current.has(todo.id)) continue;
-      fetchAttempted.current.add(todo.id);
-
-      // Prefer store data to avoid extra request
-      const global = storeRecords[todo.id];
-      if (global?.length) {
-        setExecRecordCache(prev => {
-          if (prev[todo.id]) return prev;
-          return { ...prev, [todo.id]: global[0] };
-        });
-        setTotalRunsCache(prev => {
-          if (prev[todo.id]) return prev;
-          return { ...prev, [todo.id]: global.length };
-        });
-        continue;
-      }
-
-      // Lazy-fetch from API
-      db.getExecutionRecords(todo.id, 1, 1).then(page => {
-        if (page.records.length > 0) {
-          setExecRecordCache(prev => {
-            if (prev[todo.id]) return prev;
-            return { ...prev, [todo.id]: page.records[0] };
-          });
-        }
-        if (page.total > 0) {
-          setTotalRunsCache(prev => {
-            if (prev[todo.id]) return prev;
-            return { ...prev, [todo.id]: page.total };
-          });
-        }
-      }).catch(() => {});
+    try {
+      const page = await db.getExecutionRecords(todo.id, 1, 1, undefined, undefined, workspaceId ?? undefined);
+      return page.records[0]?.result ?? null;
+    } catch {
+      return null;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    // Intentionally omitted from deps: this effect populates the local cache by
-    // checking storeRecords inside the loop (via storeRecords[todo.id]).  Adding
-    // storeRecords to deps would cause re-fetch of every finished todo whenever
-    // ANY execution record changes globally, which defeats the purpose of the cache.
-  }, [todos]);
+  }, [storeRecords, workspaceId]);
 
-  // ─── Toggle result expansion & lazy-fetch ───────────────
-
-  const toggleResult = useCallback(async (todo: Todo) => {
-    const todoId = todo.id;
-
-    if (!todoResults[todoId] && !storeRecords[todoId]?.length) {
-      // Nothing cached yet and no store data — fetch
-      if (loadingResults.has(todoId)) return;
-      setLoadingResults(prev => { const n = new Set(prev); n.add(todoId); return n; });
-      try {
-        const page = await db.getExecutionRecords(todoId, 1, 1);
-        if (page.records.length > 0 && page.records[0].result) {
-          setTodoResults(prev => ({ ...prev, [todoId]: page.records[0].result! }));
-        }
-      } catch { /* ignore */ }
-      finally {
-        setLoadingResults(prev => { const n = new Set(prev); n.delete(todoId); return n; });
-      }
-    }
-  }, [todoResults, loadingResults, storeRecords]);
-
-  // ─── Run index selection ───────────────────────────────
-
+  // 选择执行轮次时从 API 拉取
   const handleSelectRun = useCallback(async (todoId: number, runIndex: number) => {
     if (selectedRunIndex[todoId] === runIndex) return;
     setSelectedRunIndex(prev => ({ ...prev, [todoId]: runIndex }));
 
     if (runDataCache[todoId]?.[runIndex]) return;
 
+    // runIndex=0 用 store 数据或 API
     if (runIndex === 0) {
-      // Run 0 always maps to the cached latest record
-      const record = execRecordCache[todoId] || storeRecords[todoId]?.[0];
+      const record = storeRecords[todoId]?.[0];
       if (record) {
         setRunDataCache(prev => {
           const arr = prev[todoId] || [];
@@ -149,15 +78,12 @@ export function useKanbanExecutionCache({
 
     setLoadingRunIndex(prev => ({ ...prev, [todoId]: runIndex }));
     try {
-      // Pagination is 1-indexed and sorted newest-first: runIndex=0 is the latest
-      // record (page 1), runIndex=1 is the second-latest (page 2), etc.
-      const page = await db.getExecutionRecords(todoId, runIndex + 1, 1);
+      const page = await db.getExecutionRecords(todoId, runIndex + 1, 1, undefined, undefined, workspaceId ?? undefined);
       if (page.records.length > 0) {
-        const record = page.records[0];
         setRunDataCache(prev => {
           const arr = prev[todoId] || [];
           const next = [...arr];
-          next[runIndex] = record;
+          next[runIndex] = page.records[0];
           return { ...prev, [todoId]: next };
         });
         if (!totalRunsCache[todoId] && page.total > 0) {
@@ -168,17 +94,13 @@ export function useKanbanExecutionCache({
     finally {
       setLoadingRunIndex(prev => ({ ...prev, [todoId]: null }));
     }
-  }, [selectedRunIndex, runDataCache, execRecordCache, storeRecords, totalRunsCache]);
-
-  // ─── Helper ─────────────────────────────────────────────
+  }, [selectedRunIndex, runDataCache, storeRecords, totalRunsCache, workspaceId]);
 
   const getRecordForTodo = useCallback((todoId: number): ExecutionRecord | null => {
-    return storeRecords[todoId]?.[0] ?? execRecordCache[todoId] ?? null;
-  }, [storeRecords, execRecordCache]);
+    return storeRecords[todoId]?.[0] ?? null;
+  }, [storeRecords]);
 
   return {
-    todoResults,
-    loadingResults,
     selectedRunIndex,
     totalRunsCache,
     runDataCache,

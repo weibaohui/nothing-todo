@@ -593,13 +593,15 @@ impl Database {
         Ok(Some(Self::model_to_todo(model, tag_ids)))
     }
 
-    pub async fn get_scheduler_todos(&self) -> Result<Vec<Todo>, sea_orm::DbErr> {
-        let models = todos::Entity::find()
+    pub async fn get_scheduler_todos(&self, workspace_id: Option<i64>) -> Result<Vec<Todo>, sea_orm::DbErr> {
+        let mut find = todos::Entity::find()
             .filter(todos::Column::DeletedAt.is_null())
             .filter(todos::Column::SchedulerEnabled.eq(true))
-            .filter(todos::Column::SchedulerConfig.is_not_null())
-            .all(&self.conn)
-            .await?;
+            .filter(todos::Column::SchedulerConfig.is_not_null());
+        if let Some(wid) = workspace_id {
+            find = find.filter(todos::Column::WorkspaceId.eq(wid));
+        }
+        let models = find.all(&self.conn).await?;
 
         let ids: Vec<i64> = models.iter().map(|m| m.id).collect();
         let tag_map = self.fetch_tag_ids_for_many(&ids).await?;
@@ -1023,10 +1025,22 @@ impl Database {
     pub async fn get_recent_completed_todos(
         &self,
         hours: u32,
+        workspace_id: Option<i64>,
     ) -> Result<Vec<crate::models::RecentCompletedTodo>, sea_orm::DbErr> {
         let backend = self.conn.get_database_backend();
         let time_filter = format!("datetime('now', '-{} hours')", hours);
 
+        let mut conditions = vec![
+            "t.deleted_at IS NULL".to_string(),
+            "t.status IN ('completed', 'failed')".to_string(),
+            format!("er.finished_at >= {}", time_filter),
+        ];
+        // 按 workspace_id 过滤：仅显示该工作空间下的事项
+        if let Some(wid) = workspace_id {
+            conditions.push(format!("t.workspace_id = {}", wid));
+        }
+
+        let where_clause = conditions.join(" AND ");
         let sql = format!(
             "SELECT t.id as todo_id, t.title, t.prompt, t.executor, \
              er.status as execution_status, er.finished_at, er.result, er.model, er.usage, \
@@ -1037,11 +1051,9 @@ impl Database {
                  WHERE er2.todo_id = t.id \
                  ORDER BY er2.finished_at DESC LIMIT 1 \
              ) \
-             WHERE t.deleted_at IS NULL \
-               AND t.status IN ('completed', 'failed') \
-               AND er.finished_at >= {} \
+             WHERE {} \
              ORDER BY er.finished_at DESC",
-            time_filter
+            where_clause
         );
 
         let rows = self

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Tabs, Tag, Skeleton, Card } from 'antd';
 import {
   ClockCircleOutlined,
@@ -12,6 +12,7 @@ import { useApp } from '@/hooks/useApp';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useViewState } from '@/hooks/useViewState';
 import { ExecutorBadge } from './ExecutorBadge';
+import * as db from '@/utils/database';
 import { RunningRecordDrawer } from './RunningRecordDrawer';
 import {
   useRunningBoard,
@@ -207,18 +208,27 @@ function RunningBoardColumnView({
 export interface RunningBoardProps {
   searchText?: string;
   hours?: number;
-  selectedProject?: string | null;
 }
 
-export function RunningBoard({ searchText, hours, selectedProject }: RunningBoardProps = {}) {
+export function RunningBoard({ searchText, hours }: RunningBoardProps = {}) {
   const { state } = useApp();
   const { selectTodo } = useViewState();
   const isMobile = useIsMobile();
   const [activeKey, setActiveKey] = useState<RunningBoardColumn>('running');
   const [drawerRecord, setDrawerRecord] = useState<ExecutionRecord | null>(null);
 
-  const { records, scheduledTodos, loading, refresh } = useRunningBoard();
+  const { records, scheduledTodos, loading, refresh } = useRunningBoard(state.selectedWorkspace, hours);
   useAutoRefreshRunningBoard(refresh);
+
+  // 切换工作空间后立即拉取该 workspace 的 todo，保证数据最新。
+  const { dispatch } = useApp();
+  useEffect(() => {
+    const wid = state.selectedWorkspace;
+    if (wid == null) return;
+    db.getAllTodos(wid).then(todos => {
+      dispatch({ type: 'SET_TODOS_BY_WORKSPACE', workspaceId: wid, payload: todos });
+    });
+  }, [state.selectedWorkspace, dispatch]);
 
   const handleCardClick = useCallback((record: ExecutionRecord) => {
     setDrawerRecord(record);
@@ -234,11 +244,6 @@ export function RunningBoard({ searchText, hours, selectedProject }: RunningBoar
   // Apply filters from toolbar
   const filteredRecords = useMemo(() => {
     let result = records;
-
-    // Project filter
-    if (selectedProject) {
-      result = result.filter(r => todoById.get(r.todo_id)?.workspace_path === selectedProject);
-    }
 
     // Time filter: only for completed/failed records
     if (hours && hours > 0) {
@@ -266,14 +271,10 @@ export function RunningBoard({ searchText, hours, selectedProject }: RunningBoar
     }
 
     return result;
-  }, [records, searchText, hours, selectedProject, todoById]);
+  }, [records, searchText, hours, todoById]);
 
   const filteredScheduledTodos = useMemo(() => {
     let result = scheduledTodos;
-
-    if (selectedProject) {
-      result = result.filter(t => t.workspace_path === selectedProject);
-    }
 
     if (searchText?.trim()) {
       const q = searchText.toLowerCase();
@@ -283,7 +284,7 @@ export function RunningBoard({ searchText, hours, selectedProject }: RunningBoar
     }
 
     return result;
-  }, [scheduledTodos, searchText, selectedProject]);
+  }, [scheduledTodos, searchText]);
 
   const grouped = useMemo(() => classifyRecords(filteredRecords, filteredScheduledTodos), [filteredRecords, filteredScheduledTodos]);
 

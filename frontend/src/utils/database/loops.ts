@@ -150,6 +150,7 @@ export async function listExecutions(
   const params: Record<string, string> = {};
   if (query.page) params.page = String(query.page);
   if (query.limit) params.limit = String(query.limit);
+  if (query.hours) params.hours = String(query.hours);
   const qs = Object.keys(params).length ? `?${new URLSearchParams(params).toString()}` : '';
   return unwrap(await api.get(`/api/loops/${loopId}/executions${qs}`));
 }

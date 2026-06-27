@@ -1,12 +1,9 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Card, Segmented, Skeleton, Empty, Input, Select } from 'antd';
+import { Card, Segmented, Skeleton, Empty, Input } from 'antd';
 import {
-  CheckCircleOutlined,
-  CloseCircleOutlined,
   AppstoreOutlined,
   ProfileOutlined,
   SearchOutlined,
-  FolderOutlined,
   ThunderboltOutlined,
   SyncOutlined,
   ReadOutlined,
@@ -49,7 +46,6 @@ export function MemorialBoard() {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [promptExpandedIds, setPromptExpandedIds] = useState<Set<number>>(new Set());
   const [projectDirectories, setProjectDirectories] = useState<ProjectDirectory[]>([]);
-  const [selectedProject, setSelectedProject] = useState<string | null>(null);
 
   /* ─── Run history switching ─── */
   const [selectedRunIndex, setSelectedRunIndex] = useState<Record<number, number>>({});
@@ -60,15 +56,16 @@ export function MemorialBoard() {
   useEffect(() => {
     if (boardMode !== 'memorial') return;
     let cancelled = false;
+    setItems([]); // 切换 workspace 或重新加载时先清空旧数据
     setLoading(true);
-    db.getRecentCompletedTodos(hours)
+    db.getRecentCompletedTodos(hours, state.selectedWorkspace ?? undefined)
       .then(data => {
         if (!cancelled) {
           setItems(data);
           // Fetch total run count for each todo
           for (const item of data) {
             if (!totalRunsCache[item.todo_id]) {
-              db.getExecutionRecords(item.todo_id, 1, 1).then(page => {
+              db.getExecutionRecords(item.todo_id, 1, 1, undefined, undefined, state.selectedWorkspace ?? undefined).then(page => {
                 if (page.total > 0) {
                   setTotalRunsCache(prev => ({ ...prev, [item.todo_id]: page.total }));
                 }
@@ -84,7 +81,16 @@ export function MemorialBoard() {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [hours, boardMode]);
+  }, [hours, boardMode, state.selectedWorkspace]);
+
+  // 切换工作空间后立即拉取该 workspace 的 todo，保证数据最新。
+  useEffect(() => {
+    const wid = state.selectedWorkspace;
+    if (wid == null) return;
+    db.getAllTodos(wid).then(todos => {
+      dispatch({ type: 'SET_TODOS_BY_WORKSPACE', workspaceId: wid, payload: todos });
+    });
+  }, [state.selectedWorkspace, dispatch]);
 
   // 加载项目目录列表，供项目维度过滤使用。
   // 与 KanbanBoard 逻辑一致：首次加载 + 监听 TodoDrawer 快速新增事件刷新。
@@ -162,7 +168,7 @@ export function MemorialBoard() {
 
     setLoadingRunIndex(prev => ({ ...prev, [todoId]: runIndex }));
     try {
-      const page = await db.getExecutionRecords(todoId, runIndex + 1, 1);
+      const page = await db.getExecutionRecords(todoId, runIndex + 1, 1, undefined, undefined, state.selectedWorkspace ?? undefined);
       if (page.records.length > 0) {
         const record = page.records[0];
         setRunDataCache(prev => {
@@ -189,14 +195,6 @@ export function MemorialBoard() {
 
   const filteredItems = useMemo(() => {
     let result = items;
-    // 按项目目录过滤：选中某项目后，只展示 workspace 匹配该目录的已完成 todo；
-    // 因为 items 是轻量快照（不含 workspace 字段），需要回查 state.todos 取 workspace
-    if (selectedProject) {
-      result = result.filter(i => {
-        const todo = state.todos.find(t => t.id === i.todo_id); // 回查全量 todo 取 workspace_path
-        return todo?.workspace_path === selectedProject; // 匹配选中项目的路径
-      });
-    }
     // 按搜索文本过滤：匹配标题或 prompt
     if (searchText.trim()) {
       const q = searchText.toLowerCase();
@@ -206,7 +204,7 @@ export function MemorialBoard() {
       );
     }
     return result;
-  }, [items, searchText, selectedProject, state.todos]);
+  }, [items, searchText, state.todos]);
 
   /* ─── Responsive column count ─── */
   const [columnCount, setColumnCount] = useState(() => {
@@ -247,33 +245,13 @@ export function MemorialBoard() {
     return cols;
   }, [filteredItems, columnCount, loading]);
 
-  const successCount = filteredItems.filter(i => i.execution_status === 'success').length;
-  const failedCount = filteredItems.filter(i => i.execution_status === 'failed').length;
-
-  const kanbanStats = useMemo(() => {
-    const cutoff = hours ? Date.now() - hours * 3600 * 1000 : 0;
-    return state.todos.filter(t => {
-      if ((t.status === 'completed' || t.status === 'failed') && cutoff > 0) {
-        const tUpdated = new Date(t.updated_at).getTime();
-        if (isNaN(tUpdated) || tUpdated < cutoff) return false;
-      }
-      if (searchText.trim()) {
-        const q = searchText.toLowerCase();
-        return t.title.toLowerCase().includes(q) || (t.prompt && t.prompt.toLowerCase().includes(q));
-      }
-      return true;
-    });
-  }, [state.todos, searchText, hours]);
-  const kanbanStatsCount = { pending: 0, running: 0, completed: 0, failed: 0 };
-  kanbanStats.forEach(t => { if (kanbanStatsCount[t.status] !== undefined) kanbanStatsCount[t.status]++; });
-
   const renderCard = (item: RecentCompletedTodo) => {
     const isSuccess = item.execution_status === 'success';
     const expanded = expandedIds.has(item.todo_id);
     const resolvedTags = item.tag_ids.map(tid => state.tags.find(t => t.id === tid)).filter(Boolean) as Tag[];
-    // 获取项目名称
+    // 获取项目名称（按 workspace_id 匹配）
     const todo = state.todos.find(t => t.id === item.todo_id);
-    const projectDir = projectDirectories.find(d => d.path === todo?.workspace_path);
+    const projectDir = projectDirectories.find(d => d.id === todo?.workspace_id);
     const projectName = projectDir?.name || null;
 
     // Run history: determine which run to display
@@ -374,10 +352,10 @@ export function MemorialBoard() {
             value={boardMode}
             onChange={value => setBoardMode(value as BoardMode)}
             options={[
-              { label: <span><ProfileOutlined /> 结论视图</span>, value: 'memorial' },
               { label: <span><AppstoreOutlined /> 看板视图</span>, value: 'kanban' },
               { label: <span><ThunderboltOutlined /> 运行视图</span>, value: 'running' },
               { label: <span><SyncOutlined /> 环路视图</span>, value: 'loop_kanban' },
+              { label: <span><ProfileOutlined /> 结论视图</span>, value: 'memorial' },
             ]}
           />
         </>
@@ -403,39 +381,7 @@ export function MemorialBoard() {
               if (opt) setHours(opt.value);
             }}
           />
-          {/* 项目过滤下拉：value 为目录路径（与 workspace 字段匹配），label 优先显示项目名 */}
-          <Select
-            size="small"
-            placeholder="项目过滤"
-            allowClear
-            value={selectedProject}
-            onChange={setSelectedProject}
-            style={{ width: 150 }}
-            suffixIcon={<FolderOutlined />}
-            options={projectDirectories.map(d => ({
-              value: d.path, // value 存路径，与 todo.workspace_path 对比
-              label: d.name || d.path, // 优先展示项目名，无名则回退显示路径
-            }))}
-          />
-          {boardMode === 'memorial' ? (
-            <div className="memorial-summary">
-              <span className="memorial-stat-dot memorial-stat-all">共 <strong>{filteredItems.length}</strong> 条</span>
-              <span className="memorial-stat-dot memorial-stat-success">
-                <CheckCircleOutlined /> <strong>{successCount}</strong> 成功
-              </span>
-              <span className="memorial-stat-dot memorial-stat-failed">
-                <CloseCircleOutlined /> <strong>{failedCount}</strong> 失败
-              </span>
-            </div>
-          ) : boardMode === 'kanban' ? (
-            <div className="memorial-summary">
-              <span className="memorial-stat-dot memorial-stat-all">共 <strong>{kanbanStats.length}</strong> 条</span>
-              <span className="memorial-stat-dot" style={{ color: '#3b82f6' }}>待办 <strong>{kanbanStatsCount.pending}</strong></span>
-              <span className="memorial-stat-dot" style={{ color: '#f59e0b' }}>进行中 <strong>{kanbanStatsCount.running}</strong></span>
-              <span className="memorial-stat-dot" style={{ color: '#22c55e' }}>已完成 <strong>{kanbanStatsCount.completed}</strong></span>
-              <span className="memorial-stat-dot" style={{ color: '#ef4444' }}>失败 <strong>{kanbanStatsCount.failed}</strong></span>
-            </div>
-          ) : null}
+          {/* 项目过滤已移除：工作空间切换由左上角 WorkspaceSwitcher 统一管理 */}
         </div>
 
         {/* 根据 boardMode 渲染对应视图。
@@ -447,7 +393,7 @@ export function MemorialBoard() {
             - loop 没有 workspace 概念，项目过滤仅适用于 todo 维度（memorial/kanban/running）
         */}
         {boardMode === 'running' ? (
-          <RunningBoard searchText={searchText} hours={hours} selectedProject={selectedProject} />
+          <RunningBoard searchText={searchText} hours={hours} />
         ) : boardMode === 'kanban' ? (
           <KanbanBoard searchText={searchText} hours={hours} onSearchChange={setSearchText} onHoursChange={setHours} />
         ) : boardMode === 'loop_kanban' ? (

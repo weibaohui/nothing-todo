@@ -349,6 +349,8 @@ export interface UpdateLoopStatusRequest {
 export interface LoopExecutionListQuery {
   page?: number;
   limit?: number;
+  /** 按最近 N 小时过滤 */
+  hours?: number;
 }
 
 export interface LoopTriggerResponse {

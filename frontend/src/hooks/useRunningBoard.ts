@@ -41,19 +41,20 @@ function classifyRecord(record: ExecutionRecord): RunningBoardColumn {
   return 'failed';
 }
 
-export function useRunningBoard(): RunningBoardState {
+export function useRunningBoard(workspaceId?: number | null, hours?: number): RunningBoardState {
   const [records, setRecords] = useState<ExecutionRecord[]>([]);
   const [scheduledTodos, setScheduledTodos] = useState<ScheduledTodo[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const limit = 100; // 后端上限 200，取 100 平衡首屏加载性能与翻页频率
   const mountedRef = useRef(true);
 
   const refresh = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await db.getRunningBoardData(page, limit);
+      setRecords([]); // 切换 workspace 时先清空，避免旧数据闪烁
+      setScheduledTodos([]);
+      // 运行看板不分页，拉取最近的一批数据即可
+      const data = await db.getRunningBoardData(undefined, 200, workspaceId ?? undefined, hours);
       if (mountedRef.current) {
         setRecords(data.records);
         setScheduledTodos(data.scheduled_todos);
@@ -67,7 +68,7 @@ export function useRunningBoard(): RunningBoardState {
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [page, limit]);
+  }, [workspaceId, hours]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -75,7 +76,7 @@ export function useRunningBoard(): RunningBoardState {
     return () => { mountedRef.current = false; };
   }, [refresh]);
 
-  return { records, scheduledTodos, loading, total, page, limit, refresh, setPage };
+  return { records, scheduledTodos, loading, total, refresh, page: 1, limit: 200, setPage: () => {} };
 }
 
 export function classifyRecords(

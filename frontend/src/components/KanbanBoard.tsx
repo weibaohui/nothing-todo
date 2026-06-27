@@ -18,8 +18,12 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
   const { state, dispatch } = useApp();
   const { message } = App.useApp();
   const { todos, tags, selectedTodoId } = state;
+  // 本地时间过滤后的 todo 列表：当 hours 有值时，按 API 过滤结果只保留最近 N 小时的 todo。
+  // 不与全局 store 共享，避免污染其他视图。
+  const [kanbanTodos, setKanbanTodos] = useState<Todo[] | null>(null);
   const [projectDirectories, setProjectDirectories] = useState<ProjectDirectory[]>([]);
-  const [selectedProject, setSelectedProject] = useState<string | null>(null);
+  // selectedProject 使用 workspace_id（project_directories.id），不再用 path。
+  const [selectedProject, setSelectedProject] = useState<number | null>(null);
 
   const [internalSearch, setInternalSearch] = useState('');
   const [internalHours, setInternalHours] = useState(24);
@@ -34,8 +38,30 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
   const isMobile = useIsMobile();
   const [activeKey, setActiveKey] = useState<Todo['status']>('pending');
 
+  // 渲染用的 todo 列表：有本地过滤结果则用，否则用全局 store
+  const displayTodos = kanbanTodos ?? todos;
+
   /* ─── Execution record cache (delegated to hook) ─── */
-  const cache = useKanbanExecutionCache({ todos, storeRecords: state.executionRecords });
+  const cache = useKanbanExecutionCache({ todos: displayTodos, storeRecords: state.executionRecords, workspaceId: state.selectedWorkspace });
+
+  // 切换工作空间后立即拉取该 workspace 的 todo，保证数据最新。
+  // 先 dispatch 空数组占位清除旧数据，避免闪烁。
+  useEffect(() => {
+    const wid = state.selectedWorkspace;
+    if (wid == null) return;
+    dispatch({ type: 'SET_TODOS_BY_WORKSPACE', workspaceId: wid, payload: [] });
+    db.getAllTodos(wid).then(todos => {
+      dispatch({ type: 'SET_TODOS_BY_WORKSPACE', workspaceId: wid, payload: todos });
+    });
+  }, [state.selectedWorkspace, dispatch]);
+
+  // 时间分段按钮切换时，用 hours 参数重新拉取（只影响本地 kanbanTodos，不污染全局 store）。
+  useEffect(() => {
+    const wid = state.selectedWorkspace;
+    if (wid == null) return;
+    if (hours == null) { setKanbanTodos(null); return; }
+    db.getAllTodos(wid, hours).then(setKanbanTodos).catch(() => {});
+  }, [state.selectedWorkspace, hours, dispatch]);
 
   // 加载项目目录列表，供项目维度过滤使用。
   // 监听 'projectDirectoryAdded' 事件：当 TodoDrawer 中快速新增目录后，
@@ -52,14 +78,9 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
     return () => window.removeEventListener('projectDirectoryAdded', reload); // 清理：避免泄漏
   }, []);
 
-  /* ─── Filter by search + time + project ─── */
+  /* ─── Filter by search + time ─── */
   const filteredTodos = useMemo(() => {
-    let result = todos;
-    // 按项目目录过滤：用户选中某个项目后，只展示 workspace 匹配该目录路径的 todo；
-    // selectedProject 为 null 时表示"全部"，不做过滤
-    if (selectedProject) {
-      result = result.filter(t => t.workspace_path === selectedProject);
-    }
+    let result = displayTodos;
     const cutoff = hours ? Date.now() - hours * 3600 * 1000 : 0;
     return result.filter(t => {
       // Time filter: only for completed/failed todos
@@ -75,7 +96,7 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
       }
       return true;
     });
-  }, [todos, searchText, hours]);
+  }, [displayTodos, searchText, hours]);
 
   /* ─── Group by status ─── */
   const grouped = useMemo(() => {
@@ -184,7 +205,7 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
   const renderCard = (todo: Todo) => {
     const column = getColumnForStatus(todo.status);
     const todoTags = tags.filter(t => todo.tag_ids?.includes(t.id));
-    const projectDir = projectDirectories.find(d => d.path === todo.workspace_path);
+    const projectDir = projectDirectories.find(d => d.id === todo.workspace_id);
     const projectName = projectDir?.name || null;
     const isDragging = draggingId === todo.id;
     const isSuccess = todo.status === 'completed';
@@ -202,7 +223,7 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
     let displayTriggerType: string | undefined;
 
     if (runIdx === 0) {
-      const recordResult = cache.todoResults[todo.id] || state.executionRecords[todo.id]?.[0]?.result;
+      const recordResult = state.executionRecords[todo.id]?.[0]?.result;
       resultText = recordResult || '';
       displayModel = todoExecutionRecord?.model;
       displayUsage = todoExecutionRecord?.usage;
@@ -229,7 +250,6 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
       displayRating = cachedRun.rating;
     }
 
-    const isLoadingResult = cache.loadingResults.has(todo.id);
     const isLoadingRun = cache.loadingRunIndex[todo.id] != null && cache.loadingRunIndex[todo.id] === runIdx && runIdx > 0;
     const runCount = cache.totalRunsCache[todo.id] ?? (isFinished ? 1 : 0);
 
@@ -260,7 +280,7 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
           resultExpanded={resultExpanded}
           onTogglePrompt={() => togglePrompt(todo.id)}
           onToggleResult={() => handleToggleResult(todo)}
-          isLoadingResult={isLoadingResult}
+          isLoadingResult={false}
           runCount={runCount}
           selectedRun={runIdx}
           onSelectRun={(index) => cache.handleSelectRun(todo.id, index)}
@@ -401,7 +421,7 @@ export function KanbanBoard({ searchText: externalSearch, hours: externalHours, 
               style={{ width: 150, marginLeft: 8 }}
               suffixIcon={<FolderOutlined />}
               options={projectDirectories.map(d => ({
-                value: d.path,
+                value: d.id, // value 用 workspace_id（唯一键）
                 label: d.name || d.path,
               }))}
             />

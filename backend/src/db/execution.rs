@@ -46,6 +46,7 @@ pub struct ExecutionRecordQuery<'a> {
     pub limit: i64,
     pub offset: i64,
     pub status: Option<&'a str>,
+    pub hours: Option<u32>,
 }
 
 /// `get_execution_summary` 使用的固定 SQL 字面量。
@@ -144,16 +145,21 @@ impl Database {
             Some(s) => base_filter.and(execution_records::Column::Status.eq(s)),
         };
 
-        let total: i64 = execution_records::Entity::find()
-            .filter(filter.clone())
-            .count(&self.conn)
-            .await? as i64;
+        use sea_orm::Condition;
+        let filter = if let Some(h) = query.hours.filter(|&h| h > 0) {
+            let time_expr = sea_orm::sea_query::Expr::cust(&format!(
+                "started_at >= datetime('now', '-{} hours')", h
+            ));
+            filter.add(time_expr)
+        } else {
+            filter
+        };
 
         let limit_u = if query.limit < 0 { 0 } else { query.limit as u64 };
         let offset_u = if query.offset < 0 { 0 } else { query.offset as u64 };
 
         let records = execution_records::Entity::find()
-            .filter(filter)
+            .filter(filter.clone())
             .order_by_desc(execution_records::Column::StartedAt)
             .limit(limit_u)
             .offset(offset_u)
@@ -163,7 +169,7 @@ impl Database {
             .map(Into::into)
             .collect();
 
-        Ok((records, total))
+        Ok((records, 0))
     }
 
     pub async fn get_execution_record(

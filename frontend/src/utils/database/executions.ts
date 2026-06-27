@@ -1,13 +1,14 @@
 import { api, unwrap } from './client';
 import type { ExecutionRecord, ExecutionSummary, ExecutionRecordsPage, ExecutionLogsPage, RunningBoardData } from '@/types';
 
-export async function getExecutionRecords(todoId?: number, page?: number, limit?: number, status?: string, stepId?: number): Promise<ExecutionRecordsPage> {
+export async function getExecutionRecords(todoId?: number, page?: number, limit?: number, status?: string, stepId?: number, workspaceId?: number): Promise<ExecutionRecordsPage> {
   const params: Record<string, unknown> = {};
   if (todoId !== undefined) params.todo_id = todoId;
   if (stepId !== undefined) params.step_id = stepId;
   if (page !== undefined) params.page = page;
   if (limit !== undefined) params.limit = limit;
   if (status !== undefined) params.status = status;
+  if (workspaceId !== undefined) params.workspace_id = workspaceId;
   return unwrap(await api.get('/api/execution-records', { params }));
 }
 
@@ -38,9 +39,11 @@ export async function getExecutionSummary(todoId: number): Promise<ExecutionSumm
   return unwrap(await api.get(`/api/todos/${todoId}/summary`));
 }
 
-export async function getRecentCompletedTodos(hours?: number): Promise<import('@/types').RecentCompletedTodo[]> {
-  const p = hours !== undefined ? { hours } : undefined;
-  return unwrap(await api.get('/api/todos/recent-completed', { params: p }));
+export async function getRecentCompletedTodos(hours?: number, workspaceId?: number): Promise<import('@/types').RecentCompletedTodo[]> {
+  const p: Record<string, number> = {};
+  if (hours !== undefined) p.hours = hours;
+  if (workspaceId !== undefined) p.workspace_id = workspaceId;
+  return unwrap(await api.get('/api/todos/recent-completed', { params: Object.keys(p).length > 0 ? p : undefined }));
 }
 
 export async function getDashboardStats(hours?: number): Promise<import('@/types').DashboardStats> {
@@ -88,9 +91,11 @@ export async function smartCreate(content: string): Promise<SmartCreateResult> {
   return unwrap(await api.post('/api/smart-create', { content }));
 }
 
-export async function getRunningBoardData(page?: number, limit?: number): Promise<RunningBoardData> {
+export async function getRunningBoardData(page?: number, limit?: number, workspaceId?: number, hours?: number): Promise<RunningBoardData> {
   const params: Record<string, unknown> = {};
   if (page !== undefined) params.page = page;
   if (limit !== undefined) params.limit = limit;
+  if (workspaceId !== undefined) params.workspace_id = workspaceId;
+  if (hours !== undefined) params.hours = hours;
   return unwrap(await api.get('/api/running-board', { params }));
 }

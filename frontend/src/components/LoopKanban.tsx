@@ -25,6 +25,7 @@ import {
   HistoryOutlined,
 } from '@ant-design/icons';
 import * as dbLoops from '@/utils/database/loops';
+import { useApp } from '@/hooks/useApp';
 import type { LoopExecutionDto, LoopListItem, LoopExecutionDetail, LoopDetail } from '@/types/loop';
 import { formatRelativeTime } from '@/utils/datetime';
 // 复用 LoopStudioExecutionsPanel 中的执行轨迹卡片列表与黑板抽屉组件，
@@ -296,32 +297,39 @@ function ColumnBody({ items, renderCard }: { items: LoopExecutionWithLoopName[];
 // - 使用 cancelledRef 防御快速切换时的竞态条件：晚返回的请求若发现已卸载，直接丢弃结果
 // - limit=20 的边界：看板场景下只需展示近期执行，20 条足够覆盖常见时间窗口且避免首屏过慢
 // - loading 状态在空列表时也能正确重置：确保空状态能正常展示，而非永久 loading
-function useLoopExecutions() {
+function useLoopExecutions(workspaceId?: number | null, hours?: number) {
   const [allLoops, setAllLoops] = useState<LoopListItem[]>([]);
   const [executions, setExecutions] = useState<LoopExecutionWithLoopName[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 首次加载所有环路列表。
-  // 无论成功或失败都要 reset loading，避免空列表时永久 loading（Issue 2 修复点）。
+  // 加载环路列表：按 workspace_id 过滤（如果传了）。
+  // 切换 workspace 时先清空旧列表和执行记录，避免旧数据闪烁或触发无效的追加请求。
   useEffect(() => {
-    dbLoops.listLoops()
-      .then(setAllLoops)
-      .catch(() => setAllLoops([]))
-      .finally(() => setLoading(false));
-  }, []);
+    let ignore = false;
+    setAllLoops([]);
+    setExecutions([]);
+    setLoading(true);
+    dbLoops.listLoops(workspaceId ?? undefined)
+      .then(data => { if (!ignore) setAllLoops(data); })
+      .catch(() => { if (!ignore) setAllLoops([]); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
+  }, [workspaceId]);
 
   // 环路列表加载后，批量并发拉取每个环路的执行历史。
-  // 为什么用 Promise.all：并发请求减少总耗时，看板对实时性要求高。
-  // 为什么在每个 loop 的 catch 中返回 []：单个环路失败不影响其他环路数据展示。
+  // allLoops 为空时（无内容 / 切换 workspace 已清空）也清空执行记录。
+  // hours 变化时也重新拉取（时间过滤条件变了）。
   useEffect(() => {
-    // 空列表时跳过：避免无意义的 Promise.all([]) 触发 loading
-    if (allLoops.length === 0) return;
+    if (allLoops.length === 0) {
+      setExecutions([]);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
 
     Promise.all(
       allLoops.map(loop =>
-        dbLoops.listExecutions(loop.id, { page: 1, limit: 20 })
+        dbLoops.listExecutions(loop.id, { page: 1, limit: 20, hours: hours ?? undefined })
           .then(res => res.items.map(e => ({ ...e, loop_name: loop.name })))
           .catch(() => []) // 单个环路失败回退为空数组，不阻塞其他数据
       )
@@ -342,7 +350,7 @@ function useLoopExecutions() {
       });
 
     return () => { cancelled = true; };
-  }, [allLoops]);
+  }, [allLoops, hours]);
 
   return { executions, loading };
 }
@@ -367,9 +375,10 @@ export function LoopKanban({ searchText: externalSearch, hours: externalHours, o
   const hours = externalHours ?? internalHours;
 
   const { message } = AntApp.useApp();
+  const { state } = useApp();
 
   // 使用自定义 Hook 加载数据，逻辑抽离后函数体长度可控
-  const { executions, loading } = useLoopExecutions();
+  const { executions, loading } = useLoopExecutions(state.selectedWorkspace, hours);
 
   // ── 轨迹侧边栏状态 ────────────────────────────────────
   const [selectedExec, setSelectedExec] = useState<LoopExecutionWithLoopName | null>(null);

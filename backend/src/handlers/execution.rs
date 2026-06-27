@@ -51,8 +51,22 @@ pub async fn get_execution_records(
             limit,
             offset,
             status,
+            hours: query.hours,
         })
         .await?;
+
+    // 当提供了 todo_id 或 step_id 时，workspace_id 是隐含的（由 todo 决定）。
+    // 仅在 todo_id/step_id 都为空且 workspace_id 有值时过滤——目前没有调用方
+    // 走这个分支，但保持接口一致性，传了就能用。
+    let records = if query.workspace_id.is_some() && query.todo_id.is_none() && query.step_id.is_none() {
+        let wid = query.workspace_id.unwrap();
+        let ws_todos = state.db.get_todos_by_workspace_id(Some(wid)).await.unwrap_or_default();
+        let ws_todo_ids: std::collections::HashSet<i64> = ws_todos.iter().map(|t| t.id).collect();
+        records.into_iter().filter(|r| ws_todo_ids.contains(&r.todo_id)).collect()
+    } else {
+        records
+    };
+
     Ok(ApiResponse::ok(ExecutionRecordsPage {
         records,
         total,
@@ -324,6 +338,12 @@ pub struct RunningBoardQuery {
     pub page: Option<i64>,
     #[serde(default)]
     pub limit: Option<i64>,
+    /// 按工作空间 ID 过滤；不传返回全部。
+    #[serde(default)]
+    pub workspace_id: Option<i64>,
+    /// 按最近 N 小时过滤（对 execution records 生效）；不传或 0 表示不过滤。
+    #[serde(default)]
+    pub hours: Option<u32>,
 }
 
 pub async fn get_running_board(
@@ -342,10 +362,22 @@ pub async fn get_running_board(
             limit,
             offset,
             status: None,
+            hours: query.hours,
         })
         .await?;
 
-    let scheduled_todos = state.db.get_scheduler_todos().await?;
+    // 按 workspace_id 过滤 execution records（表本身无 workspace_id，
+    // 需通过 todos 表关联过滤）。一次查出该 workspace 下所有 todo_ids，
+    // 构建 Hashset 后在内存中过滤。
+    let records = if let Some(wid) = query.workspace_id {
+        let ws_todos = state.db.get_todos_by_workspace_id(Some(wid)).await.unwrap_or_default();
+        let ws_todo_ids: std::collections::HashSet<i64> = ws_todos.iter().map(|t| t.id).collect();
+        records.into_iter().filter(|r| ws_todo_ids.contains(&r.todo_id)).collect()
+    } else {
+        records
+    };
+
+    let scheduled_todos = state.db.get_scheduler_todos(query.workspace_id).await?;
 
     Ok(ApiResponse::ok(crate::models::RunningBoardResponse {
         records,
