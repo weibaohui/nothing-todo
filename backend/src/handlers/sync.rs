@@ -6,7 +6,6 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::db::project_directory::ProjectDirectory;
 use crate::db::Database;
 use crate::handlers::{ApiResponse, AppError, AppState};
 use crate::models::{Todo, TodoStatus};

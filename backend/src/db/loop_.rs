@@ -11,7 +11,7 @@
 //! 不抽象 DAO trait，因为 codebase 其它 db 文件都这样做）。
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter,
-    QueryOrder, QuerySelect, Set, Statement, DbBackend,
+    QueryOrder, QuerySelect, Set, DbBackend,
 };
 
 use crate::db::entity::{
@@ -288,12 +288,12 @@ impl Database {
 
             // 第二遍：更新有 goto 引用的步骤，把旧 step_id 换成新 step_id
             let old_to_new: std::collections::HashMap<i64, i64> = step_map.iter().map(|(old, new, _, _)| (*old, *new)).collect();
-            for (old_id, new_id, old_success_goto, old_fail_goto) in &step_map {
+            for (_old_id, new_id, old_success_goto, old_fail_goto) in &step_map {
                 let new_success_goto = old_success_goto.and_then(|g| old_to_new.get(&g).copied());
                 let new_fail_goto = old_fail_goto.and_then(|g| old_to_new.get(&g).copied());
 
                 if new_success_goto.is_some() || new_fail_goto.is_some() {
-                    let now = crate::models::utc_timestamp();
+                    let _now = crate::models::utc_timestamp();
                     let existing = loop_steps::Entity::find_by_id(*new_id).one(&self.conn).await?;
                     if let Some(c) = existing {
                         let mut am: loop_steps::ActiveModel = c.into();
