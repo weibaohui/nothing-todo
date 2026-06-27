@@ -139,6 +139,25 @@ export function TodoList(props: TodoListProps) {
       .finally(() => setLoopLoading(false));
   }, [listMode, loopUpdateCount, selectedWorkspace, projectDirectories, directoriesReady]);
 
+  // 切换工作空间后按需拉取该工作空间的 todo 列表。
+  // 分桶改造后，切换 workspace 时如果目标桶为空（从未加载过），
+  // 必须主动拉一次才能让 useVisibleTodos() 返回数据。
+  // 监听 selectedWorkspace + directoriesReady 确保目录已加载完毕后
+  // 才发请求；不监听 todos 长度避免无限循环。
+  useEffect(() => {
+    if (!directoriesReady) return;
+    if (selectedWorkspace == null) return;
+    // 仅在 item 模式下触发 todo 拉取（loop 模式走上方 listLoops effect）
+    if (listMode !== 'item') return;
+    // 桶已有数据时跳过——已在 store 中，不会因切换 workspace 而丢失。
+    // 兜底：如果桶确实为空，也会拉一次（空 workspace 拉回空列表，只一次）。
+    const currentBucket = state.todosByWorkspace?.[selectedWorkspace];
+    if (currentBucket !== undefined) return;
+    db.getAllTodos(selectedWorkspace).then(todos => {
+      dispatch({ type: 'SET_TODOS_BY_WORKSPACE', workspaceId: selectedWorkspace, payload: todos });
+    });
+  }, [selectedWorkspace, directoriesReady, listMode, state.todosByWorkspace, dispatch]);
+
   // 持久化列表模式到 localStorage
   useEffect(() => {
     localStorage.setItem('ntd_list_mode', listMode);
