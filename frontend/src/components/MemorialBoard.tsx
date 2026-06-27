@@ -1,12 +1,11 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Card, Segmented, Skeleton, Empty, Input, Select } from 'antd';
+import { Card, Segmented, Skeleton, Empty, Input } from 'antd';
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   AppstoreOutlined,
   ProfileOutlined,
   SearchOutlined,
-  FolderOutlined,
   ThunderboltOutlined,
   SyncOutlined,
   ReadOutlined,
@@ -49,8 +48,6 @@ export function MemorialBoard() {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [promptExpandedIds, setPromptExpandedIds] = useState<Set<number>>(new Set());
   const [projectDirectories, setProjectDirectories] = useState<ProjectDirectory[]>([]);
-  // selectedProject 使用 workspace_id（project_directories.id），不再用 path。
-  const [selectedProject, setSelectedProject] = useState<number | null>(null);
 
   /* ─── Run history switching ─── */
   const [selectedRunIndex, setSelectedRunIndex] = useState<Record<number, number>>({});
@@ -200,14 +197,6 @@ export function MemorialBoard() {
 
   const filteredItems = useMemo(() => {
     let result = items;
-    // 按工作空间过滤：selectedProject 为 workspace_id。
-    // items 是轻量快照（不含 workspace 字段），需要回查 state.todos 取 workspace_id
-    if (selectedProject != null) {
-      result = result.filter(i => {
-        const todo = state.todos.find(t => t.id === i.todo_id);
-        return todo?.workspace_id === selectedProject;
-      });
-    }
     // 按搜索文本过滤：匹配标题或 prompt
     if (searchText.trim()) {
       const q = searchText.toLowerCase();
@@ -217,7 +206,7 @@ export function MemorialBoard() {
       );
     }
     return result;
-  }, [items, searchText, selectedProject, state.todos]);
+  }, [items, searchText, state.todos]);
 
   /* ─── Responsive column count ─── */
   const [columnCount, setColumnCount] = useState(() => {
@@ -385,10 +374,10 @@ export function MemorialBoard() {
             value={boardMode}
             onChange={value => setBoardMode(value as BoardMode)}
             options={[
-              { label: <span><ProfileOutlined /> 结论视图</span>, value: 'memorial' },
               { label: <span><AppstoreOutlined /> 看板视图</span>, value: 'kanban' },
               { label: <span><ThunderboltOutlined /> 运行视图</span>, value: 'running' },
               { label: <span><SyncOutlined /> 环路视图</span>, value: 'loop_kanban' },
+              { label: <span><ProfileOutlined /> 结论视图</span>, value: 'memorial' },
             ]}
           />
         </>
@@ -414,20 +403,7 @@ export function MemorialBoard() {
               if (opt) setHours(opt.value);
             }}
           />
-          {/* 项目过滤下拉：value 为 workspace_id，label 优先显示项目名 */}
-          <Select
-            size="small"
-            placeholder="项目过滤"
-            allowClear
-            value={selectedProject}
-            onChange={setSelectedProject}
-            style={{ width: 150 }}
-            suffixIcon={<FolderOutlined />}
-            options={projectDirectories.map(d => ({
-              value: d.id, // value 用 workspace_id（唯一键）
-              label: d.name || d.path,
-            }))}
-          />
+          {/* 项目过滤已移除：工作空间切换由左上角 WorkspaceSwitcher 统一管理 */}
           {boardMode === 'memorial' ? (
             <div className="memorial-summary">
               <span className="memorial-stat-dot memorial-stat-all">共 <strong>{filteredItems.length}</strong> 条</span>
@@ -458,7 +434,7 @@ export function MemorialBoard() {
             - loop 没有 workspace 概念，项目过滤仅适用于 todo 维度（memorial/kanban/running）
         */}
         {boardMode === 'running' ? (
-          <RunningBoard searchText={searchText} hours={hours} selectedProject={selectedProject} />
+          <RunningBoard searchText={searchText} hours={hours} />
         ) : boardMode === 'kanban' ? (
           <KanbanBoard searchText={searchText} hours={hours} onSearchChange={setSearchText} onHoursChange={setHours} />
         ) : boardMode === 'loop_kanban' ? (
