@@ -1041,7 +1041,7 @@ fn build_app_state(
     // MessageDebounce 在 feishu_listener 和 history_fetcher 之间共享（issue #600）
     use crate::services::auto_review::ensure_default_review_template_blocking;
     use crate::services::message_debounce::MessageDebounce;
-    let debounce = Arc::new(MessageDebounce::new(ctx.clone()));
+    let debounce = Arc::new(MessageDebounce::new(ctx.clone(), loop_runner.clone()));
     let feishu_listener = Arc::new(FeishuListener::new(ctx.clone(), debounce.clone()));
 
     // 启动后台任务：bot 自启、stale binding 周期清理、history fetcher、reviewer template 初始化
@@ -1958,7 +1958,7 @@ mod app_state_config_helpers_tests {
         // FeishuListener::new 需要 ServiceContext + MessageDebounce。MessageDebounce
         // 现在只依赖 ServiceContext，不再需要 HookService 注入。
         let debounce = Arc::new(
-            crate::services::message_debounce::MessageDebounce::new(ctx.clone()),
+            crate::services::message_debounce::MessageDebounce::new(ctx.clone(), None),
         );
         let feishu_listener = Arc::new(
             crate::services::feishu_listener::FeishuListener::new(ctx.clone(), debounce),

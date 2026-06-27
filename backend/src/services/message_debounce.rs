@@ -45,13 +45,19 @@ struct DebounceEntry {
 pub struct MessageDebounce {
     entries: Arc<DashMap<(i64, String), DebounceEntry>>,
     ctx: ServiceContext,
+    /// Loop Runner，用于处理 default_response_loop 类型的消息
+    loop_runner: Option<Arc<crate::services::loop_runner::LoopRunner>>,
 }
 
 impl MessageDebounce {
-    pub fn new(ctx: ServiceContext) -> Self {
+    pub fn new(
+        ctx: ServiceContext,
+        loop_runner: Option<Arc<crate::services::loop_runner::LoopRunner>>,
+    ) -> Self {
         Self {
             entries: Arc::new(DashMap::new()),
             ctx,
+            loop_runner,
         }
     }
 
@@ -78,6 +84,8 @@ impl MessageDebounce {
             let tx = self.ctx.tx.clone();
             let task_manager = self.ctx.task_manager.clone();
             let config = self.ctx.config.clone();
+            // loop_runner 需要在 async block 之前 clone，避免 self 生命周期问题
+            let loop_runner = self.loop_runner.clone();
             // todo hook 已整块移除（plan `purring-forging-petal`），debounce 触发的
             // 执行不再需要透传 hook_service。
             let bot_id = key.0;
@@ -148,9 +156,14 @@ impl MessageDebounce {
                     // 根据 trigger_type 分发到不同的处理函数
                     let result: Result<crate::executor_service::ExecutionResult, ()> = match last.trigger_type.as_str() {
                         "default_response_loop" | "slash_command_loop" => {
-                            // 环路默认响应暂不支持，跳过
-                            tracing::warn!("[debounce] loop default response not yet supported for trigger {}", last.trigger_type);
-                            Err(())
+                            // 环路默认响应 或 斜杠命令触发环路：直接触发环路执行
+                            Self::handle_default_response_loop(
+                                db.clone(),
+                                loop_runner.clone(),
+                                last.todo_id, // loop_id
+                                &merged_content,
+                            )
+                            .await
                         }
                         "default_response_executor" => {
                             // 执行器默认响应：直接调用执行器交互（不存储执行记录）
@@ -353,13 +366,13 @@ impl MessageDebounce {
     /// 处理默认响应类型为 loop 的情况
     /// 直接通过 LoopRunner 触发环路执行（fire-and-forget）
     async fn handle_default_response_loop(
-        ctx: &ServiceContext,
-        loop_runner: &Option<Arc<crate::services::loop_runner::LoopRunner>>,
+        db: Arc<Database>,
+        loop_runner: Option<Arc<crate::services::loop_runner::LoopRunner>>,
         loop_id: i64,
         message: &str,
     ) -> Result<crate::executor_service::ExecutionResult, ()> {
         // 检查环路是否存在且状态为 enabled
-        let loop_ = match ctx.db.get_loop(loop_id).await {
+        let loop_ = match db.get_loop(loop_id).await {
             Ok(Some(l)) => l,
             Ok(None) => {
                 tracing::warn!("[debounce] loop {} not found", loop_id);
@@ -383,7 +396,7 @@ impl MessageDebounce {
         });
 
         // 通过 LoopRunner 触发环路执行
-        let Some(ref runner) = loop_runner else {
+        let Some(runner) = loop_runner else {
             tracing::error!("[debounce] loop_runner not available");
             return Err(());
         };
