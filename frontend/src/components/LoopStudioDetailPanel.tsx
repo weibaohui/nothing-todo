@@ -185,7 +185,7 @@ export function LoopDetailPanel({
                 onConfirm={onDelete}
               >
                 <Tooltip title="删除">
-                  <Button size="small" danger icon={<DeleteOutlined />} />
+                  <Button size="small" icon={<DeleteOutlined />} />
                 </Tooltip>
               </Popconfirm>
             </Space>
