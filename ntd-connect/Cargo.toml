@@ -41,14 +41,25 @@ lru = "0.12"
 # 用 sharded map 比 parking_lot::Mutex<HashMap> 性能好。backend
 # 也在用，可对齐经验。
 dashmap = "6"
-# tokio：M2 dispatcher 需要 JoinSet / Semaphore / spawn。
-# features 按需开：rt-multi-thread 给 JoinSet 用、time 给 sleep 用。
-tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "time", "macros"] }
-# futures-util：split stream 用于 WebSocket 帧解析（M3 飞书 pbbp2 协议）。
+# tokio：M2 dispatcher 需要 JoinSet / Semaphore / spawn；
+# M4 ClaudeCodeAgent 需要 process / io-util / io-std / signal
+# （子进程 spawn + stdin/stdout pipe + 信号处理）。
+tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "time", "macros", "process", "io-util", "io-std", "signal"] }
+# uuid：M4 ClaudeCodeSession spawn 时为新会话生成 session_id
+# （与 backend uuid v4 对齐）。
+uuid = { version = "1", features = ["v4"] }
+# futures-util：split stream 用于 WebSocket 帧解析（M3 飞书 pbbp2 协议）
+# + M4 Claude Code stdout BufReader lines 解析。
 futures-util = "0.3"
 # tokio-tungstenite：飞书 WS 长连接。TLS 后端用 rustls-tls-webpki-roots
 # 与 backend 对齐，避免 openssl 系统依赖。
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+
+# M4 ClaudeCodeSession 三段式优雅关闭需要 SIGTERM group kill
+# （参考 cc-connect agent/claudecode/session.go:1159-1216）。
+# v1 简化：只用 tokio::process::Child::kill()（不带 group）；group kill
+# 留到 v2（需要 nix crate，CI 环境不一定有缓存）。
+# tokio 已在上面依赖里，`process` feature 启用 `Child::start_kill` / `kill`。
 
 [dev-dependencies]
 # wiremock：M3 feishu platform 集成测试用，模拟飞书 HTTP server 验证

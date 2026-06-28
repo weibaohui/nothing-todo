@@ -16,6 +16,7 @@
 #![warn(missing_docs)]
 
 pub mod agent;
+pub mod agent_impl;
 pub mod channel;
 pub mod dedup;
 pub mod dispatcher;
