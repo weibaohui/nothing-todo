@@ -296,6 +296,11 @@ impl FeishuListener {
                 let use_dispatcher = crate::services::master_switch::is_dispatcher_enabled()
                     && listener_for_dispatch.dispatcher_for(bot_id).is_some()
                     && feishu_platforms_for_dispatch.contains_key(&bot_id);
+                tracing::debug!(
+                    "[feishu:{}] dispatch path: {}",
+                    bot_id,
+                    if use_dispatcher { "dispatcher (new)" } else { "inline (old)" }
+                );
                 if use_dispatcher {
                     let dispatcher = listener_for_dispatch.dispatcher_for(bot_id).unwrap();
                     let platform = feishu_platforms_for_dispatch.get(&bot_id).unwrap().clone();
