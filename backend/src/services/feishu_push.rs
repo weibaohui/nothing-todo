@@ -94,6 +94,8 @@ impl FeishuPushService {
                                         } else {
                                             debug!("[feishu-push] binding direct sent to bot {}: {}", bot_id, &text[..text.len().min(60)]);
                                         }
+                                        // 直发成功后跳过 push target 路径，避免重复发送
+                                        continue;
                                     }
                                 }
 
