@@ -204,3 +204,123 @@ mod tests {
         }
     }
 }
+
+/// IncomingMessage → ChannelMessage 反向转换（步骤 11 切流用）。
+///
+/// 把 dispatcher 收到的 `IncomingMessage` 还原为 `feishu_listener`
+/// stage 函数能吃的 `ChannelMessage`。
+///
+/// **精度损失**：
+/// - `mentioned_open_ids` 默认空（IncomingMessage 只记 is_mention，不存 ID 列表）
+/// - `sender_type` 从 `IncomingMessage::sender_kind` 推导（User→"user", Bot→"app"）
+/// - `content` 解析 JSON 失败时 fallback 为原文本（与 `channel_message_to_incoming` 对称）
+/// - `timestamp` 从 ms 转回 s（飞书 SDK 内部用秒）
+///
+/// v2 加 `IncomingMessage::mentioned_open_ids: Vec<String>` 字段可消除此损失。
+pub fn incoming_to_channel_message(msg: &ntd_connect::types::IncomingMessage) -> crate::feishu::ChannelMessage {
+    use ntd_connect::types::{IncomingContent, SenderKind};
+
+    let chat_type = match &msg.reply_target {
+        ntd_connect::types::ReplyTarget::Feishu { chat_type, .. } => match chat_type {
+            ntd_connect::types::FeishuChatType::P2p => Some("p2p".to_string()),
+            ntd_connect::types::FeishuChatType::Group => Some("group".to_string()),
+        },
+        // 未来 ReplyTarget 加新变体时这里的精度会丢；v1 没有 unknown 落点
+        // 所以没加 _ 分支——加 #[non_exhaustive] 后编译器强制要求。
+        #[allow(unreachable_patterns)]
+        _ => None,
+    };
+
+    let sender_type = match msg.sender_kind {
+        SenderKind::User => Some("user".to_string()),
+        SenderKind::Bot => Some("app".to_string()),
+        // 未来 SenderKind 加新变体时的 fallback
+        _ => None,
+    };
+
+    // content 序列化：飞书 SDK 期望原始 JSON 字符串
+    let content = match &msg.content {
+        IncomingContent::Text(s) => s.clone(),
+        IncomingContent::Image(_) | IncomingContent::File(_) | IncomingContent::Audio(_) => {
+            // 飞书 v1 没富文本协议，降级为占位文本
+            String::from("[ntd-connect v1: non-text content not supported]")
+        }
+        #[allow(unreachable_patterns)]
+        _ => String::new(),
+    };
+
+    let (channel, sender) = match &msg.reply_target {
+        ntd_connect::types::ReplyTarget::Feishu { chat_id, .. } => {
+            (chat_id.clone(), msg.sender.as_str().to_string())
+        }
+        #[allow(unreachable_patterns)]
+        _ => (String::new(), String::new()),
+    };
+
+    crate::feishu::ChannelMessage {
+        id: msg.raw_message_id.clone(),
+        sender,
+        sender_type,
+        content,
+        channel,
+        timestamp: (msg.timestamp_ms / 1000) as u64,
+        chat_type,
+        // 精度损失：v1 IncomingMessage 没存 mentioned_open_ids 列表
+        mentioned_open_ids: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod reverse_tests {
+    use super::*;
+    use ntd_connect::types::{
+        FeishuChatType, IncomingContent, PlatformKind, ReplyTarget, SenderId, SenderKind,
+        SessionKey,
+    };
+
+    fn sample_incoming() -> ntd_connect::types::IncomingMessage {
+        ntd_connect::types::IncomingMessage {
+            platform: PlatformKind::Feishu,
+            session_key: SessionKey::derive(PlatformKind::Feishu, "oc_test", None),
+            sender: SenderId::new("ou_user"),
+            content: IncomingContent::Text("hi".into()),
+            reply_target: ReplyTarget::feishu("oc_test", None, FeishuChatType::P2p),
+            timestamp_ms: 1_700_000_000_500,
+            raw_message_id: "om_xyz".into(),
+            is_mention: true,
+            sender_kind: SenderKind::User,
+            is_from_self: false,
+        }
+    }
+
+    #[test]
+    fn test_incoming_to_channel_roundtrip_basic() {
+        let inc = sample_incoming();
+        let ch = incoming_to_channel_message(&inc);
+        assert_eq!(ch.id, "om_xyz");
+        assert_eq!(ch.sender, "ou_user");
+        assert_eq!(ch.channel, "oc_test");
+        assert_eq!(ch.content, "hi");
+        assert_eq!(ch.chat_type, Some("p2p".to_string()));
+        assert_eq!(ch.sender_type, Some("user".to_string()));
+        // timestamp: ms -> s
+        assert_eq!(ch.timestamp, 1_700_000_000);
+    }
+
+    #[test]
+    fn test_incoming_to_channel_group_chat() {
+        let mut inc = sample_incoming();
+        inc.reply_target =
+            ReplyTarget::feishu("oc_group", None, FeishuChatType::Group);
+        let ch = incoming_to_channel_message(&inc);
+        assert_eq!(ch.chat_type, Some("group".to_string()));
+    }
+
+    #[test]
+    fn test_incoming_to_channel_sender_kind_bot() {
+        let mut inc = sample_incoming();
+        inc.sender_kind = SenderKind::Bot;
+        let ch = incoming_to_channel_message(&inc);
+        assert_eq!(ch.sender_type, Some("app".to_string()));
+    }
+}
