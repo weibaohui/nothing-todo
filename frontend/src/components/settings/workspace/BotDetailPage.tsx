@@ -61,13 +61,13 @@ export function BotDetailPage({ bot, onBack, onRefresh, autoShowHistory = false 
     return map[type || ''] || type || '-';
   };
 
-  // 是否为环路或斜杠命令类型（点击执行记录应打开黑板抽屉）
-  const isLoopOrSlashType = (type: string | null): boolean => {
-    return type === 'slash_command_loop' || type === 'slash_command';
+  // 是否为环路类型（点击执行记录应打开黑板抽屉）
+  const isLoopType = (type: string | null): boolean => {
+    return type === 'slash_command_loop';
   };
 
   const handleProcessedTypeClick = async (record: FeishuHistoryMessage) => {
-    if (!isLoopOrSlashType(record.processed_type) || !record.processed_id) return;
+    if (!isLoopType(record.processed_type) || !record.processed_id) return;
     try {
       const detail = await dbLoops.getExecutionById(record.processed_id);
       setBlackboardExecs(detail.step_executions || []);
@@ -341,7 +341,7 @@ export function BotDetailPage({ bot, onBack, onRefresh, autoShowHistory = false 
                 key: 'execution_record_id',
                 width: 80,
                 render: (_, record) => (
-                  isLoopOrSlashType(record.processed_type) && record.execution_record_id ? (
+                  isLoopType(record.processed_type) && record.execution_record_id ? (
                     <Typography.Link style={{ fontSize: 12 }} onClick={() => handleProcessedTypeClick(record)}>
                       #{record.execution_record_id}
                     </Typography.Link>
