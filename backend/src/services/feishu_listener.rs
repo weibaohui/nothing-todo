@@ -113,7 +113,7 @@ impl FeishuListener {
     ///
     /// hooks 不持有 `&FeishuListener` 引用，而是自己存一份依赖；
     /// 需要调 stage 函数时通过此方法构造上下文。
-    pub fn build_hook_context<'a>(
+    pub(crate) fn build_hook_context<'a>(
         db: &'a Arc<Database>,
         token_manager: &'a Arc<TokenManager>,
         credentials: &'a DashMap<i64, (String, String, String)>,
@@ -372,7 +372,7 @@ impl FeishuListener {
 
     /// 阶段 1：解析消息基本信息 + 持久化入站消息 + 加 processing reaction
     /// 返回 MessagePrep 供后续阶段复用（避免每个阶段重复 trim content / 查 chat_type）
-    pub async fn prepare_message<'a>(
+    pub(crate) async fn prepare_message<'a>(
         context: &ListenerMessageContext<'_>,
         msg: &'a ChannelMessage,
     ) -> MessagePrep<'a> {
@@ -426,7 +426,7 @@ impl FeishuListener {
 
     /// 阶段 2：内置斜杠命令路由（命中并处理后返回 true）
     /// 命令与处理函数的映射写在内部 if 链里，新增命令时在这里加一行
-    pub async fn try_route_builtin_command(
+    pub(crate) async fn try_route_builtin_command(
         context: &ListenerMessageContext<'_>,
         msg: &ChannelMessage,
         prep: &MessagePrep<'_>,
@@ -461,7 +461,7 @@ impl FeishuListener {
 
     /// 阶段 3：消息接收过滤（命中任一条就 return true）
     /// 三道闸：bot 是否接收此类消息 → 该 chat_type 是否启用响应 → 群聊白名单
-    pub async fn should_skip_for_message_filters(
+    pub(crate) async fn should_skip_for_message_filters(
         context: &ListenerMessageContext<'_>,
         msg: &ChannelMessage,
         prep: &MessagePrep<'_>,
@@ -516,7 +516,7 @@ impl FeishuListener {
     }
 
     /// 删除 THUMBSUP reaction（reaction_id 为 None 时是 no-op）
-    pub async fn cleanup_reaction(
+    pub(crate) async fn cleanup_reaction(
         context: &ListenerMessageContext<'_>,
         message: &ChannelMessage,
         reaction_id: Option<&str>,
@@ -529,7 +529,7 @@ impl FeishuListener {
 
     /// 阶段 4：把页面创建的 __pending__ binding 关联到当前真实 chat
     /// 页面"新建绑定"时 chat_id 未知，先写 __pending__ 占位；todo 不存在则放弃晋升
-    pub async fn try_promote_pending_binding(
+    pub(crate) async fn try_promote_pending_binding(
         context: &ListenerMessageContext<'_>,
         msg: &ChannelMessage,
         prep: &MessagePrep<'_>,
@@ -586,7 +586,7 @@ impl FeishuListener {
     ///   执行，与 enabled 路径完全分离。reaction 清理统一由编排器末尾
     ///   （handle_message 收尾）兜底，本分支不再重复 `cleanup_reaction`。
     /// - 绑定 enabled 且 todo 在 → 决定 resume 还是新 session，push 到 debounce 后返回 true
-    pub async fn try_route_project_binding(
+    pub(crate) async fn try_route_project_binding(
         context: &ListenerMessageContext<'_>,
         msg: &ChannelMessage,
         prep: &MessagePrep<'_>,
@@ -746,7 +746,7 @@ impl FeishuListener {
     }
 
     /// 阶段 6：兜底路由（自定义斜杠命令规则 或 默认回复 todo）
-    pub async fn route_slash_or_default_response(
+    pub(crate) async fn route_slash_or_default_response(
         context: &ListenerMessageContext<'_>,
         msg: &ChannelMessage,
         prep: &MessagePrep<'_>,
@@ -2147,7 +2147,7 @@ impl FeishuListener {
     }
 }
 
-struct SlashCommandMatch<'a> {
+pub(crate) struct SlashCommandMatch<'a> {
     command: &'a str,
     body: &'a str,
 }

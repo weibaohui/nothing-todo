@@ -20,7 +20,6 @@ use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 
 use crate::adapters::ExecutorRegistry;
-use crate::config::Config;
 use crate::db::Database;
 use crate::executor_service::{run_todo_execution_with_params, RunTodoExecutionRequest};
 use crate::models::ExecutionStatus;
