@@ -34,6 +34,7 @@ use crate::agent::{Agent, AgentSession, Event};
 use crate::channel::{Channel, MessageHandler};
 use crate::dedup::Dedup;
 use crate::error::{Error, Result};
+use crate::router::{Decision, Router};
 use crate::session::{SessionManager, SessionState};
 use crate::types::{
     AgentContext, IncomingContent, IncomingMessage, OutgoingContent, PermissionResult,
@@ -81,6 +82,9 @@ impl Default for DispatcherConfig {
 pub struct Dispatcher {
     channel: Arc<dyn Channel>,
     agent: Arc<dyn Agent>,
+    /// Router：worker 在 process_turn 之前调用，决定 Skip / Handled / ForwardToAgent。
+    /// None 时 dispatcher 跳过 router 调用直接 ForwardToAgent（v1 fallback）。
+    router: Option<Arc<dyn Router>>,
     sessions: SessionManager,
     dedup: Arc<Dedup>,
     /// JoinSet + Mutex：见 struct 注释。
@@ -92,10 +96,23 @@ pub struct Dispatcher {
 }
 
 impl Dispatcher {
-    /// 构造 dispatcher。
+    /// 构造 dispatcher（不带 router，worker 直接 ForwardToAgent）。
     pub fn new(
         channel: Arc<dyn Channel>,
         agent: Arc<dyn Agent>,
+        config: DispatcherConfig,
+    ) -> Self {
+        Self::with_router(channel, agent, None, config)
+    }
+
+    /// 构造 dispatcher + 注入 router。
+    ///
+    /// 步骤 9（dispatcher 接入）用这个：backend 的 `MessageRouter`
+    /// 实现 `ntd_connect::Router` 后通过这里注入。
+    pub fn with_router(
+        channel: Arc<dyn Channel>,
+        agent: Arc<dyn Agent>,
+        router: Option<Arc<dyn Router>>,
         config: DispatcherConfig,
     ) -> Self {
         let dedup = Arc::new(Dedup::new(config.dedup_ttl));
@@ -104,6 +121,7 @@ impl Dispatcher {
         Dispatcher {
             channel,
             agent,
+            router,
             sessions,
             dedup,
             workers: Mutex::new(JoinSet::new()),
@@ -195,6 +213,7 @@ impl MessageHandler for Dispatcher {
             msg,
             self.channel.clone(),
             self.agent.clone(),
+            self.router.clone(),
             self.agent_context.clone(),
             permit,
         );
@@ -221,9 +240,38 @@ async fn worker_task(
     msg: IncomingMessage,
     channel: Arc<dyn Channel>,
     agent: Arc<dyn Agent>,
+    router: Option<Arc<dyn Router>>,
     agent_ctx: AgentContext,
     _permit: OwnedSemaphorePermit,
 ) {
+    // Step 0（步骤 9 新增）：先问 router 这条消息归谁管。
+    // - Skip → 直接 return（self / disabled / 群白名单未命中）
+    // - Handled → return（router 内部已处理完，dispatcher 不做事）
+    // - ForwardToAgent → 继续 process_turn（agent.send + events）
+    if let Some(r) = router.as_ref() {
+        match r.route(msg.clone()).await {
+            Decision::Skip => {
+                tracing::debug!(
+                    "router skip: session_key={}",
+                    msg.session_key.as_str()
+                );
+                session.unlock();
+                return;
+            }
+            Decision::Handled => {
+                tracing::debug!(
+                    "router handled: session_key={}",
+                    msg.session_key.as_str()
+                );
+                session.unlock();
+                return;
+            }
+            Decision::ForwardToAgent => {
+                // 正常路径：继续 process_turn
+            }
+        }
+    }
+
     session.note_accepted(&msg);
 
     // typing reaction 在 agent session 创建之前启动，避免用户感知到「先有

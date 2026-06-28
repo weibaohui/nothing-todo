@@ -23,6 +23,7 @@ pub mod dispatcher;
 pub mod error;
 pub mod http;
 pub mod platform;
+pub mod router;
 pub mod session;
 pub mod types;
 pub mod typing;
