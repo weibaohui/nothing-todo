@@ -96,12 +96,16 @@ impl MessageDebounce {
                 .unwrap_or_default();
 
             tokio::spawn(async move {
-                let secs = db
-                    .get_debounce_secs(bot_id, &target_type)
-                    .await
-                    .unwrap_or(20)
-                    .max(1);
-                tokio::time::sleep(std::time::Duration::from_secs(secs as u64)).await;
+                // 只有群聊需要 debounce 等待窗口，避免多条消息触发多次执行；
+                // 私聊和其他聊天类型不需要等待，收到立即执行。
+                if target_type == "group" {
+                    let secs = db
+                        .get_debounce_secs(bot_id, &target_type)
+                        .await
+                        .unwrap_or(20)
+                        .max(1);
+                    tokio::time::sleep(std::time::Duration::from_secs(secs as u64)).await;
+                }
 
                 // Timer fired: drain all pending messages for this key
                 let key = (bot_id, chat_id);
@@ -201,8 +205,10 @@ impl MessageDebounce {
                                 source_todo_title: None,
                                 loop_step_execution_id: None,
                                 step_id: None,
-                                feishu_bot_id: if last.binding_id.is_some() { Some(last.bot_id) } else { None },
-                                feishu_receive_id: if last.binding_id.is_some() { Some(last.sender.clone()) } else { None },
+                                feishu_bot_id: Some(last.bot_id),
+                                // 所有走 debounce 的消息都来自飞书（binding / default response / slash command），
+                                // sender 是用户的 open_id，FeishuPushService 据此把结果直接发回给用户。
+                                feishu_receive_id: Some(last.sender.clone()),
                                 workspace_path: None,
                                 workspace_id: last.workspace_id,
                             })
@@ -486,7 +492,12 @@ impl MessageDebounce {
 
         // 构建执行器命令
         let command_args = executor.command_args(message);
-        let mut cmd = tokio::process::Command::new(executor.executable_path());
+        let program = executor.executable_path();
+        tracing::info!(
+            "[debounce] spawning: {} {:?} (cwd={:?})",
+            program, command_args, workspace_path
+        );
+        let mut cmd = tokio::process::Command::new(program);
         cmd.args(&command_args)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
@@ -515,7 +526,15 @@ impl MessageDebounce {
 
         // 等待执行器完成并捕获输出
         let output = match child.wait_with_output().await {
-            Ok(o) => o,
+            Ok(o) => {
+                tracing::info!(
+                    "[debounce] executor {} finished, exit_code={:?}, stdout_len={}",
+                    executor_type,
+                    o.status.code(),
+                    o.stdout.len()
+                );
+                o
+            }
             Err(e) => {
                 tracing::error!("[debounce] failed to wait for executor {}: {}", executor_type, e);
                 return Err(());
@@ -524,6 +543,11 @@ impl MessageDebounce {
 
         // 解析执行器输出：按行解析，提取 result/text 类型的日志
         let stdout = String::from_utf8_lossy(&output.stdout);
+        tracing::info!(
+            "[debounce] executor {} stdout:\n{}",
+            executor_type,
+            &stdout[..stdout.len().min(2000)]
+        );
         let logs: Vec<ParsedLogEntry> = stdout
             .lines()
             .filter_map(|line| executor.parse_output_line(line))
@@ -539,7 +563,17 @@ impl MessageDebounce {
             }
         });
 
+        tracing::info!(
+            "[debounce] executor {} result_text={:?}",
+            executor_type,
+            content.chars().take(200).collect::<String>()
+        );
+
         let receive_id_type = "open_id"; // 默认用 open_id，环路直接响应场景通常是 p2p
+        tracing::info!(
+            "[debounce] executor {} result sending to Feishu (receive_id={})",
+            executor_type, receive_id
+        );
         let _ = tx.send(ExecEvent::ExecutorDirectResponse {
             bot_id,
             receive_id,

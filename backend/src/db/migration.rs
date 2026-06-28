@@ -3253,6 +3253,12 @@ impl Migration for V26DisableAutoReviewForNormalTodos {
     }
 
     async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        // 幂等：V20-V23 可能已经删掉了 auto_review_enabled 列，
+        // 此时跳过 UPDATE（已删除 = 已关闭，无需再操作）。
+        if !table_has_column(db, "todos", "auto_review_enabled").await? {
+            tracing::info!("todos.auto_review_enabled already dropped, skip V26");
+            return Ok(());
+        }
         db.exec(
             "UPDATE todos SET auto_review_enabled = 0 WHERE auto_review_enabled IS NULL OR auto_review_enabled = 1"
         ).await?;
