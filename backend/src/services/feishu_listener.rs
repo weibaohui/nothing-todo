@@ -2,6 +2,10 @@ use dashmap::DashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+use ntd_connect::channel::Channel;
+use ntd_connect::http::SharedHttpClient;
+use ntd_connect::platform::feishu::{FeishuDomain as ConnectFeishuDomain, FeishuPlatform};
+
 use crate::feishu::sdk::config::Config as FeishuSdkConfig;
 use crate::feishu::sdk::token_manager::TokenManager;
 use crate::feishu::{
@@ -16,6 +20,12 @@ use crate::models::{AgentBot, BotConfig, build_trigger_params};
 use crate::services::message_debounce::{MessageDebounce, PendingMessage};
 
 /// Manages WebSocket connections to Feishu for all bound bots.
+///
+/// M3 起：`start_bot` 时同时构造 `ntd-connect::FeishuPlatform`，存到
+/// `feishu_platforms`。HTTP 委托入口 `send_raw_via_platform` 已就位，
+/// 供外部 caller（如 `feishu_push.rs`）逐步切换。旧 `send_raw` /
+/// `send_text` / reaction 路径保留（仍用 `reqwest::Client::new()`），
+/// 阶段 11 dispatcher 切流时整体替换为 platform 委托。
 #[derive(Clone)]
 pub struct FeishuListener {
     ctx: ServiceContext,
@@ -23,7 +33,19 @@ pub struct FeishuListener {
     channels: Arc<DashMap<i64, Arc<FeishuChannelService>>>,
     /// bot_id → (app_id, app_secret, domain)
     pub bot_credentials: Arc<DashMap<i64, (String, String, String)>>,
+    /// bot_id → ntd-connect FeishuPlatform（HTTP 委托目标，共享 SharedHttpClient 连接池）
+    pub feishu_platforms: Arc<DashMap<i64, Arc<FeishuPlatform>>>,
+    /// 进程级共享 reqwest client（治 `Client::new()` 反模式 + 复用连接池）
+    http: SharedHttpClient,
     debounce: Arc<MessageDebounce>,
+}
+
+/// 从 bot domain 字符串（"feishu" / "lark"）转 ntd-connect FeishuDomain enum。
+fn parse_connect_domain(s: &str) -> ConnectFeishuDomain {
+    match s {
+        "lark" => ConnectFeishuDomain::Lark,
+        _ => ConnectFeishuDomain::Feishu,
+    }
 }
 
 struct ListenerMessageContext<'a> {
@@ -72,11 +94,19 @@ impl FeishuListener {
             token_manager: Arc::new(TokenManager::new()),
             channels: Arc::new(DashMap::new()),
             bot_credentials: Arc::new(DashMap::new()),
+            feishu_platforms: Arc::new(DashMap::new()),
+            http: SharedHttpClient::new(),
         }
     }
 
     pub fn has_bot(&self, bot_id: i64) -> bool {
         self.channels.contains_key(&bot_id)
+    }
+
+    /// 按 bot_id 取 ntd-connect FeishuPlatform（HTTP 委托目标）。
+    /// 返回 None 表示 bot 未注册或已被 remove。
+    pub fn platform_for(&self, bot_id: i64) -> Option<Arc<FeishuPlatform>> {
+        self.feishu_platforms.get(&bot_id).map(|r| r.clone())
     }
 
     pub async fn start_bot(&self, bot: &AgentBot) -> anyhow::Result<()> {
@@ -129,6 +159,22 @@ impl FeishuListener {
                 domain_str.to_string(),
             ),
         );
+
+        // M3 起：构造 ntd-connect FeishuPlatform 用于 HTTP 委托。
+        // 共享 `self.http` 连接池，与 backend `reqwest::Client::new()`
+        // 的反模式形成对比：每次消息复用同一条 TCP/TLS 连接。
+        let connect_domain = parse_connect_domain(domain_str);
+        let platform = Arc::new(FeishuPlatform::new(
+            ntd_connect::platform::feishu::FeishuConfig {
+                app_id: bot.app_id.clone(),
+                app_secret: bot.app_secret.clone(),
+                domain: connect_domain,
+                bot_open_id: bot.bot_open_id.clone(),
+            },
+            self.http.clone(),
+        ));
+        platform.register_self_arc();
+        self.feishu_platforms.insert(bot.id, platform);
 
         let real_bot_open_id =
             Self::resolve_bot_open_id(&self.bot_credentials, &self.token_manager, bot.id)
@@ -1617,6 +1663,41 @@ impl FeishuListener {
         } else {
             anyhow::bail!("bot {} not running", bot_id)
         }
+    }
+
+    /// Send a raw text message via ntd-connect FeishuPlatform（共享连接池 + token 缓存）。
+    ///
+    /// 与 [`Self::send_raw`] 的差别：本方法复用 `FeishuPlatform` 的
+    /// `SharedHttpClient` 连接池 + 进程级 token 缓存，治 `Client::new()`
+    /// 反模式。外部 caller（`feishu_push.rs` 等）可逐步切换到本入口。
+    ///
+    /// receive_id_type 仅支持 "open_id"（p2p）/ "chat_id"（group）。
+    /// 其他值（包括 webhook 老格式如 "email" / "union_id"）返回 Err，
+    /// caller 应回退到 [`Self::send_raw`]。
+    pub async fn send_raw_via_platform(
+        &self,
+        bot_id: i64,
+        receive_id: &str,
+        receive_id_type: &str,
+        text: &str,
+    ) -> anyhow::Result<()> {
+        let platform = self
+            .platform_for(bot_id)
+            .ok_or_else(|| anyhow::anyhow!("no platform registered for bot {}", bot_id))?;
+        let chat_type = match receive_id_type {
+            "open_id" => ntd_connect::types::FeishuChatType::P2p,
+            _ => ntd_connect::types::FeishuChatType::Group,
+        };
+        let target =
+            ntd_connect::types::ReplyTarget::feishu(receive_id, None, chat_type);
+        platform
+            .send(
+                &ntd_connect::types::ReplyContext::default(),
+                target,
+                ntd_connect::types::OutgoingContent::Text(text.to_string()),
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("send_raw_via_platform failed: {e}"))
     }
 
     /// Send a raw text message using a specific receive_id_type.
