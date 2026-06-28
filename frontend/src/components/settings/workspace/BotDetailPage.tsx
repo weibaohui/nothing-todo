@@ -48,8 +48,26 @@ export function BotDetailPage({ bot, onBack, onRefresh, autoShowHistory = false 
   const [blackboardOpen, setBlackboardOpen] = useState(false);
   const [blackboardExecs, setBlackboardExecs] = useState<Record<string, any>[]>([]);
 
+  // processed_type 英文 → 中文映射
+  const processedTypeLabel = (type: string | null): string => {
+    const map: Record<string, string> = {
+      'default_response': '默认响应-Todo',
+      'default_response_executor': '默认响应-执行器',
+      'default_response_loop': '默认响应-环路',
+      'slash_command': '斜杠命令',
+      'slash_command_loop': '斜杠命令-环路',
+      'feishu_project_bind': '项目绑定-Todo',
+    };
+    return map[type || ''] || type || '-';
+  };
+
+  // 是否为环路或斜杠命令类型（点击执行记录应打开黑板抽屉）
+  const isLoopOrSlashType = (type: string | null): boolean => {
+    return type === 'slash_command_loop' || type === 'slash_command';
+  };
+
   const handleProcessedTypeClick = async (record: FeishuHistoryMessage) => {
-    if (record.processed_type !== 'slash_command_loop' || !record.processed_id) return;
+    if (!isLoopOrSlashType(record.processed_type) || !record.processed_id) return;
     try {
       const detail = await dbLoops.getExecutionById(record.processed_id);
       setBlackboardExecs(detail.step_executions || []);
@@ -323,7 +341,7 @@ export function BotDetailPage({ bot, onBack, onRefresh, autoShowHistory = false 
                 key: 'execution_record_id',
                 width: 80,
                 render: (_, record) => (
-                  record.processed_type === 'slash_command_loop' && record.execution_record_id ? (
+                  isLoopOrSlashType(record.processed_type) && record.execution_record_id ? (
                     <Typography.Link style={{ fontSize: 12 }} onClick={() => handleProcessedTypeClick(record)}>
                       #{record.execution_record_id}
                     </Typography.Link>
@@ -351,10 +369,10 @@ export function BotDetailPage({ bot, onBack, onRefresh, autoShowHistory = false 
               {
                 title: '处理类型',
                 key: 'processed_type',
-                width: 100,
+                width: 110,
                 render: (_, record) => (
                   <span style={{ fontSize: 12 }}>
-                    {record.processed_type || '-'}
+                    {processedTypeLabel(record.processed_type)}
                   </span>
                 ),
               },
