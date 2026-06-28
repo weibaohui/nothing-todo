@@ -1,0 +1,45 @@
+[package]
+# ntd-connect: 多 channel（飞书/钉钉/微信/TG/Slack）→ 多 executor
+# （Claude Code / Codex / Hermes）的消息桥，Rust 实现。
+#
+# 详细设计稿见 ../docs/ntd-connect-design.md，参考实现是
+# chenhg5/cc-connect（Go）。本 crate 是 cc-connect 的 Rust 移植，
+# 命名对齐 cc-connect 的 "-connect" 后缀（不要改回 -core，
+# 见 .claude/memory feedback-ntd-connect-naming）。
+name = "ntd-connect"
+version = "0.1.0"
+edition = "2021"
+# MSRV 与 backend 对齐；升级前需确认所有依赖也满足。
+rust-version = "1.81"
+license = "MIT"
+description = "Multi-channel → multi-executor message bridge (Rust port of cc-connect)"
+
+[dependencies]
+# async-trait：async fn in traits 的稳定方案（trait 里的 async fn
+# 直到 edition 2024 才原生支持，本 crate 暂用 macro）。
+async-trait = "0.1"
+# reqwest：channel / agent 实现都要发 HTTP。复用 reqwest 内部的
+# 连接池（Arc 化），避免「每次调用 Client::new」的反模式。
+# features 与 backend 对齐：json + rustls-tls，关闭默认 features 减体积。
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# serde / serde_json：消息体序列化（IncomingMessage、Attachment、
+# ReplyTarget 等都需要 Debug/Serialize/Deserialize）。
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# thiserror：Error enum 的派生，比手写 From 链简洁。
+thiserror = "1"
+# tracing：crate 内所有 info/warn/error 日志统一走 tracing，
+# 由 backend 顶层 subscriber 统一订阅（不在 crate 内初始化 subscriber）。
+tracing = "0.1"
+# parking_lot：std Mutex 的高性能替代，避免 dispatcher 热路径上
+# 的「锁中毒」分支开销。lru cache 需要短暂持锁，选 parking_lot。
+parking_lot = "0.12"
+# lru：基于哈希的 LRU 缓存。cc-connect `core/dedup.go` 也用 LRU，
+# 容量 4096 + TTL 60s 是经验值。
+lru = "0.12"
+# tokio 仅启用必要 feature（M1.4 dedup 暂不直接用，但 M2 dispatcher
+# 需要 JoinSet/Semaphore 等，提前引入减少 Cargo.toml 改动次数）。
+tokio = { version = "1", features = ["sync", "rt", "time", "macros"] }
+
+[dev-dependencies]
+# 单元测试暂不需要外部 dev-dep；M2 dispatcher 测试会加 tokio test runtime。
