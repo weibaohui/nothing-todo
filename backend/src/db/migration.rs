@@ -71,8 +71,11 @@ pub(super) fn all_migrations() -> Vec<Box<dyn Migration>> {
         Box::new(V37SlashCommandLoopSupport),
         Box::new(V38DefaultResponseType),
         Box::new(V39FixFeishuMessagesWorkspaceId),
+        Box::new(V40DropFeishuMessagesProcessedTodoId),
     ]
 }
+
+/// v40: 删除 feishu_messages.processed_todo_id 列，用 processed_id 代替。
 
 /// v13 迁移：将 loop_steps.todo_id 重命名为 step_id，消除列名误导。
 /// 该列实际存储的是 steps.id（非 todos.id），旧名极具迷惑性。
@@ -3854,6 +3857,25 @@ impl Migration for V39FixFeishuMessagesWorkspaceId {
             db.exec("ALTER TABLE feishu_messages ADD COLUMN workspace_id INTEGER")
                 .await?;
             tracing::info!("V39: feishu_messages.workspace_id column added");
+        }
+        Ok(())
+    }
+}
+
+/// v40: 删除 feishu_messages.processed_todo_id 列（用 processed_id 代替）。
+/// processed_id + processed_type 已能完整表达处理信息，去除冗余列。
+pub(super) struct V40DropFeishuMessagesProcessedTodoId;
+
+#[async_trait::async_trait]
+impl Migration for V40DropFeishuMessagesProcessedTodoId {
+    fn version(&self) -> i64 { 40 }
+    fn name(&self) -> &'static str { "drop_feishu_messages_processed_todo_id" }
+
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        if table_has_column(db, "feishu_messages", "processed_todo_id").await? {
+            db.exec("ALTER TABLE feishu_messages DROP COLUMN processed_todo_id")
+                .await?;
+            tracing::info!("V40: feishu_messages.processed_todo_id column dropped");
         }
         Ok(())
     }

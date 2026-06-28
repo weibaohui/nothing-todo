@@ -12,7 +12,7 @@ export function RecordTab({
   historySelectedChatId, historyIsHistory, historySelectedSenderId,
   historyAddModalOpen, historyForm,
   agentBots,
-  onViewMsg, onViewTodo, onViewExecutionRecord,
+  onViewMsg, onViewExecutionRecord,
   onRefreshMessages,
   onChatFilterChange, onSenderFilterChange, onHistoryFilterChange,
   onPageChange,
@@ -32,7 +32,6 @@ export function RecordTab({
   historyForm: any;
   agentBots: db.AgentBot[];
   onViewMsg: (msg: string) => void;
-  onViewTodo: (todoId: number) => void;
   onViewExecutionRecord: (recordId: number) => Promise<void>;
   onRefreshMessages: () => void;
   onChatFilterChange: (v: string | undefined) => void;
@@ -227,23 +226,6 @@ export function RecordTab({
                 <Tag color="green">已处理</Tag>
               ) : (
                 <Tag color="default">未处理</Tag>
-              )
-            ),
-          },
-          {
-            title: '触发Todo',
-            key: 'processed_todo_id',
-            width: 80,
-            render: (_, record) => (
-              record.processed_todo_id ? (
-                <Typography.Link
-                  style={{ fontSize: 12 }}
-                  onClick={() => onViewTodo(record.processed_todo_id!)}
-                >
-                  #{record.processed_todo_id}
-                </Typography.Link>
-              ) : (
-                <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>-</span>
               )
             ),
           },

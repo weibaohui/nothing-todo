@@ -108,15 +108,6 @@ export function BotDetailPage({ bot, onBack, onRefresh, autoShowHistory = false 
     }
   };
 
-  const handleViewTodo = async (todoId: number) => {
-    try {
-      const t = await db.getTodo(todoId);
-      setTodoDetail({ id: t.id, title: t.title, prompt: t.prompt, status: t.status });
-    } catch {
-      message.error('加载 Todo 详情失败');
-    }
-  };
-
   // 处理配置变更
   const handleConfigChange = async (key: string, val: boolean) => {
     const newConfig = { ...botConfig, [key]: val };
@@ -307,20 +298,6 @@ export function BotDetailPage({ bot, onBack, onRefresh, autoShowHistory = false 
                     <Tag color="green">已处理</Tag>
                   ) : (
                     <Tag color="default">未处理</Tag>
-                  )
-                ),
-              },
-              {
-                title: '触发Todo',
-                key: 'processed_todo_id',
-                width: 80,
-                render: (_, record) => (
-                  record.processed_todo_id ? (
-                    <Typography.Link style={{ fontSize: 12 }} onClick={() => handleViewTodo(record.processed_todo_id!)}>
-                      #{record.processed_todo_id}
-                    </Typography.Link>
-                  ) : (
-                    <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>-</span>
                   )
                 ),
               },

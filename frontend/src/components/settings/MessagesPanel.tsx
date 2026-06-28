@@ -10,13 +10,12 @@ import { ProjectBindsTab } from './messages/ProjectBindsTab';
 import { RecordTab } from './messages/RecordTab';
 import { ExecutionDetailModal } from './messages/ExecutionDetailModal';
 
-export function MessagesPanel({ configForm, configSaving, handleSaveConfig, onBack }: {
+export function MessagesPanel({ configForm, configSaving, handleSaveConfig }: {
   configForm: any;
   configSaving: boolean;
   handleSaveConfig: () => Promise<void>;
-  onBack?: () => void;
 }) {
-  const { state, dispatch } = useApp();
+  const { state } = useApp();
   const { todos } = state;
 
   const [agentBots, setAgentBots] = useState<db.AgentBot[]>([]);
@@ -282,11 +281,6 @@ export function MessagesPanel({ configForm, configSaving, handleSaveConfig, onBa
     }
   };
 
-  const handleViewTodo = (todoId: number) => {
-    dispatch({ type: 'SELECT_TODO', payload: todoId });
-    onBack?.();
-  };
-
   const handleViewExecutionRecord = async (recordId: number) => {
     try {
       const r = await db.getExecutionRecord(recordId);
@@ -384,7 +378,6 @@ export function MessagesPanel({ configForm, configSaving, handleSaveConfig, onBa
                 historyForm={historyForm}
                 agentBots={agentBots}
                 onViewMsg={(msg) => setHistoryViewMsg(msg)}
-                onViewTodo={handleViewTodo}
                 onViewExecutionRecord={handleViewExecutionRecord}
                 onRefreshMessages={loadHistoryMessages}
                 onChatFilterChange={handleChatFilterChange}
