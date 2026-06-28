@@ -191,6 +191,8 @@ export interface FeishuHistoryMessage {
   processed: boolean;
   processed_todo_id: number | null;
   execution_record_id: number | null;
+  processed_id: number | null;
+  processed_type: string | null;
   created_at: string | null;
   workspace_id: number | null;
 }

@@ -275,6 +275,7 @@ impl Database {
         message_id: &str,
         todo_id: i64,
         execution_record_id: Option<i64>,
+        processed_type: Option<&str>,
     ) -> Result<(), sea_orm::DbErr> {
         let result = feishu_messages::Entity::find()
             .filter(feishu_messages::Column::MessageId.eq(message_id))
@@ -286,6 +287,9 @@ impl Database {
             am.processed = ActiveValue::Set(Some(true));
             am.processed_todo_id = ActiveValue::Set(Some(todo_id));
             am.execution_record_id = ActiveValue::Set(execution_record_id);
+            // processed_id 存 execution_record_id（有值）或 todo_id（回退）
+            am.processed_id = ActiveValue::Set(execution_record_id.or(Some(todo_id)));
+            am.processed_type = ActiveValue::Set(processed_type.map(|s| s.to_string()));
             am.update(&self.conn).await?;
         }
         Ok(())

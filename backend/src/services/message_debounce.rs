@@ -297,6 +297,7 @@ impl MessageDebounce {
                                             msg_id,
                                             msg.todo_id,
                                             record_id,
+                                            Some(&msg.trigger_type),
                                         )
                                         .await
                                     {

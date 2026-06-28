@@ -350,6 +350,30 @@ export function BotDetailPage({ bot, onBack, onRefresh, autoShowHistory = false 
                   )
                 ),
               },
+              {
+                title: '处理类型',
+                key: 'processed_type',
+                width: 100,
+                render: (_, record) => (
+                  <span style={{ fontSize: 12 }}>
+                    {record.processed_type || '-'}
+                  </span>
+                ),
+              },
+              {
+                title: '处理ID',
+                key: 'processed_id',
+                width: 80,
+                render: (_, record) => (
+                  record.processed_id ? (
+                    <Typography.Text style={{ fontSize: 12 }}>
+                      #{record.processed_id}
+                    </Typography.Text>
+                  ) : (
+                    <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>-</span>
+                  )
+                ),
+              },
             ]}
           />
         </Card>
