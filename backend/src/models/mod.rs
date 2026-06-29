@@ -1110,6 +1110,32 @@ mod tests {
     }
 
     #[test]
+    fn test_executor_type_kilo_as_str() {
+        assert_eq!(ExecutorType::Kilo.as_str(), "kilo");
+    }
+
+    #[test]
+    fn test_executor_type_kilo_display() {
+        assert_eq!(format!("{}", ExecutorType::Kilo), "kilo");
+    }
+
+    #[test]
+    fn test_executor_type_kilo_is_distinct_from_others() {
+        // Kilo must not accidentally compare equal to any other variant
+        assert_ne!(ExecutorType::Kilo, ExecutorType::Opencode);
+        assert_ne!(ExecutorType::Kilo, ExecutorType::Zhanlu);
+        assert_ne!(ExecutorType::Kilo, ExecutorType::Claudecode);
+    }
+
+    #[test]
+    fn test_executor_type_kilo_clone() {
+        let et = ExecutorType::Kilo;
+        let cloned = et.clone();
+        assert_eq!(cloned, ExecutorType::Kilo);
+        assert_eq!(cloned.as_str(), "kilo");
+    }
+
+    #[test]
     fn test_executor_type_default() {
         assert_eq!(ExecutorType::default(), ExecutorType::Claudecode);
     }
