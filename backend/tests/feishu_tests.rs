@@ -420,7 +420,7 @@ mod whitelist_and_message_tests {
             .unwrap();
 
         // First mark it as processed
-        db.mark_feishu_message_processed("msg_fail_001", 42, Some(100))
+        db.mark_feishu_message_processed("msg_fail_001", 42, Some(100), None)
             .await
             .unwrap();
 
@@ -429,13 +429,13 @@ mod whitelist_and_message_tests {
             .await
             .unwrap();
 
-        // Verify processed=false and processed_todo_id=None
+        // Verify processed=false and processed_id=None
         let messages = db.get_feishu_messages(bot_id, 10).await.unwrap();
         let msg = messages.iter().find(|m| m.message_id == "msg_fail_001").unwrap();
         assert!(!msg.processed, "processed should be false after failure");
         assert!(
-            msg.processed_todo_id.is_none(),
-            "processed_todo_id should be None after failure"
+            msg.processed_id.is_none(),
+            "processed_id should be None after failure"
         );
     }
 
