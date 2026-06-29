@@ -1644,17 +1644,14 @@ mod tests {
     async fn make_test_runner() -> (LoopRunner, Arc<crate::db::Database>) {
         use crate::adapters::ExecutorRegistry;
         use crate::config::Config;
-        use crate::service_context::ServiceContext;
         use crate::task_manager::TaskManager;
         use std::sync::RwLock;
         use tokio::sync::broadcast;
 
         let db = Arc::new(crate::db::Database::new(":memory:").await.unwrap());
-        let (tx, _rx) = broadcast::channel(1);
-        let ctx = ServiceContext {
+        let ctx = LoopRunnerCtx {
             db: db.clone(),
             executor_registry: Arc::new(ExecutorRegistry::default()),
-            tx,
             task_manager: Arc::new(TaskManager::default()),
             config: Arc::new(RwLock::new(Config::default())),
         };

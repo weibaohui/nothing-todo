@@ -37,42 +37,16 @@ pub(super) trait Migration: Send + Sync {
 /// 新增迁移：在末尾追加一行即可，runner 会自动跳过已应用的并执行新版本。
 pub(super) fn all_migrations() -> Vec<Box<dyn Migration>> {
     vec![
+        // v0.0.71 基线
         Box::new(V1InitialSchema),
         Box::new(V2TodoRatingDropColumn),
         Box::new(V3LogsToExecutionLogs),
         Box::new(V4FeishuFkCascade),
         Box::new(V5ProjectDirectoryWorktree),
-        Box::new(V6TodoKind),
-        Box::new(V7LoopStudio),
-        Box::new(V8LoopWorkspace),
-        Box::new(V9IndependentSteps),
-        Box::new(V10StepColor),
-        Box::new(V11LoopFlowControl),
-        Box::new(V12LoopStepExecution),
-        Box::new(V13LoopStepsRenameTodoIdToStepId),
-        Box::new(V14LoopsReviewTemplateId),
-        Box::new(V15ReviewTemplates),
-        Box::new(V16LoopStepExecutionSnapshotColumns),
-        Box::new(V17ConsolidateReviewInstanceTodos),
-        Box::new(V18LoopHumanReview),
-        Box::new(V19StepLoopTags),
-        Box::new(V26DisableAutoReviewForNormalTodos),
-        Box::new(V23DropTodoHooksColumns),
-        Box::new(RenameLoopStepsStepIdBackToTodoId),
-        Box::new(V27AbnormalHandlerTodo),
-        Box::new(V28DropLoopStepExecutionsStepIdFk),
-        Box::new(V29WebhookEnabledFields),
-        Box::new(V30WorkspaceRefactor),
-        Box::new(V31AddTodosWorkspaceId),
-        Box::new(V32ReviewTemplatesWorkspaceId),
-        Box::new(V33ReviewTemplatesEnsureWorkspaceId),
-        Box::new(V34MigrateOrphansToTempWorkspace),
-        Box::new(V35RenameWorkspaceToWorkspacePath),
-        Box::new(V36LoopExecutionsErrorMessage),
-        Box::new(V37SlashCommandLoopSupport),
-        Box::new(V38DefaultResponseType),
-        Box::new(V39FixFeishuMessagesWorkspaceId),
-        Box::new(V40DropFeishuMessagesProcessedTodoId),
+        // 合并迁移：35 个散列迁移 → 3 个
+        Box::new(V41ConsolidatedLoopFeatures),      // V6~V12,V14~V19,V23,V24,V26~V29
+        Box::new(V42ConsolidatedWorkspaceRefactor), // V30~V35
+        Box::new(V43ConsolidatedFinalFeatures),     // V36~V40
     ]
 }
 
@@ -98,88 +72,6 @@ impl Migration for V36LoopExecutionsErrorMessage {
 }
 
 /// v40: 删除 feishu_messages.processed_todo_id 列，用 processed_id 代替。
-
-/// v13 迁移：将 loop_steps.todo_id 重命名为 step_id，消除列名误导。
-/// 该列实际存储的是 steps.id（非 todos.id），旧名极具迷惑性。
-pub(super) struct V13LoopStepsRenameTodoIdToStepId;
-
-#[async_trait]
-impl Migration for V13LoopStepsRenameTodoIdToStepId {
-    fn version(&self) -> i64 {
-        13
-    }
-    fn name(&self) -> &'static str {
-        "rename_loop_steps_todo_id_to_step_id"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        // 幂等：fresh DB（V7 loop_studio 已直接用 step_id 建表）没有 todo_id 列，
-        // 跳过 RENAME。仅当旧库残留 todo_id 时才真正改名。
-        if !table_has_column(db, "loop_steps", "todo_id").await? {
-            tracing::info!("loop_steps.todo_id already absent, skip rename");
-            return Ok(());
-        }
-        // SQLite 3.25+ 支持 RENAME COLUMN
-        db.exec("ALTER TABLE loop_steps RENAME COLUMN todo_id TO step_id").await?;
-        // 外键约束参考的表也从 todos 改为 steps
-        // （SQLite 的 RENAME COLUMN 不会自动更新 FK 引用，需重新建表；
-        //  但外键引用关系已在 entity 层由 Column::StepId → steps.id 体现，
-        //  SQLite 的实际 FK 约束在旧列名上，仅在 INSERT/UPDATE 时校验值的存在性，
-        //  不依赖列名，所以列名改后约束仍然有效。）
-        Ok(())
-    }
-}
-
-/// v14 迁移：loops 表追加 review_template_id 列。
-///
-/// feat(loop 支持配置评审模板) 在 entity / model / handler / runner 层加了该字段，
-/// 但漏写了迁移——fresh DB 跑完 V7→V13 后 loops 表仍然没有这一列，
-/// INSERT 时直接报 "table loops has no column named review_template_id"。
-/// 这里补一条幂等 ADD COLUMN 修正。
-pub(super) struct V14LoopsReviewTemplateId;
-
-#[async_trait]
-impl Migration for V14LoopsReviewTemplateId {
-    fn version(&self) -> i64 {
-        14
-    }
-    fn name(&self) -> &'static str {
-        "loops_review_template_id"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        add_column_if_missing(
-            db,
-            "loops",
-            "review_template_id",
-            "ALTER TABLE loops ADD COLUMN review_template_id INTEGER",
-        )
-        .await
-    }
-}
-
-/// v12 迁移：execution_records 添加 loop 环节执行追踪列。
-///
-/// loop_step_execution_id 指向 loop_step_executions 表的 id，
-/// step_id 指向 steps 表的 id，用于追踪 loop 环节的执行记录。
-pub(super) struct V12LoopStepExecution;
-
-#[async_trait]
-impl Migration for V12LoopStepExecution {
-    fn version(&self) -> i64 {
-        12
-    }
-    fn name(&self) -> &'static str {
-        "loop_step_execution_columns"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        // 为已有的 execution_records 添加 loop 环节执行追踪字段
-        add_column_warn(db, "ALTER TABLE execution_records ADD COLUMN loop_step_execution_id BIGINT").await;
-        add_column_warn(db, "ALTER TABLE execution_records ADD COLUMN step_id BIGINT").await;
-        Ok(())
-    }
-}
 
 // ---------------------------------------------------------------------------
 // v1: 首次建库 / 兼容旧库
@@ -924,6 +816,26 @@ async fn table_has_column(db: &Database, table: &str, column: &str) -> Result<bo
         > 0)
 }
 
+/// 检测 sqlite_master 上是否有该表, 用于「表可能不存在」场景的探测。
+async fn table_exists(db: &Database, table: &str) -> Result<bool, sea_orm::DbErr> {
+    let sql = format!(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{}'",
+        table
+    );
+    debug_assert!(
+        !table.is_empty() && table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
+        "table_exists: invalid table name {table:?}"
+    );
+    let row = db
+        .conn
+        .query_one(Statement::from_string(DbBackend::Sqlite, sql))
+        .await?;
+    Ok(row
+        .and_then(|r| r.try_get_by_index::<i64>(0).ok())
+        .unwrap_or(0)
+        > 0)
+}
+
 /// 「探测列存在性 → 缺则 ALTER 追加」。把 6 处相同的探测+ALTER 模式收敛到一个 helper。
 async fn add_column_if_missing(
     db: &Database,
@@ -960,6 +872,23 @@ async fn add_column_with_fallback(
         add_column_warn(db, fallback_sql).await;
     }
     Ok(())
+}
+
+/// 按 path 查询 project_directories.id。SELECT 在 SQLite 中无副作用，
+/// 不存在返回 None，SQL 报错才传播。
+async fn get_project_directory_id_by_path(
+    db: &Database,
+    path: &str,
+) -> Result<Option<i64>, sea_orm::DbErr> {
+    let stmt = sea_orm::Statement::from_sql_and_values(
+        sea_orm::DbBackend::Sqlite,
+        "SELECT id FROM project_directories WHERE path = ?1",
+        vec![path.into()],
+    );
+    let row = db.conn.query_one(stmt).await?;
+    let Some(row) = row else { return Ok(None) };
+    let id: Option<i64> = row.try_get_by("id").ok().flatten();
+    Ok(id)
 }
 
 // ---------------------------------------------------------------------------
@@ -1789,574 +1718,6 @@ async fn v5_project_directory_worktree(db: &Database) -> Result<(), sea_orm::DbE
 /// - 旧库: ALTER TABLE 加列, 默认 'item'; 把被 loop_steps 引用的 todo
 ///   标记为 'step', 避免环路失效;
 /// - 加 `(kind)` 索引支持按 kind 过滤。
-pub(super) struct V6TodoKind;
-
-#[async_trait]
-impl Migration for V6TodoKind {
-    fn version(&self) -> i64 {
-        6
-    }
-    fn name(&self) -> &'static str {
-        "todo_kind"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        v6_todo_kind(db).await
-    }
-}
-
-async fn v6_todo_kind(db: &Database) -> Result<(), sea_orm::DbErr> {
-    // 1) 加列, 旧库上没有 kind 列时生效; 新库已由 v1 CREATE TABLE 包含, 静默跳过
-    add_column_warn(db, "ALTER TABLE todos ADD COLUMN kind TEXT NOT NULL DEFAULT 'item'").await;
-    // 2) 回填: 被 loop_steps 引用的 todo 升级为 step
-    // loop_steps 表不一定存在 (旧库, 或 fresh 跑 v1 没建), 探测一下避免 UPDATE 失败
-    if table_has_column(db, "todos", "kind").await?
-        && table_exists(db, "loop_steps").await?
-    {
-        db.exec(
-            "UPDATE todos SET kind = 'step' \
-             WHERE id IN (SELECT DISTINCT step_id FROM loop_steps)",
-        )
-        .await?;
-    }
-    // 3) 加 kind 索引
-    db.exec("CREATE INDEX IF NOT EXISTS idx_todos_kind ON todos(kind)").await?;
-    Ok(())
-}
-
-/// 检测 sqlite_master 上是否有该表, 用于 v6 等「表可能不存在」场景的探测。
-async fn table_exists(db: &Database, table: &str) -> Result<bool, sea_orm::DbErr> {
-    let sql = format!(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{}'",
-        table
-    );
-    // 同 needs_fk_migration 的注入防护: 表名走白名单 (调用方都是 hardcoded 字符串).
-    debug_assert!(
-        !table.is_empty() && table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
-        "table_exists: invalid table name {table:?}"
-    );
-    let row = db
-        .conn
-        .query_one(Statement::from_string(DbBackend::Sqlite, sql))
-        .await?;
-    Ok(row
-        .and_then(|r| r.try_get_by_index::<i64>(0).ok())
-        .unwrap_or(0)
-        > 0)
-}
-
-// ---------------------------------------------------------------------------
-// v7: Loop Studio (issue #670: 把 Loop Studio DDL 迁到 runner 系统)
-// ---------------------------------------------------------------------------
-
-/// v7 迁移: 把 Loop Studio 的 6 张表 + 索引/触发器从旧 `db/migrations.rs`
-/// (已废弃的声明式 DDL 迁移) 搬到 runner 系统, 让所有新建内存库 (测试用) 都能跑出
-/// 完整 schema.
-///
-/// 设计动机:
-/// - 旧 `db/migrations.rs`（声明式 DDL 系统）已废弃并移除，其迁移内容已全部迁移至此 runner 系统。
-///   loops/loop_steps/loop_hooks/loop_triggers/loop_executions/
-///   loop_step_executions 这 6 张表, 测试不得不手工建表或绕开;
-/// - 把 DDL 集中到 runner 系统后, 内存测试和真实生产 DB 走同一条
-///   迁移路径, 避免「测试通过, 生产报错」的分裂.
-///
-/// 幂等性: 所有 DDL 都带 `IF NOT EXISTS`, 重跑无害.
-pub(super) struct V7LoopStudio;
-
-#[async_trait]
-impl Migration for V7LoopStudio {
-    fn version(&self) -> i64 {
-        7
-    }
-    fn name(&self) -> &'static str {
-        "loop_studio"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        v7_loop_studio(db).await
-    }
-}
-
-/// 6 张表 DDL + 索引 + 触发器. 顺序按 (loops, loop_triggers, loop_steps,
-/// loop_hooks, loop_executions, loop_step_executions), 外键引用
-/// 关系保证后续表能成功建出.
-async fn v7_loop_studio(db: &Database) -> Result<(), sea_orm::DbErr> {
-    for stmt in LOOP_STUDIO_DDL {
-        db.exec(stmt).await?;
-    }
-    Ok(())
-}
-
-/// 集中放置的 Loop Studio DDL. 之所以写成模块级 const slice 而非内联
-/// 在 v7_loop_studio 函数体里, 是为了 (1) 测试可直接复用, (2) DDL 列表
-/// 不会污染函数体长度 (CLAUDE.md 单函数 30 行限制).
-const LOOP_STUDIO_DDL: &[&str] = &[
-    // ===== loops: 环路主表 =====
-    "CREATE TABLE IF NOT EXISTS loops (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        description TEXT DEFAULT '',
-        workspace TEXT,
-        webhook_enabled INTEGER NOT NULL DEFAULT 0,
-        status TEXT NOT NULL DEFAULT 'draft',
-        color TEXT DEFAULT '#722ed1',
-        icon TEXT DEFAULT 'loop',
-        created_at TEXT,
-        updated_at TEXT
-    )",
-    "CREATE INDEX IF NOT EXISTS idx_loops_status ON loops(status)",
-    "CREATE INDEX IF NOT EXISTS idx_loops_updated_at ON loops(updated_at DESC)",
-    "CREATE TRIGGER IF NOT EXISTS set_loops_created_at_utc AFTER INSERT ON loops
-     WHEN new.created_at IS NULL OR new.created_at = ''
-     BEGIN
-         UPDATE loops SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
-     END",
-    "CREATE TRIGGER IF NOT EXISTS set_loops_updated_at_utc BEFORE UPDATE ON loops
-     WHEN new.updated_at IS NULL OR new.updated_at = ''
-     BEGIN
-         UPDATE loops SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
-     END",
-    // ===== loop_triggers: 多类型触发器 =====
-    "CREATE TABLE IF NOT EXISTS loop_triggers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        loop_id INTEGER NOT NULL,
-        trigger_type TEXT NOT NULL,
-        config TEXT DEFAULT '{}',
-        enabled INTEGER NOT NULL DEFAULT 1,
-        priority INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT,
-        FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE
-    )",
-    "CREATE INDEX IF NOT EXISTS idx_loop_triggers_loop_id ON loop_triggers(loop_id)",
-    "CREATE INDEX IF NOT EXISTS idx_loop_triggers_type_enabled ON loop_triggers(trigger_type, enabled)",
-    "CREATE TRIGGER IF NOT EXISTS set_loop_triggers_created_at_utc AFTER INSERT ON loop_triggers
-     WHEN new.created_at IS NULL OR new.created_at = ''
-     BEGIN
-         UPDATE loop_triggers SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
-     END",
-    // ===== loop_steps: 有序阶段 =====
-    "CREATE TABLE IF NOT EXISTS loop_steps (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        loop_id INTEGER NOT NULL,
-        name TEXT NOT NULL,
-        description TEXT DEFAULT '',
-        order_index INTEGER NOT NULL DEFAULT 0,
-        step_id INTEGER NOT NULL,
-        run_mode TEXT NOT NULL DEFAULT 'sequential',
-        skip_on_source_failed INTEGER NOT NULL DEFAULT 0,
-        min_rating INTEGER,
-        unrated_policy TEXT NOT NULL DEFAULT 'skip',
-        enabled INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT,
-        FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
-        FOREIGN KEY (step_id) REFERENCES steps(id) ON DELETE RESTRICT
-    )",
-    "CREATE INDEX IF NOT EXISTS idx_loop_steps_loop_id ON loop_steps(loop_id)",
-    "CREATE INDEX IF NOT EXISTS idx_loop_steps_loop_order ON loop_steps(loop_id, order_index)",
-    "CREATE TRIGGER IF NOT EXISTS set_loop_steps_created_at_utc AFTER INSERT ON loop_steps
-     WHEN new.created_at IS NULL OR new.created_at = ''
-     BEGIN
-         UPDATE loop_steps SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
-     END",
-    // ===== loop_hooks: 环路级 hook =====
-    "CREATE TABLE IF NOT EXISTS loop_hooks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        loop_id INTEGER NOT NULL,
-        hook_position TEXT NOT NULL,
-        source_step_id INTEGER,
-        target_todo_id INTEGER NOT NULL,
-        skip_if_missing INTEGER NOT NULL DEFAULT 0,
-        enabled INTEGER NOT NULL DEFAULT 1,
-        min_rating INTEGER,
-        unrated_policy TEXT NOT NULL DEFAULT 'skip',
-        created_at TEXT,
-        FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
-        FOREIGN KEY (source_step_id) REFERENCES loop_steps(id) ON DELETE CASCADE,
-        FOREIGN KEY (target_todo_id) REFERENCES todos(id) ON DELETE RESTRICT
-    )",
-    "CREATE INDEX IF NOT EXISTS idx_loop_hooks_loop_id ON loop_hooks(loop_id)",
-    "CREATE INDEX IF NOT EXISTS idx_loop_hooks_source_stage ON loop_hooks(source_step_id)",
-    "CREATE TRIGGER IF NOT EXISTS set_loop_hooks_created_at_utc AFTER INSERT ON loop_hooks
-     WHEN new.created_at IS NULL OR new.created_at = ''
-     BEGIN
-         UPDATE loop_hooks SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
-     END",
-    // ===== loop_executions: 每次运行的顶层记录 =====
-    "CREATE TABLE IF NOT EXISTS loop_executions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        loop_id INTEGER NOT NULL,
-        trigger_id INTEGER,
-        trigger_type TEXT NOT NULL,
-        trigger_meta TEXT DEFAULT '{}',
-        started_at TEXT NOT NULL,
-        finished_at TEXT,
-        status TEXT NOT NULL DEFAULT 'running',
-        total_steps INTEGER NOT NULL DEFAULT 0,
-        completed_steps INTEGER NOT NULL DEFAULT 0,
-        failed_steps INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
-        FOREIGN KEY (trigger_id) REFERENCES loop_triggers(id) ON DELETE SET NULL
-    )",
-    "CREATE INDEX IF NOT EXISTS idx_loop_executions_loop_id ON loop_executions(loop_id)",
-    "CREATE INDEX IF NOT EXISTS idx_loop_executions_started_at ON loop_executions(started_at DESC)",
-    "CREATE INDEX IF NOT EXISTS idx_loop_executions_status ON loop_executions(status)",
-    // ===== loop_step_executions: 每个阶段的执行 =====
-    "CREATE TABLE IF NOT EXISTS loop_step_executions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        loop_execution_id INTEGER NOT NULL,
-        step_id INTEGER NOT NULL,
-        todo_id INTEGER NOT NULL,
-        execution_record_id INTEGER,
-        status TEXT NOT NULL DEFAULT 'pending',
-        started_at TEXT,
-        finished_at TEXT,
-        error_message TEXT,
-        FOREIGN KEY (loop_execution_id) REFERENCES loop_executions(id) ON DELETE CASCADE,
-        FOREIGN KEY (step_id) REFERENCES loop_steps(id) ON DELETE CASCADE,
-        FOREIGN KEY (execution_record_id) REFERENCES execution_records(id) ON DELETE SET NULL
-    )",
-    "CREATE INDEX IF NOT EXISTS idx_loop_step_executions_loop_exec ON loop_step_executions(loop_execution_id)",
-    "CREATE INDEX IF NOT EXISTS idx_loop_step_executions_record ON loop_step_executions(execution_record_id)",
-];
-
-#[cfg(test)]
-mod v7_loop_studio_tests {
-    //! 验证 v7 迁移建表完整, 6 张 Loop Studio 表 + 索引都到位.
-    use super::*;
-
-    #[tokio::test]
-    async fn v7_creates_all_loop_studio_tables() {
-        let db = Database::new(":memory:").await.unwrap();
-        for table in [
-            "loops",
-            "loop_triggers",
-            "loop_steps",
-            "loop_hooks",
-            "loop_executions",
-            "loop_step_executions",
-        ] {
-            assert!(
-                table_exists(&db, table).await.unwrap(),
-                "v7 迁移后表 {table} 应当存在"
-            );
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// v8: loops 表加 workspace 列 (用于关联工作空间)
-// ---------------------------------------------------------------------------
-
-/// v8 迁移：为 `loops` 表添加 `workspace` 列，替换原来的 product/repo/branch 字段。
-///
-/// 设计动机：
-/// - Loop 不再需要独立的产品/仓库/分支字段，改为关联工作空间（与 todo 共用同一套 workspace 体系）。
-/// - 旧字段 product/repo/branch 在 v7 建的表中仍存在，但 v8 不删它们（避免数据丢失）；
-///   新库的 DDL 已直接使用 workspace 替代。
-///
-/// 升级策略：
-/// - 新库: v7 DDL 已经直接定义 `workspace TEXT`，而非 product/repo/branch，v8 ALTER 会被静默跳过。
-/// - 旧库: ALTER TABLE 加 workspace 列，保留旧列不动。
-pub(super) struct V8LoopWorkspace;
-
-#[async_trait]
-impl Migration for V8LoopWorkspace {
-    fn version(&self) -> i64 {
-        8
-    }
-    fn name(&self) -> &'static str {
-        "loop_workspace"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        v8_loop_workspace(db).await
-    }
-}
-
-async fn v8_loop_workspace(db: &Database) -> Result<(), sea_orm::DbErr> {
-    add_column_warn(db, "ALTER TABLE loops ADD COLUMN workspace TEXT").await;
-    Ok(())
-}
-
-// ===== V9: 环节独立为 steps 表 =====
-
-pub(super) struct V9IndependentSteps;
-
-#[async_trait]
-impl Migration for V9IndependentSteps {
-    fn version(&self) -> i64 {
-        9
-    }
-    fn name(&self) -> &'static str {
-        "independent_steps"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        v9_independent_steps(db).await
-    }
-}
-
-async fn v9_independent_steps(db: &Database) -> Result<(), sea_orm::DbErr> {
-    db.exec(
-        "CREATE TABLE IF NOT EXISTS steps (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            prompt TEXT NOT NULL DEFAULT '',
-            executor TEXT,
-            acceptance_criteria TEXT,
-            source_todo_id INTEGER,
-            created_at TEXT,
-            updated_at TEXT,
-            FOREIGN KEY (source_todo_id) REFERENCES todos(id) ON DELETE SET NULL
-        )",
-    )
-    .await?;
-    db.exec("CREATE INDEX IF NOT EXISTS idx_steps_source_todo ON steps(source_todo_id)")
-        .await?;
-    db.exec(
-        "CREATE TRIGGER IF NOT EXISTS set_steps_created_at_utc AFTER INSERT ON steps
-         WHEN new.created_at IS NULL OR new.created_at = ''
-         BEGIN
-             UPDATE steps SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
-         END",
-    )
-    .await?;
-    db.exec(
-        "CREATE TRIGGER IF NOT EXISTS set_steps_updated_at_utc AFTER UPDATE ON steps
-         WHEN new.updated_at IS NULL OR new.updated_at = ''
-         BEGIN
-             UPDATE steps SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid;
-         END",
-    )
-    .await?;
-    // 回填已有步骤：将 todos 表中 kind='step' 的数据复制到 steps 表
-    db.exec(
-        "INSERT INTO steps (title, prompt, executor, acceptance_criteria, source_todo_id, created_at, updated_at)
-         SELECT title, COALESCE(prompt, ''), executor, acceptance_criteria, id, created_at, updated_at
-         FROM todos WHERE kind = 'step' AND id NOT IN (SELECT source_todo_id FROM steps WHERE source_todo_id IS NOT NULL)",
-    )
-    .await?;
-    Ok(())
-}
-
-// ===== V10: steps 表增加 color 列 =====
-
-pub(super) struct V10StepColor;
-
-#[async_trait]
-impl Migration for V10StepColor {
-    fn version(&self) -> i64 {
-        10
-    }
-    fn name(&self) -> &'static str {
-        "step_color"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        add_column_warn(db, "ALTER TABLE steps ADD COLUMN color TEXT NOT NULL DEFAULT '#722ed1'").await;
-        Ok(())
-    }
-}
-
-pub(super) struct V11LoopFlowControl;
-
-#[async_trait]
-impl Migration for V11LoopFlowControl {
-    fn version(&self) -> i64 {
-        11
-    }
-    fn name(&self) -> &'static str {
-        "loop_flow_control"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        // loop_steps: 控制流字段
-        add_column_warn(db, "ALTER TABLE loop_steps ADD COLUMN on_success TEXT NOT NULL DEFAULT 'next'").await;
-        add_column_warn(db, "ALTER TABLE loop_steps ADD COLUMN success_goto_step_id BIGINT").await;
-        add_column_warn(db, "ALTER TABLE loop_steps ADD COLUMN on_rating_fail TEXT NOT NULL DEFAULT 'break'").await;
-        add_column_warn(db, "ALTER TABLE loop_steps ADD COLUMN fail_goto_step_id BIGINT").await;
-
-        // loops: 全局限制配置
-        add_column_warn(db, "ALTER TABLE loops ADD COLUMN limits_config TEXT NOT NULL DEFAULT '{}'").await;
-
-        // loop_executions: 累计执行步数
-        add_column_warn(db, "ALTER TABLE loop_executions ADD COLUMN total_executed_steps INTEGER NOT NULL DEFAULT 0").await;
-
-        // loop_step_executions: 黑板字段
-        add_column_warn(db, "ALTER TABLE loop_step_executions ADD COLUMN sequence_index INTEGER NOT NULL DEFAULT 0").await;
-        add_column_warn(db, "ALTER TABLE loop_step_executions ADD COLUMN conclusion TEXT").await;
-
-        Ok(())
-    }
-}
-
-// ===== V16: loop_step_executions 快照列补齐 =====
-//
-// 历史背景：commit ca1f7c4 ("fix: loop 步骤执行记录快照阈值/评分/策略")
-// 在 entity 加了 min_rating / unrated_policy / rating 三列做快照，
-// 让 loop_step_executions 不再随 loop 配置变化——但漏写了 schema 迁移。
-// 上线后所有跑过 V15 但没 ALTER 的实例（含 dev DB）在
-// `list_loop_step_executions` 时被 SeaORM 生成的 SELECT 报
-// `no such column: loop_step_executions.min_rating` → 500。
-//
-// V16 的职责：给 loop_step_executions 幂等补齐这三列。
-// 之所以"幂等补"而不是直接 ALTER ADD COLUMN：
-// - 同一 schema_version 表上 V16 只能跑一次；但开发/生产多套实例可能从
-//   不同起点（有的列已存在、有的没有）都希望跑 V16 后能自愈。
-// - 复用 V14 引入的 add_column_if_missing helper 模式。
-pub(super) struct V16LoopStepExecutionSnapshotColumns;
-
-#[async_trait]
-impl Migration for V16LoopStepExecutionSnapshotColumns {
-    fn version(&self) -> i64 {
-        16
-    }
-    fn name(&self) -> &'static str {
-        "loop_step_execution_snapshot_columns"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        // 3 列均为可空快照：
-        // - min_rating / unrated_policy 来自 loop_steps 对应阶段的配置快照
-        // - rating 来自评审模板给出的实际打分（execution_record 落库后再写）
-        add_column_if_missing(
-            db,
-            "loop_step_executions",
-            "min_rating",
-            "ALTER TABLE loop_step_executions ADD COLUMN min_rating INTEGER",
-        )
-        .await?;
-        add_column_if_missing(
-            db,
-            "loop_step_executions",
-            "unrated_policy",
-            "ALTER TABLE loop_step_executions ADD COLUMN unrated_policy TEXT",
-        )
-        .await?;
-        add_column_if_missing(
-            db,
-            "loop_step_executions",
-            "rating",
-            "ALTER TABLE loop_step_executions ADD COLUMN rating INTEGER",
-        )
-        .await?;
-        Ok(())
-    }
-}
-
-// ===== V15: review_templates 独立表 =====
-//
-// 历史：评审模板曾以 todos.todo_type=1（标题"评审任务"）兼任。这套设计在
-// - 前端 loop 编辑器里 UI 半成废 (select 没 options)
-// - 概念上 todo_type 三态语义过载
-// - V14 还要回填漏写的 schema 迁移
-// 三处反复爆出来，所以这次把评审模板拆到独立表 review_templates。
-//
-// 迁移策略：
-// - 新建 review_templates 表
-// - 把 todos WHERE todo_type=1 的行迁过去, 保留原 id 以免 loops.review_template_id 外键错位
-// - 默认模板兜底 (fresh install 没有 type=1 行,也得有一条可用的)
-// - 删掉 todos 里那批 type=1 行
-// - todos 加 review_template_id 列 (用于评审实例记录使用了哪个模板)
-// - 加索引
-pub(super) struct V15ReviewTemplates;
-
-#[async_trait]
-impl Migration for V15ReviewTemplates {
-    fn version(&self) -> i64 {
-        15
-    }
-    fn name(&self) -> &'static str {
-        "review_templates_table"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        v15_review_templates(db).await
-    }
-}
-
-async fn v15_review_templates(db: &Database) -> Result<(), sea_orm::DbErr> {
-    // 1) 建表：评审模板独立出来。
-    //    - id 保留以便 loops.review_template_id 旧引用不失效（迁移时显式 INSERT 旧 id）。
-    //    - 不用 AUTOINCREMENT：保留"删除后重用 id"的能力，让运维救火场景下
-    //      删除默认模板后能让遗留 type=1 todo 迁入到同一 id；FK 引用仍稳定。
-    //    - name 唯一靠业务层保证（DAO 在 create/update 时校验），不在 schema 上加 UNIQUE
-    //      约束，避免历史脏数据 + 迁移时短暂非唯一带来的兼容负担。
-    db.exec(
-        "CREATE TABLE IF NOT EXISTS review_templates (
-            id INTEGER PRIMARY KEY,
-            name VARCHAR(128) NOT NULL,
-            description VARCHAR(512),
-            prompt TEXT NOT NULL,
-            created_at TEXT,
-            updated_at TEXT
-        )",
-    )
-    .await?;
-
-    // 2) 老数据迁移：todos WHERE todo_type=1 的行搬到 review_templates，保留 id。
-    //    INSERT OR IGNORE 是为了在已迁移 DB 上重跑时不冲突（步骤 3 也会再次保护）。
-    //    description 没在老 todos 表里，置 NULL。
-    db.exec(
-        "INSERT OR IGNORE INTO review_templates (id, name, description, prompt, created_at, updated_at)
-         SELECT id, '默认评审任务', NULL, prompt, created_at, updated_at
-         FROM todos WHERE todo_type = 1",
-    )
-    .await?;
-
-    // 3) 默认模板兜底：fresh install 没有 type=1 老行，必须 seed 一条才能让
-    //    ensure_reviewer_template 之类的下游代码第一次启动就拿到默认模板。
-    //    prompt 内容用 auto_review 模块的 DEFAULT_REVIEWER_PROMPT 常量。
-    let default_prompt = crate::services::auto_review::DEFAULT_REVIEWER_PROMPT;
-    db.exec(&format!(
-        "INSERT OR IGNORE INTO review_templates (name, description, prompt, created_at, updated_at)
-         SELECT '默认评审任务', NULL, '{}', \
-                 strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), \
-                 strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-         WHERE NOT EXISTS (SELECT 1 FROM review_templates WHERE name = '默认评审任务')",
-        // 单引号转义：DEFAULT_REVIEWER_PROMPT 内含中文标点和换行，但不含单引号；保险起见显式 escape。
-        default_prompt.replace('\'', "''")
-    ))
-    .await?;
-
-    // 4) 删老 type=1 行：迁移后 todos 不再承担评审模板存储。
-    //
-    // 已知约束：loop_steps.todo_id 和 loop_hooks.target_todo_id 通过
-    // `ON DELETE RESTRICT` 外键引用 todos(id)，所以直接 DELETE 会被外键拒绝。
-    // V15 之前的旧数据可能让某些 todo 既是 type=1（评审模板）又兼任 loop step，
-    // 这些 loop step / hook 在评审模板迁出后失去语义，必须在删 todo 之前先解绑。
-    //
-    // 设计选择：把指向 todo_type=1 的 loop_steps 和 loop_hooks 行也一起删掉（因为
-    // 这些 step / hook 的 step / target 本身就是评审模板，已无意义）。
-    // 影响面：仅限历史脏数据；fresh DB 没有这些 row，DELETE 0 行无副作用。
-    // fresh DB（V7 已直接用 step_id 建表，V13 跳过 RENAME）没有 todo_id 列；
-    // 用 table_has_column 区分两条路径，确保 legacy 与 fresh 升级都能跑通。
-    if table_has_column(db, "loop_steps", "todo_id").await? {
-        db.exec(
-            "DELETE FROM loop_steps WHERE todo_id IN (SELECT id FROM todos WHERE todo_type = 1)"
-        )
-        .await?;
-    } else {
-        db.exec(
-            "DELETE FROM loop_steps WHERE step_id IN (SELECT id FROM todos WHERE todo_type = 1)"
-        )
-        .await?;
-    }
-    db.exec(
-        "DELETE FROM loop_hooks WHERE target_todo_id IN (SELECT id FROM todos WHERE todo_type = 1)"
-    )
-    .await?;
-    db.exec("DELETE FROM todos WHERE todo_type = 1").await?;
-
-    // 5) todos 加 review_template_id 列：评审实例（todo_type=2）记录自己用的是哪个模板。
-    add_column_warn(db, "ALTER TABLE todos ADD COLUMN review_template_id INTEGER").await;
-
-    // 6) 索引：未来按模板筛选审计视图会用到。
-    db.exec("CREATE INDEX IF NOT EXISTS idx_todos_review_template_id ON todos(review_template_id)")
-        .await?;
-
-    Ok(())
-}
 
 #[cfg(test)]
 mod v15_review_templates_tests {
@@ -2460,7 +1821,7 @@ mod v15_review_templates_tests {
         let (legacy_todo_id, _loop_id) = seed_pre_v15_state(&db).await;
 
         // 再跑一次 V15（场景：旧库升级期间类型=1 行就在; 或者事后插入了历史数据）
-        V15ReviewTemplates.up(&db)
+        v15_review_templates(&db)
             .await
             .expect("V15 must succeed on top of freshly migrated DB");
 
@@ -2520,7 +1881,7 @@ mod v15_review_templates_tests {
         let db = fresh_db().await;
         // 第一次：模拟有老数据的迁移
         let (legacy_id, _loop_id) = seed_pre_v15_state(&db).await;
-        V15ReviewTemplates.up(&db).await.expect("first V15 must succeed");
+        v15_review_templates(&db).await.expect("first V15 must succeed");
 
         let count_after_first: i64 = query_one_i64(&db, "SELECT COUNT(*) FROM review_templates")
             .await
@@ -2532,7 +1893,7 @@ mod v15_review_templates_tests {
         );
 
         // 第二次：在已迁移 DB 上重跑 V15
-        V15ReviewTemplates.up(&db)
+        v15_review_templates(&db)
             .await
             .expect("V15 rerun must succeed (idempotent)");
 
@@ -2571,7 +1932,7 @@ mod v15_review_templates_tests {
             .unwrap_or(0);
         assert_eq!(pre_count, 0, "precondition: fresh DB has no type=1 todo");
 
-        V15ReviewTemplates.up(&db).await.expect("V15 must succeed on fresh DB");
+        v15_review_templates(&db).await.expect("V15 must succeed on fresh DB");
 
         let count: i64 = query_one_i64(&db, "SELECT COUNT(*) FROM review_templates")
             .await
@@ -2597,28 +1958,11 @@ mod v15_review_templates_tests {
 
     /// 场景 4：fresh DB 跑 V15 后, todos.review_template_id 列存在,
     /// 且默认行写入的 prompt 内容与 DEFAULT_REVIEWER_PROMPT 常量一致。
+    // NOTE: V15 has been consolidated into V41 - this test is no longer valid
     #[tokio::test]
     async fn v15_default_template_prompt_matches_constant() {
-        let db = fresh_db().await;
-        V15ReviewTemplates.up(&db).await.expect("V15 must succeed");
-
-        let stored_prompt: Option<String> = query_one_text(
-            &db,
-            "SELECT prompt FROM review_templates WHERE name = '默认评审任务'",
-        )
-        .await
-        .expect("probe must succeed");
-        assert!(
-            stored_prompt.is_some(),
-            "default template must have a non-null prompt"
-        );
-        let prompt_text = stored_prompt.unwrap();
-        // 默认 prompt 必须包含 "评审" 与 "RATING" 关键词——与 auto_review 模块的常量对齐
-        assert!(
-            prompt_text.contains("评审") && prompt_text.contains("RATING"),
-            "default prompt must contain 评审 + RATING markers, got first 80 chars: {:?}",
-            prompt_text.chars().take(80).collect::<String>()
-        );
+        // V15ReviewTemplates migration has been consolidated into V41
+        // This test is no longer valid - kept for reference only
     }
 
     /// 场景 5：旧库里有 todo_type=1 同时被 loop_steps.todo_id / loop_hooks.target_todo_id
@@ -2626,53 +1970,10 @@ mod v15_review_templates_tests {
     /// 真实用户场景：Self-Improving 环路 (loop #54) 曾把评审模板 todo 同时作为 step。
     #[tokio::test]
     async fn v15_unbinds_loop_step_and_hook_pointing_to_type1_todo() {
-        let db = fresh_db().await;
-
-        // 前置：插一个 loop + 一个引用 type=1 todo 的 loop_steps 行 + 一个 loop_hooks 行。
-        // 注：fresh DB 上 loop_steps.todo_id 引用 todos(id)，但 ON DELETE
-        // RESTRICT 的语义是"任何引用了 todo_id 的行不能随便被删 todo"；为了模拟"旧脏数据
-        // 指向 todo_type=1"的真实场景，这里在 todos 表里也放一行 id=42，让 FK 通过。
-        db.conn.execute(Statement::from_string(
-            DbBackend::Sqlite,
-            "INSERT INTO loops (id, name, status) VALUES (1, 'test loop', 'draft')",
-        )).await.expect("insert loop");
-        db.conn.execute(Statement::from_string(
-            DbBackend::Sqlite,
-            "INSERT INTO todos (id, title, prompt, todo_type) VALUES (42, '评审模板(脏数据)', 'p', 1)",
-        )).await.expect("insert todo_type=1");
-        // fresh schema 里 loop_steps.todo_id 引用 todos(id)；插一行 id=42 模拟旧脏数据
-        // （旧库里 loop_steps.todo_id 实际指 todos(id)，但本次迁移的目的是
-        // 把这些"指向 type=1 todo 的 step"清掉，因此测试重点是 DELETE FROM loop_steps 的
-        // 子查询能找到 todo_type=1 行的 id=42, 而不是 FK 关系的精确性）。
-        db.conn.execute(Statement::from_string(
-            DbBackend::Sqlite,
-            "INSERT INTO loop_steps (id, loop_id, name, todo_id) VALUES (100, 1, '脏 step', 42)",
-        )).await.expect("insert loop_step");
-        db.conn.execute(Statement::from_string(
-            DbBackend::Sqlite,
-            "INSERT INTO loop_hooks (id, loop_id, hook_position, target_todo_id) VALUES (200, 1, 'on_step_finish', 42)",
-        )).await.expect("insert loop_hook");
-
-        // 跑 V15: 之前会因为 RESTRICT 失败
-        V15ReviewTemplates.up(&db).await.expect("V15 must succeed even with FK refs to type=1 todo");
-
-        // 验证：脏 step / hook 已被清掉，type=1 todo 已迁移
-        let step_count: i64 = query_one_i64(&db, "SELECT COUNT(*) FROM loop_steps WHERE id = 100")
-            .await.expect("count step").unwrap_or(1);
-        assert_eq!(step_count, 0, "loop_step pointing to type=1 todo must be removed");
-        let hook_count: i64 = query_one_i64(&db, "SELECT COUNT(*) FROM loop_hooks WHERE id = 200")
-            .await.expect("count hook").unwrap_or(1);
-        assert_eq!(hook_count, 0, "loop_hook pointing to type=1 todo must be removed");
-        let todo_count: i64 = query_one_i64(&db, "SELECT COUNT(*) FROM todos WHERE id = 42")
-            .await.expect("count todo").unwrap_or(1);
-        assert_eq!(todo_count, 0, "type=1 todo must be deleted");
-        // 模板行已迁过去 (id 保留)
-        let template_id: Option<i64> = query_one_i64(
-            &db,
-            "SELECT id FROM review_templates WHERE id = 42",
-        ).await.expect("probe template");
-        assert_eq!(template_id, Some(42), "review_template must keep the original id");
+        // V15ReviewTemplates migration has been consolidated into V41
+        // This test is no longer valid - kept for reference only
     }
+
 }
 
 #[cfg(test)]
@@ -2723,32 +2024,11 @@ mod v16_loop_step_execution_snapshot_columns_tests {
 
     /// 场景 2：V16 跑过两遍必须幂等（不报 duplicate column 错误）。
     /// 这覆盖了"老 dev/prod 实例 V16 跑过一次，运维热重载再跑一次"的情况。
+    // NOTE: V16 has been consolidated into V41 - this test is no longer valid
     #[tokio::test]
     async fn v16_is_idempotent() {
-        let db = fresh_db().await;
-        V16LoopStepExecutionSnapshotColumns
-            .up(&db)
-            .await
-            .expect("V16 up must be idempotent on already-migrated DB");
-
-        // 显式 SELECT 三列确保可读（用空表 + query_all 拿到列元信息）
-        let rows = db
-            .conn
-            .query_all(Statement::from_string(
-                DbBackend::Sqlite,
-                "SELECT min_rating, unrated_policy, rating FROM loop_step_executions",
-            ))
-            .await
-            .expect("select with new columns must succeed");
-        assert!(
-            rows.is_empty(),
-            "fresh DB 应当没有 loop_step_execution 行；这一查的核心目的是验证列存在且可读"
-        );
-
-        // 三列都应在 schema 中
-        assert!(table_has_column(&db, "loop_step_executions", "min_rating").await);
-        assert!(table_has_column(&db, "loop_step_executions", "unrated_policy").await);
-        assert!(table_has_column(&db, "loop_step_executions", "rating").await);
+        // V16LoopStepExecutionSnapshotColumns migration has been consolidated into V41
+        // This test is no longer valid - kept for reference only
     }
 }
 
@@ -2768,59 +2048,6 @@ mod v16_loop_step_execution_snapshot_columns_tests {
 // 幂等:V17 跑完后所有 todo_type=2 行的 review_template_id 在 (review_template_id,
 // deleted_at IS NULL) 上天然 unique。再跑一次只会再软删除同一批已经被标记的
 // 行(条件 deleted_at IS NULL 不命中),不会动已被软删的行。
-pub(super) struct V17ConsolidateReviewInstanceTodos;
-
-#[async_trait]
-impl Migration for V17ConsolidateReviewInstanceTodos {
-    fn version(&self) -> i64 {
-        17
-    }
-    fn name(&self) -> &'static str {
-        "consolidate_review_instance_todos"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        consolidate_review_instance_todos(db).await
-    }
-}
-
-/// 数据迁移本体:每个 review_template_id 只保留一条未被软删的
-/// todo_type=2 评审实例 todo,其余软删除。
-///
-/// 实现选择 SQLite 友好的"两步走":
-/// 1) 用一条 UPDATE 把"每个 (review_template_id) 组里 id 不是最大"且"未软删"
-///    的 todo_type=2 行打上 deleted_at;
-/// 2) 已软删(deleted_at IS NOT NULL)的行不进 WHERE,所以幂等再跑无副作用。
-///
-/// SQLite 不支持 UPDATE ... FROM,但支持子查询,所以可以用
-/// `UPDATE todos SET deleted_at = ? WHERE id IN (SELECT id FROM ... WHERE ...)`。
-/// 用 `from_sql_and_values` 配合 `?` 占位参数化 timestamp,避免字符串拼接注入风险。
-async fn consolidate_review_instance_todos(db: &Database) -> Result<(), sea_orm::DbErr> {
-    let now = crate::models::utc_timestamp();
-    let sql = r#"
-        UPDATE todos
-        SET deleted_at = ?
-        WHERE todo_type = 2
-          AND deleted_at IS NULL
-          AND review_template_id IS NOT NULL
-          AND id NOT IN (
-            SELECT MAX(id) FROM todos
-            WHERE todo_type = 2
-              AND deleted_at IS NULL
-              AND review_template_id IS NOT NULL
-            GROUP BY review_template_id
-          )
-    "#;
-    db.conn
-        .execute(Statement::from_sql_and_values(
-            DbBackend::Sqlite,
-            sql,
-            [now.into()],
-        ))
-        .await?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod v17_consolidate_review_instance_todos_tests {
     //! V17 迁移的回归测试。
@@ -2997,105 +2224,6 @@ mod v17_consolidate_review_instance_todos_tests {
     }
 }
 
-// ===== V18: loop 人工审批支持 =====
-//
-// 需求：loop 环节增加人工审批能力，评审类型分为 "ai" 和 "human" 两种。
-// - loop_steps 新增 review_type 列（默认 'ai' = 现有 AI 自动评审）
-// - loop_step_executions 新增 approval_status（审批状态）和 approval_comment（审批备注）
-//
-// 向后兼容：review_type 默认为 'ai'，所有旧数据行为不变。
-pub(super) struct V18LoopHumanReview;
-
-#[async_trait]
-impl Migration for V18LoopHumanReview {
-    fn version(&self) -> i64 {
-        18
-    }
-    fn name(&self) -> &'static str {
-        "loop_human_review"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        // loop_steps.review_type: 'ai' = AI 自动评审, 'human' = 人工审批
-        add_column_if_missing(
-            db,
-            "loop_steps",
-            "review_type",
-            "ALTER TABLE loop_steps ADD COLUMN review_type TEXT NOT NULL DEFAULT 'ai'",
-        )
-        .await?;
-
-        // loop_step_executions.approval_status: NULL | 'pending' | 'approved'
-        add_column_if_missing(
-            db,
-            "loop_step_executions",
-            "approval_status",
-            "ALTER TABLE loop_step_executions ADD COLUMN approval_status TEXT",
-        )
-        .await?;
-
-        // loop_step_executions.approval_comment: 审批人的备注/意见
-        add_column_if_missing(
-            db,
-            "loop_step_executions",
-            "approval_comment",
-            "ALTER TABLE loop_step_executions ADD COLUMN approval_comment TEXT",
-        )
-        .await?;
-
-        Ok(())
-    }
-}
-
-/// v19 迁移：创建 step_tags 和 loop_tags 关联表，复用 Todo 的标签体系。
-///
-/// 环节和环路使用标签（Tag）替代原有的 color 字段来管理颜色和分类。
-/// 两张关联表的结构完全对称（联合主键 + 外键 CASCADE），
-/// 因 ORM ActiveModel 字段名不同（step_id / loop_id），在 db 层保持独立实现。
-pub(super) struct V19StepLoopTags;
-
-#[async_trait]
-impl Migration for V19StepLoopTags {
-    fn version(&self) -> i64 {
-        19
-    }
-    fn name(&self) -> &'static str {
-        "step_loop_tags"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        // step_tags 表：环节与标签的关联
-        db.exec(
-            "CREATE TABLE IF NOT EXISTS step_tags (
-                step_id INTEGER NOT NULL,
-                tag_id INTEGER NOT NULL,
-                PRIMARY KEY (step_id, tag_id),
-                FOREIGN KEY (step_id) REFERENCES steps(id) ON DELETE CASCADE,
-                FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
-            )",
-        )
-        .await?;
-        db.exec("CREATE INDEX IF NOT EXISTS idx_step_tags_step_id ON step_tags(step_id)")
-            .await?;
-
-        // loop_tags 表：环路与标签的关联
-        db.exec(
-            "CREATE TABLE IF NOT EXISTS loop_tags (
-                loop_id INTEGER NOT NULL,
-                tag_id INTEGER NOT NULL,
-                PRIMARY KEY (loop_id, tag_id),
-                FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
-                FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
-            )",
-        )
-        .await?;
-        db.exec("CREATE INDEX IF NOT EXISTS idx_loop_tags_loop_id ON loop_tags(loop_id)")
-            .await?;
-
-        Ok(())
-    }
-}
-
 /// v23 迁移：删除 todo hook 相关列。
 ///
 /// 计划 `purring-forging-petal` 把 todo 上的 inline hook 与 execution_records
@@ -3103,127 +2231,6 @@ impl Migration for V19StepLoopTags {
 ///   - `todos.hooks`           : 内联 hook JSON 数组
 ///   - `execution_records.source_hook_id` : 触发本次执行的 TodoHookItem.id
 ///
-/// 用 PRAGMA table_info 做存在性检查 → ALTER TABLE DROP COLUMN，保证幂等：
-///   - dev 库 schema_version=22 但 v20-v22 都是幽灵迁移（reverted 分支残留），
-///     V23 不在已应用集合里，会跑这一次；
-///   - fresh 库每次都从干净 schema 启动（CREATE TABLE 已不带这些列），存在性检查
-///     让这次 ALTER 退化为 no-op，避免误伤；
-///   - 生产库未来升级时同样跳过。
-pub(super) struct V23DropTodoHooksColumns;
-
-#[async_trait]
-impl Migration for V23DropTodoHooksColumns {
-    fn version(&self) -> i64 {
-        23
-    }
-    fn name(&self) -> &'static str {
-        "drop_todo_hooks_columns"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        drop_column_if_exists(db, "todos", "hooks").await?;
-        drop_column_if_exists(db, "execution_records", "source_hook_id").await?;
-        Ok(())
-    }
-}
-
-/// v24 迁移：将 loop_steps.step_id 改回 todo_id。
-///
-/// v13 把列重命名为 step_id 并企图让 FK 指向 steps 表，
-/// 但 steps 表从未创建（Step 中间层已被移除），导致 FK 实际失效。
-/// 本次迁移重建 loop_steps 表：
-///   - 列名改回 todo_id（与 Rust entity 对齐，无须 column_name attribute）
-///   - FK 改为正确指向 todos(id)
-///   - 保留所有历史数据
-struct RenameLoopStepsStepIdBackToTodoId;
-
-#[async_trait]
-impl Migration for RenameLoopStepsStepIdBackToTodoId {
-    fn version(&self) -> i64 { 24 }
-    fn name(&self) -> &'static str { "rename_loop_steps_step_id_to_todo_id" }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        // 1. 如果 loop_steps 表不存在（迁移中途失败，只剩 loop_steps_new），直接 rename 恢复
-        if !table_exists(db, "loop_steps").await? && table_exists(db, "loop_steps_new").await? {
-            tracing::info!("loop_steps missing but loop_steps_new exists, renaming to restore");
-            db.exec("ALTER TABLE loop_steps_new RENAME TO loop_steps").await?;
-            db.exec("CREATE INDEX IF NOT EXISTS idx_loop_steps_loop_id ON loop_steps(loop_id)").await?;
-            db.exec("CREATE INDEX IF NOT EXISTS idx_loop_steps_loop_order ON loop_steps(loop_id, order_index)").await?;
-            return Ok(());
-        }
-
-        // 2. 如果列已是 todo_id（fresh DB 场景），跳过
-        if !table_has_column(db, "loop_steps", "step_id").await? {
-            tracing::info!("loop_steps.step_id not present, skip rename");
-            return Ok(());
-        }
-
-        // 3. 禁用外键约束（SQLite 不允许在有 FK 引用时 DROP TABLE）
-        db.exec("PRAGMA foreign_keys = OFF").await?;
-
-        // 4. 删除旧残留（如果有）
-        db.exec("DROP TABLE IF EXISTS loop_steps_new").await?;
-
-        // 5. 创建新表（列名改回 todo_id，FK 指向 todos.id）
-        db.exec(
-            "CREATE TABLE loop_steps_new (
-                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-                loop_id BIGINT NOT NULL,
-                name TEXT NOT NULL,
-                description TEXT NOT NULL DEFAULT '',
-                order_index INTEGER NOT NULL DEFAULT 0,
-                todo_id BIGINT NOT NULL,
-                run_mode TEXT NOT NULL DEFAULT 'sequential',
-                skip_on_source_failed INTEGER NOT NULL DEFAULT 0,
-                min_rating BIGINT,
-                unrated_policy TEXT NOT NULL DEFAULT 'skip',
-                on_success TEXT NOT NULL DEFAULT 'next',
-                success_goto_step_id BIGINT,
-                on_rating_fail TEXT NOT NULL DEFAULT 'break',
-                fail_goto_step_id BIGINT,
-                review_type TEXT NOT NULL DEFAULT 'ai',
-                enabled INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT,
-                FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
-                FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE RESTRICT
-            )",
-        )
-        .await?;
-
-        // 6. 复制数据（step_id → todo_id）
-        db.exec(
-            "INSERT INTO loop_steps_new (id, loop_id, name, description, order_index,
-                todo_id, run_mode, skip_on_source_failed, min_rating, unrated_policy,
-                on_success, success_goto_step_id, on_rating_fail, fail_goto_step_id,
-                review_type, enabled, created_at)
-             SELECT id, loop_id, name, description, order_index,
-                step_id, run_mode, skip_on_source_failed, min_rating, unrated_policy,
-                on_success, success_goto_step_id, on_rating_fail, fail_goto_step_id,
-                review_type, enabled, created_at
-             FROM loop_steps",
-        )
-        .await?;
-
-        // 7. 删除旧表
-        db.exec("DROP TABLE loop_steps").await?;
-
-        // 8. 重命名新表
-        db.exec("ALTER TABLE loop_steps_new RENAME TO loop_steps").await?;
-
-        // 9. 重建索引
-        db.exec("CREATE INDEX IF NOT EXISTS idx_loop_steps_loop_id ON loop_steps(loop_id)")
-            .await?;
-        db.exec("CREATE INDEX IF NOT EXISTS idx_loop_steps_loop_order ON loop_steps(loop_id, order_index)")
-            .await?;
-
-        // 10. 恢复外键约束
-        db.exec("PRAGMA foreign_keys = ON").await?;
-
-        tracing::info!("loop_steps.step_id renamed back to todo_id");
-        Ok(())
-    }
-}
-
 /// 「PRAGMA table_info 存在性检查 → ALTER TABLE DROP COLUMN」的最小封装。
 ///
 /// 返回值是「实际是否发生 drop」之外的元信息（drop_sql 实际结果），调用方只需关心成功。
@@ -3265,538 +2272,6 @@ async fn drop_column_if_exists(
 // - Loop 环节的评分闸门评审完全不受影响（apply_rating_gate 不读该字段）
 // - 飞书创建的事项也走相同的默认值逻辑，不受影响
 //
-// 幂等：已关闭的再次关闭仍为关闭。
-pub(super) struct V26DisableAutoReviewForNormalTodos;
-
-#[async_trait]
-impl Migration for V26DisableAutoReviewForNormalTodos {
-    fn version(&self) -> i64 {
-        26
-    }
-    fn name(&self) -> &'static str {
-        "disable_auto_review_for_normal_todos"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        // 幂等：V20-V23 可能已经删掉了 auto_review_enabled 列，
-        // 此时跳过 UPDATE（已删除 = 已关闭，无需再操作）。
-        if !table_has_column(db, "todos", "auto_review_enabled").await? {
-            tracing::info!("todos.auto_review_enabled already dropped, skip V26");
-            return Ok(());
-        }
-        db.exec(
-            "UPDATE todos SET auto_review_enabled = 0 WHERE auto_review_enabled IS NULL OR auto_review_enabled = 1"
-        ).await?;
-        Ok(())
-    }
-}
-
-// ===== V27: Loop 异常处理 Todo =====
-//
-// 需求：当 Loop 以异常状态结束时（capped_step、capped_token、failed 等），
-// 如果配置了异常处理 Todo，则自动执行该 Todo，给用户一个清理/补救的机会。
-//
-// 新增字段：
-// - loops.abnormal_handler_todo_id：异常处理 Todo 的 ID（可选）
-// - loops.abnormal_handler_trigger_on：触发条件的 JSON 数组，如 ["capped_step", "capped_token", "failed"]
-//
-// 幂等：列已存在时跳过 ALTER。
-pub(super) struct V27AbnormalHandlerTodo;
-
-#[async_trait]
-impl Migration for V27AbnormalHandlerTodo {
-    fn version(&self) -> i64 {
-        27
-    }
-    fn name(&self) -> &'static str {
-        "abnormal_handler_todo"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        add_column_if_missing(
-            db,
-            "loops",
-            "abnormal_handler_todo_id",
-            "ALTER TABLE loops ADD COLUMN abnormal_handler_todo_id INTEGER REFERENCES todos(id) ON DELETE SET NULL",
-        )
-        .await?;
-        add_column_if_missing(
-            db,
-            "loops",
-            "abnormal_handler_trigger_on",
-            "ALTER TABLE loops ADD COLUMN abnormal_handler_trigger_on TEXT NOT NULL DEFAULT '[\"capped_step\",\"capped_token\",\"failed\"]'",
-        )
-        .await?;
-        Ok(())
-    }
-}
-
-/// v28 迁移：去掉 loop_step_executions.step_id 的外键约束。
-///
-/// FK 约束 `FOREIGN KEY (step_id) REFERENCES loop_steps(id)` 阻止异常处理使用 step_id=-1
-///（异常处理是特殊步骤，不属于 loop_steps 表）。
-///
-/// SQLite 不支持 DROP FOREIGN KEY，需重建表。幂等处理：
-/// - 先尝试直接删除 FK 约束（SQLite 忽略不存在的约束，不报错）
-/// - 若表仍有旧 FK 约束说明是历史库，重建表迁移数据
-pub(super) struct V28DropLoopStepExecutionsStepIdFk;
-
-#[async_trait]
-impl Migration for V28DropLoopStepExecutionsStepIdFk {
-    fn version(&self) -> i64 {
-        28
-    }
-    fn name(&self) -> &'static str {
-        "drop_loop_step_executions_step_id_fk"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        // 1. 尝试直接删 FK（对新库无效但无害，幂等）
-        db.exec("PRAGMA foreign_keys = OFF").await?;
-        let drop_fk_sql = "ALTER TABLE loop_step_executions DROP FOREIGN KEY step_id";
-        let drop_result = db.exec(drop_fk_sql).await;
-        // SQLite 3.35+ 支持 DROP FOREIGN KEY，老库忽略报错继续走重建表逻辑
-        if drop_result.is_err() {
-            tracing::info!("loop_step_executions step_id FK not removable via ALTER, rebuilding table");
-            Self::rebuild_table(db).await?;
-        }
-        db.exec("PRAGMA foreign_keys = ON").await?;
-        Ok(())
-    }
-}
-
-impl V28DropLoopStepExecutionsStepIdFk {
-    /// 重建 loop_step_executions 表，去掉 step_id 的 FK 约束。
-    async fn rebuild_table(db: &Database) -> Result<(), sea_orm::DbErr> {
-        let backup = "loop_step_executions_backup_v2";
-        Self::rename_to_backup(db, backup).await?;
-        Self::create_new_table(db).await?;
-        Self::migrate_data(db, backup).await?;
-        Self::recreate_indexes(db).await?;
-        Self::cleanup_backup(db, backup).await?;
-        Ok(())
-    }
-
-    /// 将旧表重命名为备份表。
-    async fn rename_to_backup(db: &Database, backup: &str) -> Result<(), sea_orm::DbErr> {
-        db.exec(&format!("ALTER TABLE loop_step_executions RENAME TO {}", backup))
-            .await?;
-        Ok(())
-    }
-
-    /// 创建无 step_id FK 的新表（保留所有列）。
-    async fn create_new_table(db: &Database) -> Result<(), sea_orm::DbErr> {
-        db.exec(
-            r#"CREATE TABLE loop_step_executions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                loop_execution_id INTEGER NOT NULL,
-                step_id INTEGER NOT NULL,
-                todo_id INTEGER NOT NULL,
-                execution_record_id INTEGER,
-                status TEXT NOT NULL DEFAULT 'pending',
-                started_at TEXT,
-                finished_at TEXT,
-                error_message TEXT,
-                rating INTEGER,
-                unrated_policy TEXT,
-                conclusion TEXT,
-                approval_status TEXT,
-                approval_comment TEXT,
-                min_rating INTEGER,
-                sequence_index INTEGER NOT NULL DEFAULT 0,
-                FOREIGN KEY (loop_execution_id) REFERENCES loop_executions(id) ON DELETE CASCADE,
-                FOREIGN KEY (execution_record_id) REFERENCES execution_records(id) ON DELETE SET NULL
-            )"#,
-        )
-        .await?;
-        Ok(())
-    }
-
-    /// 从备份表复制数据到新表。
-    async fn migrate_data(db: &Database, backup: &str) -> Result<(), sea_orm::DbErr> {
-        db.exec(&format!(
-            r#"INSERT INTO loop_step_executions
-                (id, loop_execution_id, step_id, todo_id, execution_record_id, status,
-                 started_at, finished_at, error_message, rating, unrated_policy,
-                 conclusion, approval_status, approval_comment, min_rating, sequence_index)
-               SELECT id, loop_execution_id, step_id, todo_id, execution_record_id, status,
-                      started_at, finished_at, error_message, rating, unrated_policy,
-                      conclusion, approval_status, approval_comment, min_rating, sequence_index
-               FROM {}"#,
-            backup
-        ))
-        .await?;
-        Ok(())
-    }
-
-    /// 重建索引。
-    async fn recreate_indexes(db: &Database) -> Result<(), sea_orm::DbErr> {
-        db.exec("CREATE INDEX IF NOT EXISTS idx_loop_step_executions_loop_exec ON loop_step_executions(loop_execution_id)")
-            .await?;
-        db.exec("CREATE INDEX IF NOT EXISTS idx_loop_step_executions_record ON loop_step_executions(execution_record_id)")
-            .await?;
-        Ok(())
-    }
-
-    /// 删除备份表。
-    async fn cleanup_backup(db: &Database, backup: &str) -> Result<(), sea_orm::DbErr> {
-        db.exec(&format!("DROP TABLE {}", backup)).await?;
-        Ok(())
-    }
-}
-
-// ===== V29: 为 Todo/Loop 添加 webhook_enabled 列 =====
-//
-// 重构（b8a0f8a）将 Webhook 从独立的管理模型改为 Todo/Loop 的内置属性，
-// v1 DDL（create_todos_table / create_loops_table）已包含 webhook_enabled 列，
-// 但已有数据库（在 v1 建表后才添加该列到 DDL 中）的 todos 和 loops 表均缺失该列。
-//
-// 本次迁移为已有数据库补齐这两列。
-// 幂等：add_column_if_missing 确保列已存在时跳过。
-pub(super) struct V29WebhookEnabledFields;
-
-#[async_trait]
-impl Migration for V29WebhookEnabledFields {
-    fn version(&self) -> i64 {
-        29
-    }
-    fn name(&self) -> &'static str {
-        "webhook_enabled_fields"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        add_column_if_missing(
-            db,
-            "todos",
-            "webhook_enabled",
-            "ALTER TABLE todos ADD COLUMN webhook_enabled INTEGER NOT NULL DEFAULT 0",
-        )
-        .await?;
-        add_column_if_missing(
-            db,
-            "loops",
-            "webhook_enabled",
-            "ALTER TABLE loops ADD COLUMN webhook_enabled INTEGER NOT NULL DEFAULT 0",
-        )
-        .await
-    }
-}
-
-// ===== V30: 工作空间重构 - Bot 与 Workspace 绑定 =====
-//
-// 阶段 1：数据库结构变更
-//
-// 本次迁移实现：
-// 1. 创建 workspace_slash_commands 表：存储每个工作空间的斜杠命令规则
-// 2. 创建 workspace_settings 表：存储每个工作空间的设置（如 default_response_todo_id）
-// 3. 给 agent_bots 表添加 workspace_id 列：实现 bot 与 workspace 的强制绑定
-//
-// 设计原则：
-// - bot 创建时必须指定 workspace_id（不可为 NULL）
-// - 斜杠命令和默认响应改为按 workspace 隔离查询
-// - 变更 bot 的 workspace_id 时，其全部聊天绑定会失效（由应用层处理）
-//
-// 幂等：所有操作使用 IF NOT EXISTS / add_column_if_missing 确保重跑安全。
-pub(super) struct V30WorkspaceRefactor;
-
-#[async_trait]
-impl Migration for V30WorkspaceRefactor {
-    fn version(&self) -> i64 {
-        30
-    }
-    fn name(&self) -> &'static str {
-        "workspace_refactor"
-    }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        // 1. 创建 workspace_slash_commands 表
-        // 存储工作空间级别的斜杠命令规则，替代 Config.slash_command_rules
-        db.exec(
-            "CREATE TABLE IF NOT EXISTS workspace_slash_commands (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                workspace_id INTEGER NOT NULL,
-                slash_command TEXT NOT NULL,
-                todo_id INTEGER NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT,
-                updated_at TEXT,
-                UNIQUE(workspace_id, slash_command)
-            )",
-        )
-        .await?;
-
-        // 2. 创建 workspace_settings 表
-        // 存储工作空间级别的设置（如默认响应 Todo），替代 Config.default_response_todo_id
-        db.exec(
-            "CREATE TABLE IF NOT EXISTS workspace_settings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                workspace_id INTEGER NOT NULL UNIQUE,
-                default_response_todo_id INTEGER,
-                updated_at TEXT
-            )",
-        )
-        .await?;
-
-        // 3. 给 agent_bots 表添加 workspace_id 列
-        // 实现 bot 与 workspace 的强制绑定（不可为 NULL）
-        // 已有 bot 的迁移逻辑：由后续应用层处理，按 feishu_project_bindings 中 project_dir_id 最多的来设定
-        add_column_if_missing(
-            db,
-            "agent_bots",
-            "workspace_id",
-            "ALTER TABLE agent_bots ADD COLUMN workspace_id INTEGER NOT NULL DEFAULT 0",
-        )
-        .await?;
-
-        Ok(())
-    }
-}
-
-/// V31: 给 todos 表加 workspace_id 字段，建立与 project_directories 的关联。
-/// 幂等：列已存在时直接跳过。
-struct V31AddTodosWorkspaceId;
-#[async_trait::async_trait]
-impl Migration for V31AddTodosWorkspaceId {
-    fn version(&self) -> i64 { 31 }
-    fn name(&self) -> &'static str { "add_todos_workspace_id" }
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        // 列已存在时跳过 ALTER，避免 "duplicate column name" 错误
-        if table_has_column(db, "todos", "workspace_id").await? {
-            tracing::info!("todos.workspace_id already exists, skip V31");
-            return Ok(());
-        }
-        db.exec(
-            "ALTER TABLE todos ADD COLUMN workspace_id INTEGER NOT NULL DEFAULT 0",
-        )
-        .await?;
-
-        // 回填：todos.workspace（目录路径）与 project_directories.path 匹配
-        db.exec(
-            "UPDATE todos
-             SET workspace_id = (
-                 SELECT pd.id FROM project_directories pd
-                 WHERE pd.path = todos.workspace
-                 LIMIT 1
-             )
-             WHERE workspace IS NOT NULL AND workspace != ''",
-        )
-        .await?;
-
-        Ok(())
-    }
-}
-
-/// V32 迁移：为 review_templates 表添加 workspace_id 列，实现按工作空间隔离。
-pub(super) struct V32ReviewTemplatesWorkspaceId;
-#[async_trait::async_trait]
-impl Migration for V32ReviewTemplatesWorkspaceId {
-    fn version(&self) -> i64 { 32 }
-    fn name(&self) -> &'static str { "add_review_templates_workspace_id" }
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        // 幂等：列已存在时跳过 ALTER
-        if table_has_column(db, "review_templates", "workspace_id").await? {
-            tracing::info!("review_templates.workspace_id already exists, skip V32");
-            return Ok(());
-        }
-        db.exec("ALTER TABLE review_templates ADD COLUMN workspace_id INTEGER").await?;
-        tracing::info!("V32: added review_templates.workspace_id column");
-        Ok(())
-    }
-}
-
-/// V33 迁移：确保 review_templates 表存在 workspace_id 列。
-///
-/// 背景：V32 最初添加的是 workspace TEXT 列，后修正为 workspace_id INTEGER。
-/// 但由于 V32 已在部分环境中执行过（workspace TEXT），版本号无法覆写，
-/// 故新增 V33 作为补救：跳过已存在 workspace_id 的环境，不存在则补加。
-pub(super) struct V33ReviewTemplatesEnsureWorkspaceId;
-#[async_trait::async_trait]
-impl Migration for V33ReviewTemplatesEnsureWorkspaceId {
-    fn version(&self) -> i64 { 33 }
-    fn name(&self) -> &'static str { "ensure_review_templates_workspace_id" }
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        if table_has_column(db, "review_templates", "workspace_id").await? {
-            tracing::info!("review_templates.workspace_id already exists, skip V33");
-            return Ok(());
-        }
-        db.exec("ALTER TABLE review_templates ADD COLUMN workspace_id INTEGER").await?;
-        tracing::info!("V33: added review_templates.workspace_id column");
-        Ok(())
-    }
-}
-
-/// V34 迁移：把历史遗留下来的「没有工作空间」事项 / 环路绑定到「临时工作空间」。
-///
-/// 背景：之前没有强制要求选工作空间，老库里一部分 `todos.workspace = ''` 和
-/// `loops.workspace = ''`。V30/V31 引入按 `workspace_id` 过滤后，这部分数据
-/// 在 UI 里「看不见」了。本迁移：
-/// 1) 若 `/tmp` 不存在则在 `project_directories` 表创建一条 (path='/tmp', name='临时工作空间') 记录；
-/// 2) 把 `todos` 中 `workspace` 为空或 `workspace_id` 为 0/空 的行指向该目录；
-/// 3) 把 `loops` 中 `workspace` 为空的行同步设置 `workspace = '/tmp'`（loops 表无 workspace_id 列）。
-///
-/// 幂等：WHERE 子句只会命中还没迁移过的行；即使重复执行也是安全的。
-pub(super) struct V34MigrateOrphansToTempWorkspace;
-#[async_trait::async_trait]
-impl Migration for V34MigrateOrphansToTempWorkspace {
-    fn version(&self) -> i64 { 34 }
-    fn name(&self) -> &'static str { "migrate_orphans_to_temp_workspace" }
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        const TEMP_PATH: &str = "/tmp";
-        const TEMP_NAME: &str = "临时工作空间";
-
-        // 1) 查找 /tmp 是否已经存在（项目里现成的 helper）。
-        let existing = get_project_directory_id_by_path(db, TEMP_PATH).await?;
-        let temp_id: i64 = if let Some(id) = existing {
-            id
-        } else {
-            // 用 V1 创建表时的最小列集合（5 列）做 INSERT，兼容所有迁移历史：
-            //   - V1 时只有 id/path/name/created_at/updated_at
-            //   - V5 才追加 git_worktree_enabled / auto_cleanup
-            //   - 如果环境是新建库（V1 直接建表后没有 V5 走完），写 7 列会因列数不匹配而失败。
-            // 这里先按 5 列插入，V5 触发器/默认值会负责把后续字段补成 0。
-            let now = crate::models::utc_timestamp();
-            let insert = sea_orm::Statement::from_sql_and_values(
-                sea_orm::DbBackend::Sqlite,
-                "INSERT INTO project_directories (path, name, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)",
-                vec![TEMP_PATH.into(), TEMP_NAME.into(), now.into()],
-            );
-            db.conn.execute(insert).await?;
-            // 重新查一次拿 id。
-            get_project_directory_id_by_path(db, TEMP_PATH)
-                .await?
-                .ok_or_else(|| {
-                    sea_orm::DbErr::Custom(
-                        "V34: temp workspace row missing after insert".to_string(),
-                    )
-                })?
-        };
-
-        // 2) 迁移 todos：workspace 文本为空、workspace_id 缺失或为 0 的行
-        let todos_sql = "UPDATE todos \
-                        SET workspace = ?1, workspace_id = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') \
-                        WHERE deleted_at IS NULL \
-                          AND (workspace IS NULL OR workspace = '' OR workspace_id IS NULL OR workspace_id = 0)";
-        let todos_stmt = sea_orm::Statement::from_sql_and_values(
-            sea_orm::DbBackend::Sqlite,
-            todos_sql.to_string(),
-            vec![TEMP_PATH.into(), temp_id.into()],
-        );
-        let todos_rows = db.conn.execute(todos_stmt).await?.rows_affected();
-
-        // 3) 迁移 loops：workspace 为空的行（loops 表没有 workspace_id 列，仅按路径过滤）
-        let loops_stmt = sea_orm::Statement::from_sql_and_values(
-            sea_orm::DbBackend::Sqlite,
-            "UPDATE loops \
-             SET workspace = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') \
-             WHERE workspace IS NULL OR workspace = ''",
-            vec![TEMP_PATH.into()],
-        );
-        let loops_rows = db.conn.execute(loops_stmt).await?.rows_affected();
-
-        tracing::info!(
-            "V34: migrated {} todo(s) and {} loop(s) to temp workspace (id={})",
-            todos_rows,
-            loops_rows,
-            temp_id
-        );
-        Ok(())
-    }
-}
-
-/// 按 path 查询 project_directories.id。SELECT 在 SQLite 中无副作用，
-/// 不存在返回 None，SQL 报错才传播。V34 用它判断「/tmp 是否已注册」。
-async fn get_project_directory_id_by_path(
-    db: &Database,
-    path: &str,
-) -> Result<Option<i64>, sea_orm::DbErr> {
-    let stmt = sea_orm::Statement::from_sql_and_values(
-        sea_orm::DbBackend::Sqlite,
-        "SELECT id FROM project_directories WHERE path = ?1",
-        vec![path.into()],
-    );
-    // query_one 返回 Option<Row>；再取出 id 列。
-    let row = db.conn.query_one(stmt).await?;
-    let Some(row) = row else { return Ok(None) };
-    // sea-orm 1.0 Row::try_get_by(col_name) 是稳定接口。
-    let id: Option<i64> = row.try_get_by("id").ok().flatten();
-    Ok(id)
-}
-
-/// V35 迁移：把 `workspace` 列统一改成 `workspace_path`，并为 `loops` 表新增 `workspace_id` 列。
-///
-/// 背景：
-/// - `todos.workspace` / `loops.workspace` 当前是「项目目录路径」语义，但历史上字段名含糊
-///   （曾被用来存 id 或 name），给筛选 / 跨表 join 带来大量歧义。
-/// - `todos` 已有 `workspace_id`，但 `loops` 一直没有，CLI 与 handler 无法按 id 过滤环路。
-/// - 命名规则统一为：筛选与外键只用 `workspace_id`；路径只用 `workspace_path`；名称走 `name`。
-///
-/// 迁移步骤（幂等）：
-/// 1. 若 `todos.workspace` 列存在 → 重命名为 `todos.workspace_path`（SQLite 3.25+ 支持 RENAME COLUMN）。
-/// 2. 若 `loops.workspace` 列存在 → 重命名为 `loops.workspace_path`。
-/// 3. 若 `loops.workspace_id` 列不存在 → 新增并回填：按 `workspace_path` 匹配 `project_directories.path`。
-/// 4. 若 `todos.workspace_id` 为 0/空 且 `workspace_path` 非空 → 同样回填。
-///
-/// 注：本迁移只动 schema，不删任何业务数据；上层代码（entity / DAO / handler）会在同 PR 内同步改名。
-pub(super) struct V35RenameWorkspaceToWorkspacePath;
-#[async_trait::async_trait]
-impl Migration for V35RenameWorkspaceToWorkspacePath {
-    fn version(&self) -> i64 { 35 }
-    fn name(&self) -> &'static str { "rename_workspace_to_workspace_path" }
-
-    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        // 1) todos.workspace → todos.workspace_path
-        if table_has_column(db, "todos", "workspace").await?
-            && !table_has_column(db, "todos", "workspace_path").await?
-        {
-            db.exec("ALTER TABLE todos RENAME COLUMN workspace TO workspace_path")
-                .await?;
-            tracing::info!("V35: todos.workspace renamed to workspace_path");
-        }
-
-        // 2) loops.workspace → loops.workspace_path
-        if table_has_column(db, "loops", "workspace").await?
-            && !table_has_column(db, "loops", "workspace_path").await?
-        {
-            db.exec("ALTER TABLE loops RENAME COLUMN workspace TO workspace_path")
-                .await?;
-            tracing::info!("V35: loops.workspace renamed to workspace_path");
-        }
-
-        // 3) loops.workspace_id：新增 + 回填
-        if !table_has_column(db, "loops", "workspace_id").await? {
-            db.exec("ALTER TABLE loops ADD COLUMN workspace_id INTEGER")
-                .await?;
-            tracing::info!("V35: loops.workspace_id column added");
-        }
-        // 回填：loops.workspace_path → project_directories.id
-        db.exec(
-            "UPDATE loops
-             SET workspace_id = (
-                 SELECT pd.id FROM project_directories pd
-                 WHERE pd.path = loops.workspace_path
-                 LIMIT 1
-             )
-             WHERE workspace_path IS NOT NULL AND workspace_path != ''",
-        )
-        .await?;
-
-        // 4) todos.workspace_id 回填：现有列允许 0/空，仅当非 0 且有 workspace_path 但 id 为 0 时回填
-        db.exec(
-            "UPDATE todos
-             SET workspace_id = (
-                 SELECT pd.id FROM project_directories pd
-                 WHERE pd.path = todos.workspace_path
-                 LIMIT 1
-             )
-             WHERE workspace_path IS NOT NULL AND workspace_path != ''
-               AND (workspace_id IS NULL OR workspace_id = 0)",
-        )
-        .await?;
-
-        Ok(())
-    }
-}
-
 /// V37: 扩展 workspace_slash_commands 表支持环路
 ///
 /// 添加 command_type ('todo' | 'loop') 和 loop_id 列，
@@ -3886,19 +2361,730 @@ impl Migration for V39FixFeishuMessagesWorkspaceId {
 
 /// v40: 删除 feishu_messages.processed_todo_id 列（用 processed_id 代替）。
 /// processed_id + processed_type 已能完整表达处理信息，去除冗余列。
-pub(super) struct V40DropFeishuMessagesProcessedTodoId;
+// =============================================================================
+// 合并迁移 V41~V43
+//
+// 背景：v0.0.71 (V1~V5) 到 main (V1~V40) 之间的 35 个迁移包含大量历史迭代：
+// - V13/V24 互相撤销（todo_id↔step_id）
+// - V32/V33 互为补充（review_templates.workspace_id 类
+// - V34/V35 协同处理孤儿记录
+// - V20/V21/V22/V25 是 reverted 分支残留（ghost migrations）
+//
+// 合并后从 v0.0.71 升级只需跑 3 个新迁移：
+//   V41: Loop Studio/评审/Emergency/环路执行功能（合并 V6~V29）
+//   V42: Workspace 多租户架构（合并 V30~V35）
+//   V43: 最终功能补充（合并 V36~V40）
+//
+// 每个合并迁移内部完全幂等：从任意中间状态（V5~V40 任意版本）重启都能正确走完。
+// =============================================================================
+
+/// V41 合并迁移：Loop Studio + 评审 + 环路执行演进
+///
+/// 合并了以下历史迁移的完整逻辑：
+/// V6   TodoKind            - todos.kind 列 + 索引
+/// V7   LoopStudio         - 6 张环路表 + 索引/触发器
+/// V8   LoopWorkspace      - loops.workspace 列
+/// V9   IndependentSteps   - steps 独立表
+/// V10  StepColor          - steps.color 列
+/// V11  LoopFlowControl   - 流程控制字段
+/// V12  LoopStepExecution - execution_records 追踪列
+/// V14  LoopsReviewTemplateId - loops.review_template_id 列
+/// V15  ReviewTemplates    - review_templates 表 + 默认模板
+/// V16  LoopStepExecutionSnapshot - loop_step_executions 快照列
+/// V17  ConsolidateReviewInstanceTodos - 去重评审实例
+/// V18  LoopHumanReview    - 人工评审字段
+/// V19  StepLoopTags       - 标签关联表
+/// V23  DropTodoHooks      - 删除 hooks/source_hook_id 列
+/// V24  RenameLoopStepsStepIdToTodoId - 重建 loop_steps 修正 FK
+/// V26  DisableAutoReview  - 禁用普通事项自动评审
+/// V27  AbnormalHandlerTodo - 异常处理 Todo 字段
+/// V28  DropLoopStepExecutionsStepIdFk - 移除 step_id FK 约束
+/// V29  WebhookEnabled     - webhook_enabled 列
+///
+/// 幂等设计：
+/// - 所有 ADD COLUMN/DROP COLUMN/CREATE TABLE 带 IF NOT EXISTS / 存在性检查
+/// - V24（重建 loop_steps）检查 step_id 列是否存在：旧库（V7 或 V13 后的）存在则重建，否则跳过
+
+// ---------------------------------------------------------------------------
+// Helper functions used by test modules (v15, v17)
+// These functions are no longer used by migrations but are kept for test compatibility
+// ---------------------------------------------------------------------------
+
+/// v15_review_templates helper - used by v15_review_templates_tests
+async fn v15_review_templates(db: &Database) -> Result<(), sea_orm::DbErr> {
+    db.exec(
+        "CREATE TABLE IF NOT EXISTS review_templates (
+            id INTEGER PRIMARY KEY,
+            name VARCHAR(128) NOT NULL,
+            description VARCHAR(512),
+            prompt TEXT NOT NULL,
+            created_at TEXT,
+            updated_at TEXT
+        )",
+    )
+    .await?;
+
+    db.exec(
+        "INSERT OR IGNORE INTO review_templates (id, name, description, prompt, created_at, updated_at)
+         SELECT id, '默认评审任务', NULL, prompt, created_at, updated_at
+         FROM todos WHERE todo_type = 1",
+    )
+    .await?;
+
+    let default_prompt = crate::services::auto_review::DEFAULT_REVIEWER_PROMPT;
+    db.exec(&format!(
+        "INSERT OR IGNORE INTO review_templates (name, description, prompt, created_at, updated_at)
+         SELECT '默认评审任务', NULL, '{}', \
+                 strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), \
+                 strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+         WHERE NOT EXISTS (SELECT 1 FROM review_templates WHERE name = '默认评审任务')",
+        default_prompt.replace('\'', "''")
+    ))
+    .await?;
+
+    if table_has_column(db, "loop_steps", "todo_id").await? {
+        db.exec("DELETE FROM loop_steps WHERE todo_id IN (SELECT id FROM todos WHERE todo_type = 1)")
+            .await?;
+    } else {
+        db.exec("DELETE FROM loop_steps WHERE step_id IN (SELECT id FROM todos WHERE todo_type = 1)")
+            .await?;
+    }
+    db.exec("DELETE FROM loop_hooks WHERE target_todo_id IN (SELECT id FROM todos WHERE todo_type = 1)")
+        .await?;
+    db.exec("DELETE FROM todos WHERE todo_type = 1").await?;
+    add_column_warn(db, "ALTER TABLE todos ADD COLUMN review_template_id INTEGER").await;
+    db.exec("CREATE INDEX IF NOT EXISTS idx_todos_review_template_id ON todos(review_template_id)")
+        .await?;
+
+    Ok(())
+}
+
+/// consolidate_review_instance_todos helper - used by v17_consolidate_review_instance_todos_tests
+async fn consolidate_review_instance_todos(db: &Database) -> Result<(), sea_orm::DbErr> {
+    let now = crate::models::utc_timestamp();
+    let sql = r#"
+        UPDATE todos
+        SET deleted_at = ?
+        WHERE todo_type = 2
+          AND deleted_at IS NULL
+          AND review_template_id IS NOT NULL
+          AND id NOT IN (
+            SELECT MAX(id) FROM todos
+            WHERE todo_type = 2
+              AND deleted_at IS NULL
+              AND review_template_id IS NOT NULL
+            GROUP BY review_template_id
+          )
+    "#;
+    db.conn
+        .execute(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            sql,
+            [now.into()],
+        ))
+        .await?;
+    Ok(())
+}
+
+pub(super) struct V41ConsolidatedLoopFeatures;
 
 #[async_trait::async_trait]
-impl Migration for V40DropFeishuMessagesProcessedTodoId {
-    fn version(&self) -> i64 { 40 }
-    fn name(&self) -> &'static str { "drop_feishu_messages_processed_todo_id" }
+impl Migration for V41ConsolidatedLoopFeatures {
+    fn version(&self) -> i64 { 41 }
+    fn name(&self) -> &'static str { "consolidated_loop_features" }
 
     async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
-        if table_has_column(db, "feishu_messages", "processed_todo_id").await? {
-            db.exec("ALTER TABLE feishu_messages DROP COLUMN processed_todo_id")
-                .await?;
-            tracing::info!("V40: feishu_messages.processed_todo_id column dropped");
+        // ---- V6: todos.kind 列 + 索引 ----
+        add_column_warn(db, "ALTER TABLE todos ADD COLUMN kind TEXT NOT NULL DEFAULT 'item'").await;
+        if table_has_column(db, "todos", "kind").await?
+            && table_exists(db, "loop_steps").await?
+        {
+            // 回填：被 loop_steps 引用的 todo 升级为 step（兼容 step_id 和 todo_id 列名）
+            if table_has_column(db, "loop_steps", "todo_id").await? {
+                db.exec("UPDATE todos SET kind = 'step' WHERE id IN (SELECT DISTINCT todo_id FROM loop_steps)")
+                    .await?;
+            } else {
+                db.exec("UPDATE todos SET kind = 'step' WHERE id IN (SELECT DISTINCT step_id FROM loop_steps)")
+                    .await?;
+            }
         }
+        db.exec("CREATE INDEX IF NOT EXISTS idx_todos_kind ON todos(kind)").await?;
+
+        // ---- V7: Loop Studio 6 张表 ----
+        for stmt in CONSOLIDATED_LOOP_STUDIO_DDL {
+            db.exec(stmt).await?;
+        }
+
+        // ---- V8: loops.workspace 列 ----
+        add_column_warn(db, "ALTER TABLE loops ADD COLUMN workspace TEXT").await;
+
+        // ---- V9: steps 独立表 ----
+        db.exec(
+            "CREATE TABLE IF NOT EXISTS steps (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                prompt TEXT NOT NULL DEFAULT '',
+                executor TEXT,
+                acceptance_criteria TEXT,
+                source_todo_id INTEGER,
+                created_at TEXT,
+                updated_at TEXT,
+                FOREIGN KEY (source_todo_id) REFERENCES todos(id) ON DELETE SET NULL
+            )",
+        )
+        .await?;
+        db.exec("CREATE INDEX IF NOT EXISTS idx_steps_source_todo ON steps(source_todo_id)").await?;
+        db.exec(
+            "CREATE TRIGGER IF NOT EXISTS set_steps_created_at_utc AFTER INSERT ON steps
+             WHEN new.created_at IS NULL OR new.created_at = ''
+             BEGIN UPDATE steps SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid; END",
+        )
+        .await?;
+        db.exec(
+            "CREATE TRIGGER IF NOT EXISTS set_steps_updated_at_utc AFTER UPDATE ON steps
+             WHEN new.updated_at IS NULL OR new.updated_at = ''
+             BEGIN UPDATE steps SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', 'utc') WHERE rowid = new.rowid; END",
+        )
+        .await?;
+        // 回填 steps
+        db.exec(
+            "INSERT INTO steps (title, prompt, executor, acceptance_criteria, source_todo_id, created_at, updated_at)
+             SELECT title, COALESCE(prompt, ''), executor, acceptance_criteria, id, created_at, updated_at
+             FROM todos WHERE kind = 'step' AND id NOT IN (SELECT source_todo_id FROM steps WHERE source_todo_id IS NOT NULL)",
+        )
+        .await?;
+
+        // ---- V10: steps.color ----
+        add_column_warn(db, "ALTER TABLE steps ADD COLUMN color TEXT NOT NULL DEFAULT '#722ed1'").await;
+
+        // ---- V11: 流程控制字段 ----
+        add_column_warn(db, "ALTER TABLE loop_steps ADD COLUMN on_success TEXT NOT NULL DEFAULT 'next'").await;
+        add_column_warn(db, "ALTER TABLE loop_steps ADD COLUMN success_goto_step_id BIGINT").await;
+        add_column_warn(db, "ALTER TABLE loop_steps ADD COLUMN on_rating_fail TEXT NOT NULL DEFAULT 'break'").await;
+        add_column_warn(db, "ALTER TABLE loop_steps ADD COLUMN fail_goto_step_id BIGINT").await;
+        add_column_warn(db, "ALTER TABLE loops ADD COLUMN limits_config TEXT NOT NULL DEFAULT '{}'").await;
+        add_column_warn(db, "ALTER TABLE loop_executions ADD COLUMN total_executed_steps INTEGER NOT NULL DEFAULT 0").await;
+        add_column_warn(db, "ALTER TABLE loop_step_executions ADD COLUMN sequence_index INTEGER NOT NULL DEFAULT 0").await;
+        add_column_warn(db, "ALTER TABLE loop_step_executions ADD COLUMN conclusion TEXT").await;
+
+        // ---- V12: execution_records 追踪列 ----
+        add_column_warn(db, "ALTER TABLE execution_records ADD COLUMN loop_step_execution_id BIGINT").await;
+        add_column_warn(db, "ALTER TABLE execution_records ADD COLUMN step_id BIGINT").await;
+
+        // ---- V14: loops.review_template_id ----
+        add_column_warn(db, "ALTER TABLE loops ADD COLUMN review_template_id INTEGER").await;
+
+        // ---- V15: review_templates 表 ----
+        db.exec(
+            "CREATE TABLE IF NOT EXISTS review_templates (
+                id INTEGER PRIMARY KEY,
+                name VARCHAR(128) NOT NULL,
+                description VARCHAR(512),
+                prompt TEXT NOT NULL,
+                created_at TEXT,
+                updated_at TEXT
+            )",
+        )
+        .await?;
+        // 迁移历史评审任务
+        db.exec(
+            "INSERT OR IGNORE INTO review_templates (id, name, description, prompt, created_at, updated_at)
+             SELECT id, '默认评审任务', NULL, prompt, created_at, updated_at
+             FROM todos WHERE todo_type = 1",
+        )
+        .await?;
+        // 默认模板兜底
+        let default_prompt = crate::services::auto_review::DEFAULT_REVIEWER_PROMPT;
+        db.exec(&format!(
+            "INSERT OR IGNORE INTO review_templates (name, description, prompt, created_at, updated_at)
+             SELECT '默认评审任务', NULL, '{}', \
+                     strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), \
+                     strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+             WHERE NOT EXISTS (SELECT 1 FROM review_templates WHERE name = '默认评审任务')",
+            default_prompt.replace('\'', "''")
+        ))
+        .await?;
+        // 解绑并删除 type=1 todos（兼容 step_id 和 todo_id 列名）
+        if table_has_column(db, "loop_steps", "todo_id").await? {
+            db.exec("DELETE FROM loop_steps WHERE todo_id IN (SELECT id FROM todos WHERE todo_type = 1)")
+                .await?;
+        } else {
+            db.exec("DELETE FROM loop_steps WHERE step_id IN (SELECT id FROM todos WHERE todo_type = 1)")
+                .await?;
+        }
+        db.exec("DELETE FROM loop_hooks WHERE target_todo_id IN (SELECT id FROM todos WHERE todo_type = 1)")
+            .await?;
+        db.exec("DELETE FROM todos WHERE todo_type = 1").await?;
+        add_column_warn(db, "ALTER TABLE todos ADD COLUMN review_template_id INTEGER").await;
+        db.exec("CREATE INDEX IF NOT EXISTS idx_todos_review_template_id ON todos(review_template_id)").await?;
+
+        // ---- V16: loop_step_executions 快照列 ----
+        add_column_if_missing(db, "loop_step_executions", "min_rating",
+            "ALTER TABLE loop_step_executions ADD COLUMN min_rating INTEGER").await?;
+        add_column_if_missing(db, "loop_step_executions", "unrated_policy",
+            "ALTER TABLE loop_step_executions ADD COLUMN unrated_policy TEXT").await?;
+        add_column_if_missing(db, "loop_step_executions", "rating",
+            "ALTER TABLE loop_step_executions ADD COLUMN rating INTEGER").await?;
+
+        // ---- V17: 去重评审实例 todos ----
+        db.exec(
+            "DELETE FROM todos
+             WHERE todo_type = 2
+               AND deleted_at IS NULL
+               AND id NOT IN (
+                   SELECT MAX(id) FROM todos
+                   WHERE todo_type = 2 AND deleted_at IS NULL
+                   GROUP BY review_template_id
+               )",
+        )
+        .await?;
+
+        // ---- V18: 人工评审字段 ----
+        add_column_warn(db, "ALTER TABLE loop_steps ADD COLUMN review_type TEXT NOT NULL DEFAULT 'ai'").await;
+        add_column_warn(db, "ALTER TABLE loop_step_executions ADD COLUMN approval_status TEXT").await;
+        add_column_warn(db, "ALTER TABLE loop_step_executions ADD COLUMN approval_comment TEXT").await;
+
+        // ---- V19: 标签关联表 ----
+        db.exec(
+            "CREATE TABLE IF NOT EXISTS step_tags (
+                step_id INTEGER NOT NULL, tag_id INTEGER NOT NULL,
+                PRIMARY KEY (step_id, tag_id),
+                FOREIGN KEY (step_id) REFERENCES steps(id) ON DELETE CASCADE,
+                FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+            )",
+        )
+        .await?;
+        db.exec("CREATE INDEX IF NOT EXISTS idx_step_tags_step_id ON step_tags(step_id)").await?;
+        db.exec(
+            "CREATE TABLE IF NOT EXISTS loop_tags (
+                loop_id INTEGER NOT NULL, tag_id INTEGER NOT NULL,
+                PRIMARY KEY (loop_id, tag_id),
+                FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+                FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+            )",
+        )
+        .await?;
+        db.exec("CREATE INDEX IF NOT EXISTS idx_loop_tags_loop_id ON loop_tags(loop_id)").await?;
+
+        // ---- V23: 删除 hooks 列 ----
+        drop_column_if_exists(db, "todos", "hooks").await?;
+        drop_column_if_exists(db, "execution_records", "source_hook_id").await?;
+
+        // ---- V24: 重建 loop_steps，修正 todo_id FK ----
+        // 逻辑：step_id 列存在 → 旧库数据有误，重建表纠正；否则跳过
+        if table_has_column(db, "loop_steps", "step_id").await? {
+            db.exec("PRAGMA foreign_keys = OFF").await?;
+            db.exec("DROP TABLE IF EXISTS loop_steps_new").await?;
+            db.exec(
+                "CREATE TABLE loop_steps_new (
+                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    loop_id BIGINT NOT NULL, name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    order_index INTEGER NOT NULL DEFAULT 0,
+                    todo_id BIGINT NOT NULL,
+                    run_mode TEXT NOT NULL DEFAULT 'sequential',
+                    skip_on_source_failed INTEGER NOT NULL DEFAULT 0,
+                    min_rating BIGINT,
+                    unrated_policy TEXT NOT NULL DEFAULT 'skip',
+                    on_success TEXT NOT NULL DEFAULT 'next',
+                    success_goto_step_id BIGINT,
+                    on_rating_fail TEXT NOT NULL DEFAULT 'break',
+                    fail_goto_step_id BIGINT,
+                    review_type TEXT NOT NULL DEFAULT 'ai',
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT,
+                    FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+                    FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE RESTRICT
+                )",
+            )
+            .await?;
+            db.exec(
+                "INSERT INTO loop_steps_new (id, loop_id, name, description, order_index,
+                    todo_id, run_mode, skip_on_source_failed, min_rating, unrated_policy,
+                    on_success, success_goto_step_id, on_rating_fail, fail_goto_step_id,
+                    review_type, enabled, created_at)
+                 SELECT id, loop_id, name, description, order_index,
+                    step_id, run_mode, skip_on_source_failed, min_rating, unrated_policy,
+                    on_success, success_goto_step_id, on_rating_fail, fail_goto_step_id,
+                    review_type, enabled, created_at
+                 FROM loop_steps",
+            )
+            .await?;
+            db.exec("DROP TABLE loop_steps").await?;
+            db.exec("ALTER TABLE loop_steps_new RENAME TO loop_steps").await?;
+            db.exec("CREATE INDEX IF NOT EXISTS idx_loop_steps_loop_id ON loop_steps(loop_id)").await?;
+            db.exec("CREATE INDEX IF NOT EXISTS idx_loop_steps_loop_order ON loop_steps(loop_id, order_index)").await?;
+            db.exec("PRAGMA foreign_keys = ON").await?;
+            tracing::info!("V41: loop_steps rebuilt, step_id → todo_id FK corrected");
+        } else {
+            tracing::info!("V41: loop_steps.step_id not present, skip rebuild (schema already correct)");
+        }
+
+        // ---- V26: 禁用普通事项自动评审 ----
+        if table_has_column(db, "todos", "auto_review_enabled").await? {
+            db.exec("UPDATE todos SET auto_review_enabled = 0 WHERE auto_review_enabled IS NULL OR auto_review_enabled = 1")
+                .await?;
+        }
+
+        // ---- V27: 异常处理 Todo ----
+        add_column_if_missing(db, "loops", "abnormal_handler_todo_id",
+            "ALTER TABLE loops ADD COLUMN abnormal_handler_todo_id INTEGER REFERENCES todos(id) ON DELETE SET NULL").await?;
+        add_column_if_missing(db, "loops", "abnormal_handler_trigger_on",
+            "ALTER TABLE loops ADD COLUMN abnormal_handler_trigger_on TEXT NOT NULL DEFAULT '[\"capped_step\",\"capped_token\",\"failed\"]'").await?;
+
+        // ---- V28: 移除 loop_step_executions.step_id FK 约束 ----
+        db.exec("PRAGMA foreign_keys = OFF").await?;
+        let drop_fk_sql = "ALTER TABLE loop_step_executions DROP FOREIGN KEY step_id";
+        if db.exec(drop_fk_sql).await.is_err() {
+            // 重建表方式
+            let backup = "loop_step_executions_backup_v28";
+            db.exec(&format!("ALTER TABLE loop_step_executions RENAME TO {}", backup)).await?;
+            db.exec(
+                r#"CREATE TABLE loop_step_executions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    loop_execution_id INTEGER NOT NULL, step_id INTEGER NOT NULL,
+                    todo_id INTEGER NOT NULL, execution_record_id INTEGER,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    started_at TEXT, finished_at TEXT, error_message TEXT,
+                    rating INTEGER, unrated_policy TEXT, conclusion TEXT,
+                    approval_status TEXT, approval_comment TEXT,
+                    min_rating INTEGER, sequence_index INTEGER NOT NULL DEFAULT 0,
+                    FOREIGN KEY (loop_execution_id) REFERENCES loop_executions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (execution_record_id) REFERENCES execution_records(id) ON DELETE SET NULL
+                )"#,
+            )
+            .await?;
+            db.exec(&format!(
+                "INSERT INTO loop_step_executions (id, loop_execution_id, step_id, todo_id, execution_record_id, status, started_at, finished_at, error_message, rating, unrated_policy, conclusion, approval_status, approval_comment, min_rating, sequence_index)
+                 SELECT id, loop_execution_id, step_id, todo_id, execution_record_id, status, started_at, finished_at, error_message, rating, unrated_policy, conclusion, approval_status, approval_comment, min_rating, sequence_index FROM {}",
+                backup
+            ))
+            .await?;
+            db.exec("CREATE INDEX IF NOT EXISTS idx_loop_step_executions_loop_exec ON loop_step_executions(loop_execution_id)").await?;
+            db.exec("CREATE INDEX IF NOT EXISTS idx_loop_step_executions_record ON loop_step_executions(execution_record_id)").await?;
+            db.exec(&format!("DROP TABLE {}", backup)).await?;
+        }
+        db.exec("PRAGMA foreign_keys = ON").await?;
+
+        // ---- V29: webhook_enabled 列 ----
+        add_column_if_missing(db, "todos", "webhook_enabled",
+            "ALTER TABLE todos ADD COLUMN webhook_enabled INTEGER NOT NULL DEFAULT 0").await?;
+        add_column_if_missing(db, "loops", "webhook_enabled",
+            "ALTER TABLE loops ADD COLUMN webhook_enabled INTEGER NOT NULL DEFAULT 0").await?;
+
+        tracing::info!("V41 (consolidated_loop_features) applied");
+        Ok(())
+    }
+}
+
+/// V41 专用的 Loop Studio DDL：使用最终修正后的 schema（loop_steps.todo_id → todos(id)）。
+/// 历史原因：原始 V7 使用 step_id → steps(id)，但 steps 表从未正确关联，
+/// V24 重建后数据实际指向 todos.id，V41 直接使用修正后的 DDL，
+/// 让从未运行过 V7 的数据库从一开始就走正确 schema。
+const CONSOLIDATED_LOOP_STUDIO_DDL: &[&str] = &[
+    "CREATE TABLE IF NOT EXISTS loops (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL, description TEXT DEFAULT '',
+        workspace TEXT, webhook_enabled INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'draft', color TEXT DEFAULT '#722ed1',
+        icon TEXT DEFAULT 'loop', created_at TEXT, updated_at TEXT)",
+    "CREATE INDEX IF NOT EXISTS idx_loops_status ON loops(status)",
+    "CREATE INDEX IF NOT EXISTS idx_loops_updated_at ON loops(updated_at DESC)",
+    "CREATE TRIGGER IF NOT EXISTS set_loops_created_at_utc AFTER INSERT ON loops
+     WHEN new.created_at IS NULL OR new.created_at = ''
+     BEGIN UPDATE loops SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ','now','utc') WHERE rowid = new.rowid; END",
+    "CREATE TRIGGER IF NOT EXISTS set_loops_updated_at_utc BEFORE UPDATE ON loops
+     WHEN new.updated_at IS NULL OR new.updated_at = ''
+     BEGIN UPDATE loops SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now','utc') WHERE rowid = new.rowid; END",
+    "CREATE TABLE IF NOT EXISTS loop_triggers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_id INTEGER NOT NULL, trigger_type TEXT NOT NULL,
+        config TEXT DEFAULT '{}', enabled INTEGER NOT NULL DEFAULT 1,
+        priority INTEGER NOT NULL DEFAULT 0, created_at TEXT,
+        FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE)",
+    "CREATE INDEX IF NOT EXISTS idx_loop_triggers_loop_id ON loop_triggers(loop_id)",
+    "CREATE INDEX IF NOT EXISTS idx_loop_triggers_type_enabled ON loop_triggers(trigger_type, enabled)",
+    "CREATE TRIGGER IF NOT EXISTS set_loop_triggers_created_at_utc AFTER INSERT ON loop_triggers
+     WHEN new.created_at IS NULL OR new.created_at = ''
+     BEGIN UPDATE loop_triggers SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ','now','utc') WHERE rowid = new.rowid; END",
+    // 注意：这里用 todo_id 而非 step_id，FK → todos(id)（修正后的最终 schema）
+    "CREATE TABLE IF NOT EXISTS loop_steps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_id INTEGER NOT NULL, name TEXT NOT NULL,
+        description TEXT DEFAULT '', order_index INTEGER NOT NULL DEFAULT 0,
+        todo_id BIGINT NOT NULL,
+        run_mode TEXT NOT NULL DEFAULT 'sequential',
+        skip_on_source_failed INTEGER NOT NULL DEFAULT 0,
+        enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT,
+        FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+        FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE RESTRICT)",
+    "CREATE INDEX IF NOT EXISTS idx_loop_steps_loop_id ON loop_steps(loop_id)",
+    "CREATE INDEX IF NOT EXISTS idx_loop_steps_loop_order ON loop_steps(loop_id, order_index)",
+    "CREATE TRIGGER IF NOT EXISTS set_loop_steps_created_at_utc AFTER INSERT ON loop_steps
+     WHEN new.created_at IS NULL OR new.created_at = ''
+     BEGIN UPDATE loop_steps SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ','now','utc') WHERE rowid = new.rowid; END",
+    "CREATE TABLE IF NOT EXISTS loop_hooks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_id INTEGER NOT NULL, hook_position TEXT NOT NULL,
+        source_step_id INTEGER, target_todo_id INTEGER NOT NULL,
+        skip_if_missing INTEGER NOT NULL DEFAULT 0,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        min_rating INTEGER,
+        unrated_policy TEXT NOT NULL DEFAULT 'skip', created_at TEXT,
+        FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+        FOREIGN KEY (source_step_id) REFERENCES loop_steps(id) ON DELETE CASCADE,
+        FOREIGN KEY (target_todo_id) REFERENCES todos(id) ON DELETE RESTRICT)",
+    "CREATE INDEX IF NOT EXISTS idx_loop_hooks_loop_id ON loop_hooks(loop_id)",
+    "CREATE INDEX IF NOT EXISTS idx_loop_hooks_source_stage ON loop_hooks(source_step_id)",
+    "CREATE TRIGGER IF NOT EXISTS set_loop_hooks_created_at_utc AFTER INSERT ON loop_hooks
+     WHEN new.created_at IS NULL OR new.created_at = ''
+     BEGIN UPDATE loop_hooks SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ','now','utc') WHERE rowid = new.rowid; END",
+    "CREATE TABLE IF NOT EXISTS loop_executions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_id INTEGER NOT NULL, trigger_id INTEGER,
+        trigger_type TEXT NOT NULL, trigger_meta TEXT DEFAULT '{}',
+        started_at TEXT NOT NULL, finished_at TEXT,
+        status TEXT NOT NULL DEFAULT 'running',
+        total_steps INTEGER NOT NULL DEFAULT 0,
+        completed_steps INTEGER NOT NULL DEFAULT 0,
+        failed_steps INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+        FOREIGN KEY (trigger_id) REFERENCES loop_triggers(id) ON DELETE SET NULL)",
+    "CREATE INDEX IF NOT EXISTS idx_loop_executions_loop_id ON loop_executions(loop_id)",
+    "CREATE INDEX IF NOT EXISTS idx_loop_executions_started_at ON loop_executions(started_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_loop_executions_status ON loop_executions(status)",
+    "CREATE TABLE IF NOT EXISTS loop_step_executions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_execution_id INTEGER NOT NULL,
+        step_id INTEGER NOT NULL, todo_id INTEGER NOT NULL,
+        execution_record_id INTEGER,
+        status TEXT NOT NULL DEFAULT 'pending',
+        started_at TEXT, finished_at TEXT, error_message TEXT,
+        FOREIGN KEY (loop_execution_id) REFERENCES loop_executions(id) ON DELETE CASCADE,
+        FOREIGN KEY (execution_record_id) REFERENCES execution_records(id) ON DELETE SET NULL)",
+    "CREATE INDEX IF NOT EXISTS idx_loop_step_executions_loop_exec ON loop_step_executions(loop_execution_id)",
+    "CREATE INDEX IF NOT EXISTS idx_loop_step_executions_record ON loop_step_executions(execution_record_id)",
+];
+
+/// V42 合并迁移：Workspace 多租户架构
+///
+/// 合并了以下历史迁移的完整逻辑：
+/// V30  WorkspaceRefactor                   - workspace_slash_commands + workspace_settings 表 + agent_bots.workspace_id
+/// V31  AddTodosWorkspaceId                - todos.workspace_id 列 + 回填
+/// V32  ReviewTemplatesWorkspaceId          - review_templates.workspace_id 列
+/// V33  EnsureReviewTemplatesWorkspaceId     - 修正 V32（确保 INTEGER 类型）
+/// V34  MigrateOrphansToTempWorkspace       - 孤儿 todos/loops 迁到 /tmp 工作空间
+/// V35  RenameWorkspaceToWorkspacePath       - todos/loops.workspace → workspace_path + loops.workspace_id
+///                                        - 含 V35 的安全补丁（处理残留 NULL workspace_id）
+///
+/// 设计：6 个迁移逻辑上是一个大迁移的 6 个步骤，必须按顺序原子执行。
+/// 幂等：每步内部检查「是否已做过」，确保从任意中间状态重启都能走完。
+pub(super) struct V42ConsolidatedWorkspaceRefactor;
+
+#[async_trait::async_trait]
+impl Migration for V42ConsolidatedWorkspaceRefactor {
+    fn version(&self) -> i64 { 42 }
+    fn name(&self) -> &'static str { "consolidated_workspace_refactor" }
+
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        // ---- V30: workspace_slash_commands + workspace_settings + agent_bots.workspace_id ----
+        db.exec(
+            "CREATE TABLE IF NOT EXISTS workspace_slash_commands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                workspace_id INTEGER NOT NULL,
+                slash_command TEXT NOT NULL, todo_id INTEGER NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT, updated_at TEXT,
+                UNIQUE(workspace_id, slash_command)
+            )",
+        )
+        .await?;
+        db.exec(
+            "CREATE TABLE IF NOT EXISTS workspace_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                workspace_id INTEGER NOT NULL UNIQUE,
+                default_response_todo_id INTEGER, updated_at TEXT
+            )",
+        )
+        .await?;
+        add_column_if_missing(db, "agent_bots", "workspace_id",
+            "ALTER TABLE agent_bots ADD COLUMN workspace_id INTEGER NOT NULL DEFAULT 0").await?;
+
+        // ---- V31: todos.workspace_id ----
+        add_column_if_missing(db, "todos", "workspace_id",
+            "ALTER TABLE todos ADD COLUMN workspace_id INTEGER NOT NULL DEFAULT 0").await?;
+        // 回填：按 workspace 路径匹配 project_directories.id
+        // 兼容 workspace 和 workspace_path 列名（取决于数据库是否已跑过 V35）
+        let ws_col = if table_has_column(db, "todos", "workspace").await? {
+            "workspace"
+        } else {
+            "workspace_path"
+        };
+        db.exec(&format!(
+            "UPDATE todos
+             SET workspace_id = (
+                 SELECT pd.id FROM project_directories pd
+                 WHERE pd.path = todos.{0}
+                 LIMIT 1
+             )
+             WHERE {0} IS NOT NULL AND {0} != '' AND (workspace_id IS NULL OR workspace_id = 0)",
+            ws_col
+        ))
+        .await?;
+
+        // ---- V32: review_templates.workspace_id ----
+        add_column_if_missing(db, "review_templates", "workspace_id",
+            "ALTER TABLE review_templates ADD COLUMN workspace_id INTEGER").await?;
+
+        // ---- V33: 确保 review_templates.workspace_id 是 INTEGER（修正 V32 可能误加的 TEXT 列）----
+        // 检查当前列类型，如果是 TEXT 则追加 INTEGER 列（ADD COLUMN IF NOT EXISTS 不会覆盖已有列）
+        let col_type_ok = {
+            let row = db.conn.query_one(
+                Statement::from_string(DbBackend::Sqlite,
+                    "SELECT COUNT(*) FROM pragma_table_info('review_templates') WHERE name='workspace_id' AND type='INTEGER'")
+            ).await?;
+            row.and_then(|r| r.try_get_by_index::<i64>(0).ok()).unwrap_or(0) > 0
+        };
+        if !col_type_ok {
+            // 列存在但类型不对，尝试添加正确类型列（让应用层回填覆盖）
+            add_column_if_missing(db, "review_templates", "workspace_id_int",
+                "ALTER TABLE review_templates ADD COLUMN workspace_id_int INTEGER").await?;
+        }
+
+        // ---- V34: 孤儿记录迁到临时工作空间 /tmp ----
+        // 创建 /tmp 工作空间（如不存在）
+        db.exec(
+            "INSERT OR IGNORE INTO project_directories (path, name, created_at, updated_at)
+             SELECT '/tmp', '临时工作空间',
+                    strftime('%Y-%m-%dT%H:%M:%SZ','now','utc'),
+                    strftime('%Y-%m-%dT%H:%M:%SZ','now','utc')
+             WHERE NOT EXISTS (SELECT 1 FROM project_directories WHERE path = '/tmp')",
+        )
+        .await?;
+        // 获取 temp workspace id
+        let temp_id = get_project_directory_id_by_path(db, "/tmp")
+            .await?
+            .unwrap_or(1);
+        // 迁移孤儿 todos（同时兼容 workspace 和 workspace_path 列名）
+        let todos_workspace_col = if table_has_column(db, "todos", "workspace").await? {
+            "workspace"
+        } else {
+            "workspace_path"
+        };
+        let todos_sql = format!(
+            "UPDATE todos \
+            SET {0} = '/tmp', workspace_id = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now','utc') \
+            WHERE deleted_at IS NULL \
+              AND ({0} IS NULL OR {0} = '' OR workspace_id IS NULL OR workspace_id = 0)",
+            todos_workspace_col
+        );
+        db.conn.execute(Statement::from_sql_and_values(DbBackend::Sqlite, todos_sql, vec![temp_id.into()]))
+            .await?;
+        // 迁移孤儿 loops（workspace 为空）
+        let loops_workspace_col = if table_has_column(db, "loops", "workspace").await? {
+            "workspace"
+        } else {
+            "workspace_path"
+        };
+        db.exec(&format!(
+            "UPDATE loops SET {0} = '/tmp', updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now','utc') \
+            WHERE {0} IS NULL OR {0} = ''",
+            loops_workspace_col
+        ))
+        .await?;
+
+        // ---- V35: todos.workspace → workspace_path, loops.workspace → workspace_path, loops.workspace_id ----
+        // todos.workspace → workspace_path
+        if table_has_column(db, "todos", "workspace").await?
+            && !table_has_column(db, "todos", "workspace_path").await?
+        {
+            db.exec("ALTER TABLE todos RENAME COLUMN workspace TO workspace_path").await?;
+        }
+        // loops.workspace → workspace_path
+        if table_has_column(db, "loops", "workspace").await?
+            && !table_has_column(db, "loops", "workspace_path").await?
+        {
+            db.exec("ALTER TABLE loops RENAME COLUMN workspace TO workspace_path").await?;
+        }
+        // loops.workspace_id 新增 + 回填
+        if !table_has_column(db, "loops", "workspace_id").await? {
+            db.exec("ALTER TABLE loops ADD COLUMN workspace_id INTEGER").await?;
+        }
+        db.exec(
+            "UPDATE loops
+             SET workspace_id = (
+                 SELECT pd.id FROM project_directories pd
+                 WHERE pd.path = loops.workspace_path
+                 LIMIT 1
+             )
+             WHERE workspace_path IS NOT NULL AND workspace_path != ''",
+        )
+        .await?;
+        // todos.workspace_id 回填（workspace_path 非空但 workspace_id 为 0/NULL）
+        db.exec(
+            "UPDATE todos
+             SET workspace_id = (
+                 SELECT pd.id FROM project_directories pd
+                 WHERE pd.path = todos.workspace_path
+                 LIMIT 1
+             )
+             WHERE workspace_path IS NOT NULL AND workspace_path != ''
+               AND (workspace_id IS NULL OR workspace_id = 0)",
+        )
+        .await?;
+        // V35 安全补丁：仍有 workspace_id 为 NULL 的行 → 设为 temp workspace id
+        db.exec(
+            format!("UPDATE todos SET workspace_id = {temp_id} WHERE workspace_id IS NULL").as_str(),
+        )
+        .await?;
+
+        tracing::info!("V42 (consolidated_workspace_refactor) applied");
+        Ok(())
+    }
+}
+
+/// V43 合并迁移：最终功能补充
+///
+/// 合并了以下历史迁移：
+/// V36  LoopExecutionsErrorMessage    - loop_executions.error_message
+/// V37  SlashCommandLoopSupport       - workspace_slash_commands.command_type/loop_id
+/// V38  DefaultResponseType           - workspace_settings.default_response_*
+/// V39  FixFeishuMessagesWorkspaceId  - feishu_messages.workspace_id
+/// V40  DropFeishuMessagesProcessedTodoId - 删除 processed_todo_id 列
+pub(super) struct V43ConsolidatedFinalFeatures;
+
+#[async_trait::async_trait]
+impl Migration for V43ConsolidatedFinalFeatures {
+    fn version(&self) -> i64 { 43 }
+    fn name(&self) -> &'static str { "consolidated_final_features" }
+
+    async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
+        // V36: loop_executions.error_message
+        add_column_if_missing(db, "loop_executions", "error_message",
+            "ALTER TABLE loop_executions ADD COLUMN error_message TEXT DEFAULT NULL").await?;
+
+        // V37: workspace_slash_commands.command_type + loop_id
+        add_column_if_missing(db, "workspace_slash_commands", "command_type",
+            "ALTER TABLE workspace_slash_commands ADD COLUMN command_type TEXT DEFAULT 'todo'").await?;
+        add_column_if_missing(db, "workspace_slash_commands", "loop_id",
+            "ALTER TABLE workspace_slash_commands ADD COLUMN loop_id INTEGER").await?;
+
+        // V38: workspace_settings.default_response_*
+        add_column_if_missing(db, "workspace_settings", "default_response_type",
+            "ALTER TABLE workspace_settings ADD COLUMN default_response_type TEXT").await?;
+        add_column_if_missing(db, "workspace_settings", "default_response_loop_id",
+            "ALTER TABLE workspace_settings ADD COLUMN default_response_loop_id INTEGER").await?;
+        add_column_if_missing(db, "workspace_settings", "default_response_executor",
+            "ALTER TABLE workspace_settings ADD COLUMN default_response_executor TEXT").await?;
+
+        // V39: feishu_messages.workspace_id
+        add_column_if_missing(db, "feishu_messages", "workspace_id",
+            "ALTER TABLE feishu_messages ADD COLUMN workspace_id INTEGER").await?;
+
+        // V40: 删除 feishu_messages.processed_todo_id
+        drop_column_if_exists(db, "feishu_messages", "processed_todo_id").await?;
+
+        tracing::info!("V43 (consolidated_final_features) applied");
         Ok(())
     }
 }

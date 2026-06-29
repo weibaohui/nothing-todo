@@ -168,7 +168,14 @@ impl Database {
             .map(Into::into)
             .collect();
 
-        Ok((records, 0))
+        let count: i64 = execution_records::Entity::find()
+            .filter(filter)
+            .count(&self.conn)
+            .await?
+            .try_into()
+            .unwrap_or(i64::MAX);
+
+        Ok((records, count))
     }
 
     pub async fn get_execution_record(
