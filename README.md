@@ -101,6 +101,7 @@ ntd --help       # 查看帮助
 ### Loop 命令
 
 Loop 是 ntd 的自动化循环任务功能，支持 Cron 调度和 AI 驱动的工作流。
+命令结构与 Todo 保持一致，降低认知成本。
 
 ```bash
 # 查看所有 loop
@@ -108,6 +109,12 @@ ntd loop list
 
 # 查看 loop 详情
 ntd loop get <id>
+
+# 更新 loop
+ntd loop update <id> --name "新名称" --description "描述"
+
+# 删除 loop
+ntd loop delete <id>
 
 # 启动 loop（可指定 cron 调度或立即执行一次）
 ntd loop start <id>                                    # 立即执行一次
@@ -117,18 +124,16 @@ ntd loop start <id> --param key=value                 # 带参数执行
 # 停止 loop（暂停所有触发器）
 ntd loop stop <id>
 
-# 查看 loop 状态和最近执行
-ntd loop status <id>                                   # 查看状态 + 最近5次执行
-ntd loop status <id> --recent 10                       # 查看最近10次执行
+# 查看 loop 执行统计和最近执行
+ntd loop stats <id>                                   # 查看 + 最近5次执行
+ntd loop stats <id> --recent 10                       # 查看最近10次执行
 
-# 手动触发 loop
-ntd loop trigger <id> --param project=myproject
+# 执行 loop（立即触发）
+ntd loop execute <id> --param message=hello
 
-# 查看执行历史
-ntd loop executions <id> --page 1 --limit 20
-
-# 查看执行详情
-ntd loop execution <loop_id> <execution_id>
+# 执行记录
+ntd loop execution list <loop_id>                     # 列出执行历史
+ntd loop execution get <execution_id>                 # 查看执行详情
 
 # 查看执行结果（步骤级摘要）
 ntd loop results <execution_id>

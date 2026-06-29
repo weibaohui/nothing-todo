@@ -278,6 +278,28 @@ pub enum LoopAction {
         /// Loop ID
         id: i64,
     },
+    /// Update loop
+    Update {
+        /// Loop ID
+        id: i64,
+
+        /// New name
+        #[arg(long)]
+        name: Option<String>,
+
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
+
+        /// New status (enabled/paused)
+        #[arg(long)]
+        status: Option<String>,
+    },
+    /// Delete loop
+    Delete {
+        /// Loop ID
+        id: i64,
+    },
     /// Start a loop (create a cron trigger to run it periodically)
     Start {
         /// Loop ID
@@ -298,8 +320,8 @@ pub enum LoopAction {
         /// Loop ID
         id: i64,
     },
-    /// Check loop status (get loop details with recent executions summary)
-    Status {
+    /// Get loop execution stats
+    Stats {
         /// Loop ID
         id: i64,
 
@@ -307,8 +329,8 @@ pub enum LoopAction {
         #[arg(long, default_value = "5")]
         recent: i64,
     },
-    /// Trigger (execute) a loop immediately
-    Trigger {
+    /// Execute loop
+    Execute {
         /// Loop ID
         id: i64,
 
@@ -318,10 +340,20 @@ pub enum LoopAction {
         #[arg(long = "param", num_args = 1, value_parser = parse_key_value)]
         params: Option<Vec<(String, String)>>,
     },
-    /// Get loop execution history
-    Executions {
+    /// Execution records
+    Execution {
+        #[command(subcommand)]
+        action: LoopExecutionAction,
+    },
+}
+
+/// Loop execution records subcommands
+#[derive(Debug, Clone, Subcommand)]
+pub enum LoopExecutionAction {
+    /// List execution records for a loop
+    List {
         /// Loop ID
-        id: i64,
+        loop_id: i64,
 
         /// Page number
         #[arg(long, default_value = "1")]
@@ -332,15 +364,7 @@ pub enum LoopAction {
         limit: i64,
     },
     /// Get execution details
-    Execution {
-        /// Loop ID
-        loop_id: i64,
-
-        /// Execution ID
-        execution_id: i64,
-    },
-    /// Get execution results (step-by-step summary)
-    Results {
+    Get {
         /// Execution ID
         execution_id: i64,
     },
@@ -703,6 +727,29 @@ async fn handle_loop(
             let resp: ClientResponse<LoopDto> = client.get(&format!("/loops/{}", id)).await?;
             print_response(resp, output, fields)?;
         }
+        LoopAction::Update { id, name, description, status } => {
+            // 构建部分更新 JSON，只包含提供的字段
+            let mut obj = serde_json::Map::new();
+            if let Some(n) = name {
+                obj.insert("name".to_string(), serde_json::Value::String(n.to_string()));
+            }
+            if let Some(d) = description {
+                obj.insert("description".to_string(), serde_json::Value::String(d.to_string()));
+            }
+            if let Some(s) = status {
+                obj.insert("status".to_string(), serde_json::Value::String(s.to_string()));
+            }
+            let req = serde_json::Value::Object(obj);
+            let resp: ClientResponse<LoopDto> = client.put(
+                &format!("/loops/{}", id),
+                &req,
+            ).await?;
+            print_response(resp, output, fields)?;
+        }
+        LoopAction::Delete { id } => {
+            let resp: ClientResponse<()> = client.delete(&format!("/loops/{}", id)).await?;
+            print_response(resp, output, fields)?;
+        }
         LoopAction::Start { id, schedule, params } => {
             // Create a cron trigger for the loop
             let params_map: std::collections::HashMap<String, String> = params
@@ -738,7 +785,7 @@ async fn handle_loop(
             ).await?;
             print_response(resp, output, fields)?;
         }
-        LoopAction::Status { id, recent } => {
+        LoopAction::Stats { id, recent } => {
             // Get loop details with recent executions combined into one response
             let resp: ClientResponse<LoopDto> = client.get(&format!("/loops/{}", id)).await?;
             let execs_resp: ClientResponse<serde_json::Value> = client.get(&format!(
@@ -757,7 +804,7 @@ async fn handle_loop(
             };
             print_response(final_resp, output, fields)?;
         }
-        LoopAction::Trigger { id, params } => {
+        LoopAction::Execute { id, params } => {
             let params_map: std::collections::HashMap<String, String> = params
                 .as_ref()
                 .map(|vec| vec.iter().cloned().collect())
@@ -769,29 +816,26 @@ async fn handle_loop(
             ).await?;
             print_response(resp, output, fields)?;
         }
-        LoopAction::Executions { id, page, limit } => {
-            let path = format!(
-                "/loops/{}/executions?page={}&limit={}",
-                id, page, limit
-            );
-            let resp: ClientResponse<serde_json::Value> = client.get(&path).await?;
-            print_response(resp, output, fields)?;
-        }
-        LoopAction::Execution { loop_id, execution_id } => {
-            let resp: ClientResponse<serde_json::Value> = client.get(&format!(
-                "/loops/{}/executions/{}",
-                loop_id, execution_id
-            )).await?;
-            print_response(resp, output, fields)?;
-        }
-        LoopAction::Results { execution_id } => {
-            // Get execution results by execution ID directly
-            // 注意: ApiClient 已经自动添加 /api 前缀，所以路径不要带 /api
-            let resp: ClientResponse<serde_json::Value> = client.get(&format!(
-                "/loop-executions/{}",
-                execution_id
-            )).await?;
-            print_response(resp, output, fields)?;
+        LoopAction::Execution { action } => {
+            match action {
+                LoopExecutionAction::List { loop_id, page, limit } => {
+                    let path = format!(
+                        "/loops/{}/executions?page={}&limit={}",
+                        loop_id, page, limit
+                    );
+                    let resp: ClientResponse<serde_json::Value> = client.get(&path).await?;
+                    print_response(resp, output, fields)?;
+                }
+                LoopExecutionAction::Get { execution_id } => {
+                    // Get execution results by execution ID directly
+                    // 注意: ApiClient 已经自动添加 /api 前缀，所以路径不要带 /api
+                    let resp: ClientResponse<serde_json::Value> = client.get(&format!(
+                        "/loop-executions/{}",
+                        execution_id
+                    )).await?;
+                    print_response(resp, output, fields)?;
+                }
+            }
         }
     }
     Ok(())
