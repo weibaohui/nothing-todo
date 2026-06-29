@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::models::{
-    ClientResponse, CreateTagRequest, CreateTodoRequest, DashboardStats, ExecutionRecord,
-    ExecutionRecordsPage, ExecutionSummary, Tag, Todo, ExecuteRequest, LoopDto,
-    TriggerLoopRequest,
+    ClientResponse, CreateTagRequest, CreateTodoRequest, CreateTriggerRequest, DashboardStats,
+    ExecutionRecord, ExecutionRecordsPage, ExecutionSummary, Tag, Todo, ExecuteRequest, LoopDto,
+    TriggerLoopRequest, LoopTriggerDto,
 };
 use crate::cli::client::ApiClient;
 use crate::config;
@@ -278,7 +278,36 @@ pub enum LoopAction {
         /// Loop ID
         id: i64,
     },
-    /// Trigger (execute) a loop
+    /// Start a loop (create a cron trigger to run it periodically)
+    Start {
+        /// Loop ID
+        id: i64,
+
+        /// Cron expression (e.g., "0 */5 * * * *" for every 5 minutes)
+        /// Use "once" to run immediately without cron, or specify a cron schedule.
+        #[arg(long, default_value = "once")]
+        schedule: String,
+
+        /// Parameters for placeholder replacement (key=value format, can be repeated)
+        /// Example: --param project_name=myproject --param env=production
+        #[arg(long = "param", num_args = 1, value_parser = parse_key_value)]
+        params: Option<Vec<(String, String)>>,
+    },
+    /// Stop a loop (pause all cron triggers)
+    Stop {
+        /// Loop ID
+        id: i64,
+    },
+    /// Check loop status (get loop details with recent executions summary)
+    Status {
+        /// Loop ID
+        id: i64,
+
+        /// Show recent executions (last N)
+        #[arg(long, default_value = "5")]
+        recent: i64,
+    },
+    /// Trigger (execute) a loop immediately
     Trigger {
         /// Loop ID
         id: i64,
@@ -307,6 +336,11 @@ pub enum LoopAction {
         /// Loop ID
         loop_id: i64,
 
+        /// Execution ID
+        execution_id: i64,
+    },
+    /// Get execution results (step-by-step summary)
+    Results {
         /// Execution ID
         execution_id: i64,
     },
@@ -669,6 +703,60 @@ async fn handle_loop(
             let resp: ClientResponse<LoopDto> = client.get(&format!("/loops/{}", id)).await?;
             print_response(resp, output, fields)?;
         }
+        LoopAction::Start { id, schedule, params } => {
+            // Create a cron trigger for the loop
+            let params_map: std::collections::HashMap<String, String> = params
+                .as_ref()
+                .map(|vec| vec.iter().cloned().collect())
+                .unwrap_or_default();
+            let req = CreateTriggerRequest {
+                trigger_type: if schedule == "once" {
+                    "manual".to_string()
+                } else {
+                    "cron".to_string()
+                },
+                // config 是 String 类型，需要序列化为 JSON 字符串
+                config: serde_json::to_string(&serde_json::json!({
+                    "cron": schedule,
+                    "params": params_map,
+                }))?,
+                enabled: true,
+                priority: 0,
+            };
+            let resp: ClientResponse<LoopTriggerDto> = client.post(
+                &format!("/loops/{}/triggers", id),
+                &req,
+            ).await?;
+            print_response(resp, output, fields)?;
+        }
+        LoopAction::Stop { id } => {
+            // Pause the loop by disabling all its triggers
+            let req = serde_json::json!({ "status": "paused" });
+            let resp: ClientResponse<LoopDto> = client.put(
+                &format!("/loops/{}/status", id),
+                &req,
+            ).await?;
+            print_response(resp, output, fields)?;
+        }
+        LoopAction::Status { id, recent } => {
+            // Get loop details with recent executions combined into one response
+            let resp: ClientResponse<LoopDto> = client.get(&format!("/loops/{}", id)).await?;
+            let execs_resp: ClientResponse<serde_json::Value> = client.get(&format!(
+                "/loops/{}/executions?page=1&limit={}",
+                id, recent
+            )).await?;
+            // Combine loop info and recent executions into a single JSON object
+            let combined = serde_json::json!({
+                "loop": resp.data,
+                "recent_executions": execs_resp.data,
+            });
+            let final_resp: ClientResponse<serde_json::Value> = ClientResponse {
+                code: execs_resp.code,
+                data: Some(combined),
+                message: execs_resp.message,
+            };
+            print_response(final_resp, output, fields)?;
+        }
         LoopAction::Trigger { id, params } => {
             let params_map: std::collections::HashMap<String, String> = params
                 .as_ref()
@@ -693,6 +781,14 @@ async fn handle_loop(
             let resp: ClientResponse<serde_json::Value> = client.get(&format!(
                 "/loops/{}/executions/{}",
                 loop_id, execution_id
+            )).await?;
+            print_response(resp, output, fields)?;
+        }
+        LoopAction::Results { execution_id } => {
+            // Get execution results by execution ID directly
+            let resp: ClientResponse<serde_json::Value> = client.get(&format!(
+                "/api/loop-executions/{}",
+                execution_id
             )).await?;
             print_response(resp, output, fields)?;
         }
