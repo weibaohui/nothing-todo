@@ -173,6 +173,7 @@ export const EXECUTORS: ExecutorOption[] = [
   // Issue #673: 新增 Zhanlu 执行器，与 Opencode 输出格式一致
   // 颜色与下方 EXECUTOR_COLORS.zhanlu 同步为 #0f766e，与 agents(#2d3436) 视觉可分。
   { value: 'zhanlu',    label: 'Zhanlu',    color: '#0f766e', icon: <FaSquare color="#0f766e" size={14} />, resumable: true },
+  { value: 'kilo',      label: 'Kilo',      color: '#e67700', icon: <FaSquare color="#e67700" size={14} />, resumable: true },
   // `agents` is read-only skill source (`~/.agents/skills`), not shown in executor management.
   // Included here so it appears in Skills overview/sync tabs.
   { value: 'agents',     label: 'Agents',    color: '#2d3436', icon: <FaSquare color="#2d3436" size={14} /> },
@@ -193,6 +194,7 @@ export const EXECUTOR_COLORS: Record<string, string> = {
   // Issue #673 + PR #677 review H1：zhanlu 颜色与 agents 撞色（都是 #2d3436），
   // 改为深青 `#0f766e` 与 opencode 的 `#fdcb6e` / agents 的 `#2d3436` 视觉可分。
   zhanlu: '#0f766e',
+  kilo: '#e67700',
   agents: '#2d3436',
   // Aliases for backward compatibility with database names
   'claude_code': '#e17055',

@@ -7,6 +7,7 @@ use ntd::adapters::atomcode::AtomcodeExecutor;
 use ntd::adapters::mobilecoder::MobilecoderExecutor;
 use ntd::adapters::codex::CodexExecutor;
 use ntd::adapters::zhanlu::ZhanluExecutor;
+use ntd::adapters::kilo::KiloExecutor;
 use ntd::models::{ParsedLogEntry, ExecutorType};
 
 #[cfg(test)]
@@ -604,5 +605,227 @@ mod parsed_log_entry_tests {
         let entry = ParsedLogEntry::stderr("stderr message".to_string());
         assert_eq!(entry.log_type, "stderr");
         assert_eq!(entry.content, "stderr message");
+    }
+}
+
+// Kilo: 与 Opencode/Zhanlu 一致的开源 AI 编程执行器。
+// 行为与 opencode/zhanlu 完全一致：相同的命令行参数、相同的 JSON 输出格式、相同的退出码语义。
+#[cfg(test)]
+mod kilo_executor_tests {
+    use super::*;
+
+    #[test]
+    fn test_kilo_executor_type() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        assert_eq!(executor.executor_type(), ExecutorType::Kilo);
+    }
+
+    #[test]
+    fn test_kilo_executable_path() {
+        let executor = KiloExecutor::new("/usr/local/bin/kilo".to_string());
+        assert_eq!(executor.executable_path(), "/usr/local/bin/kilo");
+    }
+
+    #[test]
+    fn test_kilo_command_args() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        let args = executor.command_args("say hello");
+        assert!(args.contains(&"run".to_string()));
+        assert!(args.contains(&"--format".to_string()));
+        assert!(args.contains(&"json".to_string()));
+        assert!(args.contains(&"--dangerously-skip-permissions".to_string()));
+        assert!(args.contains(&"say hello".to_string()));
+    }
+
+    #[test]
+    fn test_kilo_command_args_order() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        let args = executor.command_args("hello");
+        assert_eq!(args[0], "run");
+        assert_eq!(args[1], "--format");
+        assert_eq!(args[2], "json");
+        assert_eq!(args[3], "--dangerously-skip-permissions");
+        assert_eq!(args[4], "hello");
+    }
+
+    #[test]
+    fn test_kilo_command_args_with_session_resume() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        let args = executor.command_args_with_session("continue task", Some("ses_abc"), true);
+        assert!(args.contains(&"-s".to_string()));
+        assert!(args.contains(&"ses_abc".to_string()));
+        assert!(args.contains(&"--dangerously-skip-permissions".to_string()));
+        assert!(args.contains(&"continue task".to_string()));
+    }
+
+    #[test]
+    fn test_kilo_command_args_with_session_no_resume() {
+        // is_resume=false: session_id is NOT passed
+        let executor = KiloExecutor::new("kilo".to_string());
+        let args = executor.command_args_with_session("new task", Some("ses_abc"), false);
+        assert!(!args.contains(&"-s".to_string()));
+        assert!(!args.contains(&"ses_abc".to_string()));
+        assert!(args.contains(&"new task".to_string()));
+    }
+
+    #[test]
+    fn test_kilo_command_args_with_session_resume_no_session_id() {
+        // is_resume=true but no session_id: -s flag should NOT appear
+        let executor = KiloExecutor::new("kilo".to_string());
+        let args = executor.command_args_with_session("task", None, true);
+        assert!(!args.contains(&"-s".to_string()));
+        assert!(args.contains(&"task".to_string()));
+    }
+
+    #[test]
+    fn test_kilo_check_success_zero() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        assert!(executor.check_success(0));
+    }
+
+    #[test]
+    fn test_kilo_check_success_non_zero_without_step_finish() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        assert!(!executor.check_success(1));
+        assert!(!executor.check_success(144));
+        assert!(!executor.check_success(-1));
+    }
+
+    #[test]
+    fn test_kilo_check_success_non_zero_with_step_finish() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        // Simulate step_finish event arriving before process exits
+        let line = r#"{"type":"step-finish","timestamp":1700000000000,"part":{"type":"step-finish","reason":"stop","tokens":{"total":100,"input":50,"output":50,"reasoning":0,"cache":{"read":0,"write":0}},"cost":0}}"#;
+        let _ = executor.parse_output_line(line);
+        assert!(executor.check_success(144),
+            "Non-zero exit code 144 should be treated as success when step_finish was received");
+    }
+
+    #[test]
+    fn test_kilo_supports_resume() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        assert!(executor.supports_resume());
+    }
+
+    #[test]
+    fn test_kilo_parse_step_start_underscore() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        let line = r#"{"type":"step_start","timestamp":1700000000000}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "step_start");
+        assert_eq!(entry.content, "Step started");
+    }
+
+    #[test]
+    fn test_kilo_parse_step_start_hyphenated() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        let line = r#"{"type":"step-start","timestamp":1777471473403,"sessionID":"ses_abc"}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "step_start");
+        assert_eq!(entry.content, "Step started");
+    }
+
+    #[test]
+    fn test_kilo_parse_text() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        let line = r#"{"type":"text","timestamp":1777471505165,"sessionID":"ses_abc","part":{"type":"text","text":"hello from kilo"}}"#;
+        let entry = executor.parse_output_line(line).unwrap();
+        assert_eq!(entry.log_type, "text");
+        assert_eq!(entry.content, "hello from kilo");
+    }
+
+    #[test]
+    fn test_kilo_extract_session_id_from_top_level() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        let line = r#"{"type":"step-start","timestamp":1700000000000,"sessionID":"ses_kilo_001"}"#;
+        assert_eq!(executor.extract_session_id(line), Some("ses_kilo_001".to_string()));
+    }
+
+    #[test]
+    fn test_kilo_extract_session_id_from_part() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        let line = r#"{"type":"text","timestamp":1700000000000,"part":{"type":"text","text":"hi","session_id":"ses_from_part"}}"#;
+        assert_eq!(executor.extract_session_id(line), Some("ses_from_part".to_string()));
+    }
+
+    #[test]
+    fn test_kilo_extract_session_id_missing_returns_none() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        let line = r#"{"type":"step_start","timestamp":1700000000000}"#;
+        assert!(executor.extract_session_id(line).is_none());
+    }
+
+    /// Behavior alignment: Kilo and Opencode should produce identical ParsedLogEntry
+    /// from the same JSON input, since they use the same output format.
+    #[test]
+    fn test_kilo_matches_opencode_on_same_json() {
+        let opencode = OpencodeExecutor::new("opencode".to_string());
+        let kilo = KiloExecutor::new("kilo".to_string());
+
+        let line = r#"{"type":"tool-use","timestamp":1700000000000,"part":{"type":"tool","tool":"bash","state":{"status":"completed","input":{"description":"echo"},"output":"ok"}}}"#;
+        let o = opencode.parse_output_line(line).unwrap();
+        let k = kilo.parse_output_line(line).unwrap();
+        assert_eq!(o.log_type, k.log_type,
+            "Kilo and Opencode must produce same log_type for identical input");
+        assert_eq!(o.content, k.content,
+            "Kilo and Opencode must produce same content for identical input");
+        assert_eq!(o.tool_name, k.tool_name,
+            "Kilo and Opencode must produce same tool_name for identical input");
+    }
+
+    /// Kilo and Zhanlu both mirror OpenCode format; all three should agree on the same JSON.
+    #[test]
+    fn test_kilo_zhanlu_opencode_all_agree_on_step_start() {
+        let opencode = OpencodeExecutor::new("opencode".to_string());
+        let kilo = KiloExecutor::new("kilo".to_string());
+        let zhanlu = ZhanluExecutor::new("zl".to_string());
+
+        let line = r#"{"type":"step-start","timestamp":1700000000000,"sessionID":"ses_x"}"#;
+        let o = opencode.parse_output_line(line).unwrap();
+        let k = kilo.parse_output_line(line).unwrap();
+        let z = zhanlu.parse_output_line(line).unwrap();
+        assert_eq!(o.log_type, k.log_type);
+        assert_eq!(o.log_type, z.log_type);
+        assert_eq!(o.content, k.content);
+        assert_eq!(o.content, z.content);
+    }
+
+    #[test]
+    fn test_kilo_get_usage_before_any_event_is_none() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        assert!(executor.get_usage(&[]).is_none());
+    }
+
+    #[test]
+    fn test_kilo_get_model_is_always_none() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        assert!(executor.get_model().is_none());
+    }
+
+    #[test]
+    fn test_kilo_step_start_resets_usage() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        // First, set usage via step_finish
+        let finish = r#"{"type":"step_finish","timestamp":1700000000001,"part":{"type":"step_finish","tokens":{"total":100,"input":50,"output":50,"cache":{"read":0,"write":0}},"cost":0.001}}"#;
+        let _ = executor.parse_output_line(finish);
+        assert!(executor.get_usage(&[]).is_some());
+
+        // Then send step_start, which should reset usage
+        let start = r#"{"type":"step_start","timestamp":1700000000002}"#;
+        let _ = executor.parse_output_line(start);
+        assert!(executor.get_usage(&[]).is_none(),
+            "step_start must reset accumulated usage to None");
+    }
+
+    #[test]
+    fn test_kilo_clone_shares_state() {
+        let executor = KiloExecutor::new("kilo".to_string());
+        let cloned = executor.clone();
+
+        // Set state on the clone and verify the original sees it (Arc sharing)
+        let finish = r#"{"type":"step_finish","timestamp":1700000000000,"part":{"type":"step_finish","tokens":{"total":100,"input":60,"output":40,"cache":{"read":0,"write":0}},"cost":0.0}}"#;
+        let _ = cloned.parse_output_line(finish);
+        assert!(executor.get_usage(&[]).is_some(),
+            "Cloned executor should share Arc state with original");
     }
 }

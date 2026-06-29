@@ -134,9 +134,6 @@ pub static EXECUTORS: &[ExecutorDef] = &[
         aliases: &["mimocode"],
     },
     ExecutorDef {
-        // Zhanlu: Issue #673 新增的执行器，行为与 opencode 完全一致。
-        // binary_name / default_path 都走 PATH 解析（统一为 `zl`），
-        // session 目录是 ~/.local/share/zhanlu/storage。
         name: "zhanlu",
         executor_type: ExecutorType::Zhanlu,
         binary_name: "zl",
@@ -145,10 +142,22 @@ pub static EXECUTORS: &[ExecutorDef] = &[
         session_dir: "~/.local/share/zhanlu/storage",
         aliases: &["zhanlucode", "zl"],
     },
+    ExecutorDef {
+        // Kilo: 与 Opencode/Zhanlu 一致的开源 AI 编程执行器。
+        // binary_name / default_path 都走 PATH 解析（统一为 `kilo`），
+        // session 目录是 ~/.kilo。
+        name: "kilo",
+        executor_type: ExecutorType::Kilo,
+        binary_name: "kilo",
+        display_name: "Kilo",
+        default_path: "kilo",
+        session_dir: "~/.kilo",
+        aliases: &[],
+    },
 ];
 
 /// 支持继续对话的执行器集合（与前端 RESUMABLE_EXECUTORS 保持一致）
-pub const RESUMABLE_EXECUTORS: &[&str] = &["claudecode", "kimi", "opencode", "mobilecoder", "hermes", "codewhale", "pi", "mimo", "zhanlu"];
+pub const RESUMABLE_EXECUTORS: &[&str] = &["claudecode", "kimi", "opencode", "mobilecoder", "hermes", "codewhale", "pi", "mimo", "zhanlu", "kilo"];
 
 /// 默认执行器
 pub const DEFAULT_EXECUTOR: &str = "claudecode";
@@ -303,6 +312,8 @@ pub mod mimo;
 pub mod mimo_event;
 pub mod zhanlu;
 pub mod zhanlu_event;
+pub mod kilo;
+pub mod kilo_event;
 
 #[async_trait]
 pub trait CodeExecutor: Send + Sync {
@@ -437,6 +448,7 @@ impl ExecutorRegistry {
             "pi" => Arc::new(pi::PiExecutor::new(path.to_string())),
             "mimo" => Arc::new(mimo::MimoExecutor::new(path.to_string())),
             "zhanlu" => Arc::new(zhanlu::ZhanluExecutor::new(path.to_string())),
+            "kilo" => Arc::new(kilo::KiloExecutor::new(path.to_string())),
             _ => return None,
         };
         Some(executor)
@@ -521,6 +533,55 @@ mod tests {
         assert_eq!(parse_executor_type("ZHANLU"), Some(ExecutorType::Zhanlu));
         assert_eq!(parse_executor_type("zhanlucode"), Some(ExecutorType::Zhanlu));
         assert_eq!(parse_executor_type("zl"), Some(ExecutorType::Zhanlu));
+    }
+
+    #[test]
+    fn test_parse_executor_type_kilo() {
+        assert_eq!(parse_executor_type("kilo"), Some(ExecutorType::Kilo));
+        assert_eq!(parse_executor_type("KILO"), Some(ExecutorType::Kilo));
+        assert_eq!(parse_executor_type("Kilo"), Some(ExecutorType::Kilo));
+        assert_eq!(parse_executor_type(" kilo "), Some(ExecutorType::Kilo));
+    }
+
+    #[test]
+    fn test_find_executor_kilo() {
+        let def = find_executor("kilo").expect("kilo should be found");
+        assert_eq!(def.name, "kilo");
+        assert_eq!(def.binary_name, "kilo");
+        assert_eq!(def.display_name, "Kilo");
+        assert_eq!(def.default_path, "kilo");
+        assert_eq!(def.session_dir, "~/.kilo");
+        assert!(def.aliases.is_empty());
+        assert_eq!(def.executor_type, ExecutorType::Kilo);
+    }
+
+    #[test]
+    fn test_resumable_executors_contains_kilo() {
+        assert!(RESUMABLE_EXECUTORS.contains(&"kilo"),
+            "kilo should be in RESUMABLE_EXECUTORS; current list: {:?}", RESUMABLE_EXECUTORS);
+    }
+
+    #[test]
+    fn test_create_executor_kilo_returns_kilo_type() {
+        let executor = ExecutorRegistry::create_executor("kilo", "/usr/local/bin/kilo")
+            .expect("create_executor(\"kilo\", ...) should return Some");
+        assert_eq!(executor.executor_type(), ExecutorType::Kilo);
+        assert_eq!(executor.executable_path(), "/usr/local/bin/kilo");
+    }
+
+    #[test]
+    fn test_create_executor_kilo_supports_resume() {
+        let executor = ExecutorRegistry::create_executor("kilo", "kilo").unwrap();
+        assert!(executor.supports_resume(), "Kilo executor should support resume");
+    }
+
+    #[test]
+    fn test_kilo_has_no_aliases() {
+        // Kilo intentionally has no aliases: only "kilo" maps to Kilo
+        assert_eq!(find_executor("kilo").unwrap().aliases.len(), 0);
+        // Sanity-check: a made-up alias does not accidentally resolve
+        assert!(parse_executor_type("kc").is_none(),
+            "\"kc\" should not resolve to any executor including Kilo");
     }
 
     #[test]
