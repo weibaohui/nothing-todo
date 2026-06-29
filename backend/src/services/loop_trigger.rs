@@ -255,6 +255,16 @@ impl LoopTriggerDispatcher {
         &self,
         loop_id: i64,
     ) -> Option<i64> {
+        let meta = serde_json::json!({ "source": "manual" });
+        self.dispatch_manual_with_meta(loop_id, meta).await
+    }
+
+    /// 手动触发（带自定义 meta）：trigger_id 为 None，支持传入 params 等元数据。
+    pub async fn dispatch_manual_with_meta(
+        &self,
+        loop_id: i64,
+        trigger_meta: serde_json::Value,
+    ) -> Option<i64> {
         let loop_ = self.ctx.db.get_loop(loop_id).await.ok().flatten();
         if loop_.is_none() {
             return None;
@@ -266,8 +276,7 @@ impl LoopTriggerDispatcher {
             );
             return None;
         }
-        let meta = serde_json::json!({ "source": "manual" });
-        let id = self.spawn_run(loop_id, None, "manual", meta).await;
+        let id = self.spawn_run(loop_id, None, "manual", trigger_meta).await;
         if id > 0 { Some(id) } else { None }
     }
 

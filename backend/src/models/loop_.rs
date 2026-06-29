@@ -432,7 +432,7 @@ pub struct TriggerLoopRequest {
     pub params: std::collections::HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateTriggerRequest {
     pub trigger_type: String,
     #[serde(default = "default_trigger_config")]
