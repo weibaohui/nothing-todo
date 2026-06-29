@@ -224,3 +224,24 @@ export async function batchCopyLoopsWorkspace(
 ): Promise<{ updated_count: number; total: number }> {
   return unwrap(await api.post('/api/loops/batch-copy-workspace', { ids, workspace_id }));
 }
+
+
+// ====== Loop 导入导出 ======
+
+/** 导出单个环路为 YAML */
+export async function exportLoop(id: number): Promise<string> {
+  const response = await fetch(`/api/loops/${id}/export`);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.text();
+}
+
+/** 批量导出选中的环路 */
+export async function exportLoopsSelected(ids: number[]): Promise<string> {
+  const response = await fetch('/api/loops/export-selected', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/x-yaml' },
+    body: JSON.stringify({ loop_ids: ids }),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.text();
+}

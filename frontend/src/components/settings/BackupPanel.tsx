@@ -6,6 +6,7 @@ import yaml from 'js-yaml';
 import { TodoBackupTab } from './backup/TodoBackupTab';
 import { SkillBackupTab } from './backup/SkillBackupTab';
 import { DatabaseBackupTab } from './backup/DatabaseBackupTab';
+import { LoopBackupTab } from './backup/LoopBackupTab';
 import { ImportExportModals, BackupDataYaml, ImportItem } from './backup/ImportExportModals';
 
 export function BackupPanel() {
@@ -472,6 +473,13 @@ export function BackupPanel() {
                 onDeleteBackup={handleDeleteSkillBackup}
                 onDownloadBackupFile={handleDownloadSkillBackupFile}
               />
+            ),
+          },
+          {
+            key: 'loop',
+            label: '环路备份',
+            children: (
+              <LoopBackupTab />
             ),
           },
           {
