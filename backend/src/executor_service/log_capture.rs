@@ -219,7 +219,7 @@ where
 
         while let Ok(Some(line)) = reader.next_line().await {
             // 优先尝试用 EventPipeline 解析
-            if let Some(mut parsed) =
+            if let Some(parsed) =
                 try_parse_with_pipeline(&mut pipeline, &line, &tx_clone, &tid)
             {
                 // 从 EventPipeline 的元数据获取 session_id 并更新 DB
