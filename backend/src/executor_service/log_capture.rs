@@ -18,20 +18,52 @@ use tokio::task::JoinHandle;
 
 use crate::adapters::CodeExecutor;
 use crate::db::Database;
-use crate::execution_events::{DbLogEntry, EventPipeline, ExecutionEvent};
+use crate::execution_events::{
+    ClaudeCodeExtractor, CodexExtractor, DbLogEntry, DefaultExtractor, EventPipeline,
+    ExecutionEvent, HermesExtractor, KiloExtractor, KimiExtractor, OpencodeExtractor,
+    PiExtractor,
+};
 use crate::handlers::ExecEvent;
 use crate::log_flusher::LogFlusher;
-use crate::models::ParsedLogEntry;
+use crate::models::{ExecutorType, ParsedLogEntry};
 
 /// 触发 `Output` 事件的 helper：忽略 send 失败（无订阅者 = 没人想看，不算错误）。
 pub(crate) fn send_event(tx: &broadcast::Sender<ExecEvent>, event: ExecEvent) {
     let _ = tx.send(event);
 }
 
-/// 根据执行器类型创建对应的 EventPipeline
+/// 根据执行器类型创建对应的 EventPipeline（含专用提取器）
 fn create_pipeline_for_executor(executor: &dyn CodeExecutor) -> Option<EventPipeline> {
     let executor_type = executor.executor_type();
-    Some(EventPipeline::new(executor_type.as_str()))
+
+    // 根据执行器类型选择合适的提取器
+    let pipeline = match executor_type {
+        ExecutorType::Claudecode => {
+            EventPipeline::with_extractor(ClaudeCodeExtractor::new())
+        }
+        ExecutorType::Kilo => {
+            EventPipeline::with_extractor(KiloExtractor::new())
+        }
+        ExecutorType::Opencode => {
+            EventPipeline::with_extractor(OpencodeExtractor::new())
+        }
+        ExecutorType::Codex => {
+            EventPipeline::with_extractor(CodexExtractor::new())
+        }
+        ExecutorType::Hermes => {
+            EventPipeline::with_extractor(HermesExtractor::new())
+        }
+        ExecutorType::Kimi => {
+            EventPipeline::with_extractor(KimiExtractor::new())
+        }
+        ExecutorType::Pi => {
+            EventPipeline::with_extractor(PiExtractor::new())
+        }
+        // 其他执行器使用默认提取器（纯文本兜底）
+        _ => EventPipeline::new(executor_type.as_str()),
+    };
+
+    Some(pipeline)
 }
 
 /// 将 ExecutionEvent 转换为 ParsedLogEntry 并发送 Output 事件

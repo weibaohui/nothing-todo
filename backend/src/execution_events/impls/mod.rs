@@ -9,6 +9,7 @@ pub mod hermes;
 pub mod kilo;
 pub mod kimi;
 pub mod opencode;
+pub mod pi;
 
 pub use claude_code::ClaudeCodeExtractor;
 pub use codex::CodexExtractor;
@@ -17,3 +18,4 @@ pub use hermes::HermesExtractor;
 pub use kilo::KiloExtractor;
 pub use kimi::KimiExtractor;
 pub use opencode::OpencodeExtractor;
+pub use pi::PiExtractor;

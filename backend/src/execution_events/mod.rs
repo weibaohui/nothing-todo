@@ -31,4 +31,7 @@ pub use metadata::ExecutionMetadata;
 pub use extractor::EventExtractor;
 pub use pipeline::EventPipeline;
 pub use db_adapter::DbLogEntry;
-pub use impls::{ClaudeCodeExtractor, DefaultExtractor, KiloExtractor, OpencodeExtractor};
+pub use impls::{
+    ClaudeCodeExtractor, CodexExtractor, DefaultExtractor, HermesExtractor,
+    KiloExtractor, KimiExtractor, OpencodeExtractor, PiExtractor,
+};
