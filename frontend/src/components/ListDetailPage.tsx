@@ -46,16 +46,21 @@ export function ListDetailPage({
     setSidebarCollapsed(v => !v);
   };
 
+  // 左侧标题后的折叠按钮 — 将侧边栏的展开/折叠控制放在标题后方，
+  // 而非右侧操作区，方便用户快速切换列表可见性。
+  const collapseBtn = (
+    <Button
+      type="text"
+      size="small"
+      icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+      onClick={toggleSidebar}
+      style={{ padding: '0 4px' }}
+    />
+  );
+
   const headerExtra = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       {extra}
-      <Button
-        type="text"
-        size="small"
-        icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-        onClick={toggleSidebar}
-        style={{ padding: '0 4px' }}
-      />
     </div>
   );
 
@@ -63,6 +68,7 @@ export function ListDetailPage({
     <PageCard
       icon={icon}
       title={title}
+      titleSuffix={collapseBtn}
       extra={headerExtra}
       className="list-detail-page-card"
       style={{ height: '100%', flex: 1, minWidth: 0 }}
@@ -92,23 +98,27 @@ export function ListDetailPage({
           </div>
         )}
         {sidebarCollapsed && (
+          /* 侧边栏折叠时显示红黄蓝三色圆点，提示此处有列表内容可点击展开 */
           <div
             style={{
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               gap: 4,
-              opacity: 0.4,
             }}
           >
-            {[...Array(3)].map((_, i) => (
+            {[
+              'var(--color-red, #ff4d4f)',
+              'var(--color-yellow, #fadb14)',
+              'var(--color-blue, #1677ff)',
+            ].map((color, i) => (
               <div
                 key={i}
                 style={{
                   width: 4,
                   height: 4,
                   borderRadius: '50%',
-                  background: 'var(--color-text-tertiary)',
+                  background: color,
                 }}
               />
             ))}

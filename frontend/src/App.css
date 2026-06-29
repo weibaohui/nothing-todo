@@ -4447,6 +4447,13 @@ code {
   white-space: nowrap;
 }
 
+/* 标题后缀元素（如折叠按钮），紧跟在标题文字后、位于标题栏左侧区域 */
+.ntd-page-card-title-suffix {
+  display: flex;
+  align-items: center;
+  margin-left: 2px;
+}
+
 .ntd-page-card-extra {
   display: flex;
   align-items: center;
