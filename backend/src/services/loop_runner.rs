@@ -424,6 +424,19 @@ impl LoopRunner {
         // 否则 cwd/worktree 无法统一，跨空间数据流会导致不可预期的行为。
         self.check_workspace_consistency(&loop_, &all_steps).await?;
 
+        // 4. 加载 trigger_meta 中的 params（从 CLI/外部传入的变量）
+        let trigger_params: HashMap<String, String> = {
+            if let Ok(Some(exec)) = self.ctx.db.get_loop_execution(loop_execution_id).await {
+                if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&exec.trigger_meta) {
+                    if let Some(params) = meta.get("params").and_then(|v| v.as_object()) {
+                        params.iter()
+                            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                            .collect()
+                    } else { HashMap::new() }
+                } else { HashMap::new() }
+            } else { HashMap::new() }
+        };
+
         // 4. 初始化（全新执行）或恢复状态（续跑）
         let is_resume = resume_step_idx.is_some();
         if !is_resume {
@@ -579,7 +592,7 @@ impl LoopRunner {
 
             // 4f. 执行
             let record_id = match self
-                .start_step_todo_with_prompt(&todo, &trigger_type, idx as i64, step_exec.id, &enhanced_prompt, loop_.workspace_path.clone())
+                .start_step_todo_with_prompt(&todo, &trigger_type, idx as i64, step_exec.id, &enhanced_prompt, loop_.workspace_path.clone(), &trigger_params)
                 .await
             {
                 Ok(rid) => rid,
@@ -741,6 +754,7 @@ impl LoopRunner {
     }
 
     /// 启动 step 的执行，使用增强后的 Prompt。
+    /// trigger_params 是从 CLI/外部传入的变量，会合并到 params 中供 prompt 占位符替换。
     async fn start_step_todo_with_prompt(
         &self,
         todo: &crate::models::Todo,
@@ -749,7 +763,11 @@ impl LoopRunner {
         step_exec_id: i64,
         enhanced_prompt: &str,
         workspace_path: Option<String>,
+        trigger_params: &HashMap<String, String>,
     ) -> Result<i64, String> {
+        // 合并 trigger_params（CLI 传入的外部变量）和内置的 loop_step_index
+        let mut params = trigger_params.clone();
+        params.insert("loop_step_index".to_string(), loop_idx.to_string());
         let request = RunTodoExecutionRequest {
             db: self.ctx.db.clone(),
             executor_registry: self.ctx.executor_registry.clone(),
@@ -762,11 +780,7 @@ impl LoopRunner {
             message: enhanced_prompt.to_string(),
             req_executor: todo.executor.clone(),
             trigger_type: format!("loop_stage:{}", trigger_type),
-            params: Some({
-                let mut p = HashMap::new();
-                p.insert("loop_step_index".to_string(), loop_idx.to_string());
-                p
-            }),
+            params: Some(params),
             resume_session_id: None,
             resume_message: None,
             source_todo_id: None,

@@ -29,7 +29,7 @@ use crate::models::{
     LoopDetail, LoopDto, LoopExecutionDetail, LoopExecutionDto, LoopExecutionTokenSummary,
     LoopListItem, LoopStepDto, LoopStepExecutionDto, LoopTriggerDto, ReorderLoopStepsRequest,
     UpdateLoopRequest, UpdateLoopStatusRequest, UpdateLoopStepRequest,
-    UpdateTriggerRequest, ApproveStepExecutionRequest, UpdateTagsRequest,
+    UpdateTriggerRequest, ApproveStepExecutionRequest, UpdateTagsRequest, TriggerLoopRequest,
 };
 
 const DEFAULT_PAGE_LIMIT: u64 = 20;
@@ -253,12 +253,18 @@ pub async fn update_loop_tags(
 pub async fn trigger_loop(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    Json(req): Json<TriggerLoopRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let dispatcher = state
         .loop_trigger_dispatcher
         .as_ref()
         .ok_or_else(|| AppError::Internal("loop dispatcher not ready".to_string()))?;
-    match dispatcher.dispatch_manual(id).await {
+    // 将 params 存入 trigger_meta，供后续 step prompt 替换使用
+    let trigger_meta = serde_json::json!({
+        "source": "manual",
+        "params": req.params,
+    });
+    match dispatcher.dispatch_manual_with_meta(id, trigger_meta).await {
         Some(exec_id) => Ok(ApiResponse::ok(serde_json::json!({
             "execution_id": exec_id,
         }))),
