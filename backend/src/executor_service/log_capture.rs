@@ -104,35 +104,43 @@ fn emit_execution_event(
     parsed
 }
 
-/// 尝试用 EventPipeline 解析一行，转换为 ParsedLogEntry
+/// 尝试用 EventPipeline 解析一行，返回所有新事件的 ParsedLogEntry 列表
 ///
-/// 如果 EventPipeline 没有产生有效事件，返回 None。
+/// 如果 EventPipeline 没有产生有效事件，返回空 Vec。
 fn try_parse_with_pipeline(
     pipeline: &mut EventPipeline,
     line: &str,
     tx: &broadcast::Sender<ExecEvent>,
     task_id: &str,
-) -> Option<ParsedLogEntry> {
+) -> Vec<ParsedLogEntry> {
     let line_trimmed = line.trim();
     if line_trimmed.is_empty() {
-        return None;
+        return Vec::new();
     }
+
+    // 记录 feed 前的事件数，便于取出本次新增的所有事件
+    let len_before = pipeline.len();
 
     // 用 pipeline 处理
     pipeline.feed(line_trimmed);
 
-    // 检查是否有新事件
-    if let Some(event) = pipeline.latest_event() {
-        // 过滤掉纯信息类型，只保留有意义的结构化事件
+    // 取出本次新增的所有事件
+    let new_events: Vec<&ExecutionEvent> = pipeline.events()[len_before..].iter().collect();
+    if new_events.is_empty() {
+        return Vec::new();
+    }
+
+    let mut results = Vec::new();
+    for event in &new_events {
         match event {
             ExecutionEvent::Info { message } => {
                 // 空的或纯 JSON 行作为 info，不转发
                 if message.starts_with('{') || message.is_empty() {
-                    return None;
+                    continue;
                 }
                 // 非 JSON 的普通 info 也转发
                 let parsed = emit_execution_event(event, tx, task_id);
-                return Some(parsed);
+                results.push(parsed);
             }
             ExecutionEvent::Error { .. }
             | ExecutionEvent::Thinking { .. }
@@ -147,40 +155,38 @@ fn try_parse_with_pipeline(
             | ExecutionEvent::StepStart { .. }
             | ExecutionEvent::StepFinish { .. } => {
                 let parsed = emit_execution_event(event, tx, task_id);
-                return Some(parsed);
+                results.push(parsed);
             }
             // 其他类型不转发
             ExecutionEvent::User { .. }
             | ExecutionEvent::System { .. }
             | ExecutionEvent::SessionEnd { .. }
             | ExecutionEvent::ModelSwitch { .. }
-            | ExecutionEvent::Progress { .. } => {
-                return None;
-            }
+            | ExecutionEvent::Progress { .. } => {}
         }
     }
-    None
+    results
 }
 
-/// 尝试用 EventPipeline 解析 stderr 行
+/// 尝试用 EventPipeline 解析 stderr 行，返回所有新事件的 ParsedLogEntry 列表
 fn try_parse_stderr_with_pipeline(
     pipeline: &mut EventPipeline,
     line: &str,
     tx: &broadcast::Sender<ExecEvent>,
     task_id: &str,
-) -> Option<ParsedLogEntry> {
+) -> Vec<ParsedLogEntry> {
     let line_trimmed = line.trim();
     if line_trimmed.is_empty() {
-        return None;
+        return Vec::new();
     }
 
+    let len_before = pipeline.len();
     pipeline.feed_stderr(line_trimmed);
 
-    if let Some(event) = pipeline.latest_event() {
-        let parsed = emit_execution_event(event, tx, task_id);
-        return Some(parsed);
-    }
-    None
+    pipeline.events()[len_before..]
+        .iter()
+        .map(|event| emit_execution_event(event, tx, task_id))
+        .collect()
 }
 
 /// 启动一个 stderr reader 任务：逐行读 stderr -> 经 executor 解析 -> 推入 LogFlusher。
@@ -206,10 +212,13 @@ where
             let mut reader = BufReader::new(stderr_reader).lines();
             while let Ok(Some(line)) = reader.next_line().await {
                 // 优先尝试用 EventPipeline 解析
-                if let Some(parsed) =
-                    try_parse_stderr_with_pipeline(&mut pipeline, &line, &tx, &task_id)
-                {
-                    log_flusher.push(parsed).await;
+                let parsed_list =
+                    try_parse_stderr_with_pipeline(&mut pipeline, &line, &tx, &task_id);
+
+                if !parsed_list.is_empty() {
+                    for parsed in parsed_list {
+                        log_flusher.push(parsed).await;
+                    }
                     continue;
                 }
 
@@ -225,6 +234,14 @@ where
                         entry,
                     },
                 );
+            }
+
+            // 循环结束，finalize pipeline 并 flush 剩余事件
+            let len_before = pipeline.len();
+            pipeline.finalize();
+            for event in &pipeline.events()[len_before..] {
+                let parsed = emit_execution_event(event, &tx, &task_id);
+                log_flusher.push(parsed).await;
             }
         })
     })
@@ -270,35 +287,38 @@ where
 
         while let Ok(Some(line)) = reader.next_line().await {
             // 优先尝试用 EventPipeline 解析
-            if let Some(parsed) =
-                try_parse_with_pipeline(&mut pipeline, &line, &tx_clone, &tid)
-            {
-                // 从 EventPipeline 的元数据获取 session_id 并更新 DB
-                if !session_id_updated {
-                    if let Some(sid) = pipeline.metadata().session_id.clone() {
-                        let _ = db_for_todo
-                            .update_execution_record_session_id(rid, &sid)
-                            .await;
-                        session_id_updated = true;
+            let parsed_list =
+                try_parse_with_pipeline(&mut pipeline, &line, &tx_clone, &tid);
+
+            if !parsed_list.is_empty() {
+                for parsed in parsed_list {
+                    // 从 EventPipeline 的元数据获取 session_id 并更新 DB
+                    if !session_id_updated {
+                        if let Some(sid) = pipeline.metadata().session_id.clone() {
+                            let _ = db_for_todo
+                                .update_execution_record_session_id(rid, &sid)
+                                .await;
+                            session_id_updated = true;
+                        }
                     }
+
+                    // todo_progress：写库 + 发事件
+                    emit_todo_progress_if_present(&db_for_todo, &tx_clone, &tid, rid, &parsed).await;
+
+                    // 统计：工具调用必发；普通日志每 10 条发一次。
+                    log_count += 1;
+                    maybe_emit_execution_stats(
+                        &log_flusher_for_stdout,
+                        &tx_clone,
+                        &tid,
+                        &parsed,
+                        log_count,
+                    )
+                    .await;
+
+                    // 推入 flusher：内部 CAS 触发后台 flush。
+                    log_flusher_for_stdout.push(parsed).await;
                 }
-
-                // todo_progress：写库 + 发事件
-                emit_todo_progress_if_present(&db_for_todo, &tx_clone, &tid, rid, &parsed).await;
-
-                // 统计：工具调用必发；普通日志每 10 条发一次。
-                log_count += 1;
-                maybe_emit_execution_stats(
-                    &log_flusher_for_stdout,
-                    &tx_clone,
-                    &tid,
-                    &parsed,
-                    log_count,
-                )
-                .await;
-
-                // 推入 flusher：内部 CAS 触发后台 flush。
-                log_flusher_for_stdout.push(parsed).await;
                 continue;
             }
 
@@ -341,6 +361,14 @@ where
                     entry: parsed,
                 },
             );
+        }
+
+        // 循环结束，finalize pipeline 并 flush 剩余事件（SessionEnd 等）
+        let len_before = pipeline.len();
+        pipeline.finalize();
+        for event in &pipeline.events()[len_before..] {
+            let parsed = emit_execution_event(event, &tx_clone, &tid);
+            log_flusher_for_stdout.push(parsed).await;
         }
     }))
 }
