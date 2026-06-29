@@ -21,7 +21,7 @@ use axum::{
     response::IntoResponse,
     body::Bytes,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::handlers::{AppError, AppState};
 use crate::models::{
@@ -1279,6 +1279,286 @@ pub async fn import_loops(
     Ok(ApiResponse::ok(response))
 }
 
+/// POST /api/loops/merge — 执行合并导入
+#[derive(Deserialize)]
+pub struct MergeLoopRequest {
+    pub yaml: String,
+    pub workspace_id: i64,
+    /// 冲突解决策略: "overwrite" | "rename" | "skip"
+    pub conflict_resolution: std::collections::HashMap<String, String>,
+}
+
+#[derive(Serialize)]
+pub struct MergeLoopResponse {
+    pub success: bool,
+    pub created: LoopImportCreatedCounts,
+    pub updated: LoopImportCreatedCounts,
+    pub skipped: Vec<String>,
+    pub warnings: Vec<LoopImportWarning>,
+}
+
+pub async fn merge_loops(
+    State(state): State<AppState>,
+    Json(req): Json<MergeLoopRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    // 解析 YAML
+    let data: LoopExportData = serde_yaml::from_str(&req.yaml)
+        .map_err(|e| AppError::BadRequest(format!("Invalid YAML: {}", e)))?;
+
+    // 基本校验
+    if data.loops.is_empty() {
+        return Err(AppError::BadRequest("No loops in export file".to_string()));
+    }
+
+    // 验证工作空间存在
+    let workspace = state.db.get_project_directory_by_id(req.workspace_id).await?
+        .ok_or_else(|| AppError::BadRequest(format!("Workspace {} not found", req.workspace_id)))?;
+
+    // 构建伪ID -> 真实ID 的映射表
+    let mut tag_pseudo_to_real: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let mut template_pseudo_to_real: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let mut todo_pseudo_to_real: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let mut loop_pseudo_to_real: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let mut step_pseudo_to_real: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+
+    let mut created_counts = LoopImportCreatedCounts {
+        loops: 0, todos: 0, review_templates: 0, tags: 0, triggers: 0, steps: 0,
+    };
+    let mut updated_counts = LoopImportCreatedCounts {
+        loops: 0, todos: 0, review_templates: 0, tags: 0, triggers: 0, steps: 0,
+    };
+    let mut skipped: Vec<String> = Vec::new();
+    let mut warnings: Vec<LoopImportWarning> = Vec::new();
+
+    // 阶段1: 合并标签（按name匹配，同名复用）
+    for tag in &data.tags {
+        // 查找同名标签
+        if let Some(existing_id) = state.db.find_tag_by_name(&tag.name).await? {
+            tag_pseudo_to_real.insert(tag.id.clone(), existing_id);
+        } else {
+            let tag_id = state.db.create_tag(&tag.name, &tag.color).await?;
+            tag_pseudo_to_real.insert(tag.id.clone(), tag_id);
+            created_counts.tags += 1;
+        }
+    }
+
+    // 阶段2: 合并评审模板（按name匹配，存在则覆盖）
+    for tmpl in &data.review_templates {
+        if let Some(existing) = state.db.get_review_template_by_name(&tmpl.name).await? {
+            // 存在则更新
+            let input = ReviewTemplateInput {
+                name: tmpl.name.clone(),
+                description: tmpl.description.clone(),
+                prompt: tmpl.prompt.clone(),
+                workspace_id: Some(req.workspace_id),
+            };
+            state.db.update_review_template(existing.id, &input).await?;
+            template_pseudo_to_real.insert(tmpl.id.clone(), existing.id);
+            updated_counts.review_templates += 1;
+        } else {
+            let input = ReviewTemplateInput {
+                name: tmpl.name.clone(),
+                description: tmpl.description.clone(),
+                prompt: tmpl.prompt.clone(),
+                workspace_id: Some(req.workspace_id),
+            };
+            let new_id = state.db.create_review_template(&input).await?;
+            template_pseudo_to_real.insert(tmpl.id.clone(), new_id);
+            created_counts.review_templates += 1;
+        }
+    }
+
+    // 阶段3: 合并Todo（按title+prompt匹配）
+    for todo in &data.todos {
+        // 尝试查找同名Todo
+        if let Some(existing_todo) = state.db.get_todo_by_title(&todo.title).await? {
+            // 存在则复用，不重复创建
+            todo_pseudo_to_real.insert(todo.id.clone(), existing_todo.id);
+        } else {
+            let new_todo_id = state.db.create_todo_with_extras(
+                &todo.title,
+                &todo.prompt,
+                todo.executor.as_deref(),
+                todo.acceptance_criteria.as_deref(),
+                todo.webhook_enabled,
+                req.workspace_id,
+                &workspace.path,
+            ).await?;
+            todo_pseudo_to_real.insert(todo.id.clone(), new_todo_id);
+            created_counts.todos += 1;
+        }
+    }
+
+    // 阶段4: 合并环路（按name匹配，检查冲突解决策略）
+    for loop_export in &data.loops {
+        let conflict_action = req.conflict_resolution.get(&loop_export.name)
+            .cloned()
+            .unwrap_or_else(|| "rename".to_string());
+
+        // 查找同名环路
+        let existing_loop = state.db.list_loops_with_counts(Some(req.workspace_id)).await?
+            .into_iter()
+            .find(|l| l.loop_.name == loop_export.name);
+
+        let (new_loop_id, is_new) = match (existing_loop, conflict_action.as_str()) {
+            // 跳过
+            (Some(_), "skip") => {
+                skipped.push(loop_export.name.clone());
+                continue;
+            }
+            // 覆盖（删除旧环路，用新ID继续创建）
+            (Some(existing), "overwrite") => {
+                state.db.delete_loop(existing.loop_.id).await?;
+                let new_loop_id = create_loop_from_export(
+                    &state, loop_export, req.workspace_id, &workspace.path,
+                    &template_pseudo_to_real, &todo_pseudo_to_real, &tag_pseudo_to_real,
+                ).await?;
+                (new_loop_id, false)
+            }
+            // 重命名（追加后缀）
+            (Some(_), "rename") | (_, "rename") => {
+                let new_loop_id = create_loop_from_export(
+                    &state, loop_export, req.workspace_id, &workspace.path,
+                    &template_pseudo_to_real, &todo_pseudo_to_real, &tag_pseudo_to_real,
+                ).await?;
+                (new_loop_id, false)
+            }
+            // 默认重命名
+            (None, _) => {
+                let new_loop_id = create_loop_from_export(
+                    &state, loop_export, req.workspace_id, &workspace.path,
+                    &template_pseudo_to_real, &todo_pseudo_to_real, &tag_pseudo_to_real,
+                ).await?;
+                (new_loop_id, false)
+            }
+            _ => continue,
+        };
+
+        loop_pseudo_to_real.insert(loop_export.id.clone(), new_loop_id);
+        if is_new {
+            created_counts.loops += 1;
+        } else {
+            updated_counts.loops += 1;
+        }
+    }
+
+    // 刷新scheduler以加载新的cron触发器
+    if let Some(sched) = state.loop_scheduler.as_ref() {
+        let _ = sched.reload_all().await;
+    }
+
+    let response = MergeLoopResponse {
+        success: true,
+        created: created_counts,
+        updated: updated_counts,
+        skipped,
+        warnings,
+    };
+
+    Ok(ApiResponse::ok(response))
+}
+
+/// 从导出数据创建环路（供新建模式和合并模式复用）
+async fn create_loop_from_export(
+    state: &AppState,
+    loop_export: &LoopExportItem,
+    workspace_id: i64,
+    workspace_path: &str,
+    template_pseudo_to_real: &std::collections::HashMap<String, i64>,
+    todo_pseudo_to_real: &std::collections::HashMap<String, i64>,
+    tag_pseudo_to_real: &std::collections::HashMap<String, i64>,
+) -> Result<i64, AppError> {
+    let review_template_id = loop_export.review_template_id.as_ref()
+        .and_then(|tid| template_pseudo_to_real.get(tid))
+        .copied();
+
+    let abnormal_handler_todo_id = loop_export.abnormal_handler_todo_id.as_ref()
+        .and_then(|tid| todo_pseudo_to_real.get(tid))
+        .copied();
+
+    let limits_config = serde_json::to_string(&loop_export.limits_config)
+        .unwrap_or_else(|_| "{}".to_string());
+    let abnormal_handler_trigger_on = serde_json::to_string(&loop_export.abnormal_handler_trigger_on)
+        .unwrap_or_else(|_| "[]".to_string());
+
+    // 合并模式：同名环路名称追加 "-合并"
+    let loop_name = format!("{}-合并", loop_export.name);
+
+    let new_loop = state.db.create_loop(
+        &loop_name,
+        &loop_export.description,
+        Some(workspace_id),
+        Some(workspace_path),
+        loop_export.webhook_enabled,
+        &loop_export.icon,
+        review_template_id,
+        Some(&limits_config),
+        abnormal_handler_todo_id,
+        &abnormal_handler_trigger_on,
+    ).await?;
+
+    // 关联标签
+    for (pseudo_tag_id, _) in loop_export.tag_ids.iter().zip(loop_export.tag_names.iter()) {
+        if let Some(&real_tag_id) = tag_pseudo_to_real.get(pseudo_tag_id) {
+            state.db.set_loop_tags(new_loop.id, &[real_tag_id]).await?;
+        }
+    }
+
+    // 导入触发器
+    for trigger in &loop_export.triggers {
+        state.db.create_trigger(
+            new_loop.id,
+            &trigger.trigger_type,
+            &serde_json::to_string(&trigger.config).unwrap_or_else(|_| "{}".to_string()),
+            trigger.enabled,
+            trigger.priority,
+        ).await?;
+    }
+
+    // 导入步骤（两遍）
+    let mut step_map: Vec<(String, i64)> = Vec::new();
+    for step in &loop_export.steps {
+        let todo_id = todo_pseudo_to_real.get(&step.todo_id)
+            .copied()
+            .ok_or_else(|| AppError::BadRequest(format!("Step '{}' references unknown todo", step.name)))?;
+
+        let new_step = state.db.create_loop_step(
+            new_loop.id,
+            &step.name,
+            &step.description,
+            todo_id,
+            &step.run_mode,
+            step.skip_on_source_failed,
+            step.min_rating,
+            &step.unrated_policy,
+            step.enabled,
+            &step.on_success,
+            None,  // goto 第二遍
+            &step.on_rating_fail,
+            None,  // goto 第二遍
+            &step.review_type,
+        ).await?;
+
+        step_map.push((step.id.clone(), new_step.id));
+    }
+
+    // 第二遍：修复goto引用
+    for step in &loop_export.steps {
+        if let Some(&new_step_id) = step_map.iter().find(|(id, _)| id == &step.id).map(|(_, id)| id) {
+            let success_goto = step.success_goto_step_id.as_ref()
+                .and_then(|sid| step_map.iter().find(|(sid2, _)| sid2 == sid).map(|(_, id)| *id));
+            let fail_goto = step.fail_goto_step_id.as_ref()
+                .and_then(|sid| step_map.iter().find(|(sid2, _)| sid2 == sid).map(|(_, id)| *id));
+
+            if success_goto.is_some() || fail_goto.is_some() {
+                state.db.update_loop_step_goto(new_step_id, success_goto, fail_goto).await?;
+            }
+        }
+    }
+
+    Ok(new_loop.id)
+}
+
 /// 构建环路导出的 YAML 内容
 /// 收集所有依赖实体（标签、评审模板、Todo）并生成伪ID
 async fn build_loop_export_yaml(
@@ -1588,4 +1868,5 @@ pub fn loop_routes() -> axum::Router<AppState> {
         // 导入导出
         .route("/api/loops/import/preview", post(import_preview))
         .route("/api/loops/import", post(import_loops))
+        .route("/api/loops/merge", post(merge_loops))
 }
