@@ -862,6 +862,7 @@ pub enum ExecutorType {
     Pi,
     Mimo,
     Zhanlu,
+    Kilo,
 }
 
 
@@ -880,6 +881,7 @@ impl ExecutorType {
             ExecutorType::Pi => "pi",
             ExecutorType::Mimo => "mimo",
             ExecutorType::Zhanlu => "zhanlu",
+            ExecutorType::Kilo => "kilo",
         }
     }
 }

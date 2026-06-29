@@ -129,14 +129,15 @@ fn executor_label(et: ExecutorType) -> &'static str {
         ExecutorType::Pi => "Pi",
         ExecutorType::Mimo => "MiMo",
         ExecutorType::Zhanlu => "Zhanlu",
+        ExecutorType::Kilo => "Kilo",
     }
 }
 
 // 保留 ALL_EXECUTORS 供其他可能用到的代码；新代码请用 ALL_SKILL_SOURCES
-// 12 = 10 个旧执行器 + Mimo (PR #669) + Issue #673 新增的 Zhanlu
+// 13 = 12 个旧执行器 + 新增的 Kilo
 // 注意：加新执行器必须同时更新下面数组与本注释的计数，否则会出现 H1 同型错位。
 #[allow(dead_code)]
-const ALL_EXECUTORS: [ExecutorType; 12] = [
+const ALL_EXECUTORS: [ExecutorType; 13] = [
     ExecutorType::Claudecode,
     ExecutorType::Hermes,
     ExecutorType::Codex,
@@ -149,6 +150,7 @@ const ALL_EXECUTORS: [ExecutorType; 12] = [
     ExecutorType::Pi,
     ExecutorType::Mimo,
     ExecutorType::Zhanlu,
+    ExecutorType::Kilo,
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

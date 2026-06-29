@@ -134,9 +134,6 @@ pub static EXECUTORS: &[ExecutorDef] = &[
         aliases: &["mimocode"],
     },
     ExecutorDef {
-        // Zhanlu: Issue #673 新增的执行器，行为与 opencode 完全一致。
-        // binary_name / default_path 都走 PATH 解析（统一为 `zl`），
-        // session 目录是 ~/.local/share/zhanlu/storage。
         name: "zhanlu",
         executor_type: ExecutorType::Zhanlu,
         binary_name: "zl",
@@ -145,10 +142,22 @@ pub static EXECUTORS: &[ExecutorDef] = &[
         session_dir: "~/.local/share/zhanlu/storage",
         aliases: &["zhanlucode", "zl"],
     },
+    ExecutorDef {
+        // Kilo: 与 Opencode/Zhanlu 一致的开源 AI 编程执行器。
+        // binary_name / default_path 都走 PATH 解析（统一为 `kilo`），
+        // session 目录是 ~/.kilo。
+        name: "kilo",
+        executor_type: ExecutorType::Kilo,
+        binary_name: "kilo",
+        display_name: "Kilo",
+        default_path: "kilo",
+        session_dir: "~/.kilo",
+        aliases: &[],
+    },
 ];
 
 /// 支持继续对话的执行器集合（与前端 RESUMABLE_EXECUTORS 保持一致）
-pub const RESUMABLE_EXECUTORS: &[&str] = &["claudecode", "kimi", "opencode", "mobilecoder", "hermes", "codewhale", "pi", "mimo", "zhanlu"];
+pub const RESUMABLE_EXECUTORS: &[&str] = &["claudecode", "kimi", "opencode", "mobilecoder", "hermes", "codewhale", "pi", "mimo", "zhanlu", "kilo"];
 
 /// 默认执行器
 pub const DEFAULT_EXECUTOR: &str = "claudecode";
@@ -303,6 +312,8 @@ pub mod mimo;
 pub mod mimo_event;
 pub mod zhanlu;
 pub mod zhanlu_event;
+pub mod kilo;
+pub mod kilo_event;
 
 #[async_trait]
 pub trait CodeExecutor: Send + Sync {
@@ -437,6 +448,7 @@ impl ExecutorRegistry {
             "pi" => Arc::new(pi::PiExecutor::new(path.to_string())),
             "mimo" => Arc::new(mimo::MimoExecutor::new(path.to_string())),
             "zhanlu" => Arc::new(zhanlu::ZhanluExecutor::new(path.to_string())),
+            "kilo" => Arc::new(kilo::KiloExecutor::new(path.to_string())),
             _ => return None,
         };
         Some(executor)
