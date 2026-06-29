@@ -95,10 +95,24 @@ impl CodebuddyExtractor {
                         for block in content {
                             let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
                             if block_type == "tool_result" || block_type == "toolResult" {
-                                let output = block.get("content").and_then(|v| v.as_str()).unwrap_or_default();
+                                // tool_result 的 content 可能是字符串或数组
+                                // 例如: "content":"plain text" 或 "content":[{"type":"text","text":"..."}]
+                                let output = block.get("content")
+                                    .and_then(|v| {
+                                        v.as_str().map(String::from).or_else(|| {
+                                            // 数组格式：从所有 text block 中拼接
+                                            v.as_array().map(|arr| {
+                                                arr.iter()
+                                                    .filter_map(|item| item.get("text").and_then(|t| t.as_str()))
+                                                    .collect::<Vec<_>>()
+                                                    .join("\n")
+                                            })
+                                        })
+                                    })
+                                    .unwrap_or_default();
                                 events.push(ExecutionEvent::ToolResult {
                                     call_id: block.get("tool_use_id").or_else(|| block.get("toolUseId")).and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                                    output: output.to_string(),
+                                    output,
                                     is_error: block.get("is_error").or_else(|| block.get("isError")).and_then(|v| v.as_bool()).unwrap_or(false),
                                 });
                             }

@@ -226,6 +226,9 @@ impl PiExtractor {
                 // 消息开始信号：重置 pending 状态
                 self.pending_tool_calls.clear();
             }
+            "agent_start" | "turn_start" => {
+                // agent/turn 开始信号：无事件，仅状态标记
+            }
             "message_update" => {
                 // 增量消息更新：检查 assistantMessageEvent 的子类型
                 if let Some(ame) = json.get("assistantMessageEvent") {
@@ -290,8 +293,8 @@ impl PiExtractor {
                                 }
                             }
                         }
-                        "toolcall_delta" | "thinking_delta" | "text_delta" => {
-                            // 增量内容，还未完成，跳过
+                        "toolcall_delta" | "toolcall_start" | "thinking_start" | "thinking_delta" | "text_delta" => {
+                            // 增量或开始信号，还未完成，跳过
                         }
                         _ => {
                             // 未知子类型，作为 info 保留
