@@ -1,0 +1,47 @@
+# Mimo 输出样本
+
+Mimo 输出 JSONL（每行一个 JSON 对象），使用**下划线**分隔的事件类型名。
+
+## 事件类型总览
+
+| 事件类型 | 含义 | 关键字段 |
+|---------|------|---------|
+| `step_start` | 步骤开始 | `timestamp`, `sessionID` |
+| `text` | 文本回复 | `part.text` |
+| `reasoning` | 思考过程 | `part.text`（截断 500 字符） |
+| `tool_use` | 工具调用 | `part.tool`, `part.state.input`, `part.state.output` |
+| `step_finish` | 步骤结束 | `part.tokens`, `part.cost` |
+
+## 样本输出
+
+```
+{"type":"step_start","timestamp":1700000000000,"sessionID":"ses_mimo_001"}
+```
+
+```
+{"type":"text","timestamp":1700000000001,"sessionID":"ses_mimo_001","part":{"type":"text","text":"I will help you with that."}}
+```
+
+```
+{"type":"reasoning","timestamp":1700000000002,"sessionID":"ses_mimo_001","part":{"type":"reasoning","text":"Let me think about the best approach..."}}
+```
+
+```
+{"type":"tool_use","timestamp":1700000000003,"sessionID":"ses_mimo_001","part":{"type":"tool_use","tool":"bash","state":{"status":"running","input":{"description":"list files","command":"ls -la"}}}}
+```
+
+```
+{"type":"step_finish","timestamp":1700000000004,"sessionID":"ses_mimo_001","part":{"type":"step_finish","tokens":{"total":100,"input":50,"output":50,"cache":{"read":10,"write":5}},"cost":0.001}}
+```
+
+## 完整输出序列
+
+```jsonl
+{"type":"step_start","timestamp":1700000000000,"sessionID":"ses_mimo_001"}
+{"type":"text","timestamp":1700000000001,"sessionID":"ses_mimo_001","part":{"type":"text","text":"I'll help you list the files."}}
+{"type":"reasoning","timestamp":1700000000002,"sessionID":"ses_mimo_001","part":{"type":"reasoning","text":"I need to run ls to see the files."}}
+{"type":"tool_use","timestamp":1700000000003,"sessionID":"ses_mimo_001","part":{"type":"tool_use","tool":"bash","state":{"status":"running","input":{"description":"list files","command":"ls -la"}}}}
+{"type":"tool_use","timestamp":1700000000004,"sessionID":"ses_mimo_001","part":{"type":"tool_use","tool":"bash","state":{"status":"success","input":{"description":"list files","command":"ls -la"},"output":"file1.txt\nfile2.txt"}}}
+{"type":"text","timestamp":1700000000005,"sessionID":"ses_mimo_001","part":{"type":"text","text":"Here are the files."}}
+{"type":"step_finish","timestamp":1700000000006,"sessionID":"ses_mimo_001","part":{"type":"step_finish","tokens":{"total":200,"input":120,"output":80,"cache":{"read":10,"write":5}},"cost":0.002}}
+```

@@ -19,9 +19,10 @@ use tokio::task::JoinHandle;
 use crate::adapters::CodeExecutor;
 use crate::db::Database;
 use crate::execution_events::{
-    ClaudeCodeExtractor, CodexExtractor, DbLogEntry, DefaultExtractor, EventPipeline,
-    ExecutionEvent, HermesExtractor, KiloExtractor, KimiExtractor, OpencodeExtractor,
-    PiExtractor,
+    AtomcodeExtractor, ClaudeCodeExtractor, CodebuddyExtractor, CodewhaleExtractor,
+    CodexExtractor, DbLogEntry, DefaultExtractor, EventPipeline, ExecutionEvent,
+    HermesExtractor, KiloExtractor, KimiExtractor, MimoExtractor, MobilecoderExtractor,
+    OpencodeExtractor, PiExtractor, ZhanluExtractor,
 };
 use crate::handlers::ExecEvent;
 use crate::log_flusher::LogFlusher;
@@ -58,6 +59,24 @@ fn create_pipeline_for_executor(executor: &dyn CodeExecutor) -> Option<EventPipe
         }
         ExecutorType::Pi => {
             EventPipeline::with_extractor(PiExtractor::new())
+        }
+        ExecutorType::Mobilecoder => {
+            EventPipeline::with_extractor(MobilecoderExtractor::new())
+        }
+        ExecutorType::Atomcode => {
+            EventPipeline::with_extractor(AtomcodeExtractor::new())
+        }
+        ExecutorType::Zhanlu => {
+            EventPipeline::with_extractor(ZhanluExtractor::new())
+        }
+        ExecutorType::Codewhale => {
+            EventPipeline::with_extractor(CodewhaleExtractor::new())
+        }
+        ExecutorType::Mimo => {
+            EventPipeline::with_extractor(MimoExtractor::new())
+        }
+        ExecutorType::Codebuddy => {
+            EventPipeline::with_extractor(CodebuddyExtractor::new())
         }
         // 其他执行器使用默认提取器（纯文本兜底）
         _ => EventPipeline::new(executor_type.as_str()),

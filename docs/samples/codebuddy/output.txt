@@ -1,0 +1,45 @@
+# Codebuddy 输出样本
+
+Codebuddy 使用 Claude Protocol 的 JSON 格式（与 ClaudeCode 完全一致）。
+
+## 事件类型总览
+
+| 事件类型 | 含义 | 关键字段 |
+|---------|------|---------|
+| `system` | 系统消息 | `subtype`, `session_id`, `model` |
+| `assistant` | 助手回复 | `message.content[]` (含 text/thinking/tool_use) |
+| `user` | 用户消息 | `message.content[]` (含 tool_result) |
+| `result` | 执行结果 | `result`, `duration_ms`, `total_cost_usd`, `usage` |
+
+## 样本输出
+
+```
+{"type":"system","subtype":"initialized","session_id":"ses_cb_001","model":"claude-sonnet-4"}
+```
+
+```
+{"type":"assistant","message":{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"thinking","thinking":"Let me analyze..."},{"type":"text","text":"Here's the plan."}]}}
+```
+
+```
+{"type":"assistant","message":{"id":"msg_2","type":"message","role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls -la"}}]}}
+```
+
+```
+{"type":"user","message":{"id":"msg_3","type":"message","role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"file1.txt","is_error":false}]}}
+```
+
+```
+{"type":"result","subtype":"success","is_error":false,"duration_ms":2500,"result":"Task done.","total_cost_usd":0.02,"usage":{"input_tokens":800,"output_tokens":400,"cache_read_input_tokens":100,"cache_creation_input_tokens":50}}
+```
+
+## 完整输出序列
+
+```jsonl
+{"type":"system","subtype":"initialized","session_id":"ses_cb_001","model":"claude-sonnet-4"}
+{"type":"assistant","message":{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"thinking","thinking":"Let me analyze this request."},{"type":"text","text":"I'll help you list the files in the directory."}]}}
+{"type":"assistant","message":{"id":"msg_2","type":"message","role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls -la"}}]}}
+{"type":"user","message":{"id":"msg_3","type":"message","role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"file1.txt\nfile2.txt","is_error":false}]}}
+{"type":"assistant","message":{"id":"msg_4","type":"message","role":"assistant","content":[{"type":"text","text":"Here are the files: file1.txt and file2.txt."}]}}
+{"type":"result","subtype":"success","is_error":false,"duration_ms":2500,"result":"Task done.","total_cost_usd":0.02,"usage":{"input_tokens":800,"output_tokens":400,"cache_read_input_tokens":100,"cache_creation_input_tokens":50}}
+```

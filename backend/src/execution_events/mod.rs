@@ -32,6 +32,7 @@ pub use extractor::EventExtractor;
 pub use pipeline::EventPipeline;
 pub use db_adapter::DbLogEntry;
 pub use impls::{
-    ClaudeCodeExtractor, CodexExtractor, DefaultExtractor, HermesExtractor,
-    KiloExtractor, KimiExtractor, OpencodeExtractor, PiExtractor,
+    AtomcodeExtractor, ClaudeCodeExtractor, CodebuddyExtractor, CodewhaleExtractor,
+    CodexExtractor, DefaultExtractor, HermesExtractor, KiloExtractor, KimiExtractor,
+    MimoExtractor, MobilecoderExtractor, OpencodeExtractor, PiExtractor, ZhanluExtractor,
 };

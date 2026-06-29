@@ -1,0 +1,46 @@
+# Zhanlu 输出样本
+
+Zhanlu 输出 JSONL（每行一个 JSON 对象），使用**连字符**分隔的事件类型名（与 Opencode 完全一致的格式）。
+
+## 事件类型总览
+
+| 事件类型 | 含义 | 关键字段 |
+|---------|------|---------|
+| `step-start` | 步骤开始 | `timestamp`, `sessionID` |
+| `text` | 文本回复 | `part.text` |
+| `reasoning` | 思考过程 | `part.text` |
+| `tool-use` | 工具调用 | `part.tool`, `part.state.input`, `part.state.output` |
+| `step-finish` | 步骤结束 | `part.tokens`, `part.cost` |
+
+## 样本输出
+
+```
+{"type":"step-start","timestamp":1777471473403,"sessionID":"ses_zhanlu_001"}
+```
+
+```
+{"type":"text","timestamp":1777471505165,"sessionID":"ses_zhanlu_001","part":{"type":"text","text":"Hello, this is a test response"}}
+```
+
+```
+{"type":"reasoning","timestamp":1777471505166,"sessionID":"ses_zhanlu_001","part":{"type":"reasoning","text":"Let me analyze this step by step..."}}
+```
+
+```
+{"type":"tool-use","timestamp":1777471505167,"sessionID":"ses_zhanlu_001","part":{"type":"tool_use","tool":"bash","state":{"status":"running","input":{"description":"list files","command":"ls -la"}}}}
+```
+
+```
+{"type":"step-finish","timestamp":1777471505168,"sessionID":"ses_zhanlu_001","part":{"type":"step-finish","reason":"stop","tokens":{"total":14155,"input":13862,"output":293,"reasoning":0,"cache":{"write":0,"read":0}},"cost":0}}
+```
+
+## 完整输出序列
+
+```jsonl
+{"type":"step-start","timestamp":1777471473403,"sessionID":"ses_zhanlu_001"}
+{"type":"text","timestamp":1777471473404,"sessionID":"ses_zhanlu_001","part":{"type":"text","text":"I'll help you with that task."}}
+{"type":"tool-use","timestamp":1777471473405,"sessionID":"ses_zhanlu_001","part":{"type":"tool_use","tool":"bash","state":{"status":"running","input":{"description":"list files","command":"ls -la"}}}}
+{"type":"tool-use","timestamp":1777471473410,"sessionID":"ses_zhanlu_001","part":{"type":"tool_use","tool":"bash","state":{"status":"success","input":{"description":"list files","command":"ls -la"},"output":"file1.txt\nfile2.txt"}}}
+{"type":"text","timestamp":1777471473415,"sessionID":"ses_zhanlu_001","part":{"type":"text","text":"Here are the files in the directory."}}
+{"type":"step-finish","timestamp":1777471505168,"sessionID":"ses_zhanlu_001","part":{"type":"step-finish","reason":"stop","tokens":{"total":14155,"input":13862,"output":293,"reasoning":0,"cache":{"write":0,"read":0}},"cost":0}}
+```

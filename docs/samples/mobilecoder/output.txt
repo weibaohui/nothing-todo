@@ -1,0 +1,45 @@
+# Mobilecoder 输出样本
+
+Mobilecoder 输出 JSONL（每行一个 JSON 对象），使用**下划线**分隔的事件类型名。
+
+## 事件类型总览
+
+| 事件类型 | 含义 | 关键字段 |
+|---------|------|---------|
+| `step_start` | 步骤开始 | `timestamp`, `sessionID` |
+| `tool_use` | 工具调用 | `part.tool`, `part.state.input.description`, `part.state.output` |
+| `text` | 文本回复 | `part.text` |
+| `step_finish` | 步骤结束 | `part.tokens`, `part.cost` |
+
+## 样本输出
+
+```
+{"type":"step_start","timestamp":1700000000000}
+```
+
+```
+{"type":"step_start","timestamp":1700000000000,"sessionID":"ses_mobile_001"}
+```
+
+```
+{"type":"tool_use","timestamp":1700000000000,"part":{"type":"tool_use","tool":"bash","state":{"status":"success","input":{"description":"list files","command":"ls -la"},"output":"file.txt\nfile2.txt"}}}
+```
+
+```
+{"type":"text","timestamp":1700000000000,"part":{"type":"text","text":"I have listed the files in the current directory."}}
+```
+
+```
+{"type":"step_finish","timestamp":1700000000000,"part":{"type":"step_finish","tokens":{"total":100,"input":50,"output":50,"cache":{"read":10,"write":5}},"cost":0.001}}
+```
+
+## 完整输出序列
+
+```jsonl
+{"type":"step_start","timestamp":1700000000000,"sessionID":"ses_mobile_001"}
+{"type":"text","timestamp":1700000000001,"part":{"type":"text","text":"I'll list the files in the directory."}}
+{"type":"tool_use","timestamp":1700000000002,"part":{"type":"tool_use","tool":"bash","state":{"status":"running","input":{"description":"list files","command":"ls -la"}}}}
+{"type":"tool_use","timestamp":1700000000003,"part":{"type":"tool_use","tool":"bash","state":{"status":"success","input":{"description":"list files","command":"ls -la"},"output":"total 10\ndrwxr-xr-x  2 user  staff   64 Jun 29 10:00 .\ndrwxr-xr-x  5 user  staff  160 Jun 29 10:00 ..\n-rw-r--r--  1 user  staff   15 Jun 29 10:00 file1.txt\n-rw-r--r--  1 user  staff   20 Jun 29 10:00 file2.txt"}}}
+{"type":"text","timestamp":1700000000004,"part":{"type":"text","text":"Here are the files: file1.txt and file2.txt."}}
+{"type":"step_finish","timestamp":1700000000005,"part":{"type":"step_finish","tokens":{"total":150,"input":80,"output":70,"cache":{"read":10,"write":5}},"cost":0.002}}
+```

@@ -1,0 +1,52 @@
+# Codewhale 输出样本
+
+Codewhale 输出 NDJSON（每行一个独立的 JSON 对象），事件类型包括：
+
+## 事件类型总览
+
+| 事件类型 | 含义 | 关键字段 |
+|---------|------|---------|
+| `tool_use` | 工具调用 | `name`, `id`, `input.command` |
+| `tool_result` | 工具结果 | `id`, `output`, `status` |
+| `content` | 文本回复 | `content` |
+| `session_capture` | 会话捕获 | `content` (session_id) |
+| `metadata` | 元数据 | `meta.model`, `meta.input_tokens`, `meta.output_tokens`, `meta.status` |
+| `done` | 执行结束 | 无关键字段 |
+
+## 样本输出
+
+```
+{"type":"tool_use","name":"exec_shell","id":"call_001","input":{"command":"ls -la"}}
+```
+
+```
+{"type":"tool_result","id":"call_001","output":"total 10\ndrwxr-xr-x  2 user  staff   64 Jun 29 10:00 .\n-rw-r--r--  1 user  staff   15 Jun 29 10:00 file1.txt","status":"success"}
+```
+
+```
+{"type":"content","content":"Here are the files in the directory."}
+```
+
+```
+{"type":"session_capture","content":"uuid-xxx-yyy"}
+```
+
+```
+{"type":"metadata","meta":{"model":"deepseek-v4-pro","input_tokens":25182,"output_tokens":34,"session_id":"abc123","status":"completed"}}
+```
+
+```
+{"type":"done"}
+```
+
+## 完整输出序列
+
+```jsonl
+{"type":"session_capture","content":"ses_cw_001"}
+{"type":"content","content":"I'll help you list the files."}
+{"type":"tool_use","name":"exec_shell","id":"call_001","input":{"command":"ls -la"}}
+{"type":"tool_result","id":"call_001","output":"file1.txt\nfile2.txt","status":"success"}
+{"type":"content","content":"Here are the files: file1.txt and file2.txt."}
+{"type":"metadata","meta":{"model":"deepseek-v4-pro","input_tokens":25182,"output_tokens":34,"session_id":"ses_cw_001","status":"completed"}}
+{"type":"done"}
+```
