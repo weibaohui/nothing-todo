@@ -379,7 +379,7 @@ function PostCard({
         marginBottom: 2,
       }}
     >
-      {/* 帖子头 */}
+      {/* 帖子头：仅楼号、追问标记、状态和操作按钮 */}
       <div
         style={{
           display: "flex",
@@ -417,41 +417,6 @@ function PostCard({
                 </span>
               )}
             </>
-          )}
-          {record.executor && !isContinuation && <ExecutorBadge executor={record.executor} />}
-          {record.model && (
-            <Tag color="#3b82f6" style={{ margin: 0, fontSize: 11 }}>
-              {record.model}
-            </Tag>
-          )}
-          <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>
-            {formatLocalDateTime(record.started_at)}
-          </span>
-          <Tag
-            color={
-              record.trigger_type === "cron"
-                ? "#8b5cf6"
-                : record.trigger_type?.startsWith("hook:")
-                ? "#a855f7"
-                : "#6b7280"
-            }
-            style={{ margin: 0, fontSize: 11 }}
-          >
-            {record.trigger_type === "cron"
-              ? "Cron"
-              : record.trigger_type?.startsWith("hook:")
-              ? "Hook"
-              : "手动"}
-          </Tag>
-          {!isRunning && record.usage?.duration_ms && (
-            <span style={{ fontSize: 12, color: "var(--color-success)", fontWeight: 600 }}>
-              {formatDurationSec(record.usage.duration_ms / 1000)}
-            </span>
-          )}
-          {isRunning && elapsedSec > 0 && (
-            <span style={{ fontSize: 12, color: "var(--color-info)", fontWeight: 600 }}>
-              {formatDurationSec(elapsedSec)}
-            </span>
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -502,8 +467,50 @@ function PostCard({
         </div>
       )}
 
-      {/* worktree 路径：仅当 record.worktree_path 非空时渲染，与 RecordDetailView 同款展示 */}
+      {/* worktree 路径：仅当 record.worktree_path 非空时渲染 */}
       <WorktreePathDisplay worktreePath={record.worktree_path ?? null} />
+
+      {/* 元信息：执行器、时间、触发类型、耗时 */}
+      <div style={{
+        display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap",
+        marginTop: 8, fontSize: 12,
+      }}>
+        {record.executor && !isContinuation && <ExecutorBadge executor={record.executor} />}
+        {record.model && (
+          <Tag color="#3b82f6" style={{ margin: 0, fontSize: 11 }}>
+            {record.model}
+          </Tag>
+        )}
+        <span style={{ color: "var(--color-text-tertiary)" }}>
+          {formatLocalDateTime(record.started_at)}
+        </span>
+        <Tag
+          color={
+            record.trigger_type === "cron"
+              ? "#8b5cf6"
+              : record.trigger_type?.startsWith("hook:")
+              ? "#a855f7"
+              : "#6b7280"
+          }
+          style={{ margin: 0, fontSize: 11 }}
+        >
+          {record.trigger_type === "cron"
+            ? "Cron"
+            : record.trigger_type?.startsWith("hook:")
+            ? "Hook"
+            : "手动"}
+        </Tag>
+        {!isRunning && record.usage?.duration_ms && (
+          <span style={{ color: "var(--color-success)", fontWeight: 600 }}>
+            {formatDurationSec(record.usage.duration_ms / 1000)}
+          </span>
+        )}
+        {isRunning && elapsedSec > 0 && (
+          <span style={{ color: "var(--color-info)", fontWeight: 600 }}>
+            {formatDurationSec(elapsedSec)}
+          </span>
+        )}
+      </div>
 
       {/* 统计 */}
       <div style={{
