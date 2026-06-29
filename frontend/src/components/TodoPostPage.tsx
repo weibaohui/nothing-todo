@@ -269,6 +269,7 @@ export function TodoPostPage({
             replyLoading={replyLoading}
             onOpenLogDrawer={openLogDrawer}
             resolveExecutionStats={resolveExecutionStats}
+            todoTitle={todoTitle}
           />
         ))
       )}
@@ -301,6 +302,7 @@ function ThreadGroup({
   replyLoading,
   onOpenLogDrawer,
   resolveExecutionStats,
+  todoTitle,
 }: {
   group: SessionGroup;
   getNextFloor: () => number;
@@ -310,6 +312,7 @@ function ThreadGroup({
   replyLoading: boolean;
   onOpenLogDrawer: (id: number) => void;
   resolveExecutionStats: (r: ExecutionRecord, running: boolean) => any;
+  todoTitle: string;
 }) {
   const allRecords = group.records;
   const lastRecord = allRecords[allRecords.length - 1];
@@ -326,6 +329,7 @@ function ThreadGroup({
           onStop={onStop}
           onOpenLogDrawer={onOpenLogDrawer}
           resolveExecutionStats={resolveExecutionStats}
+          todoTitle={todoTitle}
         />
       ))}
       <ReplyRow record={lastRecord} onReply={onReply} loading={replyLoading} />
@@ -343,6 +347,7 @@ function PostCard({
   onStop,
   onOpenLogDrawer,
   resolveExecutionStats,
+  todoTitle,
 }: {
   record: ExecutionRecord;
   floor: number;
@@ -351,6 +356,7 @@ function PostCard({
   onStop: (id: number) => Promise<void>;
   onOpenLogDrawer: (id: number) => void;
   resolveExecutionStats: (r: ExecutionRecord, running: boolean) => any;
+  todoTitle?: string;
 }) {
   const isRunning = record.status === "running";
   const [elapsedSec, setElapsedSec] = useState(
@@ -407,7 +413,7 @@ function PostCard({
               ? (record.resume_message
                   ? String(record.resume_message)
                   : "继续对话")
-              : "初始执行"}
+              : todoTitle || "初始执行"}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
