@@ -11,6 +11,7 @@ import type { ReactNode, CSSProperties } from 'react';
  *
  * @param icon     - 页面标题前的图标
  * @param title    - 页面标题文本
+ * @param titleSuffix - 标题文本后的附加元素（如折叠按钮），位于标题栏左侧区域
  * @param extra    - 标题栏右侧的操作按钮区域
  * @param children - 页面内容（渲染在横线下方）
  * @param showHeader - 是否显示顶部标题栏，默认为 true
@@ -22,6 +23,7 @@ import type { ReactNode, CSSProperties } from 'react';
 export function PageCard({
   icon,
   title,
+  titleSuffix,
   extra,
   children,
   showHeader = true,
@@ -32,6 +34,7 @@ export function PageCard({
 }: {
   icon?: ReactNode;
   title?: ReactNode;
+  titleSuffix?: ReactNode;
   extra?: ReactNode;
   children: ReactNode;
   showHeader?: boolean;
@@ -49,6 +52,7 @@ export function PageCard({
             <div className="ntd-page-card-title">
               {icon && <span className="ntd-page-card-icon">{icon}</span>}
               {title && <span className="ntd-page-card-title-text">{title}</span>}
+              {titleSuffix && <span className="ntd-page-card-title-suffix">{titleSuffix}</span>}
             </div>
             {extra && <div className="ntd-page-card-extra">{extra}</div>}
           </div>
