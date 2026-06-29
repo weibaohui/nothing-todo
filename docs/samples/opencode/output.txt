@@ -1,10 +1,18 @@
 # Opencode 真实输出样本
-# 采集时间: 2026-06-29T15:17:53Z
+# 采集时间: 2026-06-29T15:45:30Z
 # Prompt: Run the commands: date and whoami, output the results.
-# 执行命令: opencode run --format json --dangerously-skip-permissions Run the commands: date and whoami, output the results.
-# 退出码: 124
+# 执行命令: opencode -p "Run the commands: date and whoami, output the results." -f json
+# 退出码: 0
 
 ## stdout
 ```
+{
+  "response": "Mon Jun 29 23:45:30 CST 2026  \nweibh  "
+}
 ```
 
+## stderr
+```
+2026/06/29 23:45:24 WARN FZF not found in $PATH. Some features might be limited or slower.
+⣽  Thinking... (spinner animation during processing)
+```
