@@ -8,7 +8,7 @@
 //! - `[done] <duration> tokens=N turns=N tool_calls=N` → StepFinish + 元数据更新
 //! - `[tool→ <name> args={<json>}]` → ToolCall 事件
 //! - `[tool← <name> ...]` → ToolResult 事件
-//! - `[tool-streaming...]`, `[headless]` → 跳过（不产生事件）
+//! - `[engine v2] new stack active (model xxx)` → ModelSwitch 事件
 //! - stdout 纯文本 → Assistant 事件
 
 use crate::execution_events::event::ExecutionEvent;
@@ -37,6 +37,24 @@ impl AtomcodeExtractor {
 
         // 跳过流式/headless 标记
         if trimmed.starts_with("[tool-streaming") || trimmed.starts_with("[headless]") {
+            return events;
+        }
+
+        // 引擎信息行: [engine v2] new stack active (model deepseek-v4-flash)
+        // atomcode 的 model 信息在 stderr 首行括号中
+        if trimmed.starts_with("[engine") {
+            if let Some(pos) = trimmed.find("(model ") {
+                let after = &trimmed[pos + 7..]; // 跳过 "(model "
+                let model = after.trim_end_matches(')').trim();
+                if !model.is_empty() {
+                    if self.metadata.model.is_none() {
+                        self.metadata.model = Some(model.to_string());
+                        events.push(ExecutionEvent::ModelSwitch {
+                            model: model.to_string(),
+                        });
+                    }
+                }
+            }
             return events;
         }
 
@@ -274,5 +292,25 @@ mod tests {
         let mut ext = AtomcodeExtractor::new();
         assert!(ext.extract("[tool-streaming...]").is_empty());
         assert!(ext.extract("[headless]").is_empty());
+    }
+
+    #[test]
+    fn test_engine_model_extraction() {
+        let mut ext = AtomcodeExtractor::new();
+        let events = ext.extract("[engine v2] new stack active (model deepseek-v4-flash)");
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], ExecutionEvent::ModelSwitch { model } if model == "deepseek-v4-flash"));
+        assert_eq!(ext.metadata().model.as_deref(), Some("deepseek-v4-flash"));
+    }
+
+    #[test]
+    fn test_engine_model_only_once() {
+        // 重复出现时不生成重复事件
+        let mut ext = AtomcodeExtractor::new();
+        let events1 = ext.extract("[engine v2] new stack active (model deepseek-v4-flash)");
+        assert_eq!(events1.len(), 1);
+        let events2 = ext.extract("[engine v2] new stack active (model other-model)");
+        assert_eq!(events2.len(), 0); // 已设置，不再生成
+        assert_eq!(ext.metadata().model.as_deref(), Some("deepseek-v4-flash"));
     }
 }
