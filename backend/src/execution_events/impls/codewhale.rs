@@ -81,6 +81,9 @@ impl CodewhaleExtractor {
                     if let Some(model) = meta.get("model").and_then(|v| v.as_str()) {
                         if self.metadata.model.is_none() {
                             self.metadata.model = Some(model.to_string());
+                            events.push(ExecutionEvent::ModelSwitch {
+                                model: model.to_string(),
+                            });
                         }
                     }
                     // session_id（兜底，session_capture 可能未触发）

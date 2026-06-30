@@ -155,12 +155,17 @@ fn try_parse_with_pipeline(
                 let parsed = emit_execution_event(event, tx, task_id);
                 results.push(parsed);
             }
+            // SessionEnd 由 pipeline.finalize() 生产，避免重复转发
+            ExecutionEvent::SessionEnd { .. }
+            | ExecutionEvent::Progress { .. } => {}
+            // ModelSwitch 需转发到 DB，否则 completion 阶段 get_model_from_logs 找不到模型
+            ExecutionEvent::ModelSwitch { .. } => {
+                let parsed = emit_execution_event(event, tx, task_id);
+                results.push(parsed);
+            }
             // 其他类型不转发
             ExecutionEvent::User { .. }
-            | ExecutionEvent::System { .. }
-            | ExecutionEvent::SessionEnd { .. }
-            | ExecutionEvent::ModelSwitch { .. }
-            | ExecutionEvent::Progress { .. } => {}
+            | ExecutionEvent::System { .. } => {}
         }
     }
     results

@@ -274,6 +274,7 @@ export function TodoDetail({ hideTitleRow = false, onOpenPost }: TodoDetailProps
               historyLimit={historyLimit}
               historyPage={historyPage}
               onPageChange={handleHistoryPageChange}
+              todoTitle={selectedTodo?.title || '未命名'}
             />
           </div>
         )}

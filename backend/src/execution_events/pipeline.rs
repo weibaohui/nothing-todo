@@ -62,7 +62,20 @@ impl EventPipeline {
 
     /// 结束处理，生成元数据事件
     pub fn finalize(&mut self) {
-        let metadata = self.extractor.metadata();
+        let metadata = self.extractor.metadata().clone();
+
+        // 如果没有 ModelSwitch 事件，但 metadata 中有 model，则生成（兜底）
+        let has_model_switch = self
+            .events
+            .iter()
+            .any(|e| matches!(e, ExecutionEvent::ModelSwitch { .. }));
+        if !has_model_switch {
+            if let Some(model) = &metadata.model {
+                self.events.push(ExecutionEvent::ModelSwitch {
+                    model: model.clone(),
+                });
+            }
+        }
 
         // 如果没有 Result 事件，从最后一个非空的 Assistant 事件提取结论
         let has_result = self

@@ -14,6 +14,7 @@ export function ForumPostList({
   historyLimit,
   historyPage,
   onPageChange,
+  todoTitle,
 }: {
   sessionGroups: SessionGroup[];
   selectedRecordId: number | null;
@@ -22,6 +23,8 @@ export function ForumPostList({
   historyLimit: number;
   historyPage: number;
   onPageChange: (page: number, pageSize: number) => void;
+  /** todo 标题，无结论时用于兜底显示 */
+  todoTitle: string;
 }) {
   return (
     <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
@@ -36,6 +39,7 @@ export function ForumPostList({
               isSelected={selectedRecordId === mainRecord.id}
               onSelect={() => onSelectRecord(mainRecord.id)}
               replyCount={replyCount}
+              todoTitle={todoTitle}
             />
           </div>
         );

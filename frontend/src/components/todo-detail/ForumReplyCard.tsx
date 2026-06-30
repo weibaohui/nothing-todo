@@ -5,16 +5,27 @@ import { useState, useEffect } from 'react';
 import type { ExecutionRecord } from '@/types';
 
 /**
- * 提取帖子标题：取 result 第一行（去除 markdown 标记），
- * 截取前 40 字。无 result 时返回 "执行中"。
+ * 提取帖子标题：取 result 第一行有效内容（跳过空行和纯 markdown 标记行），
+ * 截取前 40 字。无 result 时：
+ * - 正在执行 → "执行中"
+ * - 已完成/失败/取消等 → 显示 todo 标题（如果有），否则显示状态
  */
-function extractPostTitle(result: string | null | undefined): string {
-  if (!result || result.trim() === '') return '执行中';
-  const firstLine = result.split('\n')[0];
-  const cleaned = firstLine.replace(/^[#*>+\-\s]+/, '').trim();
-  if (!cleaned) return '执行中';
-  if (cleaned.length > 40) return cleaned.substring(0, 40) + '...';
-  return cleaned;
+function extractPostTitle(
+  result: string | null | undefined,
+  status: string,
+  todoTitle: string,
+): string {
+  if (result && result.trim() !== '') {
+    for (const line of result.split('\n')) {
+      const cleaned = line.replace(/^[#*>+\-\s]+/, '').trim();
+      if (cleaned) {
+        if (cleaned.length > 40) return cleaned.substring(0, 40) + '...';
+        return cleaned;
+      }
+    }
+  }
+  if (status === 'running') return '执行中';
+  return todoTitle || (status === 'success' ? '执行成功' : '执行失败');
 }
 
 /**
@@ -26,11 +37,14 @@ export function ForumReplyCard({
   resumeMessage,
   isSelected,
   onSelect,
+  todoTitle,
 }: {
   record: ExecutionRecord;
   resumeMessage?: string | null;
   isSelected: boolean;
   onSelect: () => void;
+  /** todo 标题，无结论时用于兜底显示 */
+  todoTitle: string;
 }) {
   const isRunning = record.status === 'running';
   const [elapsedSec, setElapsedSec] = useState(isRunning ? getElapsedSeconds(record.started_at) : 0);
@@ -43,7 +57,7 @@ export function ForumReplyCard({
     return () => clearInterval(timer);
   }, [isRunning, record.started_at]);
 
-  const title = extractPostTitle(record.result);
+  const title = extractPostTitle(record.result, record.status, todoTitle);
   const msg = resumeMessage
     ? (resumeMessage.length > 30 ? resumeMessage.substring(0, 30) + '...' : resumeMessage)
     : '继续对话';
