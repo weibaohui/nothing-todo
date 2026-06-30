@@ -602,12 +602,17 @@ function LogDrawer({
 
   const displayLogs = liveLogs && liveLogs.length > 0 ? liveLogs : paginatedLogs;
 
+  // 手机端使用从底部滑出的全屏抽屉；桌面端使用右侧 60% 宽度的抽屉
+  const isMobile = useIsMobile();
+
   return (
     <Drawer
       title={`执行详情 #${record?.id || ""}`}
       open={open}
       onClose={onClose}
-      width="60%"
+      placement={isMobile ? "bottom" : "right"}
+      height={isMobile ? "85vh" : undefined}
+      width={isMobile ? undefined : "60%"}
       styles={{ body: { padding: "12px 16px", display: "flex", flexDirection: "column" } }}
     >
       {/* 执行命令 —— 可折叠，默认收缩 */}
