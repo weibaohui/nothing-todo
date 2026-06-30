@@ -6,10 +6,11 @@
 //! 事件类型：
 //! - `[tokens] prompt=N completion=M` → Tokens 事件
 //! - `[done] <duration> tokens=N turns=N tool_calls=N` → StepFinish + 元数据更新
-//! - `[tool→ <name> args={<json>}]` → ToolCall 事件
-//! - `[tool← <name> ...]` → ToolResult 事件
-//! - `[engine v2] new stack active (model xxx)` → ModelSwitch 事件
+//! - `[tool→ <name> args={"key":"val"}]` → ToolCall 事件
+//! - `[tool← <name> <status> <duration>] <result>` → ToolResult 事件
 //! - `[thinking] <text>` → 思考内容（多行累积为一块直到非 [thinking] 行）
+//! - `[engine v2] new stack active (model xxx)` → ModelSwitch 事件
+//! - stdout 纯文本 → Assistant 事件
 
 use crate::execution_events::event::ExecutionEvent;
 use crate::execution_events::extractor::EventExtractor;
@@ -19,8 +20,8 @@ use crate::execution_events::metadata::ExecutionMetadata;
 #[derive(Debug, Clone)]
 pub struct AtomcodeExtractor {
     metadata: ExecutionMetadata,
-    /// 用于追踪 tool_call_id，匹配 tool→ 和 tool←
-    pending_tool_id: Option<String>,
+    /// 工具调用序号（递增，保证每次工具调用有唯一 ID）
+    tool_seq: u64,
     /// 思考块缓冲：多行 [thinking] 累积为一块，非 [thinking] 行触发 flush
     pending_thinking: Vec<String>,
 }
@@ -29,7 +30,7 @@ impl AtomcodeExtractor {
     pub fn new() -> Self {
         Self {
             metadata: ExecutionMetadata::new("atomcode".to_string()),
-            pending_tool_id: None,
+            tool_seq: 0,
             pending_thinking: Vec::new(),
         }
     }
@@ -54,7 +55,6 @@ impl AtomcodeExtractor {
         }
 
         // 引擎信息行: [engine v2] new stack active (model deepseek-v4-flash)
-        // atomcode 的 model 信息在 stderr 首行括号中
         if trimmed.starts_with("[engine") {
             if let Some(pos) = trimmed.find("(model ") {
                 let after = &trimmed[pos + 7..]; // 跳过 "(model "
@@ -96,7 +96,6 @@ impl AtomcodeExtractor {
             let mut total_tokens = 0u64;
             for (i, part) in trimmed.split_whitespace().enumerate() {
                 if i == 1 {
-                    // "4.6s" → 4600 ms
                     let s = part.trim_end_matches('s');
                     if let Ok(secs) = s.parse::<f64>() {
                         duration_ms = Some((secs * 1000.0) as u64);
@@ -120,47 +119,61 @@ impl AtomcodeExtractor {
                 name: "execution".to_string(),
                 index: 0,
             });
-        } else if trimmed.starts_with("[tool→") || trimmed.starts_with("[tool->") {
-            // 工具调用发起: [tool→ bash args={"command": "ls"}]
+        } else if trimmed.starts_with("[tool→") || trimmed.starts_with("[tool->")
+        {
+            // 工具调用: [tool→ bash args={"command": "ls"}]
             let content = trimmed
                 .trim_start_matches("[tool→")
                 .trim_start_matches("[tool->")
                 .trim();
 
             let (name, args_json) = if let Some(idx) = content.find(" args=") {
-                let name = content[..idx].trim();
-                // 去掉末尾的 ]，因为拼接行格式为 [tool→ name args={...}]
+                let name = content[..idx].trim().to_string();
                 let raw_args = content[idx + 6..].trim().trim_end_matches(']');
                 let parsed = if raw_args.starts_with('{') {
                     serde_json::from_str(raw_args).ok()
                 } else {
                     None
                 };
-                (name.to_string(), parsed.unwrap_or(serde_json::json!({})))
+                (name, parsed.unwrap_or(serde_json::json!({})))
             } else {
-                (content.to_string(), serde_json::json!({}))
+                (content.trim_end_matches(']').to_string(), serde_json::json!({}))
             };
 
-            let tool_id = format!("tool_{}", self.metadata.session_id.as_deref().unwrap_or("0"));
-            self.pending_tool_id = Some(tool_id.clone());
+            self.tool_seq += 1;
+            let tool_id = format!("tool_{}", self.tool_seq);
 
             events.push(ExecutionEvent::ToolCall {
                 id: tool_id,
                 name,
                 input: args_json,
             });
-        } else if trimmed.starts_with("[tool←") || trimmed.starts_with("[tool<-") {
-            // 工具调用返回: [tool← bash ...]
-            let tool_id = self.pending_tool_id.take().unwrap_or_default();
+        } else if trimmed.starts_with("[tool←") || trimmed.starts_with("[tool<-")
+        {
+            // 工具结果: [tool← bash OK 10ms] result text
             let content = trimmed
                 .trim_start_matches("[tool←")
                 .trim_start_matches("[tool<-")
                 .trim();
 
+            // 按 ] 分隔元数据和结果文本
+            let (meta_part, result_text) = if let Some(idx) = content.find(']') {
+                (content[..idx].trim(), content[idx + 1..].trim().to_string())
+            } else {
+                (content, String::new())
+            };
+
+            // 元数据格式: name status duration
+            // 如 "bash OK 10ms"，拆成三段
+            let parts: Vec<&str> = meta_part.split_whitespace().collect();
+            let _name = if !parts.is_empty() { parts[0] } else { "" };
+            let status = parts.get(1).copied().unwrap_or("OK");
+            let is_error = status != "OK";
+
             events.push(ExecutionEvent::ToolResult {
-                call_id: tool_id,
-                output: content.to_string(),
-                is_error: false,
+                call_id: format!("tool_{}", self.tool_seq),
+                output: result_text,
+                is_error,
             });
         } else if trimmed.starts_with("[approval-denied]") {
             events.push(ExecutionEvent::Error {
@@ -207,12 +220,11 @@ impl EventExtractor for AtomcodeExtractor {
             return Vec::new();
         }
 
-        // 检查是否是 stderr 结构化行（以 `[` 开头）
         if trimmed.starts_with('[') {
             return self.parse_stderr_line(trimmed);
         }
 
-        // stdout 纯文本行前，先 flush 之前缓冲的思考块
+        // stdout 纯文本行前，先 flush 思考块
         let mut events = Vec::new();
         self.flush_thinking(&mut events);
         events.extend(self.parse_stdout_line(trimmed));
@@ -225,14 +237,11 @@ impl EventExtractor for AtomcodeExtractor {
             return None;
         }
 
-        // stderr 中的结构化事件
         if trimmed.starts_with('[') {
             let events = self.parse_stderr_line(trimmed);
-            // 只取第一个事件（通常只有一个）
             return events.into_iter().next();
         }
 
-        // 非结构化 stderr：关键字分类
         if trimmed.to_lowercase().contains("error") {
             Some(ExecutionEvent::Error {
                 message: trimmed.to_string(),
@@ -292,11 +301,59 @@ mod tests {
         let events = ext.extract(r#"[tool→ bash args={"command": "ls -la"}]"#);
         assert_eq!(events.len(), 1);
         match &events[0] {
-            ExecutionEvent::ToolCall { name, input, .. } => {
+            ExecutionEvent::ToolCall { id, name, input, .. } => {
                 assert_eq!(name, "bash");
+                assert_eq!(id, "tool_1");
                 assert_eq!(input.get("command").and_then(|v| v.as_str()), Some("ls -la"));
             }
             _ => panic!("Expected ToolCall event"),
+        }
+    }
+
+    #[test]
+    fn test_tool_result_ok() {
+        let mut ext = AtomcodeExtractor::new();
+        // 先模拟一个工具调用以递增 tool_seq
+        let _ = ext.extract(r#"[tool→ bash args={"command": "date"}]"#);
+        let events = ext.extract("[tool← bash OK 10ms] Tue Jun 30 14:45:43 CST 2026");
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            ExecutionEvent::ToolResult { call_id, output, is_error } => {
+                assert_eq!(call_id, "tool_1");
+                assert_eq!(output, "Tue Jun 30 14:45:43 CST 2026");
+                assert!(!is_error);
+            }
+            _ => panic!("Expected ToolResult event"),
+        }
+    }
+
+    #[test]
+    fn test_tool_result_error() {
+        let mut ext = AtomcodeExtractor::new();
+        let _ = ext.extract(r#"[tool→ bash args={"command": "nonexistent"}]"#);
+        let events = ext.extract("[tool← bash ERR 5ms] command not found");
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            ExecutionEvent::ToolResult { output, is_error, .. } => {
+                assert_eq!(output, "command not found");
+                assert!(is_error);
+            }
+            _ => panic!("Expected ToolResult event"),
+        }
+    }
+
+    #[test]
+    fn test_tool_id_increments() {
+        let mut ext = AtomcodeExtractor::new();
+        let events1 = ext.extract(r#"[tool→ bash args={"command":"1"}]"#);
+        let events2 = ext.extract(r#"[tool→ todo args={"action":"add"}]"#);
+        match &events1[0] {
+            ExecutionEvent::ToolCall { id, .. } => assert_eq!(id, "tool_1"),
+            _ => panic!(),
+        }
+        match &events2[0] {
+            ExecutionEvent::ToolCall { id, .. } => assert_eq!(id, "tool_2"),
+            _ => panic!(),
         }
     }
 
@@ -333,18 +390,16 @@ mod tests {
 
     #[test]
     fn test_engine_model_only_once() {
-        // 重复出现时不生成重复事件
         let mut ext = AtomcodeExtractor::new();
         let events1 = ext.extract("[engine v2] new stack active (model deepseek-v4-flash)");
         assert_eq!(events1.len(), 1);
         let events2 = ext.extract("[engine v2] new stack active (model other-model)");
-        assert_eq!(events2.len(), 0); // 已设置，不再生成
+        assert_eq!(events2.len(), 0);
         assert_eq!(ext.metadata().model.as_deref(), Some("deepseek-v4-flash"));
     }
 
     #[test]
     fn test_thinking_accumulation() {
-        // 多行 thinking 累积，直到非 thinking 行才输出
         let mut ext = AtomcodeExtractor::new();
         assert!(ext.extract("[thinking] line 1").is_empty());
         assert!(ext.extract("[thinking] line 2").is_empty());
@@ -357,7 +412,6 @@ mod tests {
 
     #[test]
     fn test_thinking_flushed_by_stdout() {
-        // stdout 纯文本行也能触发 thinking flush
         let mut ext = AtomcodeExtractor::new();
         assert!(ext.extract("[thinking] thinking text").is_empty());
 
@@ -368,7 +422,6 @@ mod tests {
 
     #[test]
     fn test_thinking_reset_between_blocks() {
-        // 两块 thinking 之间被非 thinking 行隔开，每块独立输出
         let mut ext = AtomcodeExtractor::new();
         assert!(ext.extract("[thinking] block 1").is_empty());
         let events1 = ext.extract("[done] 1s turns=1 tool_calls=0");
