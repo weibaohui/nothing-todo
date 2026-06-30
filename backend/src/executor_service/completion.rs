@@ -37,10 +37,11 @@ pub(crate) fn get_usage_from_tokens_logs(logs: &[ParsedLogEntry]) -> Option<Exec
 ///
 /// 统一来源：pipeline 的 Result 事件写入 "result" 类型日志。
 /// 回退扫描 "text" 类型条目（某些 executor 可能不产生 result 类型）。
+/// 再回退到 "assistant" 类型（atomcode 等执行器的累积文本块）。
 pub(crate) fn get_final_result_from_logs(logs: &[ParsedLogEntry]) -> Option<String> {
     logs.iter()
         .rev()
-        .find(|l| l.log_type == "result" || l.log_type == "text")
+        .find(|l| l.log_type == "result" || l.log_type == "text" || l.log_type == "assistant")
         .map(|l| l.content.clone())
 }
 

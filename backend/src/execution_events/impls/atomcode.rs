@@ -235,7 +235,7 @@ impl AtomcodeExtractor {
         }
     }
 
-    /// 将缓冲的纯文本行合并为一个 Assistant 事件
+    /// 将缓冲的纯文本行合并为一个 Result 事件（执行结论）
     fn flush_text(&mut self, events: &mut Vec<ExecutionEvent>) {
         if self.pending_text.is_empty() {
             return;
@@ -243,10 +243,8 @@ impl AtomcodeExtractor {
         let content = self.pending_text.join("\n");
         self.pending_text.clear();
         if !content.trim().is_empty() {
-            events.push(ExecutionEvent::Assistant {
-                content,
-                thinking: None,
-                message_id: None,
+            events.push(ExecutionEvent::Result {
+                summary: content,
             });
         }
     }
@@ -471,7 +469,7 @@ mod tests {
 
         // 结构化行触发 flush
         let events = ext.extract("[tokens] prompt=10 completion=5");
-        assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Assistant { content, .. } if content == "第一段文本\n第二段文本\n第三段文本")));
+        assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Result { summary } if summary == "第一段文本\n第二段文本\n第三段文本")));
         assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Tokens { .. })));
     }
 
@@ -484,7 +482,7 @@ mod tests {
 
         let events2 = ext.extract("[done] 1s turns=1 tool_calls=0");
         assert_eq!(events2.len(), 2); // Assistant + StepFinish
-        assert!(matches!(&events2[0], ExecutionEvent::Assistant { content, .. } if content == "AI 输出文本"));
+        assert!(matches!(&events2[0], ExecutionEvent::Result { summary } if summary == "AI 输出文本"));
     }
 
     #[test]
@@ -493,7 +491,7 @@ mod tests {
         let mut ext = AtomcodeExtractor::new();
         let events = ext.extract("当前任务已完成[tokens] prompt=10 completion=5");
         assert_eq!(events.len(), 2);
-        assert!(matches!(&events[0], ExecutionEvent::Assistant { content, .. } if content == "当前任务已完成"));
+        assert!(matches!(&events[0], ExecutionEvent::Result { summary } if summary == "当前任务已完成"));
         assert!(matches!(&events[1], ExecutionEvent::Tokens { .. }));
     }
 
@@ -505,7 +503,7 @@ mod tests {
         assert!(ext.extract("第二行").is_empty());
 
         let events = ext.extract("第三行结尾[tokens] prompt=5 completion=3");
-        assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Assistant { content, .. } if content == "第一行\n第二行\n第三行结尾")));
+        assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Result { summary } if summary == "第一行\n第二行\n第三行结尾")));
         assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Tokens { .. })));
     }
 
@@ -529,7 +527,7 @@ mod tests {
 
         let events = ext.extract("任务完成[tokens] prompt=1 completion=1");
         assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Thinking { content } if content == "Done.")));
-        assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Assistant { content, .. })));
+        assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Result { summary })));
         assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Tokens { .. })));
     }
 
@@ -584,7 +582,7 @@ mod tests {
 任务经历了 **pending → in_progress → completed** 三个状态，中间间隔了 1 秒的等待，符合你的要求。";
 
         assert!(
-            events.iter().any(|e| matches!(e, ExecutionEvent::Assistant { content, .. } if content == expected_text)),
+            events.iter().any(|e| matches!(e, ExecutionEvent::Result { summary } if summary == expected_text)),
             "aggregated Assistant text mismatch"
         );
 
