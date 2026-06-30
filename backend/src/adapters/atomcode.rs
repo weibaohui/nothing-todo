@@ -48,7 +48,7 @@ impl CodeExecutor for AtomcodeExecutor {
 
     fn parse_output_line(&self, _line: &str) -> Option<ParsedLogEntry> {
         // atomcode 的输出全部由 AtomcodeExtractor 统一处理：
-        // - 纯文本行 → 多行累积到 pending_text，遇到 [xx] 行时 flush 为聚合 Assistant 事件
+        // - 纯文本行 → 多行累积到 pending_text，遇到 [xx] 行时 flush 为聚合 Result 事件
         // - [xx] 行 → 解析为结构化事件
         // 适配器 parse_output_line 仅作为 EventPipeline 未处理时的 fallback，
         // 返回 None 避免逐行 text 条目与 extractor 聚合重复
