@@ -46,14 +46,14 @@ impl CodeExecutor for AtomcodeExecutor {
         ]
     }
 
-    fn parse_output_line(&self, _line: &str) -> Option<ParsedLogEntry> {
-        // atomcode 的所有输出由 EventPipeline (AtomcodeExtractor) 统一处理：
-        // - [xxx] 行 → 结构化事件
-        // - 纯文本行 → 多行累积后聚合为 Assistant 事件
-        // - 空行 / [thinking] / [tool-*] → 跳过
-        // 适配器的 parse_output_line 仅作为 EventPipeline 未处理时的 fallback，
-        // 返回 None 以避免逐行创建散落的 text 条目，与 extractor 聚合重复
-        None
+    fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
+        let trimmed = helpers::trimmed_non_empty(line)?;
+        // 跳过 stderr 结构化行混入 stdout 的情况
+        if trimmed.starts_with('[') {
+            return None;
+        }
+        // atomcode 的 stdout 纯文本
+        Some(helpers::text_entry(trimmed))
     }
 
     fn parse_stderr_line(&self, line: &str) -> Option<ParsedLogEntry> {
@@ -208,8 +208,9 @@ mod tests {
     #[test]
     fn test_parse_output_line_text() {
         let executor = AtomcodeExecutor::new("atomcode".to_string());
-        // parse_output_line 返回 None，所有输出由 EventPipeline extractor 处理
-        assert!(executor.parse_output_line("Hello world").is_none());
+        let entry = executor.parse_output_line("Hello world").unwrap();
+        assert_eq!(entry.log_type, "text");
+        assert_eq!(entry.content, "Hello world");
     }
 
     #[test]

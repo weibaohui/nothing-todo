@@ -184,7 +184,13 @@ fn try_parse_stderr_with_pipeline(
     }
 
     let len_before = pipeline.len();
-    pipeline.feed_stderr(line_trimmed);
+    // atomcode 的 stderr 与 stdout 格式相同（[xx] 结构化行 + 纯文本混合），
+    // 使用 extract() 而非 extract_stderr()，确保 flush_text 的多事件不丢失
+    if pipeline.metadata().executor == "atomcode" {
+        pipeline.feed(line_trimmed);
+    } else {
+        pipeline.feed_stderr(line_trimmed);
+    }
 
     pipeline.events()[len_before..]
         .iter()

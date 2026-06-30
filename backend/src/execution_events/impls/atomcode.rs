@@ -289,28 +289,9 @@ impl EventExtractor for AtomcodeExtractor {
     }
 
     fn extract_stderr(&mut self, line: &str) -> Option<ExecutionEvent> {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            return None;
-        }
-
-        if trimmed.starts_with('[') {
-            let mut events = Vec::new();
-            self.flush_text(&mut events);
-            let stderr_events = self.parse_stderr_line(trimmed);
-            // 返回第一个事件（通常是唯一的）
-            return events.into_iter().chain(stderr_events).next();
-        }
-
-        if trimmed.to_lowercase().contains("error") {
-            Some(ExecutionEvent::Error {
-                message: trimmed.to_string(),
-            })
-        } else {
-            Some(ExecutionEvent::Info {
-                message: trimmed.to_string(),
-            })
-        }
+        // atomcode 的 stderr 由 try_parse_stderr_with_pipeline 通过 pipeline.feed()
+        // 驱动 extract()，本方法仅在 fallback 路径被调用。为保持一致，委托给 extract()
+        self.extract(line).into_iter().next()
     }
 
     fn metadata(&self) -> &ExecutionMetadata {
