@@ -532,4 +532,73 @@ mod tests {
         assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Assistant { content, .. })));
         assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Tokens { .. })));
     }
+
+    /// 完整流程测试: thinking + 多行文本 + 嵌入式 [tokens] → 聚合 Assistant + 结构化事件
+    #[test]
+    fn test_full_text_aggregation_with_thinking_and_tokens() {
+        let mut ext = AtomcodeExtractor::new();
+
+        // thinking 行 — 累积，不输出
+        assert!(ext.extract("[thinking] All done. Let me summarize what happened.").is_empty());
+
+        // 多行纯文本 — 累积到 pending_text，不输出（第一行除外，它会 flush thinking）
+        let text_lines = [
+            "全部完成，执行过程总结：",
+            "| 步骤 | 命令/操作 | 结果 |",
+            "|------|-----------|------|",
+            "| 1️⃣ | `date` | `Tue Jun 30 16:21:03 CST 2026` |",
+            "| 2️⃣ | `whoami` | `weibh` |",
+            "| 3️⃣ | `todo add` 创建任务 | 任务 #1 创建，状态 `pending` → `[ ]` |",
+            "| 4️⃣ | `todo update → in_progress` | 状态切换为 `[>]` |",
+            "| 5️⃣ | `sleep 1` | 等待 1 秒 |",
+            "| 6️⃣ | `todo update → completed` | 状态切换为 `[x]` ✅ |",
+        ];
+        // 第一个文本行触发 flush_thinking，输出 Thinking 事件
+        let events_first = ext.extract(text_lines[0]);
+        assert!(events_first.iter().any(|e| matches!(e, ExecutionEvent::Thinking { content } if content == "All done. Let me summarize what happened.")));
+        assert_eq!(events_first.len(), 1);
+
+        // 后续文本行仅累积到 pending_text
+        for &line in &text_lines[1..] {
+            assert!(ext.extract(line).is_empty(), "line '{}' should produce no events", line);
+        }
+
+        // 最后一行：文本末尾无换行直接接 [tokens] 结构化标记
+        let events = ext.extract(
+            "任务经历了 **pending → in_progress → completed** 三个状态，中间间隔了 1 秒的等待，符合你的要求。[tokens] prompt=7105 completion=202 cached=6912 (97% hit)"
+        );
+
+        assert!(events.len() >= 2, "expected >=2 events, got {}: {:?}", events.len(), events);
+
+        // 验证聚合后的 Assistant 事件（所有累积文本）
+        let expected_text = "\
+全部完成，执行过程总结：\n\
+| 步骤 | 命令/操作 | 结果 |\n\
+|------|-----------|------|\n\
+| 1️⃣ | `date` | `Tue Jun 30 16:21:03 CST 2026` |\n\
+| 2️⃣ | `whoami` | `weibh` |\n\
+| 3️⃣ | `todo add` 创建任务 | 任务 #1 创建，状态 `pending` → `[ ]` |\n\
+| 4️⃣ | `todo update → in_progress` | 状态切换为 `[>]` |\n\
+| 5️⃣ | `sleep 1` | 等待 1 秒 |\n\
+| 6️⃣ | `todo update → completed` | 状态切换为 `[x]` ✅ |\n\
+任务经历了 **pending → in_progress → completed** 三个状态，中间间隔了 1 秒的等待，符合你的要求。";
+
+        assert!(
+            events.iter().any(|e| matches!(e, ExecutionEvent::Assistant { content, .. } if content == expected_text)),
+            "aggregated Assistant text mismatch"
+        );
+
+        // 验证 Tokens 事件
+        assert!(
+            events.iter().any(|e| matches!(e, ExecutionEvent::Tokens { input, output, .. } if *input == 7105 && *output == 202)),
+            "missing Tokens event"
+        );
+
+        // [done] 行
+        let done_events = ext.extract("[done] 43.0s tokens=34.65K turns=5 tool_calls=6");
+        assert!(
+            done_events.iter().any(|e| matches!(e, ExecutionEvent::StepFinish { .. })),
+            "missing StepFinish event"
+        );
+    }
 }
