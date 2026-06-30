@@ -236,6 +236,10 @@ where
                 }
 
                 // 回退到 executor 自定义解析
+                // 跳过空行：parse_stderr_line 对空行返回 None 但 unwrap_or_else 仍会创建 stderr 条目
+                if line.trim().is_empty() {
+                    continue;
+                }
                 let entry = executor
                     .parse_stderr_line(&line)
                     .unwrap_or_else(|| ParsedLogEntry::stderr(line.clone()));
