@@ -80,8 +80,13 @@ impl AtomcodeExtractor {
         let mut events = Vec::new();
 
         // 思考块处理：多行 [thinking]/[THINK] 累积为一块
-        if trimmed.starts_with("[thinking]") || trimmed.starts_with("[THINK]") {
-            let content = trimmed["[thinking]".len()..].trim();
+        if trimmed.starts_with("[thinking]") {
+            let content = trimmed[10..].trim(); // "[thinking]" = 10 chars
+            self.pending_thinking.push(content.to_string());
+            return events;
+        }
+        if trimmed.starts_with("[THINK]") {
+            let content = trimmed[7..].trim(); // "[THINK]" = 7 chars
             self.pending_thinking.push(content.to_string());
             return events;
         }
