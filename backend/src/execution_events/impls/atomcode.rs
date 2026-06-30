@@ -3,6 +3,10 @@
 //! AtomCode 的输出比较特殊——不是 JSON 格式。
 //! stdout 是纯文本（AI 回复），stderr 包含以 `[xxx]` 前缀标记的结构化事件。
 //!
+//! 文本输出特点：多行无 `[xx]` 前缀的纯文本行穿插在结构化事件中，
+//! 且文本末尾可能紧贴下一行结构化事件（无换行），如：
+//!   当前任务已完成[tokens] prompt=100 completion=50
+//!
 //! 事件类型：
 //! - `[tokens] prompt=N completion=M` → Tokens 事件
 //! - `[done] <duration> tokens=N turns=N tool_calls=N` → StepFinish + 元数据更新
@@ -10,11 +14,44 @@
 //! - `[tool← <name> <status> <duration>] <result>` → ToolResult 事件
 //! - `[thinking] <text>` → 思考内容（多行累积为一块直到非 [thinking] 行）
 //! - `[engine v2] new stack active (model xxx)` → ModelSwitch 事件
-//! - stdout 纯文本 → Assistant 事件
+//! - 无前缀纯文本行 → Assistant 事件（多行累积为一块）
 
 use crate::execution_events::event::ExecutionEvent;
 use crate::execution_events::extractor::EventExtractor;
 use crate::execution_events::metadata::ExecutionMetadata;
+
+/// 已知的结构化事件前缀（不含尾部 `]`，便于行内匹��）
+const STRUCTURED_MARKERS: &[&str] = &[
+    "[tokens",
+    "[done",
+    "[tool→",
+    "[tool->",
+    "[tool←",
+    "[tool<-",
+    "[thinking",
+    "[tool-streaming",
+    "[headless",
+    "[approval-denied",
+    "[engine",
+];
+
+/// 在文本行中查找第一个已知结构化标记的位置
+///
+/// 返回 `(text_part, structured_suffix)`，其中 text_part 是标记之前的内容，
+/// structured_suffix 是从标记开始到行尾。如果没有标记则返回 None。
+fn find_structured_split(line: &str) -> Option<(&str, &str)> {
+    for marker in STRUCTURED_MARKERS {
+        if let Some(pos) = line.find(marker) {
+            // 确保是真正的结构��标记（前面不是字母数字，避免误匹配）
+            if pos == 0 || !line.as_bytes()[pos - 1].is_ascii_alphanumeric() {
+                let text = line[..pos].trim();
+                let structured = &line[pos..];
+                return Some((text, structured));
+            }
+        }
+    }
+    None
+}
 
 /// AtomCode 事件提取器
 #[derive(Debug, Clone)]
@@ -24,6 +61,8 @@ pub struct AtomcodeExtractor {
     tool_seq: u64,
     /// 思考块缓冲：多行 [thinking] 累积为一块，非 [thinking] 行触发 flush
     pending_thinking: Vec<String>,
+    /// 纯文本缓冲：多行无前缀文本累积为一块 Assistant 事件
+    pending_text: Vec<String>,
 }
 
 impl AtomcodeExtractor {
@@ -32,10 +71,11 @@ impl AtomcodeExtractor {
             metadata: ExecutionMetadata::new("atomcode".to_string()),
             tool_seq: 0,
             pending_thinking: Vec::new(),
+            pending_text: Vec::new(),
         }
     }
 
-    /// 解析 stderr 中的结构化事件行（以 `[xxx]` 开头）
+    /// 解析结构化事件行（以 `[xxx]` 开头）
     fn parse_stderr_line(&mut self, trimmed: &str) -> Vec<ExecutionEvent> {
         let mut events = Vec::new();
 
@@ -46,8 +86,9 @@ impl AtomcodeExtractor {
             return events;
         }
 
-        // 非 thinking 行，先 flush 之前缓冲的思考块
+        // 非 thinking 行，先 flush 之前缓冲的思考块和文本块
         self.flush_thinking(&mut events);
+        self.flush_text(&mut events);
 
         // 跳过流式/headless 标记
         if trimmed.starts_with("[tool-streaming") || trimmed.starts_with("[headless]") {
@@ -57,7 +98,7 @@ impl AtomcodeExtractor {
         // 引擎信息行: [engine v2] new stack active (model deepseek-v4-flash)
         if trimmed.starts_with("[engine") {
             if let Some(pos) = trimmed.find("(model ") {
-                let after = &trimmed[pos + 7..]; // 跳过 "(model "
+                let after = &trimmed[pos + 7..];
                 let model = after.trim_end_matches(')').trim();
                 if !model.is_empty() {
                     if self.metadata.model.is_none() {
@@ -72,7 +113,6 @@ impl AtomcodeExtractor {
         }
 
         if trimmed.starts_with("[tokens]") {
-            // 解析 token 统计: [tokens] prompt=11 completion=5
             let mut prompt_tokens = 0u64;
             let mut completion_tokens = 0u64;
             for part in trimmed.split_whitespace().skip(1) {
@@ -91,7 +131,6 @@ impl AtomcodeExtractor {
                 cache_write: None,
             });
         } else if trimmed.starts_with("[done]") {
-            // 解析完成事件: [done] 4.6s tokens=100 turns=2 tool_calls=1
             let mut duration_ms = None;
             let mut total_tokens = 0u64;
             for (i, part) in trimmed.split_whitespace().enumerate() {
@@ -121,7 +160,6 @@ impl AtomcodeExtractor {
             });
         } else if trimmed.starts_with("[tool→") || trimmed.starts_with("[tool->")
         {
-            // 工具调用: [tool→ bash args={"command": "ls"}]
             let content = trimmed
                 .trim_start_matches("[tool→")
                 .trim_start_matches("[tool->")
@@ -150,21 +188,17 @@ impl AtomcodeExtractor {
             });
         } else if trimmed.starts_with("[tool←") || trimmed.starts_with("[tool<-")
         {
-            // 工具结果: [tool← bash OK 10ms] result text
             let content = trimmed
                 .trim_start_matches("[tool←")
                 .trim_start_matches("[tool<-")
                 .trim();
 
-            // 按 ] 分隔元数据和结果文本
             let (meta_part, result_text) = if let Some(idx) = content.find(']') {
                 (content[..idx].trim(), content[idx + 1..].trim().to_string())
             } else {
                 (content, String::new())
             };
 
-            // 元数据格式: name status duration
-            // 如 "bash OK 10ms"，拆成三段
             let parts: Vec<&str> = meta_part.split_whitespace().collect();
             let _name = if !parts.is_empty() { parts[0] } else { "" };
             let status = parts.get(1).copied().unwrap_or("OK");
@@ -184,7 +218,7 @@ impl AtomcodeExtractor {
         events
     }
 
-    /// 将缓冲的思考行合并为一个 Thinking 事件，然后清空缓冲
+    /// 将缓冲的思考行合并为一个 Thinking 事件
     fn flush_thinking(&mut self, events: &mut Vec<ExecutionEvent>) {
         if self.pending_thinking.is_empty() {
             return;
@@ -196,16 +230,20 @@ impl AtomcodeExtractor {
         }
     }
 
-    /// 解析 stdout 中的纯文本（AI 回复）
-    fn parse_stdout_line(&mut self, trimmed: &str) -> Vec<ExecutionEvent> {
-        if trimmed.is_empty() {
-            return Vec::new();
+    /// 将缓冲的纯文本行合并为一个 Assistant 事件
+    fn flush_text(&mut self, events: &mut Vec<ExecutionEvent>) {
+        if self.pending_text.is_empty() {
+            return;
         }
-        vec![ExecutionEvent::Assistant {
-            content: trimmed.to_string(),
-            thinking: None,
-            message_id: None,
-        }]
+        let content = self.pending_text.join("\n");
+        self.pending_text.clear();
+        if !content.trim().is_empty() {
+            events.push(ExecutionEvent::Assistant {
+                content,
+                thinking: None,
+                message_id: None,
+            });
+        }
     }
 }
 
@@ -220,14 +258,30 @@ impl EventExtractor for AtomcodeExtractor {
             return Vec::new();
         }
 
+        let mut events = Vec::new();
+
+        // 以 `[` 开头：结构化事件行
         if trimmed.starts_with('[') {
-            return self.parse_stderr_line(trimmed);
+            self.flush_text(&mut events);
+            events.extend(self.parse_stderr_line(trimmed));
+            return events;
         }
 
-        // stdout 纯文本行前，先 flush 思考块
-        let mut events = Vec::new();
-        self.flush_thinking(&mut events);
-        events.extend(self.parse_stdout_line(trimmed));
+        // 不以 `[` 开头，但行内可能混入结构化标记（文本末尾紧贴下一行）
+        // 如：当前任务已完成[tokens] prompt=100 completion=50
+        if let Some((text_part, structured_part)) = find_structured_split(trimmed) {
+            // 累积文本部分
+            if !text_part.is_empty() {
+                self.pending_text.push(text_part.to_string());
+            }
+            // flush 文本块 + 解析结构化部分
+            self.flush_text(&mut events);
+            events.extend(self.parse_stderr_line(structured_part));
+            return events;
+        }
+
+        // 普通纯文本行：累积等待 flush
+        self.pending_text.push(trimmed.to_string());
         events
     }
 
@@ -238,8 +292,11 @@ impl EventExtractor for AtomcodeExtractor {
         }
 
         if trimmed.starts_with('[') {
-            let events = self.parse_stderr_line(trimmed);
-            return events.into_iter().next();
+            let mut events = Vec::new();
+            self.flush_text(&mut events);
+            let stderr_events = self.parse_stderr_line(trimmed);
+            // 返回第一个事件（通常是唯一的）
+            return events.into_iter().chain(stderr_events).next();
         }
 
         if trimmed.to_lowercase().contains("error") {
@@ -313,7 +370,6 @@ mod tests {
     #[test]
     fn test_tool_result_ok() {
         let mut ext = AtomcodeExtractor::new();
-        // 先模拟一个工具调用以递增 tool_seq
         let _ = ext.extract(r#"[tool→ bash args={"command": "date"}]"#);
         let events = ext.extract("[tool← bash OK 10ms] Tue Jun 30 14:45:43 CST 2026");
         assert_eq!(events.len(), 1);
@@ -355,14 +411,6 @@ mod tests {
             ExecutionEvent::ToolCall { id, .. } => assert_eq!(id, "tool_2"),
             _ => panic!(),
         }
-    }
-
-    #[test]
-    fn test_stdout_text() {
-        let mut ext = AtomcodeExtractor::new();
-        let events = ext.extract("Hello, this is a text response");
-        assert_eq!(events.len(), 1);
-        assert!(matches!(&events[0], ExecutionEvent::Assistant { content, .. } if content == "Hello, this is a text response"));
     }
 
     #[test]
@@ -411,16 +459,6 @@ mod tests {
     }
 
     #[test]
-    fn test_thinking_flushed_by_stdout() {
-        let mut ext = AtomcodeExtractor::new();
-        assert!(ext.extract("[thinking] thinking text").is_empty());
-
-        let events = ext.extract("plain response");
-        assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Thinking { .. })));
-        assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Assistant { .. })));
-    }
-
-    #[test]
     fn test_thinking_reset_between_blocks() {
         let mut ext = AtomcodeExtractor::new();
         assert!(ext.extract("[thinking] block 1").is_empty());
@@ -430,5 +468,55 @@ mod tests {
         assert!(ext.extract("[thinking] block 2").is_empty());
         let events2 = ext.extract("[done] 1s turns=1 tool_calls=0");
         assert!(events2.iter().any(|e| matches!(e, ExecutionEvent::Thinking { content } if content == "block 2")));
+    }
+
+    // ── 文本块积累测试 ──────────────────────────────────────
+
+    #[test]
+    fn test_text_accumulation_to_assistant() {
+        // 多行无前缀文本累积为单个 Assistant 事件
+        let mut ext = AtomcodeExtractor::new();
+        assert!(ext.extract("第一段文本").is_empty());
+        assert!(ext.extract("第二段文本").is_empty());
+        assert!(ext.extract("第三段文本").is_empty());
+
+        // 结构化行触发 flush
+        let events = ext.extract("[tokens] prompt=10 completion=5");
+        assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Assistant { content, .. } if content == "第一段文本\n第二段文本\n第三段文本")));
+        assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Tokens { .. })));
+    }
+
+    #[test]
+    fn test_text_accumulation_flushed_by_structured() {
+        // [xx] 行到达时 flush 之前的文本块
+        let mut ext = AtomcodeExtractor::new();
+        let events1 = ext.extract("AI 输出文本");
+        assert!(events1.is_empty());
+
+        let events2 = ext.extract("[done] 1s turns=1 tool_calls=0");
+        assert_eq!(events2.len(), 2); // Assistant + StepFinish
+        assert!(matches!(&events2[0], ExecutionEvent::Assistant { content, .. } if content == "AI 输出文本"));
+    }
+
+    #[test]
+    fn test_embedded_structured_split() {
+        // 文本末尾紧贴结构化标记: "当前任务已完成[tokens] prompt=10 completion=5"
+        let mut ext = AtomcodeExtractor::new();
+        let events = ext.extract("当前任务已完成[tokens] prompt=10 completion=5");
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], ExecutionEvent::Assistant { content, .. } if content == "当前任务已完成"));
+        assert!(matches!(&events[1], ExecutionEvent::Tokens { .. }));
+    }
+
+    #[test]
+    fn test_embedded_structured_with_accumulated_text() {
+        // 多条文本行 + 末尾拼贴结构化
+        let mut ext = AtomcodeExtractor::new();
+        assert!(ext.extract("第一行").is_empty());
+        assert!(ext.extract("第二行").is_empty());
+
+        let events = ext.extract("第三行结尾[tokens] prompt=5 completion=3");
+        assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Assistant { content, .. } if content == "第一行\n第二行\n第三行结尾")));
+        assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Tokens { .. })));
     }
 }

@@ -44,7 +44,7 @@
 ```
 ```
 
-### kimi 输出另一个格式版本。直接输出了答案，最后跟着一些过程记录。
+### kimi 输出另一个格式版本。首先直接输出了答案，最后跟着一些json格式的过程记录。在第一个json之前的都是结论。
 kimi  --output-format stream-json -p "执行 date whoami 两个命令 \" 还有ping baidu.com  "
 Tue Jun 30 12:01:21 CST 2026
 weibh
