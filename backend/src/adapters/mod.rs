@@ -434,23 +434,39 @@ impl ExecutorRegistry {
     /// Create an executor instance by name and path.
     pub fn create_executor(name: &str, path: &str) -> Option<Arc<dyn CodeExecutor>> {
         let exec = find_executor(name)?;
+        // 展开 ~ 为 home 目录，避免 tokio::process::Command 找不到文件
+        let expanded = Self::expand_tilde(path);
         let executor: Arc<dyn CodeExecutor> = match exec.name {
-            "claudecode" => Arc::new(claude_code::ClaudeCodeExecutor::new(path.to_string())),
-            "mobilecoder" => Arc::new(mobilecoder::MobilecoderExecutor::new(path.to_string())),
-            "codebuddy" => Arc::new(codebuddy::CodebuddyExecutor::new(path.to_string())),
-            "opencode" => Arc::new(opencode::OpencodeExecutor::new(path.to_string())),
-            "atomcode" => Arc::new(atomcode::AtomcodeExecutor::new(path.to_string())),
-            "hermes" => Arc::new(hermes::HermesExecutor::new(path.to_string())),
-            "kimi" => Arc::new(kimi::KimiExecutor::new(path.to_string())),
-            "codex" => Arc::new(codex::CodexExecutor::new(path.to_string())),
-            "codewhale" => Arc::new(codewhale::CodewhaleExecutor::new(path.to_string())),
-            "pi" => Arc::new(pi::PiExecutor::new(path.to_string())),
-            "mimo" => Arc::new(mimo::MimoExecutor::new(path.to_string())),
-            "zhanlu" => Arc::new(zhanlu::ZhanluExecutor::new(path.to_string())),
-            "kilo" => Arc::new(kilo::KiloExecutor::new(path.to_string())),
+            "claudecode" => Arc::new(claude_code::ClaudeCodeExecutor::new(expanded)),
+            "mobilecoder" => Arc::new(mobilecoder::MobilecoderExecutor::new(expanded)),
+            "codebuddy" => Arc::new(codebuddy::CodebuddyExecutor::new(expanded)),
+            "opencode" => Arc::new(opencode::OpencodeExecutor::new(expanded)),
+            "atomcode" => Arc::new(atomcode::AtomcodeExecutor::new(expanded)),
+            "hermes" => Arc::new(hermes::HermesExecutor::new(expanded)),
+            "kimi" => Arc::new(kimi::KimiExecutor::new(expanded)),
+            "codex" => Arc::new(codex::CodexExecutor::new(expanded)),
+            "codewhale" => Arc::new(codewhale::CodewhaleExecutor::new(expanded)),
+            "pi" => Arc::new(pi::PiExecutor::new(expanded)),
+            "mimo" => Arc::new(mimo::MimoExecutor::new(expanded)),
+            "zhanlu" => Arc::new(zhanlu::ZhanluExecutor::new(expanded)),
+            "kilo" => Arc::new(kilo::KiloExecutor::new(expanded)),
             _ => return None,
         };
         Some(executor)
+    }
+
+    /// 展开路径中的 ~ 为用户 home 目录。
+    /// 如果 ~ 展开失败或无 ~ 前缀则返回原路径。
+    fn expand_tilde(path: &str) -> String {
+        if path.starts_with('~') {
+            if let Some(home) = dirs::home_dir() {
+                let relative = path
+                    .trim_start_matches('~')
+                    .trim_start_matches(std::path::MAIN_SEPARATOR);
+                return home.join(relative).to_string_lossy().to_string();
+            }
+        }
+        path.to_string()
     }
 
     /// Register an executor by name and path (convenience method).
