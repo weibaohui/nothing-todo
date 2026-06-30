@@ -79,8 +79,8 @@ impl AtomcodeExtractor {
     fn parse_stderr_line(&mut self, trimmed: &str) -> Vec<ExecutionEvent> {
         let mut events = Vec::new();
 
-        // 思考块处理：多行 [thinking] 累积为一块
-        if trimmed.starts_with("[thinking]") {
+        // 思考块处理：多行 [thinking]/[THINK] 累积为一块
+        if trimmed.starts_with("[thinking]") || trimmed.starts_with("[THINK]") {
             let content = trimmed["[thinking]".len()..].trim();
             self.pending_thinking.push(content.to_string());
             return events;
