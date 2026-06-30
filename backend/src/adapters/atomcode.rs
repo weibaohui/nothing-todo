@@ -48,6 +48,10 @@ impl CodeExecutor for AtomcodeExecutor {
 
     fn parse_output_line(&self, line: &str) -> Option<ParsedLogEntry> {
         let trimmed = helpers::trimmed_non_empty(line)?;
+        // 跳过 stderr 行混入 stdout 的情况（以 [ 开头的结构化事件已在 EventPipeline 处理）
+        if trimmed.starts_with('[') {
+            return None;
+        }
         // atomcode 的 stdout 不解析为结构化事件，全部当作普通文本透传给前端。
         Some(helpers::text_entry(trimmed))
     }

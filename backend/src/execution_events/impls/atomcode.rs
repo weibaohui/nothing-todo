@@ -267,7 +267,10 @@ impl EventExtractor for AtomcodeExtractor {
             return events;
         }
 
-        // 不以 `[` 开头，但行内可能混入结构化标记（文本末尾紧贴下一行）
+        // 不以 `[` 开头，先 flush 思考块（单行或多行累积的 thinking）
+        self.flush_thinking(&mut events);
+
+        // 行内可能混入结构化标记（文本末尾紧贴下一行）
         // 如：当前任务已完成[tokens] prompt=100 completion=50
         if let Some((text_part, structured_part)) = find_structured_split(trimmed) {
             // 累积文本部分
@@ -517,6 +520,30 @@ mod tests {
 
         let events = ext.extract("第三行结尾[tokens] prompt=5 completion=3");
         assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Assistant { content, .. } if content == "第一行\n第二行\n第三行结尾")));
+        assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Tokens { .. })));
+    }
+
+    #[test]
+    fn test_thinking_flushed_by_plain_text() {
+        // 单行 thinking 后紧跟纯文本，thinking 应被 flush
+        let mut ext = AtomcodeExtractor::new();
+        assert!(ext.extract("[thinking] All done. Let me summarize.").is_empty());
+
+        let events = ext.extract("Some plain text output");
+        // thinking 已 flush，但文本累积在 pending_text 中，不立即输出
+        assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Thinking { content } if content == "All done. Let me summarize.")));
+        assert_eq!(events.len(), 1);
+    }
+
+    #[test]
+    fn test_thinking_flushed_by_embedded_marker() {
+        // thinking 后紧跟嵌入式标记行，thinking 应被 flush
+        let mut ext = AtomcodeExtractor::new();
+        assert!(ext.extract("[thinking] Done.").is_empty());
+
+        let events = ext.extract("任务完成[tokens] prompt=1 completion=1");
+        assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Thinking { content } if content == "Done.")));
+        assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Assistant { content, .. })));
         assert!(events.iter().any(|e| matches!(e, ExecutionEvent::Tokens { .. })));
     }
 }

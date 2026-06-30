@@ -214,6 +214,10 @@ where
             // BufReader::lines 在读到 EOF 时返回 Ok(None)，循环自然退出。
             let mut reader = BufReader::new(stderr_reader).lines();
             while let Ok(Some(line)) = reader.next_line().await {
+                // 跳过流式输出行（atomcode 的 [tool-streaming 中间过程输出）
+                if line.trim_start().starts_with("[tool-streaming") {
+                    continue;
+                }
                 // 优先尝试用 EventPipeline 解析
                 let parsed_list =
                     try_parse_stderr_with_pipeline(&mut pipeline, &line, &tx, &task_id);
@@ -222,6 +226,11 @@ where
                     for parsed in parsed_list {
                         log_flusher.push(parsed).await;
                     }
+                    continue;
+                }
+
+                // 跳过 [thinking] 原始行（atomcode 已在 EventPipeline 中聚合），避免 raw 行混入日志
+                if line.trim_start().starts_with("[thinking") {
                     continue;
                 }
 
