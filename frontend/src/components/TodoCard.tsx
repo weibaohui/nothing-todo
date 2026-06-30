@@ -5,14 +5,13 @@ import {
   CloseCircleOutlined,
   ClockCircleOutlined,
   RobotOutlined,
-  CopyOutlined,
   EditOutlined,
   FileProtectOutlined,
 } from '@ant-design/icons';
 import XMarkdown from '@ant-design/x-markdown';
 import { ExecutorBadge } from './ExecutorBadge';
 import { formatTokens, formatDuration } from '@/utils/format';
-import { copyToClipboard } from '@/utils/clipboard';
+import { CopyButton } from '@/components/CopyButton';
 
 /* ─── Types ─── */
 
@@ -181,18 +180,14 @@ export const TodoCard = memo(function TodoCard({
             >
               <span className="kanban-card-section-label"><EditOutlined /> Prompt</span>
               {prompt && (
-                <button
-                  className="kanban-copy-btn"
-                  onClick={async e => {
-                    e.stopPropagation();
-                    // 使用统一的复制工具（兼容 HTTP 环境）
-                    const ok = await copyToClipboard(prompt);
-                    if (ok) message.success('已复制');
-                  }}
+                <CopyButton
+                  text={prompt}
+                  type="text"
+                  size="small"
+                  onCopy={() => message.success('已复制')}
                   title="复制 Prompt"
-                >
-                  <CopyOutlined />
-                </button>
+                  style={{ padding: '2px 6px', height: 'auto', lineHeight: 1 }}
+                />
               )}
               <span className="kanban-card-section-toggle">
                 {promptExpanded ? '收起' : '展开'}
@@ -241,18 +236,14 @@ export const TodoCard = memo(function TodoCard({
                 </span>
               )}
               {resultText && (
-                <button
-                  className="kanban-copy-btn"
-                  onClick={async e => {
-                    e.stopPropagation();
-                    // 使用统一的复制工具（兼容 HTTP 环境）
-                    const ok = await copyToClipboard(resultText);
-                    if (ok) message.success('已复制');
-                  }}
+                <CopyButton
+                  text={resultText}
+                  type="text"
+                  size="small"
+                  onCopy={() => message.success('已复制')}
                   title="复制结论"
-                >
-                  <CopyOutlined />
-                </button>
+                  style={{ padding: '2px 6px', height: 'auto', lineHeight: 1 }}
+                />
               )}
               <span className="kanban-card-section-toggle">
                 {(isLoadingResult || isLoadingRun) ? '加载中…' : (resultExpanded ? '收起' : '展开')}

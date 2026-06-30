@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Card, Button, Switch, Input, Select, Tag, message, Modal, Typography, AutoComplete, Table } from 'antd';
-import { ArrowLeftOutlined, CopyOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
 import * as db from '@/utils/database';
 import * as dbLoops from '@/utils/database/loops';
 import type { AgentBot, FeishuPushStatus, WhitelistEntry, FeishuSenderItem } from '@/utils/database';
 import type { FeishuHistoryMessage, FeishuHistoryChat, ExecutionRecord } from '@/types';
-import { copyToClipboard } from '@/utils/clipboard';
+import { CopyButton } from '@/components/CopyButton';
 import { ExecutionRecordDrawer } from '../messages/ExecutionRecordDrawer';
 import { BlackboardDrawer } from '@/components/LoopStudioExecutionsPanel';
 
@@ -203,10 +203,8 @@ export function BotDetailPage({ bot, onBack, onRefresh, autoShowHistory = false 
   };
 
   // 复制文本
-  const doCopyText = async (text: string, label: string) => {
-    const ok = await copyToClipboard(text);
-    if (ok) message.success(`${label} 已复制`);
-    else message.error('复制失败');
+  const doCopyText = (label: string) => {
+    message.success(`${label} 已复制`);
   };
 
   const isFeishu = bot.bot_type === 'feishu';
@@ -443,12 +441,12 @@ export function BotDetailPage({ bot, onBack, onRefresh, autoShowHistory = false 
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <span style={{ fontSize: 12, width: 60, color: 'var(--color-text-tertiary)' }}>单聊ID:</span>
                 <Input size="small" value={pushStatus.p2p_receive_id} style={{ flex: 1, fontSize: 12 }} />
-                <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => doCopyText(pushStatus.p2p_receive_id, 'p2p_receive_id')} />
+                <CopyButton type="text" size="small" text={pushStatus.p2p_receive_id} onCopy={() => doCopyText('p2p_receive_id')} />
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <span style={{ fontSize: 12, width: 60, color: 'var(--color-text-tertiary)' }}>群ID:</span>
                 <Input size="small" value={pushStatus.group_chat_id || ''} style={{ flex: 1, fontSize: 12 }} />
-                <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => doCopyText(pushStatus.group_chat_id || '', 'group_chat_id')} />
+                <CopyButton type="text" size="small" text={pushStatus.group_chat_id || ''} onCopy={() => doCopyText('group_chat_id')} />
               </div>
             </div>
             <div style={{ display: 'flex', gap: 16, fontSize: 13 }}>

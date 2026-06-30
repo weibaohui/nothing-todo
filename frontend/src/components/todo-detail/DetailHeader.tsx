@@ -1,12 +1,12 @@
 import { Button, Tag, Badge, Popconfirm, App } from 'antd';
-import { PlayCircleOutlined, ThunderboltOutlined, EditOutlined, DeleteOutlined, CopyOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, ThunderboltOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { StatusPicker } from '@/components/StatusPicker';
 import { ExecutorBadge } from '@/components/ExecutorBadge';
 import { PromptDisplay } from './PromptDisplay';
 import { InlineTokenStats } from './InlineTokenStats';
 import { ProgressWidget } from './ProgressWidget';
 import { formatLocalDateTime } from '@/utils/datetime';
-import { copyToClipboard } from '@/utils/clipboard';
+import { CopyButton } from '@/components/CopyButton';
 import type { ExecutionSummary, ExecutionRecord } from '@/types';
 import type { Todo } from '@/types';
 
@@ -73,25 +73,17 @@ export function DetailHeader({
                     whiteSpace: 'nowrap',
                     cursor: 'pointer',
                   }}
-                  onClick={async () => {
-                    const ok = await copyToClipboard(webhookUrl);
-                    if (ok) message.success('已复制 Webhook 地址');
-                    else message.error('复制失败');
-                  }}
+                  onClick={() => message.success('已复制 Webhook 地址')}
                 >
                   {webhookUrl}
                 </Tag>
-                <Button
+                <CopyButton
                   type="text"
                   size="small"
-                  icon={<CopyOutlined />}
+                  text={webhookUrl}
+                  onCopy={() => message.success('已复制 Webhook 地址')}
                   className="icon-btn"
                   aria-label="复制 Webhook 地址"
-                  onClick={async () => {
-                    const ok = await copyToClipboard(webhookUrl);
-                    if (ok) message.success('已复制 Webhook 地址');
-                    else message.error('复制失败');
-                  }}
                 />
               </>
             )}

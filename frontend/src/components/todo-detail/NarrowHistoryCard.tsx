@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Button, Popconfirm, Tag, Tooltip, Popover, InputNumber, Space } from 'antd';
+import { Button, Popconfirm, Tag, Popover, InputNumber, Space } from 'antd';
 import { MessageOutlined, FileTextOutlined, StopOutlined, StarOutlined, StarFilled } from '@ant-design/icons';
 import { ExecutorBadge } from '@/components/ExecutorBadge';
 import { supportsResume } from '@/types';
@@ -11,7 +11,7 @@ import { NarrowLogView } from './NarrowLogView';
 import { ReviewStatusBadge } from './RecordDetailView';
 import { CollapsibleConclusion } from './CollapsibleConclusion';
 import type { ExecutionRecord, ExecutionStats, LogEntry } from '@/types';
-import { copyToClipboard } from '@/utils/clipboard';
+import { CopyButton } from '@/components/CopyButton';
 
 /** Narrow mode: single history card */
 export function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, onStop, onRefresh, onRate, getRunningTask, resolveStats, parseLogs, messageApi, onViewModeChange }: {
@@ -93,30 +93,31 @@ export function NarrowHistoryCard({ record, viewMode, onOpenResume, onExport, on
           )}
         </div>
       </div>
-      {/* 点击命令文本即可复制，不需要额外的复制按钮 */}
-      {/* 使用 copyToClipboard 统一处理，兼容 HTTP 环境（通过 fallback 到 execCommand） */}
+      {/* 使用 CopyButton 展示并复制命令 */}
       {record.command && (
-        <Tooltip title="点击复制命令">
-          <div
-            onClick={async () => {
-              try {
-                // 调用统一的复制工具（内置 fallback，兼容 HTTP 环境）
-                const ok = await copyToClipboard(record.command || '');
-                // 根据返回结果提示用户
-                if (ok) {
-                  messageApi.success('已复制');
-                } else {
-                  messageApi.error('复制失败');
-                }
-              } catch {
-                messageApi.error('复制失败');
-              }
-            }}
-            style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginBottom: 8, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
-          >
-            {record.command}
-          </div>
-        </Tooltip>
+        <CopyButton
+          type="text"
+          text={record.command}
+          onCopy={() => messageApi.success('已复制')}
+          style={{
+            fontSize: 11,
+            color: 'var(--color-text-quaternary)',
+            marginBottom: 8,
+            fontFamily: 'var(--font-mono)',
+            padding: 0,
+            height: 'auto',
+            lineHeight: 1.6,
+            display: 'block',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            width: '100%',
+            textAlign: 'left',
+          }}
+          title="点击复制命令"
+        >
+          {record.command}
+        </CopyButton>
       )}
       {record.result !== null && record.result !== '' && (
         // 窄屏/手机版的结论区与桌面端共用同一 CollapsibleConclusion，

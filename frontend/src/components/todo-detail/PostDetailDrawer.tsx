@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Drawer, Button, Tag, Empty, Segmented, Popconfirm, Tooltip, Pagination, message, Popover, InputNumber, Space } from 'antd';
+import { Drawer, Button, Tag, Empty, Segmented, Popconfirm, Pagination, message, Popover, InputNumber, Space } from 'antd';
 import { StarOutlined, StarFilled, LinkOutlined, UnorderedListOutlined, CodeOutlined } from '@ant-design/icons';
 import { MessageOutlined, FileTextOutlined, StopOutlined } from '@ant-design/icons';
 import { ExecutorBadge } from '@/components/ExecutorBadge';
@@ -11,7 +11,7 @@ import { getElapsedSeconds, formatLogTime } from './helpers';
 import { LOG_TYPE_COLORS, LOG_TYPE_LABELS } from '@/constants';
 import { CollapsibleConclusion } from './CollapsibleConclusion';
 import { ReplyInput } from './ReplyInput';
-import { copyToClipboard } from '@/utils/clipboard';
+import { CopyButton } from '@/components/CopyButton';
 import { supportsResume } from '@/types';
 import type { SessionGroup } from './helpers';
 import type { ExecutionRecord, LogEntry, ExecutionStats } from '@/types';
@@ -132,19 +132,29 @@ export function PostDetailContent(props: PostDetailProps) {
 
         {/* Command */}
         {record.command && (
-          <Tooltip title="点击复制命令">
-            <div
-              onClick={async () => {
-                try {
-                  const ok = await copyToClipboard(record.command || '');
-                  message[ok ? 'success' : 'error'](ok ? '已复制' : '复制失败');
-                } catch { message.error('复制失败'); }
-              }}
-              style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginBottom: 12, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
-            >
-              {record.command}
-            </div>
-          </Tooltip>
+          <CopyButton
+            type="text"
+            text={record.command}
+            onCopy={() => message.success('已复制')}
+            style={{
+              fontSize: 11,
+              color: 'var(--color-text-quaternary)',
+              marginBottom: 12,
+              fontFamily: 'var(--font-mono)',
+              padding: 0,
+              height: 'auto',
+              lineHeight: 1.6,
+              display: 'block',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              width: '100%',
+              textAlign: 'left',
+            }}
+            title="点击复制命令"
+          >
+            {record.command}
+          </CopyButton>
         )}
 
         {/* Worktree path */}

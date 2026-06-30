@@ -18,9 +18,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, message as antdMessage } from 'antd';
 import type { MessageInstance } from 'antd/es/message/interface';
-import { CaretDownOutlined, CaretUpOutlined, CopyOutlined } from '@ant-design/icons';
+import { CaretDownOutlined, CaretUpOutlined } from '@ant-design/icons';
 import XMarkdown from '@ant-design/x-markdown';
-import { copyToClipboard } from '@/utils/clipboard';
+import { CopyButton } from '@/components/CopyButton';
 
 // 折叠状态在 localStorage 中的 key 前缀；按 recordId 区分避免互相串扰
 const STORAGE_KEY_PREFIX = 'ntd:conclusion-collapsed:';
@@ -117,15 +117,10 @@ export function CollapsibleConclusion({
     writeCollapsedState(storageKey, next);
   };
 
-  // 复制 Markdown 源文到剪贴板；统一走 copyToClipboard，兼容 HTTP 环境
-  const handleCopy = async () => {
+  // 复制 Markdown 源文到剪贴板；使用 CopyButton 组件（封装 clipboard.js）
+  const handleCopy = () => {
     const api = messageApi ?? antdMessage;
-    try {
-      const ok = await copyToClipboard(result || '');
-      api[ok ? 'success' : 'error'](ok ? '已复制到剪贴板' : '复制失败');
-    } catch {
-      api.error('复制失败');
-    }
+    api.success('已复制到剪贴板');
   };
 
   // 与原实现保持一致：成功用绿底，失败用红底。
@@ -190,11 +185,11 @@ export function CollapsibleConclusion({
             {[...result].length} 字
           </span>
         </Button>
-        <Button
+        <CopyButton
+          text={result || ''}
           type="text"
           size="small"
-          icon={<CopyOutlined />}
-          onClick={handleCopy}
+          onCopy={handleCopy}
           aria-label="复制结论"
           data-testid="conclusion-copy"
         />

@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Spin, Empty, Space, Typography, Button, Alert, Modal, Collapse, message } from 'antd';
-import { ExclamationCircleFilled, ReloadOutlined, CloudDownloadOutlined, CopyOutlined, CodeOutlined } from '@ant-design/icons';
+import { ExclamationCircleFilled, ReloadOutlined, CloudDownloadOutlined, CodeOutlined } from '@ant-design/icons';
 import * as db from '@/utils/database';
 import { ShareCard } from '@/components/ShareCard';
-import { copyToClipboard } from '@/utils/clipboard';
+import { CopyButton } from '@/components/CopyButton';
 
 const { Paragraph } = Typography;
 
@@ -350,19 +350,11 @@ export function AboutPanel() {
                                 >
                                   {step.code}
                                 </code>
-                                <Button
+                                <CopyButton
                                   type="text"
                                   size="small"
-                                  icon={<CopyOutlined />}
-                                  onClick={async () => {
-                                    // 使用统一的复制工具（兼容 HTTP 环境）
-                                    const ok = await copyToClipboard(step.code);
-                                    if (ok) {
-                                      message.success(`已复制：${step.label}`);
-                                    } else {
-                                      message.error('复制失败');
-                                    }
-                                  }}
+                                  text={step.code}
+                                  onCopy={() => message.success(`已复制：${step.label}`)}
                                 />
                               </div>
                             ))}
@@ -376,21 +368,13 @@ export function AboutPanel() {
                                 justifyContent: 'flex-end',
                               }}
                             >
-                              <Button
+                              <CopyButton
                                 size="small"
-                                icon={<CopyOutlined />}
-                                onClick={async () => {
-                                  // 使用统一的复制工具（兼容 HTTP 环境）
-                                  const ok = await copyToClipboard(MANUAL_UPGRADE_SCRIPT);
-                                  if (ok) {
-                                    message.success('已复制全部升级命令');
-                                  } else {
-                                    message.error('复制失败');
-                                  }
-                                }}
+                                text={MANUAL_UPGRADE_SCRIPT}
+                                onCopy={() => message.success('已复制全部升级命令')}
                               >
                                 复制全部命令
-                              </Button>
+                              </CopyButton>
                             </div>
                           </div>
                         ),

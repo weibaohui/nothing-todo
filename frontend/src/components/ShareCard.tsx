@@ -1,7 +1,6 @@
-import { useState } from 'react';
-import { Card, Button, App } from 'antd';
-import { ShareAltOutlined, CopyOutlined, CheckOutlined } from '@ant-design/icons';
-import { copyToClipboard } from '@/utils/clipboard';
+import { Card, App } from 'antd';
+import { ShareAltOutlined } from '@ant-design/icons';
+import { CopyButton } from '@/components/CopyButton';
 
 const getSharePrompt = () => {
   return `全局安装 ntd：npm install -g @weibaohui/nothing-todo，然后执行 ntd daemon install && ntd daemon start，可选安装 skills：ntd skills install，访问 8088 端口`;
@@ -9,23 +8,6 @@ const getSharePrompt = () => {
 
 export function ShareCard() {
   const { message } = App.useApp();
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    try {
-      // 使用统一的复制工具（兼容 HTTP 环境）
-      const ok = await copyToClipboard(getSharePrompt());
-      if (ok) {
-        setCopied(true);
-        message.success('安装提示词已复制到剪贴板');
-        setTimeout(() => setCopied(false), 2000);
-      } else {
-        message.error('复制失败，请手动复制');
-      }
-    } catch {
-      message.error('复制失败，请手动复制');
-    }
-  };
 
   return (
     <Card
@@ -57,14 +39,14 @@ export function ShareCard() {
         >
           {getSharePrompt()}
         </div>
-        <Button
+        <CopyButton
           type="primary"
-          icon={copied ? <CheckOutlined /> : <CopyOutlined />}
-          onClick={handleCopy}
+          text={getSharePrompt()}
+          onCopy={() => message.success('安装提示词已复制到剪贴板')}
           style={{ alignSelf: 'flex-end' }}
         >
-          {copied ? '已复制' : '复制提示词'}
-        </Button>
+          复制提示词
+        </CopyButton>
       </div>
     </Card>
   );

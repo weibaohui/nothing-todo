@@ -12,6 +12,9 @@ import {
   StopOutlined,
   LinkOutlined,
   InfoCircleOutlined,
+  CaretUpOutlined,
+  CaretDownOutlined,
+  BranchesOutlined,
 } from "@ant-design/icons";
 import { useApp } from "@/hooks/useApp";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -29,7 +32,7 @@ import { supportsResume } from "@/types";
 import { parseLogsToMessages } from "./ChatView";
 import { conversationToYaml } from "@/utils/markdown";
 import { getExecutorOption } from "@/types";
-import { copyToClipboard } from "@/utils/clipboard";
+import { CopyButton } from "@/components/CopyButton";
 import { EXPORT } from "@/constants";
 import * as db from "@/utils/database";
 import type { ExecutionRecord, LogEntry } from "@/types";
@@ -40,7 +43,7 @@ import {
   Space,
   message as antdMessage,
 } from "antd";
-import { StarOutlined, StarFilled, FileTextOutlined, CaretDownOutlined, CaretUpOutlined, CopyOutlined, BranchesOutlined } from "@ant-design/icons";
+import { StarOutlined, StarFilled, FileTextOutlined } from "@ant-design/icons";
 
 /**
  * 全屏帖子详情页 —— 按 session_id 加载同 session 的所有记录。
@@ -693,15 +696,6 @@ function LogDrawer({
 function CollapsibleCommand({ command }: { command: string }) {
   const [expanded, setExpanded] = useState(false);
 
-  const handleCopy = async () => {
-    try {
-      const ok = await copyToClipboard(command);
-      antdMessage[ok ? "success" : "error"](ok ? "已复制" : "复制失败");
-    } catch {
-      antdMessage.error("复制失败");
-    }
-  };
-
   const truncated = command.length > 60 ? command.substring(0, 60) + "..." : command;
 
   return (
@@ -739,11 +733,11 @@ function CollapsibleCommand({ command }: { command: string }) {
         >
           {expanded ? command : truncated}
         </span>
-        <Button
+        <CopyButton
           type="text"
           size="small"
-          icon={<CopyOutlined />}
-          onClick={handleCopy}
+          text={command}
+          onCopy={() => antdMessage.success("已复制")}
           style={{ flexShrink: 0 }}
         />
       </div>
@@ -847,29 +841,31 @@ function WorktreePathDisplay({ worktreePath }: { worktreePath: string | null }) 
 
   return (
     <Tooltip title={worktreePath}>
-      <div
-        onClick={async () => {
-          // 复用统一复制工具：HTTPS 走 navigator.clipboard，HTTP 环境 fallback 到 execCommand
-          const ok = await copyToClipboard(worktreePath);
-          antdMessage[ok ? 'success' : 'error'](ok ? '已复制 worktree 路径' : '复制失败');
-        }}
+      <CopyButton
+        type="text"
+        text={worktreePath}
+        onCopy={() => antdMessage.success('已复制 worktree 路径')}
         style={{
           fontSize: 11,
           color: 'var(--color-text-quaternary)',
           marginBottom: 12,
           fontFamily: 'var(--font-mono)',
+          padding: 0,
+          height: 'auto',
+          lineHeight: 1.6,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
+          width: '100%',
+          textAlign: 'left',
         }}
+        icon={<BranchesOutlined style={{ fontSize: 11, color: 'var(--color-primary)' }} />}
       >
-        <BranchesOutlined style={{ fontSize: 11, color: 'var(--color-primary)' }} />
         <span>Worktree: {displayPath}</span>
-      </div>
+      </CopyButton>
     </Tooltip>
   );
 }

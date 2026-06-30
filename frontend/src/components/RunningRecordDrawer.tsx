@@ -1,14 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Drawer, Tag, Button, Popconfirm, Space, Popover, InputNumber, Collapse, Spin } from 'antd';
+import { Drawer, Tag, Button, Popconfirm, Space, Popover, InputNumber, Collapse, Spin, message } from 'antd';
 import {
   StarOutlined,
   StarFilled,
   StopOutlined,
-  CopyOutlined,
   LinkOutlined,
   RightOutlined,
 } from '@ant-design/icons';
-import { copyToClipboard } from '@/utils/clipboard';
+import { CopyButton } from '@/components/CopyButton';
 import XMarkdown from '@ant-design/x-markdown';
 import { ExecutorBadge } from '@/components/ExecutorBadge';
 import { useApp } from '@/hooks/useApp';
@@ -163,13 +162,6 @@ export function RunningRecordDrawer({ record, open, onClose, onRefresh }: Runnin
     onRefresh?.();
   }, [onRefresh]);
 
-  const handleCopyResult = useCallback(async () => {
-    if (record?.result) {
-      // 使用统一的复制工具（兼容 HTTP 环境）
-      await copyToClipboard(record.result);
-    }
-  }, [record]);
-
   if (!record) return null;
 
   // 统一使用毫秒作为 duration 单位，与 formatDuration(ms) 签名一致。
@@ -303,7 +295,7 @@ export function RunningRecordDrawer({ record, open, onClose, onRefresh }: Runnin
             label: (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
                 <span>执行结果</span>
-                <Button type="text" size="small" icon={<CopyOutlined />} onClick={e => { e.stopPropagation(); handleCopyResult(); }} />
+                <CopyButton type="text" size="small" text={record?.result || ''} onCopy={() => message.success('已复制')} />
               </div>
             ),
             children: (

@@ -26,7 +26,7 @@ import {
 } from '@ant-design/icons';
 import * as dbLoops from '@/utils/database/loops';
 import type { LoopDetail } from '@/types/loop';
-import { copyToClipboard } from '@/utils/clipboard';
+import { CopyButton } from '@/components/CopyButton';
 import { getWorkspaceDisplayName, useProjectDirectories } from '@/utils/workspaceDisplay';
 import { LoopFormModal } from './LoopFormModal';
 import { LoopTriggersPanel, TRIGGER_META } from './LoopStudioTriggersPanel';
@@ -278,14 +278,10 @@ export function LoopDetailPanel({
                 >
                   {`${window.location.origin}/webhook/trigger/loop/${detail.id}`}
                 </span>
-                <Button
+                <CopyButton
                   size="small"
-                  icon={<CopyOutlined />}
-                  onClick={async () => {
-                    const ok = await copyToClipboard(`${window.location.origin}/webhook/trigger/loop/${detail.id}`);
-                    if (ok) antMessage.success('已复制 Webhook 地址');
-                    else antMessage.error('复制失败');
-                  }}
+                  text={`${window.location.origin}/webhook/trigger/loop/${detail.id}`}
+                  onCopy={() => antMessage.success('已复制 Webhook 地址')}
                 />
               </span>
             ) : (

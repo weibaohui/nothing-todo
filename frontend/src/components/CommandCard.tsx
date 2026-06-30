@@ -9,9 +9,8 @@
  * - 所有交互元素有 cursor:pointer 和 hover 反馈
  */
 import { useState } from 'react';
-import { Button, message } from 'antd';
+import { message } from 'antd';
 import {
-  CopyOutlined,
   CheckCircleFilled,
   CloseCircleFilled,
   ClockCircleOutlined,
@@ -19,7 +18,7 @@ import {
   RightOutlined,
 } from '@ant-design/icons';
 import type { CommandEntry } from '@/types';
-import { copyToClipboard } from '@/utils/clipboard';
+import { CopyButton } from '@/components/CopyButton';
 
 /** 输出预览截断阈值 */
 const OUTPUT_PREVIEW_LIMIT = 300;
@@ -35,9 +34,8 @@ export function CommandCard({ command, index }: CommandCardProps) {
   const isLong = hasOutput && command.output!.length > OUTPUT_PREVIEW_LIMIT;
   const [expanded, setExpanded] = useState(!isLong);
 
-  const onCopy = async () => {
-    const ok = await copyToClipboard(command.command);
-    message[ok ? 'success' : 'error'](ok ? '已复制命令' : '复制失败');
+  const onCopy = () => {
+    message.success('已复制命令');
   };
 
   return (
@@ -126,10 +124,10 @@ function CardHeader({
         {/* 原 antd Tooltip wrapper 重复声明「复制命令」（aria-label 与 title 同文），
             改为 Button 原生 `title` 承担视觉 hover 提示，`aria-label` 专给屏幕阅读器。
             二者文案必须保持一致，否则 a11y 与视觉提示会脱节。 */}
-        <Button
+        <CopyButton
           type="text" size="small"
-          icon={<CopyOutlined />}
-          onClick={onCopy}
+          text={command.command}
+          onCopy={onCopy}
           aria-label="复制命令"
           title="复制命令"
           data-testid={`command-copy-${index}`}

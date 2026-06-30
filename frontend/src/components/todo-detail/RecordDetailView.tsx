@@ -12,7 +12,7 @@ import type { SessionGroup } from './helpers';
 import { supportsResume } from '@/types';
 import type { ExecutionRecord, LogEntry } from '@/types';
 // todo hook 已整块移除（plan `purring-forging-petal`），不再需要 getHookTriggerLabel。
-import { copyToClipboard } from '@/utils/clipboard';
+import { CopyButton } from '@/components/CopyButton';
 import { CommandPanel } from '@/components/CommandPanel';
 import { CollapsibleConclusion } from './CollapsibleConclusion';
 
@@ -158,30 +158,31 @@ export function RecordDetailView({
           )}
         </div>
       </div>
-      {/* 点击命令文本即可复制，不需要额外的复制按钮 */}
-      {/* 使用 copyToClipboard 工具函数统一处理剪贴板写入，支持 HTTP 环境（通过 fallback 到 execCommand） */}
+      {/* 使用 CopyButton 展示并复制命令，支持 HTTP 环境 */}
       {record.command && (
-        <Tooltip title="点击复制命令">
-          <div
-            onClick={async () => {
-              try {
-                // 调用统一的复制工具（内置 fallback，兼容 HTTP 环境）
-                const ok = await copyToClipboard(record.command || '');
-                // 根据返回结果提示用户
-                if (ok) {
-                  message.success('已复制');
-                } else {
-                  message.error('复制失败');
-                }
-              } catch {
-                message.error('复制失败');
-              }
-            }}
-            style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginBottom: 12, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
-          >
-            {record.command}
-          </div>
-        </Tooltip>
+        <CopyButton
+          type="text"
+          text={record.command}
+          onCopy={() => message.success('已复制')}
+          style={{
+            fontSize: 11,
+            color: 'var(--color-text-quaternary)',
+            marginBottom: 12,
+            fontFamily: 'var(--font-mono)',
+            padding: 0,
+            height: 'auto',
+            lineHeight: 1.6,
+            display: 'block',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            width: '100%',
+            textAlign: 'left',
+          }}
+          title="点击复制命令"
+        >
+          {record.command}
+        </CopyButton>
       )}
       {/* issue #645: 展示本次执行使用的 git worktree 目录路径；目录可能已被清理，但仍保留在记录里便于排查 */}
       <WorktreePathDisplay worktreePath={record.worktree_path ?? null} />
@@ -483,31 +484,32 @@ function WorktreePathDisplay({ worktreePath }: { worktreePath: string | null }) 
 
   return (
     <Tooltip title={worktreePath}>
-      <div
-        onClick={async () => {
-          // 复用统一的复制工具：HTTPS 走 navigator.clipboard，
-          // HTTP 环境自动 fallback 到 execCommand，保持与命令复制一致
-          const ok = await copyToClipboard(worktreePath);
-          message[ok ? 'success' : 'error'](ok ? '已复制 worktree 路径' : '复制失败');
-        }}
+      <CopyButton
+        type="text"
+        text={worktreePath}
+        onCopy={() => message.success('已复制 worktree 路径')}
         // 与命令展示行保持一致的视觉权重：四级文本色、等宽字体、单行省略
         style={{
           fontSize: 11,
           color: 'var(--color-text-quaternary)',
           marginBottom: 12,
           fontFamily: 'var(--font-mono)',
+          padding: 0,
+          height: 'auto',
+          lineHeight: 1.6,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
+          width: '100%',
+          textAlign: 'left',
         }}
+        icon={<BranchesOutlined style={{ fontSize: 11, color: 'var(--color-primary)' }} />}
       >
-        <BranchesOutlined style={{ fontSize: 11, color: 'var(--color-primary)' }} />
         <span>Worktree: {displayPath}</span>
-      </div>
+      </CopyButton>
     </Tooltip>
   );
 }

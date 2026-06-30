@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Button, Popconfirm, Tag, Tooltip } from 'antd';
+import { Button, Popconfirm, Tag } from 'antd';
 import { MessageOutlined, FileTextOutlined, StopOutlined, LinkOutlined, UpOutlined, DownOutlined } from '@ant-design/icons';
 import { ExecutorBadge } from '@/components/ExecutorBadge';
 import { CollapsibleConclusion } from './CollapsibleConclusion';
@@ -12,7 +12,7 @@ import { ContinuationLogView } from './ContinuationLogView';
 import { ContinuationLogsLoader } from './ContinuationLogsLoader';
 import type { SessionGroup } from './helpers';
 import type { ExecutionRecord, ExecutionStats, LogEntry } from '@/types';
-import { copyToClipboard } from '@/utils/clipboard';
+import { CopyButton } from '@/components/CopyButton';
 
 function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, viewMode, parseLogs, onRefresh, resolveStats, onViewModeChange }: {
   group: SessionGroup;
@@ -87,30 +87,31 @@ function ChainGroupCard({ group, onOpenResume, onExport, onStop, messageApi, vie
             )}
           </div>
         </div>
-        {/* 点击命令文本即可复制，不需要额外的复制按钮 */}
-        {/* 使用 copyToClipboard 统一处理，兼容 HTTP 环境（通过 fallback 到 execCommand） */}
+        {/* 使用 CopyButton 展示并复制命令 */}
         {mainRecord.command && (
-          <Tooltip title="点击复制命令">
-            <div
-              onClick={async () => {
-                try {
-                  // 调用统一的复制工具（内置 fallback，兼容 HTTP 环境）
-                  const ok = await copyToClipboard(mainRecord.command || '');
-                  // 根据返回结果提示用户
-                  if (ok) {
-                    messageApi.success('已复制');
-                  } else {
-                    messageApi.error('复制失败');
-                  }
-                } catch {
-                  messageApi.error('复制失败');
-                }
-              }}
-              style={{ fontSize: 11, color: 'var(--color-text-quaternary)', marginBottom: 8, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
-            >
-              {mainRecord.command}
-            </div>
-          </Tooltip>
+          <CopyButton
+            type="text"
+            text={mainRecord.command}
+            onCopy={() => messageApi.success('已复制')}
+            style={{
+              fontSize: 11,
+              color: 'var(--color-text-quaternary)',
+              marginBottom: 8,
+              fontFamily: 'var(--font-mono)',
+              padding: 0,
+              height: 'auto',
+              lineHeight: 1.6,
+              display: 'block',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              width: '100%',
+              textAlign: 'left',
+            }}
+            title="点击复制命令"
+          >
+            {mainRecord.command}
+          </CopyButton>
         )}
         {mainRecord.result && (
           // 折叠/展开控制由 CollapsibleConclusion 内部状态管理；
