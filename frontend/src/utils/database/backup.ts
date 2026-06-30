@@ -154,3 +154,60 @@ export async function deleteSkillBackupFile(filename: string): Promise<string> {
 export function downloadSkillBackupFileUrl(filename: string): string {
   return `/api/backup/skills/file?filename=${encodeURIComponent(filename)}`;
 }
+
+// Loop Import/Export APIs
+
+export interface LoopImportPreview {
+  valid: boolean;
+  pseudo_ids: string[];
+  summary: {
+    loops: number;
+    steps: number;
+    todos: number;
+    review_templates: number;
+    tags: number;
+    triggers: number;
+  };
+  conflicts: { type: string; name: string; action: string }[];
+  warnings: { type: string; message: string }[];
+}
+
+export async function previewLoopImport(yaml: string): Promise<LoopImportPreview> {
+  const response = await fetch('/api/loops/import/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-yaml' },
+    body: yaml,
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: response.statusText }));
+    throw new Error(err.message || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+export interface LoopImportResult {
+  success: boolean;
+  created: {
+    loops: number;
+    todos: number;
+    review_templates: number;
+    tags: number;
+    triggers: number;
+    steps: number;
+  };
+  warnings: { type: string; message: string }[];
+}
+
+export async function importLoops(yaml: string, workspace_id: number): Promise<LoopImportResult> {
+  return unwrap(await api.post('/api/loops/import', { yaml, workspace_id }));
+}
+
+export type ConflictAction = 'rename' | 'overwrite' | 'skip';
+
+export async function mergeLoops(
+  yaml: string,
+  workspace_id: number,
+  conflict_resolution: Record<string, ConflictAction>,
+): Promise<{ success: boolean; created: LoopImportResult['created']; updated: LoopImportResult['created']; skipped: string[]; warnings: { type: string; message: string }[] }> {
+  return unwrap(await api.post('/api/loops/merge', { yaml, workspace_id, conflict_resolution }));
+}
