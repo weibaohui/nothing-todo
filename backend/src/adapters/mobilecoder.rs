@@ -126,8 +126,6 @@ impl CodeExecutor for MobilecoderExecutor {
     fn command_args(&self, message: &str) -> Vec<String> {
         vec![
             "run".to_string(),
-            "--agent".to_string(),
-            "yolo".to_string(),
             "--format".to_string(),
             "json".to_string(),
             message.to_string(),
@@ -137,8 +135,6 @@ impl CodeExecutor for MobilecoderExecutor {
     fn command_args_with_session(&self, message: &str, session_id: Option<&str>, is_resume: bool) -> Vec<String> {
         let mut args = vec![
             "run".to_string(),
-            "--agent".to_string(),
-            "yolo".to_string(),
             "--format".to_string(),
             "json".to_string(),
         ];
