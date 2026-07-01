@@ -115,6 +115,35 @@ fn resolve_skill_path_under(base: &Path, skill_name: &str) -> Result<PathBuf, Ap
     Ok(candidate_canonical)
 }
 
+/// 把外部 `skill_name` 解析为目录路径，用于**只读**操作（如获取内容、导出）。
+///
+/// 与 `resolve_skill_path_under` 的区别：
+/// - 允许符号链接指向 skills 目录外的路径（如 `~/.claude/skills/xxx -> ~/.agents/skills/xxx`）
+/// - 但仍拒绝绝对路径、`..` 父级引用等恶意输入
+///
+/// 这样用户可以通过符号链接访问其他位置的 skill，同时防止路径遍历攻击。
+fn resolve_skill_path_for_read(base: &Path, skill_name: &str) -> Result<PathBuf, AppError> {
+    // 第一道：纯字符串级校验（与 resolve_skill_path_under 相同）
+    let rel = Path::new(skill_name);
+    if rel.as_os_str().is_empty() {
+        return Err(AppError::BadRequest("Invalid skill name: empty".to_string()));
+    }
+    if rel.is_absolute() {
+        return Err(AppError::BadRequest("Invalid skill name: absolute paths are not allowed".to_string()));
+    }
+    if rel.components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::Prefix(_))) {
+        return Err(AppError::BadRequest("Invalid skill name: parent directory traversal is not allowed".to_string()));
+    }
+
+    // 第二道：检查路径是否存在（不检查是否在 base 下，允许符号链接逃逸）
+    let candidate = base.join(rel);
+    if !candidate.exists() {
+        return Err(AppError::NotFound);
+    }
+
+    Ok(candidate)
+}
+
 fn executor_label(et: ExecutorType) -> &'static str {
     match et {
         ExecutorType::Claudecode => "Claude Code",
@@ -559,9 +588,9 @@ pub async fn get_skill_content(
     let skills_dir = executor_skills_dir_str(&query.executor)
         .ok_or_else(|| AppError::BadRequest(format!("Unknown executor: {}", query.executor)))?;
 
-    // 用统一 helper 校验 skill_name 并解析出实际路径
-    // 比直接 join 多一层 canonicalize + starts_with 防御（防 ../ 逃逸和符号链接绕过）
-    let skill_dir = resolve_skill_path_under(&skills_dir, &query.skill_name)?;
+    // 用 resolve_skill_path_for_read 校验 skill_name
+    // 对于只读操作，允许符号链接指向 skills 目录外的路径
+    let skill_dir = resolve_skill_path_for_read(&skills_dir, &query.skill_name)?;
 
     let skill_name = query.skill_name.clone();
     let executor = query.executor.clone();
@@ -650,8 +679,9 @@ pub async fn export_skill(
     let skills_dir = executor_skills_dir_str(&query.executor)
         .ok_or_else(|| AppError::BadRequest(format!("Unknown executor: {}", query.executor)))?;
 
-    // 统一 containment 校验
-    let skill_dir = resolve_skill_path_under(&skills_dir, &query.skill_name)?;
+    // 用 resolve_skill_path_for_read 校验 skill_name
+    // 对于只读操作，允许符号链接指向 skills 目录外的路径
+    let skill_dir = resolve_skill_path_for_read(&skills_dir, &query.skill_name)?;
 
     // Create zip in memory
     let mut zip_data = Vec::new();
