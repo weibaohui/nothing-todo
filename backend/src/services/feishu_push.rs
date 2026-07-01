@@ -272,10 +272,14 @@ impl FeishuPushService {
                         let trimmed = r.trim();
                         if trimmed.is_empty() {
                             String::new()
-                        } else if trimmed.chars().count() > 300 {
-                            format!("\n\n📤 结果:\n{}...", trimmed.chars().take(300).collect::<String>())
                         } else {
-                            format!("\n\n📤 结果:\n{}", trimmed)
+                            // 飞书消息长度限制约 4000 字符，为标题和状态预留空间
+                            const MAX_RESULT_CHARS: usize = 3500;
+                            if trimmed.chars().count() > MAX_RESULT_CHARS {
+                                format!("\n\n📤 结果:\n{}...", trimmed.chars().take(MAX_RESULT_CHARS).collect::<String>())
+                            } else {
+                                format!("\n\n📤 结果:\n{}", trimmed)
+                            }
                         }
                     })
                     .unwrap_or_default();
