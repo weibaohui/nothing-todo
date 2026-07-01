@@ -595,7 +595,7 @@ function ReplyRow({
 
 // ─── 日志/对话/命令抽屉 ────────────────────────────────────
 
-function LogDrawer({
+export function LogDrawer({
   open,
   record,
   paginatedLogs,
