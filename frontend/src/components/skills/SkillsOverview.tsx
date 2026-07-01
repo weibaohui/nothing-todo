@@ -99,7 +99,7 @@ export function SkillsOverview() {
       ).length;
     };
 
-    const tabs = [{ key: 'all', label: '全部', count: matchSearch(allSkills.map(s => s.skill)) }];
+    const tabs = [{ key: 'all', label: '全部', count: -1 }];
     data.forEach(e => {
       const label = EXECUTORS.find(x => x.value === e.executor)?.label || e.executor;
       tabs.push({ key: e.executor, label, count: matchSearch(e.skills) });
@@ -334,21 +334,23 @@ export function SkillsOverview() {
                 }}
               >
                 {tab.label}
-                <span style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  minWidth: 18,
-                  height: 18,
-                  borderRadius: 9,
-                  background: isActive ? color : 'var(--color-fill, #e2e8f0)',
-                  color: isActive ? '#fff' : 'var(--color-text-secondary, #475569)',
-                  fontSize: 11,
-                  lineHeight: 1,
-                  padding: '0 4px',
-                }}>
-                  {tab.count}
-                </span>
+                {tab.count >= 0 && (
+                  <span style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minWidth: 18,
+                    height: 18,
+                    borderRadius: 9,
+                    background: isActive ? color : 'var(--color-fill, #e2e8f0)',
+                    color: isActive ? '#fff' : 'var(--color-text-secondary, #475569)',
+                    fontSize: 11,
+                    lineHeight: 1,
+                    padding: '0 4px',
+                  }}>
+                    {tab.count}
+                  </span>
+                )}
               </button>
             );
           })}
