@@ -69,8 +69,19 @@ impl FeishuPushService {
                                 }
 
                                 // For Finished events with feishu_chat_id (binding chat), send directly
+                                // 但需要先检查该 bot 的 push_level 配置
                                 if let ExecEvent::Finished { feishu_bot_id, feishu_receive_id, .. } = &ev {
                                     if let (Some(bot_id), Some(receive_id)) = (feishu_bot_id, feishu_receive_id) {
+                                        // 查询该 bot 的 push_level 配置
+                                        let push_level = Self::get_bot_push_level(&db, *bot_id).await;
+                                        
+                                        // 检查 push_level 配置是否允许发送
+                                        if !Self::should_send(&push_level, &ev) {
+                                            debug!("[feishu-push] binding send skipped for bot {} due to push_level={}", bot_id, push_level);
+                                            // 配置不允许发送时，跳过 push target 路径
+                                            continue;
+                                        }
+                                        
                                         let text = Self::format_event(&ev).unwrap_or_default();
                                         let receive_id_type = "open_id"; // binding chats are p2p
                                         let res = feishu_listener.send_raw(*bot_id, receive_id, receive_id_type, &text).await;
@@ -159,6 +170,23 @@ impl FeishuPushService {
         }
     }
 
+    /// 获取指定 bot 的 push_level 配置。
+    /// 如果 bot 不存在或未配置 push_target，返回默认值 "result_only"。
+    async fn get_bot_push_level(db: &Database, bot_id: i64) -> String {
+        match db.get_feishu_push_target(bot_id).await {
+            Ok(Some(target)) => target.push_level,
+            Ok(None) => {
+                // bot 未配置 push_target，使用默认值
+                debug!("[feishu-push] bot {} has no push_target config, using default 'result_only'", bot_id);
+                "result_only".to_string()
+            }
+            Err(e) => {
+                warn!("[feishu-push] failed to get push_target for bot {}: {}, using default 'result_only'", bot_id, e);
+                "result_only".to_string()
+            }
+        }
+    }
+
     async fn refresh_targets(db: &Database, targets: &mut std::collections::HashMap<Option<i64>, Vec<(i64, String, String, String)>>) {
         targets.clear();
         match db.get_all_push_targets_by_workspace().await {
@@ -237,5 +265,118 @@ impl FeishuPushService {
             // ExecutorDirectResponse 由 FeishuPushService 直接发送，不走 format_event
             ExecEvent::ExecutorDirectResponse { .. } => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod feishu_push_binding_tests {
+    //! 验证 binding direct send 场景下的 push_level 检查逻辑。
+    //! 
+    //! 修复背景：事项执行完成后，Finished 事件带有 feishu_bot_id/receive_id 时，
+    //! 原代码直接发送，绕过了 push_level 配置检查。用户配置"仅结论"时，
+    //! 应该发送完成消息；配置"关闭"时，应该不发送任何消息。
+    //! 
+    //! 修复方案：在 binding direct send 前查询 bot 的 push_level 配置，
+    //! 使用 should_send 函数判断是否允许发送。
+
+    use super::*;
+
+    /// 测试 push_level="disabled" 时，Finished 事件不应该发送
+    #[test]
+    fn test_should_send_disabled_blocks_finished_event() {
+        let push_level = "disabled";
+        let event = ExecEvent::Finished {
+            task_id: "test-123".to_string(),
+            todo_id: 1,
+            todo_title: "Test Todo".to_string(),
+            executor: "claudecode".to_string(),
+            success: true,
+            result: Some("完成".to_string()),
+            feishu_bot_id: Some(1),
+            feishu_receive_id: Some("user_open_id".to_string()),
+            workspace_id: Some(1),
+        };
+        
+        assert!(!FeishuPushService::should_send(push_level, &event));
+    }
+
+    /// 测试 push_level="result_only" 时，Finished 事件应该发送
+    #[test]
+    fn test_should_send_result_only_allows_finished_event() {
+        let push_level = "result_only";
+        let event = ExecEvent::Finished {
+            task_id: "test-123".to_string(),
+            todo_id: 1,
+            todo_title: "Test Todo".to_string(),
+            executor: "claudecode".to_string(),
+            success: true,
+            result: Some("完成".to_string()),
+            feishu_bot_id: Some(1),
+            feishu_receive_id: Some("user_open_id".to_string()),
+            workspace_id: Some(1),
+        };
+        
+        assert!(FeishuPushService::should_send(push_level, &event));
+    }
+
+    /// 测试 push_level="all" 时，Finished 事件应该发送
+    #[test]
+    fn test_should_send_all_allows_finished_event() {
+        let push_level = "all";
+        let event = ExecEvent::Finished {
+            task_id: "test-123".to_string(),
+            todo_id: 1,
+            todo_title: "Test Todo".to_string(),
+            executor: "claudecode".to_string(),
+            success: true,
+            result: Some("完成".to_string()),
+            feishu_bot_id: Some(1),
+            feishu_receive_id: Some("user_open_id".to_string()),
+            workspace_id: Some(1),
+        };
+        
+        assert!(FeishuPushService::should_send(push_level, &event));
+    }
+
+    /// 测试 push_level="result_only" 时，Started 事件不应该发送
+    #[test]
+    fn test_should_send_result_only_blocks_started_event() {
+        let push_level = "result_only";
+        let event = ExecEvent::Started {
+            task_id: "test-123".to_string(),
+            todo_id: 1,
+            todo_title: "Test Todo".to_string(),
+            executor: "claudecode".to_string(),
+        };
+        
+        assert!(!FeishuPushService::should_send(push_level, &event));
+    }
+
+    /// 测试 push_level="all" 时，Started 事件应该发送
+    #[test]
+    fn test_should_send_all_allows_started_event() {
+        let push_level = "all";
+        let event = ExecEvent::Started {
+            task_id: "test-123".to_string(),
+            todo_id: 1,
+            todo_title: "Test Todo".to_string(),
+            executor: "claudecode".to_string(),
+        };
+        
+        assert!(FeishuPushService::should_send(push_level, &event));
+    }
+
+    /// 测试 push_level="disabled" 时，Started 事件不应该发送
+    #[test]
+    fn test_should_send_disabled_blocks_started_event() {
+        let push_level = "disabled";
+        let event = ExecEvent::Started {
+            task_id: "test-123".to_string(),
+            todo_id: 1,
+            todo_title: "Test Todo".to_string(),
+            executor: "claudecode".to_string(),
+        };
+        
+        assert!(!FeishuPushService::should_send(push_level, &event));
     }
 }
