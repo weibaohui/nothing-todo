@@ -1,0 +1,205 @@
+/* SkillCardView 样式 */
+
+/* 卡片容器 */
+.skill-card-view {
+  --skill-card-radius: 16px;
+  --skill-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --skill-card-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+/* 卡片网格 */
+.skill-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+/* 响应式断点：平板（2列） */
+@media (max-width: 1024px) {
+  .skill-card-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* 响应式断点：手机（1列） */
+@media (max-width: 640px) {
+  .skill-card-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 单个卡片样式 */
+.skill-card-item {
+  background: var(--color-bg-card, #ffffff);
+  border-radius: var(--skill-card-radius);
+  border: 1px solid var(--color-border, #e2e8f0);
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: var(--skill-card-shadow);
+  position: relative;
+  overflow: hidden;
+}
+
+/* 卡片 hover 效果 */
+.skill-card-item:hover {
+  box-shadow: var(--skill-card-shadow-hover);
+  transform: translateY(-2px);
+}
+
+/* 头像容器 */
+.skill-card-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 14px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* 卡片标题 */
+.skill-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text, #0f172a);
+  margin-bottom: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 卡片描述 */
+.skill-card-description {
+  font-size: 12px;
+  color: var(--color-text-secondary, #64748b);
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 38px;
+  margin-bottom: 12px;
+}
+
+/* 标签区域 */
+.skill-card-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+/* 执行器区域 */
+.skill-card-executors {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border, #e2e8f0);
+}
+
+/* 执行器方块 */
+.executor-block {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  transition: all 0.2s;
+  cursor: default;
+  flex-shrink: 0;
+}
+
+.executor-block--installed {
+  color: #fff;
+}
+
+.executor-block--not-installed {
+  border: 1px dashed;
+  opacity: 0.4;
+}
+
+/* 分类标签云 */
+.skill-category-cloud {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 分类标签按钮 */
+.skill-category-btn {
+  padding: 4px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  background: transparent;
+  color: var(--color-text-secondary, #64748b);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.skill-category-btn:hover {
+  border-color: #0891b2;
+  color: #0891b2;
+}
+
+.skill-category-btn--active {
+  border-color: #0891b2;
+  background: rgba(8, 145, 178, 0.1);
+  color: #0891b2;
+}
+
+/* 搜索框 */
+.skill-search-input {
+  border-radius: 20px;
+}
+
+/* 空状态 */
+.skill-empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--color-text-secondary, #64748b);
+}
+
+.skill-empty-state-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.3;
+}
+
+/* 暗色主题适配 */
+[data-theme="dark"] .skill-card-item {
+  background: var(--color-bg-card, #1e293b);
+  border-color: var(--color-border, #334155);
+}
+
+[data-theme="dark"] .skill-card-title {
+  color: var(--color-text, #f1f5f9);
+}
+
+[data-theme="dark"] .skill-card-description {
+  color: var(--color-text-secondary, #94a3b8);
+}
+
+[data-theme="dark"] .skill-category-btn {
+  border-color: var(--color-border, #334155);
+  color: var(--color-text-secondary, #94a3b8);
+}
+
+[data-theme="dark"] .skill-category-btn:hover,
+[data-theme="dark"] .skill-category-btn--active {
+  border-color: #22d3ee;
+  color: #22d3ee;
+  background: rgba(34, 211, 238, 0.1);
+}

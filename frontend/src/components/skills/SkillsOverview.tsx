@@ -5,6 +5,7 @@ import {
   ThunderboltOutlined, SearchOutlined,
   DownloadOutlined, ExportOutlined, ImportOutlined,
   AppstoreOutlined, FileTextOutlined,
+  UnorderedListOutlined, AppstoreOutlined as AppstoreOutlinedIcon,
 } from '@ant-design/icons';
 import { EXECUTORS } from '@/types';
 import type { SkillMeta, ExecutorSkills } from '@/types';
@@ -12,6 +13,7 @@ import * as db from '@/utils/database';
 import { EXECUTOR_COLORS, formatSize, splitSkillName } from './helpers';
 import { SkillDetailDrawer } from './SkillDetailDrawer';
 import { ImportExportModal } from './ImportExportModal';
+import { SkillCardView } from './SkillCardView';
 
 export function SkillsOverview() {
   const [loading, setLoading] = useState(true);
@@ -24,6 +26,7 @@ export function SkillsOverview() {
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportMode, setExportMode] = useState<'import' | 'export'>('export');
   const [initialSelectedSkills, setInitialSelectedSkills] = useState<string[] | undefined>(undefined);
+  const [viewMode, setViewMode] = useState<'list' | 'card'>('card');
 
   const loadData = () => {
     setLoading(true);
@@ -55,7 +58,8 @@ export function SkillsOverview() {
     const totalSkills = data.reduce((sum, e) => sum + e.skills.length, 0);
     const totalFiles = data.reduce((sum, e) => sum + e.skills.reduce((s, sk) => s + sk.file_count, 0), 0);
     const executorsWithSkills = data.filter(e => e.skills.length > 0).length;
-    return { totalSkills, totalFiles, executorsWithSkills };
+    // 分母用前端定义的执行器总数，而非 API 返回的数量（API 只返回有 skills 目录的）
+    return { totalSkills, totalFiles, executorsWithSkills, totalExecutors: EXECUTORS.length };
   }, [data]);
 
   // All skills flattened (filtered by executor, but not by search)
@@ -83,9 +87,10 @@ export function SkillsOverview() {
     );
   }, [allSkills, searchText]);
 
-  // Executor filter tabs with counts synced to search
+  // Executor filter tabs — counts reflect each executor's own skill total,
+  // only narrowed by search text; never zeroed out by executor filter selection.
   const executorTabs = useMemo(() => {
-    const filterMatch = (skills: SkillMeta[]) => {
+    const matchSearch = (skills: SkillMeta[]) => {
       if (!searchText) return skills.length;
       const lower = searchText.toLowerCase();
       return skills.filter(s =>
@@ -95,16 +100,13 @@ export function SkillsOverview() {
       ).length;
     };
 
-    const tabs = [{ key: 'all', label: '全部', count: filterMatch(allSkills.map(s => s.skill)) }];
+    const tabs = [{ key: 'all', label: '全部', count: -1 }];
     data.forEach(e => {
       const label = EXECUTORS.find(x => x.value === e.executor)?.label || e.executor;
-      const count = filterExecutor === 'all' || filterExecutor === e.executor
-        ? filterMatch(e.skills)
-        : 0;
-      tabs.push({ key: e.executor, label, count });
+      tabs.push({ key: e.executor, label, count: matchSearch(e.skills) });
     });
     return tabs;
-  }, [data, filterExecutor, searchText, allSkills]);
+  }, [data, searchText, allSkills]);
 
   const exportMenuItems: MenuProps['items'] = [
     { key: 'export', icon: <ExportOutlined />, label: '导出选中' },
@@ -188,7 +190,7 @@ export function SkillsOverview() {
               <div style={{ fontSize: 12, color: 'var(--color-text-secondary, #475569)' }}>执行器</div>
               <div style={{ fontSize: 20, fontWeight: 600, lineHeight: 1.2, color: 'var(--color-text, #0f172a)' }}>
                 {stats.executorsWithSkills}
-                <span style={{ fontSize: 13, fontWeight: 400, marginLeft: 2 }}>/ {data.length}</span>
+                <span style={{ fontSize: 13, fontWeight: 400, marginLeft: 2 }}>/ {stats.totalExecutors}</span>
               </div>
             </div>
           </div>
@@ -218,7 +220,7 @@ export function SkillsOverview() {
         </Card>
       </div>
 
-      {/* Filter & Search bar */}
+      {/* Search & Action bar - 始终显示 */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -227,7 +229,76 @@ export function SkillsOverview() {
         gap: 12,
         flexWrap: 'wrap',
       }}>
-        {/* Executor filter pills */}
+        <Input
+          placeholder="搜索 Skills..."
+          prefix={<SearchOutlined style={{ color: 'var(--color-text-quaternary, #94a3b8)' }} />}
+          value={searchText}
+          onChange={e => setSearchText(e.target.value)}
+          style={{ width: 200, borderRadius: 20 }}
+          allowClear
+        />
+
+        <Space size={8}>
+          {/* 视图切换按钮 */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            border: '1px solid var(--color-border, #e2e8f0)',
+            borderRadius: 8,
+            overflow: 'hidden',
+          }}>
+            <button
+              onClick={() => setViewMode('card')}
+              title="卡片视图"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 32,
+                height: 32,
+                border: 'none',
+                background: viewMode === 'card' ? 'var(--color-fill, #e2e8f0)' : 'transparent',
+                color: viewMode === 'card' ? 'var(--color-text, #0f172a)' : 'var(--color-text-tertiary, #94a3b8)',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >
+              <AppstoreOutlinedIcon />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              title="列表视图"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 32,
+                height: 32,
+                border: 'none',
+                borderLeft: '1px solid var(--color-border, #e2e8f0)',
+                background: viewMode === 'list' ? 'var(--color-fill, #e2e8f0)' : 'transparent',
+                color: viewMode === 'list' ? 'var(--color-text, #0f172a)' : 'var(--color-text-tertiary, #94a3b8)',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >
+              <UnorderedListOutlined />
+            </button>
+          </div>
+          <Dropdown menu={{ items: exportMenuItems, onClick: handleExportMenuClick }} trigger={['click']}>
+            <Button
+              type="primary"
+              icon={<DownloadOutlined />}
+              style={{ borderRadius: 20 }}
+            >
+              导入/导出
+            </Button>
+          </Dropdown>
+        </Space>
+      </div>
+
+      {/* Executor filter pills - 仅列表模式显示 */}
+      {viewMode === 'list' && (
         <div
           role="tablist"
           aria-label="按执行器筛选"
@@ -235,7 +306,7 @@ export function SkillsOverview() {
             display: 'flex',
             gap: 6,
             flexWrap: 'wrap',
-            flex: 1,
+            marginBottom: 16,
           }}
         >
           {executorTabs.map(tab => {
@@ -264,72 +335,64 @@ export function SkillsOverview() {
                 }}
               >
                 {tab.label}
-                <span style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  minWidth: 18,
-                  height: 18,
-                  borderRadius: 9,
-                  background: isActive ? color : 'var(--color-fill, #e2e8f0)',
-                  color: isActive ? '#fff' : 'var(--color-text-secondary, #475569)',
-                  fontSize: 11,
-                  lineHeight: 1,
-                  padding: '0 4px',
-                }}>
-                  {tab.count}
-                </span>
+                {tab.count >= 0 && (
+                  <span style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minWidth: 18,
+                    height: 18,
+                    borderRadius: 9,
+                    background: isActive ? color : 'var(--color-fill, #e2e8f0)',
+                    color: isActive ? '#fff' : 'var(--color-text-secondary, #475569)',
+                    fontSize: 11,
+                    lineHeight: 1,
+                    padding: '0 4px',
+                  }}>
+                    {tab.count}
+                  </span>
+                )}
               </button>
             );
           })}
         </div>
+      )}
 
-        <Space size={8}>
-          <Input
-            placeholder="搜索 Skills..."
-            prefix={<SearchOutlined style={{ color: 'var(--color-text-quaternary, #94a3b8)' }} />}
-            value={searchText}
-            onChange={e => setSearchText(e.target.value)}
-            style={{ width: 200, borderRadius: 20 }}
-            allowClear
-          />
-          <Dropdown menu={{ items: exportMenuItems, onClick: handleExportMenuClick }} trigger={['click']}>
-            <Button
-              type="primary"
-              icon={<DownloadOutlined />}
-              style={{ borderRadius: 20 }}
-            >
-              导入/导出
-            </Button>
-          </Dropdown>
-        </Space>
-      </div>
-
-      {/* Skill card grid */}
-      {filteredSkills.length === 0 ? (
-        <div style={{
-          textAlign: 'center',
-          padding: '60px 20px',
-          color: 'var(--color-text-secondary, #475569)',
-        }}>
-          <AppstoreOutlined style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }} />
-          <div style={{ fontSize: 16 }}>{searchText ? '无匹配结果' : '暂无 Skills'}</div>
-        </div>
+      {/* Skill content - 根据视图模式切换 */}
+      {viewMode === 'card' ? (
+        // 卡片视图：使用新的 SkillCardView 组件（搜索由父组件提供）
+        <SkillCardView
+          data={data}
+          searchText={searchText}
+          onSkillClick={handleSkillClick}
+        />
       ) : (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-          gap: 12,
-        }}>
-          {filteredSkills.map(({ skill, executor }) => (
-            <SkillCard
-              key={`${executor}-${skill.name}`}
-              skill={skill}
-              executor={executor}
-              onClick={() => handleSkillClick(skill, executor)}
-            />
-          ))}
-        </div>
+        // 列表视图：保持原有的网格布局
+        filteredSkills.length === 0 ? (
+          <div style={{
+            textAlign: 'center',
+            padding: '60px 20px',
+            color: 'var(--color-text-secondary, #475569)',
+          }}>
+            <AppstoreOutlined style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }} />
+            <div style={{ fontSize: 16 }}>{searchText ? '无匹配结果' : '暂无 Skills'}</div>
+          </div>
+        ) : (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+            gap: 12,
+          }}>
+            {filteredSkills.map(({ skill, executor }) => (
+              <SkillCard
+                key={`${executor}-${skill.name}`}
+                skill={skill}
+                executor={executor}
+                onClick={() => handleSkillClick(skill, executor)}
+              />
+            ))}
+          </div>
+        )
       )}
 
       <SkillDetailDrawer
