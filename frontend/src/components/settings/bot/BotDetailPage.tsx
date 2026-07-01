@@ -155,6 +155,8 @@ export function BotDetailPage({ bot, onBack, onRefresh, autoShowHistory = false 
   const handlePushLevelChange = async (level: FeishuPushLevel) => {
     try {
       await db.updateFeishuPush({ botId: bot.id, pushLevel: level });
+      // 直接更新本地状态，避免依赖 onRefresh 重新加载导致下拉框不刷新
+      setPushStatus(prev => prev ? { ...prev, push_level: level } : prev);
       onRefresh();
     } catch (e: any) {
       message.error('设置推送失败: ' + (e.message || '未知错误'));

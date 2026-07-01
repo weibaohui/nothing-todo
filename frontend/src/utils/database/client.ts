@@ -6,6 +6,13 @@ interface ApiResp<T> {
   message: string;
 }
 
+// api 对象必须最先初始化，避免其他函数引用时的 TDZ 错误
+export const api = axios.create({
+  baseURL: '',
+  headers: { 'Content-Type': 'application/json' },
+  timeout: 15000,
+});
+
 export async function checkBackendHealth(): Promise<boolean> {
   try {
     const res = await api.get('/health', { timeout: 3000 });
@@ -14,12 +21,6 @@ export async function checkBackendHealth(): Promise<boolean> {
     return false;
   }
 }
-
-export const api = axios.create({
-  baseURL: '',
-  headers: { 'Content-Type': 'application/json' },
-  timeout: 15000,
-});
 
 /** Retry config: max 3 retries on network errors (no response), not on 4xx/5xx */
 const MAX_RETRIES = 3;

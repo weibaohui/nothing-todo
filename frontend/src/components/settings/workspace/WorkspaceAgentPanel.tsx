@@ -31,6 +31,32 @@ export function WorkspaceAgentPanel({ workspaceId, onBotChanged, activeBot, onSe
   // 点击消息记录时，直接打开详情页并默认展开消息记录
   const [selectedBotForHistory, setSelectedBotForHistory] = useState<AgentBot | null>(null);
 
+  // 绑定飞书状态
+  const [binding, setBinding] = useState(false);
+  const [bindModalOpen, setBindModalOpen] = useState(false);
+  const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [pollError, setPollError] = useState('');
+  const [bindSuccess, setBindSuccess] = useState(false);
+  const [feishuEventSource, setFeishuEventSource] = useState<EventSource | null>(null);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 加载智能体列表，必须在条件返回之前定义，避免 TDZ 错误
+  const loadBots = () => {
+    setLoading(true);
+    Promise.all([
+      db.getAgentBots(),
+      db.getProjectDirectories(),
+    ])
+      .then(([botsData, dirsData]) => {
+        setAllBots(botsData);
+        // 筛选当前 workspace 的 bots
+        setBots(botsData.filter(b => b.workspace_id === workspaceId));
+        setWorkspaces(dirsData);
+      })
+      .catch((err: any) => message.error('加载智能体失败: ' + (err?.message || String(err))))
+      .finally(() => setLoading(false));
+  };
+
   // 外部传入 bot 时直接渲染 BotDetailPage
   if (activeBot) {
     return (
@@ -55,31 +81,6 @@ export function WorkspaceAgentPanel({ workspaceId, onBotChanged, activeBot, onSe
       />
     );
   }
-
-  // 绑定飞书状态
-  const [binding, setBinding] = useState(false);
-  const [bindModalOpen, setBindModalOpen] = useState(false);
-  const [qrCodeUrl, setQrCodeUrl] = useState('');
-  const [pollError, setPollError] = useState('');
-  const [bindSuccess, setBindSuccess] = useState(false);
-  const [feishuEventSource, setFeishuEventSource] = useState<EventSource | null>(null);
-  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const loadBots = () => {
-    setLoading(true);
-    Promise.all([
-      db.getAgentBots(),
-      db.getProjectDirectories(),
-    ])
-      .then(([botsData, dirsData]) => {
-        setAllBots(botsData);
-        // 筛选当前 workspace 的 bots
-        setBots(botsData.filter(b => b.workspace_id === workspaceId));
-        setWorkspaces(dirsData);
-      })
-      .catch((err: any) => message.error('加载智能体失败: ' + (err?.message || String(err))))
-      .finally(() => setLoading(false));
-  };
 
   // 开始绑定飞书
   const handleStartBind = async () => {
