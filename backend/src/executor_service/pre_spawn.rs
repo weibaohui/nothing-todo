@@ -112,6 +112,8 @@ pub(crate) async fn reject_concurrency_limit(
             feishu_bot_id: None,
             feishu_receive_id: None,
             workspace_id: None,
+            duration_secs: 0,
+            total_tokens: 0,
         },
     );
     ExecutionResult {
@@ -147,6 +149,8 @@ pub(crate) async fn reject_no_executor(
             feishu_bot_id: None,
             feishu_receive_id: None,
             workspace_id: None,
+            duration_secs: 0,
+            total_tokens: 0,
         },
     );
     task_manager.remove(task_id).await;
@@ -209,6 +213,8 @@ pub(crate) async fn reject_start_todo_failure(
             feishu_bot_id: None,
             feishu_receive_id: None,
             workspace_id: None,
+            duration_secs: 0,
+            total_tokens: 0,
         },
     );
     let _ = db.finish_todo_execution(todo_id, false).await;

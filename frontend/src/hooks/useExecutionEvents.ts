@@ -24,6 +24,8 @@ interface ExecEventFinished {
   todo_id: number;
   success: boolean;
   result: string | null;
+  duration_secs: number;
+  total_tokens: number;
 }
 
 interface ExecEventSync {

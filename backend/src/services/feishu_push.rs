@@ -229,16 +229,26 @@ impl FeishuPushService {
                     Some(format!("{} {}\n🆔 {}", prefix, preview, task_id))
                 }
             }
-            ExecEvent::Finished { success, result, todo_title, executor, .. } => {
-                let result_preview = result.as_ref()
-                    .map(|r| format!("\n\n📤 结果: {}", if r.chars().count() > 100 { r.chars().take(100).collect::<String>() + "..." } else { r.clone() }))
-                    .unwrap_or_default();
+            ExecEvent::Finished { success, todo_title, executor, duration_secs, total_tokens, .. } => {
+                // 格式化时长（与 LoopFinished 风格一致）
+                let duration_str = if *duration_secs >= 3600 {
+                    let hours = *duration_secs / 3600;
+                    let mins = (*duration_secs % 3600) / 60;
+                    format!("{}h {}m", hours, mins)
+                } else if *duration_secs >= 60 {
+                    let mins = *duration_secs / 60;
+                    let secs = *duration_secs % 60;
+                    format!("{}m {}s", mins, secs)
+                } else {
+                    format!("{}s", *duration_secs)
+                };
                 Some(format!(
-                    "📋 {}\n⚡ 执行器: {}\n{}{}",
+                    "📋 {}\n⚡ 执行器: {}\n{}\n⏱️ 用时 {} | 🔤 Token {}",
                     todo_title,
                     executor,
                     if *success { "✅ 成功" } else { "❌ 失败" },
-                    result_preview
+                    duration_str,
+                    total_tokens
                 ))
             }
             ExecEvent::TodoProgress { task_id, progress } => {
@@ -323,6 +333,8 @@ mod feishu_push_binding_tests {
             feishu_bot_id: Some(1),
             feishu_receive_id: Some("user_open_id".to_string()),
             workspace_id: Some(1),
+            duration_secs: 0,
+            total_tokens: 0,
         };
         
         assert!(!FeishuPushService::should_send(push_level, &event));
@@ -342,6 +354,8 @@ mod feishu_push_binding_tests {
             feishu_bot_id: Some(1),
             feishu_receive_id: Some("user_open_id".to_string()),
             workspace_id: Some(1),
+            duration_secs: 0,
+            total_tokens: 0,
         };
         
         assert!(FeishuPushService::should_send(push_level, &event));
@@ -361,6 +375,8 @@ mod feishu_push_binding_tests {
             feishu_bot_id: Some(1),
             feishu_receive_id: Some("user_open_id".to_string()),
             workspace_id: Some(1),
+            duration_secs: 0,
+            total_tokens: 0,
         };
         
         assert!(FeishuPushService::should_send(push_level, &event));

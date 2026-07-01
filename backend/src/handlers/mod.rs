@@ -146,6 +146,10 @@ pub enum ExecEvent {
         feishu_receive_id: Option<String>,
         /// 执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标
         workspace_id: Option<i64>,
+        /// 执行时长（秒），用于推送统计摘要
+        duration_secs: i64,
+        /// 累计 Token 消耗（input + output），用于推送统计摘要
+        total_tokens: i64,
     },
     /// 同步事件：连接时发送当前实际运行的任务列表
     /// 前端收到此事件后应清空 runningTasks 并用此列表初始化

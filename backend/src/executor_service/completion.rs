@@ -259,6 +259,8 @@ pub(crate) async fn handle_cancellation_branch(
             feishu_bot_id,
             feishu_receive_id,
             workspace_id,
+            duration_secs: 0,
+            total_tokens: 0,
         },
     );
     task_manager.remove(task_id).await;
@@ -317,6 +319,8 @@ pub(crate) async fn handle_timeout_branch(
             feishu_bot_id,
             feishu_receive_id,
             workspace_id,
+            duration_secs: 0,
+            total_tokens: 0,
         },
     );
     task_manager.remove(task_id).await;
@@ -325,6 +329,7 @@ pub(crate) async fn handle_timeout_branch(
 /// 正常完成末段：auto-review + finish_todo_execution + 末段事件 + remove task。
 ///
 /// auto-review 仅在 `trigger_type != "auto_review"` 时启动（防止评审实例自身再触发评审）。
+/// 从 DB 查询 record 的 usage 获取 duration 和 tokens，传给 emit_completion_events。
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn finalize_normal_completion(
     db: Arc<Database>,
@@ -361,6 +366,26 @@ pub(crate) async fn finalize_normal_completion(
     )
     .await;
     let _ = db.finish_todo_execution(todo_id, success).await;
+
+    // 从 DB 查询 record 的 usage，获取 duration 和 tokens
+    let (duration_secs, total_tokens) = match db.get_execution_record(record_id).await {
+        Ok(Some(record)) => {
+            let dur = record.usage.as_ref()
+                .and_then(|u| u.duration_ms)
+                .map(|ms| (ms / 1000) as i64)
+                .unwrap_or(0);
+            let tok = record.usage.as_ref()
+                .map(|u| (u.input_tokens + u.output_tokens) as i64)
+                .unwrap_or(0);
+            (dur, tok)
+        }
+        _ => {
+            // 查询失败时降级为 0，不阻塞正常完成流程
+            tracing::warn!("查询执行记录 usage 失败, record_id={}, 降级为 0", record_id);
+            (0, 0)
+        }
+    };
+
     emit_completion_events(
         &tx,
         &executor,
@@ -373,6 +398,8 @@ pub(crate) async fn finalize_normal_completion(
         feishu_bot_id,
         feishu_receive_id,
         workspace_id,
+        duration_secs,
+        total_tokens,
     );
     task_manager.remove(&task_id).await;
 }
@@ -405,6 +432,9 @@ async fn maybe_run_auto_review(
 }
 
 /// 末段事件：Output (executor finished) + Finished。
+///
+/// `duration_secs` 和 `total_tokens` 由调用方从 DB 查询 usage 后传入；
+/// 异常路径（cancel/timeout/spawn 失败等）传 0 即可。
 #[allow(clippy::too_many_arguments)]
 fn emit_completion_events(
     tx: &broadcast::Sender<ExecEvent>,
@@ -418,6 +448,8 @@ fn emit_completion_events(
     feishu_bot_id: Option<i64>,
     feishu_receive_id: Option<String>,
     workspace_id: Option<i64>,
+    duration_secs: i64,
+    total_tokens: i64,
 ) {
     let entry = ParsedLogEntry::new(
         if success { "info" } else { "error" },
@@ -445,6 +477,8 @@ fn emit_completion_events(
             feishu_bot_id,
             feishu_receive_id,
             workspace_id,
+            duration_secs,
+            total_tokens,
         },
     );
 }

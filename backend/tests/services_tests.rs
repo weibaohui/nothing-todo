@@ -179,8 +179,9 @@ mod feishu_push_service_tests {
         let text = text.unwrap();
         assert!(text.contains("✅"));
         assert!(text.contains("成功"));
-        assert!(text.contains("结果:"));
-        assert!(text.contains("Task completed"));
+        assert!(text.contains("用时"));
+        assert!(text.contains("2m 5s"));
+        assert!(text.contains("Token 500"));
     }
 
     #[test]
@@ -201,18 +202,22 @@ mod feishu_push_service_tests {
         let text = text.unwrap();
         assert!(text.contains("✅"));
         assert!(text.contains("成功"));
-        // Should not contain "结果:" prefix when result is None
-        assert!(!text.contains("结果:"));
+        // 新格式包含统计摘要，不再包含"结果:"
+        assert!(text.contains("用时"));
+        assert!(text.contains("Token"));
     }
 
     #[test]
     fn test_format_event_finished_long_result_truncated() {
+        // 新格式不再包含 result 文本预览，只显示统计摘要
         let long_result = "x".repeat(150);
         let event = make_finished_event(true, Some(long_result));
         let text = format_event_check(&event);
         assert!(text.is_some());
         let text = text.unwrap();
-        assert!(text.contains("..."));
+        // 新格式不应包含"..."截断标记
+        assert!(!text.contains("结果:"));
+        assert!(text.contains("用时"));
     }
 
     #[test]
@@ -337,16 +342,26 @@ mod feishu_push_service_tests {
                     Some(format!("{} {}\n🆔 {}", prefix, preview, task_id))
                 }
             }
-            ExecEvent::Finished { success, result, todo_title, executor, .. } => {
-                let result_preview = result.as_ref()
-                    .map(|r| format!("\n\n📤 结果: {}", if r.chars().count() > 100 { r.chars().take(100).collect::<String>() + "..." } else { r.clone() }))
-                    .unwrap_or_default();
+            ExecEvent::Finished { success, todo_title, executor, duration_secs, total_tokens, .. } => {
+                // 格式化时长（与 LoopFinished 风格一致）
+                let duration_str = if *duration_secs >= 3600 {
+                    let hours = *duration_secs / 3600;
+                    let mins = (*duration_secs % 3600) / 60;
+                    format!("{}h {}m", hours, mins)
+                } else if *duration_secs >= 60 {
+                    let mins = *duration_secs / 60;
+                    let secs = *duration_secs % 60;
+                    format!("{}m {}s", mins, secs)
+                } else {
+                    format!("{}s", *duration_secs)
+                };
                 Some(format!(
-                    "📋 {}\n⚡ 执行器: {}\n{}{}",
+                    "📋 {}\n⚡ 执行器: {}\n{}\n⏱️ 用时 {} | 🔤 Token {}",
                     todo_title,
                     executor,
                     if *success { "✅ 成功" } else { "❌ 失败" },
-                    result_preview
+                    duration_str,
+                    total_tokens
                 ))
             }
             ExecEvent::TodoProgress { task_id, progress } => {
@@ -405,6 +420,8 @@ mod feishu_push_service_tests {
             feishu_bot_id: None,
             feishu_receive_id: None,
             workspace_id: None,
+            duration_secs: 125,
+            total_tokens: 500,
         }
     }
 }

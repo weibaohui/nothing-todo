@@ -138,6 +138,8 @@ pub(crate) async fn handle_spawn_failure(
             feishu_bot_id,
             feishu_receive_id,
             workspace_id,
+            duration_secs: 0,
+            total_tokens: 0,
         },
     );
     let _ = db.finish_todo_execution(todo_id, false).await;
