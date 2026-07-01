@@ -177,6 +177,22 @@ pub enum ExecEvent {
         /// 要发送的文本内容
         content: String,
     },
+    /// Loop 执行完成事件：loop 执行完成后广播此事件，
+    /// 用于 FeishuPushService 按 workspace 配置推送执行结果。
+    LoopFinished {
+        /// loop 执行记录 ID
+        loop_execution_id: i64,
+        /// loop ID
+        loop_id: i64,
+        /// loop 标题
+        loop_title: String,
+        /// 执行状态（success / failed / partial）
+        status: String,
+        /// 执行结果摘要（黑板文本）
+        result: Option<String>,
+        /// 执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标
+        workspace_id: Option<i64>,
+    },
 }
 
 /// HTTP handler 统一错误类型。

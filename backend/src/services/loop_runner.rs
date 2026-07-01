@@ -183,20 +183,39 @@ impl LoopRunner {
         let this2 = self.clone();
         let this2_for_err = self.clone();
         let this2_for_callback = self.clone();
+        let this2_for_event = self.clone();
         tokio::spawn(async move {
             let run_result = this2
                 .run_inner(loop_id, loop_execution_id, trigger_type)
                 .await;
 
+            // 获取 loop 信息（标题、workspace_id）用于 LoopFinished 事件
+            let loop_info = this2_for_event.ctx.db.get_loop(loop_id).await.ok().flatten();
+            let loop_title = loop_info.as_ref().map(|l| l.name.clone()).unwrap_or_else(|| format!("Loop #{}", loop_id));
+            let loop_workspace_id = loop_info.as_ref().and_then(|l| l.workspace_id);
+
             match run_result {
                 Ok(()) => {
-                    // 环路执行成功：获取黑板文本并通过 ExecutorDirectResponse 发回飞书
+                    // 获取最终执行状态（从 run_inner 内的 finish_loop_execution 写入）
+                    let final_status = this2_for_event
+                        .ctx
+                        .db
+                        .get_loop_execution(loop_execution_id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|le| le.status)
+                        .unwrap_or_else(|| "success".to_string());
+
+                    // 环路执行成功：获取黑板文本
+                    let blackboard = this2_for_callback
+                        .get_loop_blackboard_text(loop_execution_id, &trigger_meta)
+                        .await;
+
+                    // 如果有 feishu_receive_id，直接回复原对话（binding chat 场景）
                     if let Some(ref receive_id) = feishu_receive_id {
-                        let blackboard = this2_for_callback
-                            .get_loop_blackboard_text(loop_execution_id, &trigger_meta)
-                            .await;
                         info!(
-                            "[loop-runner] loop {} execution {} completed, sending result to Feishu",
+                            "[loop-runner] loop {} execution {} completed, sending result to Feishu binding chat",
                             loop_id, loop_execution_id
                         );
                         this2_for_callback
@@ -206,6 +225,21 @@ impl LoopRunner {
                                 &blackboard,
                             )
                             .await;
+                    } else {
+                        // 没有绑定对话时，通过 LoopFinished 事件广播，
+                        // FeishuPushService 会按 workspace 配置的 push_level 推送
+                        info!(
+                            "[loop-runner] loop {} execution {} completed, broadcasting LoopFinished event",
+                            loop_id, loop_execution_id
+                        );
+                        let _ = this2_for_event.tx.send(crate::handlers::ExecEvent::LoopFinished {
+                            loop_execution_id,
+                            loop_id,
+                            loop_title,
+                            status: final_status,
+                            result: Some(blackboard),
+                            workspace_id: loop_workspace_id,
+                        });
                     }
                 }
                 Err(e) => {
@@ -236,7 +270,7 @@ impl LoopRunner {
                             todo_id: 0,
                             review_status: "failed".to_string(),
                         });
-                    // 失败路径也发回消息
+                    // 失败路径：有绑定对话时直接回复，否则广播 LoopFinished 事件
                     if let Some(ref receive_id) = feishu_receive_id {
                         this2_for_err
                             .send_result_to_feishu(
@@ -245,6 +279,16 @@ impl LoopRunner {
                                 &format!("环路执行失败：{}", e),
                             )
                             .await;
+                    } else {
+                        // 广播 LoopFinished 事件，FeishuPushService 按 workspace 配置推送
+                        let _ = this2_for_err.tx.send(crate::handlers::ExecEvent::LoopFinished {
+                            loop_execution_id,
+                            loop_id,
+                            loop_title: loop_title.clone(),
+                            status: "failed".to_string(),
+                            result: Some(format!("环路执行失败：{}", e)),
+                            workspace_id: loop_workspace_id,
+                        });
                     }
                 }
             }

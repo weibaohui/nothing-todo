@@ -95,9 +95,10 @@ impl FeishuPushService {
                                     }
                                 }
 
-                                // Extract workspace_id from Finished event
+                                // Extract workspace_id from Finished / LoopFinished event
                                 let event_workspace_id = match &ev {
                                     ExecEvent::Finished { workspace_id, .. } => *workspace_id,
+                                    ExecEvent::LoopFinished { workspace_id, .. } => *workspace_id,
                                     _ => None,
                                 };
 
@@ -159,12 +160,12 @@ impl FeishuPushService {
 
     /// Check if an event should be sent based on push_level.
     /// - "disabled": never send
-    /// - "result_only": only send Finished events
+    /// - "result_only": only send Finished / LoopFinished events (执行结果)
     /// - "all": send all events
     fn should_send(push_level: &str, event: &ExecEvent) -> bool {
         match push_level {
             "disabled" => false,
-            "result_only" => matches!(event, ExecEvent::Finished { .. }),
+            "result_only" => matches!(event, ExecEvent::Finished { .. } | ExecEvent::LoopFinished { .. }),
             "all" => true,
             _ => false,
         }
@@ -264,6 +265,31 @@ impl FeishuPushService {
             ExecEvent::ReviewStatusChanged { .. } => None,
             // ExecutorDirectResponse 由 FeishuPushService 直接发送，不走 format_event
             ExecEvent::ExecutorDirectResponse { .. } => None,
+            // LoopFinished 事件的格式化消息
+            ExecEvent::LoopFinished { loop_title, status, result, .. } => {
+                let result_preview = result.as_ref()
+                    .map(|r| {
+                        let trimmed = r.trim();
+                        if trimmed.is_empty() {
+                            String::new()
+                        } else if trimmed.chars().count() > 300 {
+                            format!("\n\n📤 结果:\n{}...", trimmed.chars().take(300).collect::<String>())
+                        } else {
+                            format!("\n\n📤 结果:\n{}", trimmed)
+                        }
+                    })
+                    .unwrap_or_default();
+                let status_icon = match status.as_str() {
+                    "success" => "✅ 成功",
+                    "failed" => "❌ 失败",
+                    "partial" => "⚠️ 部分成功",
+                    _ => "ℹ️ 完成",
+                };
+                Some(format!(
+                    "🔁 [环路执行完成]\n📋 {}\n{} {}",
+                    loop_title, status_icon, result_preview
+                ))
+            }
         }
     }
 }
@@ -378,5 +404,108 @@ mod feishu_push_binding_tests {
         };
         
         assert!(!FeishuPushService::should_send(push_level, &event));
+    }
+
+    // ========== LoopFinished 事件测试 ==========
+
+    /// 测试 push_level="disabled" 时，LoopFinished 事件不应该发送
+    #[test]
+    fn test_should_send_disabled_blocks_loop_finished_event() {
+        let push_level = "disabled";
+        let event = ExecEvent::LoopFinished {
+            loop_execution_id: 1,
+            loop_id: 1,
+            loop_title: "Test Loop".to_string(),
+            status: "success".to_string(),
+            result: Some("完成".to_string()),
+            workspace_id: Some(1),
+        };
+        
+        assert!(!FeishuPushService::should_send(push_level, &event));
+    }
+
+    /// 测试 push_level="result_only" 时，LoopFinished 事件应该发送
+    #[test]
+    fn test_should_send_result_only_allows_loop_finished_event() {
+        let push_level = "result_only";
+        let event = ExecEvent::LoopFinished {
+            loop_execution_id: 1,
+            loop_id: 1,
+            loop_title: "Test Loop".to_string(),
+            status: "success".to_string(),
+            result: Some("完成".to_string()),
+            workspace_id: Some(1),
+        };
+        
+        assert!(FeishuPushService::should_send(push_level, &event));
+    }
+
+    /// 测试 push_level="all" 时，LoopFinished 事件应该发送
+    #[test]
+    fn test_should_send_all_allows_loop_finished_event() {
+        let push_level = "all";
+        let event = ExecEvent::LoopFinished {
+            loop_execution_id: 1,
+            loop_id: 1,
+            loop_title: "Test Loop".to_string(),
+            status: "success".to_string(),
+            result: Some("完成".to_string()),
+            workspace_id: Some(1),
+        };
+        
+        assert!(FeishuPushService::should_send(push_level, &event));
+    }
+
+    /// 测试 LoopFinished 事件的格式化输出
+    #[test]
+    fn test_format_loop_finished_success() {
+        let event = ExecEvent::LoopFinished {
+            loop_execution_id: 1,
+            loop_id: 1,
+            loop_title: "测试环路".to_string(),
+            status: "success".to_string(),
+            result: Some("执行成功，结果如下".to_string()),
+            workspace_id: Some(1),
+        };
+        
+        let formatted = FeishuPushService::format_event(&event).unwrap();
+        assert!(formatted.contains("🔁 [环路执行完成]"));
+        assert!(formatted.contains("测试环路"));
+        assert!(formatted.contains("✅ 成功"));
+        assert!(formatted.contains("执行成功，结果如下"));
+    }
+
+    /// 测试 LoopFinished 失败状态的格式化输出
+    #[test]
+    fn test_format_loop_finished_failed() {
+        let event = ExecEvent::LoopFinished {
+            loop_execution_id: 1,
+            loop_id: 1,
+            loop_title: "测试环路".to_string(),
+            status: "failed".to_string(),
+            result: Some("执行失败".to_string()),
+            workspace_id: Some(1),
+        };
+        
+        let formatted = FeishuPushService::format_event(&event).unwrap();
+        assert!(formatted.contains("❌ 失败"));
+        assert!(formatted.contains("执行失败"));
+    }
+
+    /// 测试 LoopFinished 无结果时的格式化输出
+    #[test]
+    fn test_format_loop_finished_no_result() {
+        let event = ExecEvent::LoopFinished {
+            loop_execution_id: 1,
+            loop_id: 1,
+            loop_title: "测试环路".to_string(),
+            status: "success".to_string(),
+            result: None,
+            workspace_id: Some(1),
+        };
+        
+        let formatted = FeishuPushService::format_event(&event).unwrap();
+        assert!(formatted.contains("🔁 [环路执行完成]"));
+        assert!(formatted.contains("✅ 成功"));
     }
 }

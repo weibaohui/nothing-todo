@@ -56,7 +56,17 @@ interface ExecEventReviewStatusChanged {
   review_status: string;
 }
 
-type ExecEvent = ExecEventStarted | ExecEventOutput | ExecEventFinished | ExecEventSync | ExecEventTodoProgress | ExecEventExecutionStats | ExecEventReviewStatusChanged;
+interface ExecEventLoopFinished {
+  type: 'LoopFinished';
+  loop_execution_id: number;
+  loop_id: number;
+  loop_title: string;
+  status: string;
+  result: string | null;
+  workspace_id: number | null;
+}
+
+type ExecEvent = ExecEventStarted | ExecEventOutput | ExecEventFinished | ExecEventSync | ExecEventTodoProgress | ExecEventExecutionStats | ExecEventReviewStatusChanged | ExecEventLoopFinished;
 
 // ─── 模块级共享状态 ─────────────────────────────────────────────
 //
@@ -162,6 +172,10 @@ function connectShared(dispatch: ReturnType<typeof useApp>['dispatch']) {
         }
         case 'ReviewStatusChanged': {
           window.dispatchEvent(new CustomEvent('reviewStatusChanged', { detail: { recordId: data.record_id, todoId: data.todo_id, reviewStatus: data.review_status } }));
+          break;
+        }
+        case 'LoopFinished': {
+          window.dispatchEvent(new CustomEvent('loopExecutionFinished', { detail: { loopExecutionId: data.loop_execution_id, loopId: data.loop_id, status: data.status } }));
           break;
         }
       }
