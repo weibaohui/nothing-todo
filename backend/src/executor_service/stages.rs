@@ -217,6 +217,7 @@ pub(crate) async fn start_todo_or_cleanup(
             &prepared.executor_str,
             prepared.record_id,
             e,
+            prepared.request.workspace_id,
         )
         .await);
     }

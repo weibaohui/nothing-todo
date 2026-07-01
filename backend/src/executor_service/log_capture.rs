@@ -86,10 +86,13 @@ fn create_pipeline_for_executor(executor: &dyn CodeExecutor) -> Option<EventPipe
 /// 将 ExecutionEvent 转换为 ParsedLogEntry 并发送 Output 事件
 ///
 /// 返回转换后的 ParsedLogEntry，供 LogFlusher 使用。
+/// workspace_id：执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标，
+/// 必须贯穿到每个事件发送路径，否则推送服务无法匹配到对应的推送目标。
 fn emit_execution_event(
     event: &ExecutionEvent,
     tx: &broadcast::Sender<ExecEvent>,
     task_id: &str,
+    workspace_id: Option<i64>,
 ) -> ParsedLogEntry {
     let parsed = DbLogEntry::from_event_to_parsed_log_entry(event);
     send_event(
@@ -97,6 +100,7 @@ fn emit_execution_event(
         ExecEvent::Output {
             task_id: task_id.to_string(),
             entry: parsed.clone(),
+            workspace_id,
         },
     );
     parsed
@@ -105,11 +109,14 @@ fn emit_execution_event(
 /// 尝试用 EventPipeline 解析一行，返回所有新事件的 ParsedLogEntry 列表
 ///
 /// 如果 EventPipeline 没有产生有效事件，返回空 Vec。
+/// workspace_id：执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标，
+/// 必须贯穿到每个事件发送路径，否则推送服务无法匹配到对应的推送目标。
 fn try_parse_with_pipeline(
     pipeline: &mut EventPipeline,
     line: &str,
     tx: &broadcast::Sender<ExecEvent>,
     task_id: &str,
+    workspace_id: Option<i64>,
 ) -> Vec<ParsedLogEntry> {
     let line_trimmed = line.trim();
     if line_trimmed.is_empty() {
@@ -137,7 +144,7 @@ fn try_parse_with_pipeline(
                     continue;
                 }
                 // 非 JSON 的普通 info 也转发
-                let parsed = emit_execution_event(event, tx, task_id);
+                let parsed = emit_execution_event(event, tx, task_id, workspace_id);
                 results.push(parsed);
             }
             ExecutionEvent::Error { .. }
@@ -152,7 +159,7 @@ fn try_parse_with_pipeline(
             | ExecutionEvent::Duration { .. }
             | ExecutionEvent::StepStart { .. }
             | ExecutionEvent::StepFinish { .. } => {
-                let parsed = emit_execution_event(event, tx, task_id);
+                let parsed = emit_execution_event(event, tx, task_id, workspace_id);
                 results.push(parsed);
             }
             // SessionEnd 由 pipeline.finalize() 生产，避免重复转发
@@ -160,7 +167,7 @@ fn try_parse_with_pipeline(
             | ExecutionEvent::Progress { .. } => {}
             // ModelSwitch 需转发到 DB，否则 completion 阶段 get_model_from_logs 找不到模型
             ExecutionEvent::ModelSwitch { .. } => {
-                let parsed = emit_execution_event(event, tx, task_id);
+                let parsed = emit_execution_event(event, tx, task_id, workspace_id);
                 results.push(parsed);
             }
             // 其他类型不转发
@@ -172,11 +179,14 @@ fn try_parse_with_pipeline(
 }
 
 /// 尝试用 EventPipeline 解析 stderr 行，返回所有新事件的 ParsedLogEntry 列表
+/// workspace_id：执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标，
+/// 必须贯穿到每个事件发送路径，否则推送服务无法匹配到对应的推送目标。
 fn try_parse_stderr_with_pipeline(
     pipeline: &mut EventPipeline,
     line: &str,
     tx: &broadcast::Sender<ExecEvent>,
     task_id: &str,
+    workspace_id: Option<i64>,
 ) -> Vec<ParsedLogEntry> {
     let line_trimmed = line.trim();
     if line_trimmed.is_empty() {
@@ -194,19 +204,22 @@ fn try_parse_stderr_with_pipeline(
 
     pipeline.events()[len_before..]
         .iter()
-        .map(|event| emit_execution_event(event, tx, task_id))
+        .map(|event| emit_execution_event(event, tx, task_id, workspace_id))
         .collect()
 }
 
 /// 启动一个 stderr reader 任务：逐行读 stderr -> 经 executor 解析 -> 推入 LogFlusher。
 ///
 /// 返回 `None` 表示 executor 子进程根本没暴露 stderr（少见，比如某些 mock executor）。
+/// workspace_id：执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标，
+/// 必须贯穿到每个事件发送路径，否则推送服务无法匹配到对应的推送目标。
 pub(crate) fn spawn_stderr_reader<R>(
     stderr_handle: Option<R>,
     executor: Arc<dyn CodeExecutor>,
     log_flusher: Arc<LogFlusher>,
     tx: broadcast::Sender<ExecEvent>,
     task_id: String,
+    workspace_id: Option<i64>,
 ) -> Option<JoinHandle<()>>
 where
     R: AsyncRead + Unpin + Send + 'static,
@@ -227,7 +240,7 @@ where
                 }
                 // 优先尝试用 EventPipeline 解析
                 let parsed_list =
-                    try_parse_stderr_with_pipeline(&mut pipeline, &line, &tx, &task_id);
+                    try_parse_stderr_with_pipeline(&mut pipeline, &line, &tx, &task_id, workspace_id);
 
                 if !parsed_list.is_empty() {
                     for parsed in parsed_list {
@@ -255,6 +268,7 @@ where
                     ExecEvent::Output {
                         task_id: task_id.clone(),
                         entry,
+                        workspace_id,
                     },
                 );
             }
@@ -263,7 +277,7 @@ where
             let len_before = pipeline.len();
             pipeline.finalize();
             for event in &pipeline.events()[len_before..] {
-                let parsed = emit_execution_event(event, &tx, &task_id);
+                let parsed = emit_execution_event(event, &tx, &task_id, workspace_id);
                 log_flusher.push(parsed).await;
             }
         })
@@ -278,6 +292,8 @@ where
 ///   2. 解析 `todo_progress` 时除写库外还要发 `TodoProgress` 事件（前端实时进度条）；
 ///   3. 每 10 行 或 工具调用时扫一遍 buffer 计算 stats，emit `ExecutionStats`。
 /// 这三件事没法再下沉到 LogFlusher（一个是 DB 写，一个是 progress 事件），所以留在这里。
+/// workspace_id：执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标，
+/// 必须贯穿到每个事件发送路径，否则推送服务无法匹配到对应的推送目标。
 pub(crate) fn spawn_stdout_reader<R>(
     stdout_handle: Option<R>,
     executor: Arc<dyn CodeExecutor>,
@@ -286,6 +302,7 @@ pub(crate) fn spawn_stdout_reader<R>(
     tx: broadcast::Sender<ExecEvent>,
     task_id: String,
     record_id: i64,
+    workspace_id: Option<i64>,
 ) -> Option<JoinHandle<()>>
 where
     R: AsyncRead + Unpin + Send + 'static,
@@ -297,6 +314,7 @@ where
     let log_flusher_for_stdout = log_flusher.clone();
     let tid = task_id;
     let rid = record_id;
+    let wid = workspace_id;
 
     Some(tokio::spawn(async move {
         // 创建 EventPipeline 用于结构化解析
@@ -311,7 +329,7 @@ where
         while let Ok(Some(line)) = reader.next_line().await {
             // 优先尝试用 EventPipeline 解析
             let parsed_list =
-                try_parse_with_pipeline(&mut pipeline, &line, &tx_clone, &tid);
+                try_parse_with_pipeline(&mut pipeline, &line, &tx_clone, &tid, wid);
 
             if !parsed_list.is_empty() {
                 for parsed in parsed_list {
@@ -326,7 +344,7 @@ where
                     }
 
                     // todo_progress：写库 + 发事件
-                    emit_todo_progress_if_present(&db_for_todo, &tx_clone, &tid, rid, &parsed).await;
+                    emit_todo_progress_if_present(&db_for_todo, &tx_clone, &tid, rid, &parsed, wid).await;
 
                     // 统计：工具调用必发；普通日志每 10 条发一次。
                     log_count += 1;
@@ -336,6 +354,7 @@ where
                         &tid,
                         &parsed,
                         log_count,
+                        wid,
                     )
                     .await;
 
@@ -361,7 +380,7 @@ where
             };
 
             // todo_progress：写库 + 发事件，让前端能实时显示进度。
-            emit_todo_progress_if_present(&db_for_todo, &tx_clone, &tid, rid, &parsed).await;
+            emit_todo_progress_if_present(&db_for_todo, &tx_clone, &tid, rid, &parsed, wid).await;
 
             // 统计：工具调用必发；普通日志每 10 条发一次。
             // 用 with_logs 持锁只读扫描，避免与 push 路径冲突。
@@ -372,6 +391,7 @@ where
                 &tid,
                 &parsed,
                 log_count,
+                wid,
             )
             .await;
 
@@ -382,6 +402,7 @@ where
                 ExecEvent::Output {
                     task_id: tid.clone(),
                     entry: parsed,
+                    workspace_id: wid,
                 },
             );
         }
@@ -390,7 +411,7 @@ where
         let len_before = pipeline.len();
         pipeline.finalize();
         for event in &pipeline.events()[len_before..] {
-            let parsed = emit_execution_event(event, &tx_clone, &tid);
+            let parsed = emit_execution_event(event, &tx_clone, &tid, wid);
             log_flusher_for_stdout.push(parsed).await;
         }
     }))
@@ -414,12 +435,15 @@ async fn update_session_id_once(
 }
 
 /// 若 parsed 含 todo_progress 则写库 + 发事件。
+/// workspace_id：执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标，
+/// 必须贯穿到每个事件发送路径，否则推送服务无法匹配到对应的推送目标。
 async fn emit_todo_progress_if_present(
     db: &Arc<Database>,
     tx: &broadcast::Sender<ExecEvent>,
     task_id: &str,
     record_id: i64,
     parsed: &ParsedLogEntry,
+    workspace_id: Option<i64>,
 ) {
     let Some(progress) = crate::todo_progress::try_extract_todo_progress(parsed) else {
         return;
@@ -434,17 +458,21 @@ async fn emit_todo_progress_if_present(
         ExecEvent::TodoProgress {
             task_id: task_id.to_string(),
             progress,
+            workspace_id,
         },
     );
 }
 
 /// 工具调用必发 stats；普通日志每 10 条发一次。
+/// workspace_id：执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标，
+/// 必须贯穿到每个事件发送路径，否则推送服务无法匹配到对应的推送目标。
 async fn maybe_emit_execution_stats(
     log_flusher: &Arc<LogFlusher>,
     tx: &broadcast::Sender<ExecEvent>,
     task_id: &str,
     parsed: &ParsedLogEntry,
     log_count: u64,
+    workspace_id: Option<i64>,
 ) {
     let is_tool_call = is_tool_call_log_type(&parsed.log_type);
     if !is_tool_call && !log_count.is_multiple_of(10) {
@@ -456,6 +484,7 @@ async fn maybe_emit_execution_stats(
         ExecEvent::ExecutionStats {
             task_id: task_id.to_string(),
             stats,
+            workspace_id,
         },
     );
 }
@@ -498,6 +527,8 @@ async fn compute_execution_stats(
 ///
 /// `SO`/`SE` 两个泛型分别对应 stdout/stderr handle 的真实类型（tokio 的 ChildStdout
 /// 和 ChildStderr 是两个不同类型，没法合并成一个 `R`）。
+/// workspace_id：执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标，
+/// 必须贯穿到每个事件发送路径，否则推送服务无法匹配到对应的推送目标。
 pub(crate) async fn setup_log_capture_pipeline<SO, SE>(
     stdout_handle: Option<SO>,
     stderr_handle: Option<SE>,
@@ -506,6 +537,7 @@ pub(crate) async fn setup_log_capture_pipeline<SO, SE>(
     tx: broadcast::Sender<ExecEvent>,
     task_id: String,
     record_id: i64,
+    workspace_id: Option<i64>,
 ) -> (
     Arc<LogFlusher>,
     Option<JoinHandle<()>>,
@@ -531,6 +563,7 @@ where
         tx.clone(),
         task_id.clone(),
         record_id,
+        workspace_id,
     );
     let stderr_task = spawn_stderr_reader(
         stderr_handle,
@@ -538,6 +571,7 @@ where
         log_flusher.clone(),
         tx.clone(),
         task_id.clone(),
+        workspace_id,
     );
     // 定时兜底 flush：每 3 秒检查未刷新条目，有则写库。
     let flush_timer = {

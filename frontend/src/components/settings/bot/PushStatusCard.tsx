@@ -16,8 +16,8 @@ export function PushStatusCard({ pushStatus, onPushLevelChange, onResponseEnable
   return (
     <Card title="推送配置" size="small" style={{ marginBottom: 16 }}>
       {/* 推送目标下拉 */}
-      <div style={{ marginBottom: 12 }}>
-        <span style={{ fontSize: 13, marginRight: 8 }}>推送目标</span>
+      <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 13, width: 60 }}>推送目标</span>
         <Select
           size="small"
           value={pushStatus.push_level}
@@ -29,6 +29,10 @@ export function PushStatusCard({ pushStatus, onPushLevelChange, onResponseEnable
             { value: 'all', label: '全部' },
           ]}
         />
+        <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ color: 'var(--color-info)' }}>💡</span>
+          在单聊或群聊中发送 <code style={{ padding: '1px 6px', background: 'var(--color-fill-secondary)', borderRadius: 4, fontSize: 11 }}>/sethome</code> 自动填写 ID
+        </span>
       </div>
 
       {/* ID 展示行 */}

@@ -50,6 +50,7 @@ pub(crate) async fn run_spawned_executor_task(spawned: super::types::SpawnInputs
         runtime.todo_id,
         &runtime.todo_title,
         runtime.executor_spawn.as_ref(),
+        runtime.prepared.request.workspace_id,
     );
 
     let Some(mut child) = try_spawn_executor_child(&runtime).await else {
@@ -124,6 +125,7 @@ pub(crate) async fn handle_spawn_failure(
         ExecEvent::Output {
             task_id: task_id.to_string(),
             entry,
+            workspace_id,
         },
     );
     send_event(
@@ -138,6 +140,9 @@ pub(crate) async fn handle_spawn_failure(
             feishu_bot_id,
             feishu_receive_id,
             workspace_id,
+            // spawn 阶段尚未产生任何执行时长与 token 消耗，置 0 避免阻塞 Finished 事件下发
+            duration_secs: 0,
+            total_tokens: 0,
         },
     );
     let _ = db.finish_todo_execution(todo_id, false).await;
@@ -242,6 +247,7 @@ pub(crate) async fn setup_log_capture_pipeline_for(
         runtime.tx.clone(),
         runtime.task_id.clone(),
         runtime.record_id,
+        runtime.prepared.request.workspace_id,
     )
     .await
 }
@@ -585,6 +591,7 @@ pub(crate) async fn handle_completed_branch(
         ctx.executor.as_ref(),
         &ctx.task_id,
         ctx.record_id,
+        ctx.workspace_id,
     )
     .await;
     let (logs_snapshot, result_str) =

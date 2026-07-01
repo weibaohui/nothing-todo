@@ -69,24 +69,43 @@ impl FeishuPushService {
                                 }
 
                                 // For Finished events with feishu_chat_id (binding chat), send directly
+                                // 但需要先检查该 bot 的 push_level 配置
+                                let mut binding_sent = false;
                                 if let ExecEvent::Finished { feishu_bot_id, feishu_receive_id, .. } = &ev {
                                     if let (Some(bot_id), Some(receive_id)) = (feishu_bot_id, feishu_receive_id) {
-                                        let text = Self::format_event(&ev).unwrap_or_default();
-                                        let receive_id_type = "open_id"; // binding chats are p2p
-                                        let res = feishu_listener.send_raw(*bot_id, receive_id, receive_id_type, &text).await;
-                                        if let Err(e) = res {
-                                            warn!("[feishu-push] binding direct send failed for bot {}: {}", bot_id, e);
+                                        // 查询该 bot 的 push_level 配置
+                                        let push_level = Self::get_bot_push_level(&db, *bot_id).await;
+                                        
+                                        // 检查 push_level 配置是否允许发送
+                                        if Self::should_send(&push_level, &ev) {
+                                            let text = Self::format_event(&ev).unwrap_or_default();
+                                            let receive_id_type = "open_id"; // binding chats are p2p
+                                            let res = feishu_listener.send_raw(*bot_id, receive_id, receive_id_type, &text).await;
+                                            if let Err(e) = res {
+                                                warn!("[feishu-push] binding direct send failed for bot {}: {}", bot_id, e);
+                                            } else {
+                                                debug!("[feishu-push] binding direct sent to bot {}: {}", bot_id, &text[..text.len().min(60)]);
+                                            }
+                                            binding_sent = true;
                                         } else {
-                                            debug!("[feishu-push] binding direct sent to bot {}: {}", bot_id, &text[..text.len().min(60)]);
+                                            debug!("[feishu-push] binding send skipped for bot {} due to push_level={}", bot_id, push_level);
+                                            // 仅跳过 binding 路径，继续执行下面的 workspace push target 逻辑
                                         }
-                                        // 直发成功后跳过 push target 路径，避免重复发送
-                                        continue;
                                     }
                                 }
+                                // binding direct send 成功后跳过 push target 路径，避免重复发送
+                                if binding_sent {
+                                    continue;
+                                }
 
-                                // Extract workspace_id from Finished event
+                                // Extract workspace_id from event (支持 Started, Output, Finished, TodoProgress, ExecutionStats, LoopFinished)
                                 let event_workspace_id = match &ev {
+                                    ExecEvent::Started { workspace_id, .. } => *workspace_id,
+                                    ExecEvent::Output { workspace_id, .. } => *workspace_id,
                                     ExecEvent::Finished { workspace_id, .. } => *workspace_id,
+                                    ExecEvent::TodoProgress { workspace_id, .. } => *workspace_id,
+                                    ExecEvent::ExecutionStats { workspace_id, .. } => *workspace_id,
+                                    ExecEvent::LoopFinished { workspace_id, .. } => *workspace_id,
                                     _ => None,
                                 };
 
@@ -148,14 +167,34 @@ impl FeishuPushService {
 
     /// Check if an event should be sent based on push_level.
     /// - "disabled": never send
-    /// - "result_only": only send Finished events
+    /// - "result_only": only send Finished / LoopFinished events (执行结果)
     /// - "all": send all events
     fn should_send(push_level: &str, event: &ExecEvent) -> bool {
         match push_level {
             "disabled" => false,
-            "result_only" => matches!(event, ExecEvent::Finished { .. }),
+            "result_only" => matches!(event, ExecEvent::Finished { .. } | ExecEvent::LoopFinished { .. }),
             "all" => true,
             _ => false,
+        }
+    }
+
+    /// 获取指定 bot 的 push_level 配置。
+    /// - bot 存在且有配置：返回实际配置值
+    /// - bot 未配置 push_target：返回默认 "result_only"（兼容旧数据）
+    /// - 数据库查询失败：fail closed 返回 "disabled"（安全优先，避免配置无法校验时误发）
+    async fn get_bot_push_level(db: &Database, bot_id: i64) -> String {
+        match db.get_feishu_push_target(bot_id).await {
+            Ok(Some(target)) => target.push_level,
+            Ok(None) => {
+                // bot 未配置 push_target，使用默认值
+                debug!("[feishu-push] bot {} has no push_target config, using default 'result_only'", bot_id);
+                "result_only".to_string()
+            }
+            Err(e) => {
+                // 数据库读取失败时 fail closed：宁可漏发也不能误发
+                warn!("[feishu-push] failed to get push_target for bot {}: {}, fail closed to 'disabled'", bot_id, e);
+                "disabled".to_string()
+            }
         }
     }
 
@@ -180,7 +219,7 @@ impl FeishuPushService {
                     todo_title, executor, task_id
                 ))
             }
-            ExecEvent::Output { task_id, entry } => {
+            ExecEvent::Output { task_id, entry, .. } => {
                 let prefix = match entry.log_type.as_str() {
                     "error" | "stderr" => "🔴",
                     "warning" => "⚠️",
@@ -200,19 +239,29 @@ impl FeishuPushService {
                     Some(format!("{} {}\n🆔 {}", prefix, preview, task_id))
                 }
             }
-            ExecEvent::Finished { success, result, todo_title, executor, .. } => {
-                let result_preview = result.as_ref()
-                    .map(|r| format!("\n\n📤 结果: {}", if r.chars().count() > 100 { r.chars().take(100).collect::<String>() + "..." } else { r.clone() }))
-                    .unwrap_or_default();
+            ExecEvent::Finished { success, todo_title, executor, duration_secs, total_tokens, .. } => {
+                // 格式化时长（与 LoopFinished 风格一致）
+                let duration_str = if *duration_secs >= 3600 {
+                    let hours = *duration_secs / 3600;
+                    let mins = (*duration_secs % 3600) / 60;
+                    format!("{}h {}m", hours, mins)
+                } else if *duration_secs >= 60 {
+                    let mins = *duration_secs / 60;
+                    let secs = *duration_secs % 60;
+                    format!("{}m {}s", mins, secs)
+                } else {
+                    format!("{}s", *duration_secs)
+                };
                 Some(format!(
-                    "📋 {}\n⚡ 执行器: {}\n{}{}",
+                    "📋 {}\n⚡ 执行器: {}\n{}\n⏱️ 用时 {} | 🔤 Token {}",
                     todo_title,
                     executor,
                     if *success { "✅ 成功" } else { "❌ 失败" },
-                    result_preview
+                    duration_str,
+                    total_tokens
                 ))
             }
-            ExecEvent::TodoProgress { task_id, progress } => {
+            ExecEvent::TodoProgress { task_id, progress, .. } => {
                 if progress.is_empty() {
                     None
                 } else {
@@ -226,7 +275,7 @@ impl FeishuPushService {
                     ))
                 }
             }
-            ExecEvent::ExecutionStats { task_id, stats } => {
+            ExecEvent::ExecutionStats { task_id, stats, .. } => {
                 Some(format!(
                     "📊 [执行统计] TaskID: {}\n🔧 工具调用: {}\n💬 对话轮次: {}",
                     task_id, stats.tool_calls, stats.conversation_turns
@@ -236,6 +285,294 @@ impl FeishuPushService {
             ExecEvent::ReviewStatusChanged { .. } => None,
             // ExecutorDirectResponse 由 FeishuPushService 直接发送，不走 format_event
             ExecEvent::ExecutorDirectResponse { .. } => None,
+            // LoopFinished 事件的格式化消息 - 统计摘要
+            ExecEvent::LoopFinished { loop_title, status, total_steps, completed_steps, failed_steps, duration_secs, total_tokens, .. } => {
+                let status_icon = match status.as_str() {
+                    "success" => "✅ 成功",
+                    "failed" => "❌ 失败",
+                    "partial" => "⚠️ 部分成功",
+                    "capped_step" => "🚫 步数超限",
+                    "capped_token" => "🚫 Token超限",
+                    _ => "ℹ️ 完成",
+                };
+                
+                // 格式化时长
+                let duration_str = if *duration_secs >= 3600 {
+                    let hours = *duration_secs / 3600;
+                    let mins = (*duration_secs % 3600) / 60;
+                    format!("{}h {}m", hours, mins)
+                } else if *duration_secs >= 60 {
+                    let mins = *duration_secs / 60;
+                    let secs = *duration_secs % 60;
+                    format!("{}m {}s", mins, secs)
+                } else {
+                    format!("{}s", *duration_secs)
+                };
+                
+                Some(format!(
+                    "🔁 [环路执行完成]\n📋 {}\n{} | 共 {} 步 | 成功 {} | 失败 {}\n⏱️ 用时 {} | 🔤 Token {}",
+                    loop_title, status_icon, *total_steps, *completed_steps, *failed_steps, duration_str, *total_tokens
+                ))
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod feishu_push_binding_tests {
+    //! 验证 binding direct send 场景下的 push_level 检查逻辑。
+    //! 
+    //! 修复背景：事项执行完成后，Finished 事件带有 feishu_bot_id/receive_id 时，
+    //! 原代码直接发送，绕过了 push_level 配置检查。用户配置"仅结论"时，
+    //! 应该发送完成消息；配置"关闭"时，应该不发送任何消息。
+    //! 
+    //! 修复方案：在 binding direct send 前查询 bot 的 push_level 配置，
+    //! 使用 should_send 函数判断是否允许发送。
+
+    use super::*;
+
+    /// 测试 push_level="disabled" 时，Finished 事件不应该发送
+    #[test]
+    fn test_should_send_disabled_blocks_finished_event() {
+        let push_level = "disabled";
+        let event = ExecEvent::Finished {
+            task_id: "test-123".to_string(),
+            todo_id: 1,
+            todo_title: "Test Todo".to_string(),
+            executor: "claudecode".to_string(),
+            success: true,
+            result: Some("完成".to_string()),
+            feishu_bot_id: Some(1),
+            feishu_receive_id: Some("user_open_id".to_string()),
+            workspace_id: Some(1),
+            duration_secs: 0,
+            total_tokens: 0,
+        };
+        
+        assert!(!FeishuPushService::should_send(push_level, &event));
+    }
+
+    /// 测试 push_level="result_only" 时，Finished 事件应该发送
+    #[test]
+    fn test_should_send_result_only_allows_finished_event() {
+        let push_level = "result_only";
+        let event = ExecEvent::Finished {
+            task_id: "test-123".to_string(),
+            todo_id: 1,
+            todo_title: "Test Todo".to_string(),
+            executor: "claudecode".to_string(),
+            success: true,
+            result: Some("完成".to_string()),
+            feishu_bot_id: Some(1),
+            feishu_receive_id: Some("user_open_id".to_string()),
+            workspace_id: Some(1),
+            duration_secs: 0,
+            total_tokens: 0,
+        };
+        
+        assert!(FeishuPushService::should_send(push_level, &event));
+    }
+
+    /// 测试 push_level="all" 时，Finished 事件应该发送
+    #[test]
+    fn test_should_send_all_allows_finished_event() {
+        let push_level = "all";
+        let event = ExecEvent::Finished {
+            task_id: "test-123".to_string(),
+            todo_id: 1,
+            todo_title: "Test Todo".to_string(),
+            executor: "claudecode".to_string(),
+            success: true,
+            result: Some("完成".to_string()),
+            feishu_bot_id: Some(1),
+            feishu_receive_id: Some("user_open_id".to_string()),
+            workspace_id: Some(1),
+            duration_secs: 0,
+            total_tokens: 0,
+        };
+        
+        assert!(FeishuPushService::should_send(push_level, &event));
+    }
+
+    /// 测试 push_level="result_only" 时，Started 事件不应该发送
+    #[test]
+    fn test_should_send_result_only_blocks_started_event() {
+        let push_level = "result_only";
+        let event = ExecEvent::Started {
+            task_id: "test-123".to_string(),
+            todo_id: 1,
+            todo_title: "Test Todo".to_string(),
+            executor: "claudecode".to_string(),
+            workspace_id: None,
+        };
+        
+        assert!(!FeishuPushService::should_send(push_level, &event));
+    }
+
+    /// 测试 push_level="all" 时，Started 事件应该发送
+    #[test]
+    fn test_should_send_all_allows_started_event() {
+        let push_level = "all";
+        let event = ExecEvent::Started {
+            task_id: "test-123".to_string(),
+            todo_id: 1,
+            todo_title: "Test Todo".to_string(),
+            executor: "claudecode".to_string(),
+            workspace_id: None,
+        };
+        
+        assert!(FeishuPushService::should_send(push_level, &event));
+    }
+
+    /// 测试 push_level="disabled" 时，Started 事件不应该发送
+    #[test]
+    fn test_should_send_disabled_blocks_started_event() {
+        let push_level = "disabled";
+        let event = ExecEvent::Started {
+            task_id: "test-123".to_string(),
+            todo_id: 1,
+            todo_title: "Test Todo".to_string(),
+            executor: "claudecode".to_string(),
+            workspace_id: None,
+        };
+        
+        assert!(!FeishuPushService::should_send(push_level, &event));
+    }
+
+    // ========== LoopFinished 事件测试 ==========
+
+    /// 测试 push_level="disabled" 时，LoopFinished 事件不应该发送
+    #[test]
+    fn test_should_send_disabled_blocks_loop_finished_event() {
+        let push_level = "disabled";
+        let event = ExecEvent::LoopFinished {
+            loop_execution_id: 1,
+            loop_id: 1,
+            loop_title: "Test Loop".to_string(),
+            status: "success".to_string(),
+            total_steps: 3,
+            completed_steps: 3,
+            failed_steps: 0,
+            duration_secs: 120,
+            total_tokens: 500,
+            workspace_id: Some(1),
+        };
+        
+        assert!(!FeishuPushService::should_send(push_level, &event));
+    }
+
+    /// 测试 push_level="result_only" 时，LoopFinished 事件应该发送
+    #[test]
+    fn test_should_send_result_only_allows_loop_finished_event() {
+        let push_level = "result_only";
+        let event = ExecEvent::LoopFinished {
+            loop_execution_id: 1,
+            loop_id: 1,
+            loop_title: "Test Loop".to_string(),
+            status: "success".to_string(),
+            total_steps: 3,
+            completed_steps: 3,
+            failed_steps: 0,
+            duration_secs: 120,
+            total_tokens: 500,
+            workspace_id: Some(1),
+        };
+        
+        assert!(FeishuPushService::should_send(push_level, &event));
+    }
+
+    /// 测试 push_level="all" 时，LoopFinished 事件应该发送
+    #[test]
+    fn test_should_send_all_allows_loop_finished_event() {
+        let push_level = "all";
+        let event = ExecEvent::LoopFinished {
+            loop_execution_id: 1,
+            loop_id: 1,
+            loop_title: "Test Loop".to_string(),
+            status: "success".to_string(),
+            total_steps: 3,
+            completed_steps: 3,
+            failed_steps: 0,
+            duration_secs: 120,
+            total_tokens: 500,
+            workspace_id: Some(1),
+        };
+        
+        assert!(FeishuPushService::should_send(push_level, &event));
+    }
+
+    /// 测试 LoopFinished 事件的格式化输出 - 成功状态
+    #[test]
+    fn test_format_loop_finished_success() {
+        let event = ExecEvent::LoopFinished {
+            loop_execution_id: 1,
+            loop_id: 1,
+            loop_title: "测试环路".to_string(),
+            status: "success".to_string(),
+            total_steps: 3,
+            completed_steps: 3,
+            failed_steps: 0,
+            duration_secs: 125,
+            total_tokens: 500,
+            workspace_id: Some(1),
+        };
+        
+        let formatted = FeishuPushService::format_event(&event).unwrap();
+        assert!(formatted.contains("🔁 [环路执行完成]"));
+        assert!(formatted.contains("测试环路"));
+        assert!(formatted.contains("✅ 成功"));
+        assert!(formatted.contains("共 3 步"));
+        assert!(formatted.contains("成功 3"));
+        assert!(formatted.contains("失败 0"));
+        assert!(formatted.contains("2m 5s"));
+        assert!(formatted.contains("Token 500"));
+    }
+
+    /// 测试 LoopFinished 失败状态的格式化输出
+    #[test]
+    fn test_format_loop_finished_failed() {
+        let event = ExecEvent::LoopFinished {
+            loop_execution_id: 1,
+            loop_id: 1,
+            loop_title: "测试环路".to_string(),
+            status: "failed".to_string(),
+            total_steps: 3,
+            completed_steps: 0,
+            failed_steps: 3,
+            duration_secs: 30,
+            total_tokens: 100,
+            workspace_id: Some(1),
+        };
+        
+        let formatted = FeishuPushService::format_event(&event).unwrap();
+        assert!(formatted.contains("❌ 失败"));
+        assert!(formatted.contains("成功 0"));
+        assert!(formatted.contains("失败 3"));
+        assert!(formatted.contains("30s"));
+    }
+
+    /// 测试 LoopFinished 部分成功状态的格式化输出
+    #[test]
+    fn test_format_loop_finished_partial() {
+        let event = ExecEvent::LoopFinished {
+            loop_execution_id: 1,
+            loop_id: 1,
+            loop_title: "测试环路".to_string(),
+            status: "partial".to_string(),
+            total_steps: 5,
+            completed_steps: 3,
+            failed_steps: 2,
+            duration_secs: 3661,
+            total_tokens: 1000,
+            workspace_id: Some(1),
+        };
+        
+        let formatted = FeishuPushService::format_event(&event).unwrap();
+        assert!(formatted.contains("⚠️ 部分成功"));
+        assert!(formatted.contains("共 5 步"));
+        assert!(formatted.contains("成功 3"));
+        assert!(formatted.contains("失败 2"));
+        assert!(formatted.contains("1h 1m"));
+        assert!(formatted.contains("Token 1000"));
     }
 }

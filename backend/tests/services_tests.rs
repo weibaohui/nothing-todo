@@ -179,8 +179,9 @@ mod feishu_push_service_tests {
         let text = text.unwrap();
         assert!(text.contains("✅"));
         assert!(text.contains("成功"));
-        assert!(text.contains("结果:"));
-        assert!(text.contains("Task completed"));
+        assert!(text.contains("用时"));
+        assert!(text.contains("2m 5s"));
+        assert!(text.contains("Token 500"));
     }
 
     #[test]
@@ -201,18 +202,22 @@ mod feishu_push_service_tests {
         let text = text.unwrap();
         assert!(text.contains("✅"));
         assert!(text.contains("成功"));
-        // Should not contain "结果:" prefix when result is None
-        assert!(!text.contains("结果:"));
+        // 新格式包含统计摘要，不再包含"结果:"
+        assert!(text.contains("用时"));
+        assert!(text.contains("Token"));
     }
 
     #[test]
     fn test_format_event_finished_long_result_truncated() {
+        // 新格式不再包含 result 文本预览，只显示统计摘要
         let long_result = "x".repeat(150);
         let event = make_finished_event(true, Some(long_result));
         let text = format_event_check(&event);
         assert!(text.is_some());
         let text = text.unwrap();
-        assert!(text.contains("..."));
+        // 新格式不应包含"..."截断标记
+        assert!(!text.contains("结果:"));
+        assert!(text.contains("用时"));
     }
 
     #[test]
@@ -224,6 +229,7 @@ mod feishu_push_service_tests {
         let event = ExecEvent::TodoProgress {
             task_id: "task-123".to_string(),
             progress,
+            workspace_id: None,
         };
         let text = format_event_check(&event);
         assert!(text.is_some());
@@ -240,6 +246,7 @@ mod feishu_push_service_tests {
         let event = ExecEvent::TodoProgress {
             task_id: "task-123".to_string(),
             progress: vec![],
+            workspace_id: None,
         };
         let text = format_event_check(&event);
         assert!(text.is_none());
@@ -253,6 +260,7 @@ mod feishu_push_service_tests {
         let event = ExecEvent::TodoProgress {
             task_id: "task-123".to_string(),
             progress,
+            workspace_id: None,
         };
         let text = format_event_check(&event);
         assert!(text.is_some());
@@ -272,6 +280,7 @@ mod feishu_push_service_tests {
         let event = ExecEvent::ExecutionStats {
             task_id: "task-123".to_string(),
             stats,
+            workspace_id: None,
         };
         let text = format_event_check(&event);
         assert!(text.is_some());
@@ -303,7 +312,7 @@ mod feishu_push_service_tests {
     fn should_send_check(push_level: &str, event: &ExecEvent) -> bool {
         match push_level {
             "disabled" => false,
-            "result_only" => matches!(event, ExecEvent::Finished { .. }),
+            "result_only" => matches!(event, ExecEvent::Finished { .. } | ExecEvent::LoopFinished { .. }),
             "all" => true,
             _ => false,
         }
@@ -317,7 +326,7 @@ mod feishu_push_service_tests {
                     todo_title, executor, task_id
                 ))
             }
-            ExecEvent::Output { task_id, entry } => {
+            ExecEvent::Output { task_id, entry, .. } => {
                 let prefix = match entry.log_type.as_str() {
                     "error" | "stderr" => "🔴",
                     "warning" => "⚠️",
@@ -337,19 +346,29 @@ mod feishu_push_service_tests {
                     Some(format!("{} {}\n🆔 {}", prefix, preview, task_id))
                 }
             }
-            ExecEvent::Finished { success, result, todo_title, executor, .. } => {
-                let result_preview = result.as_ref()
-                    .map(|r| format!("\n\n📤 结果: {}", if r.chars().count() > 100 { r.chars().take(100).collect::<String>() + "..." } else { r.clone() }))
-                    .unwrap_or_default();
+            ExecEvent::Finished { success, todo_title, executor, duration_secs, total_tokens, .. } => {
+                // 格式化时长（与 LoopFinished 风格一致）
+                let duration_str = if *duration_secs >= 3600 {
+                    let hours = *duration_secs / 3600;
+                    let mins = (*duration_secs % 3600) / 60;
+                    format!("{}h {}m", hours, mins)
+                } else if *duration_secs >= 60 {
+                    let mins = *duration_secs / 60;
+                    let secs = *duration_secs % 60;
+                    format!("{}m {}s", mins, secs)
+                } else {
+                    format!("{}s", *duration_secs)
+                };
                 Some(format!(
-                    "📋 {}\n⚡ 执行器: {}\n{}{}",
+                    "📋 {}\n⚡ 执行器: {}\n{}\n⏱️ 用时 {} | 🔤 Token {}",
                     todo_title,
                     executor,
                     if *success { "✅ 成功" } else { "❌ 失败" },
-                    result_preview
+                    duration_str,
+                    total_tokens
                 ))
             }
-            ExecEvent::TodoProgress { task_id, progress } => {
+            ExecEvent::TodoProgress { task_id, progress, .. } => {
                 if progress.is_empty() {
                     None
                 } else {
@@ -363,7 +382,7 @@ mod feishu_push_service_tests {
                     ))
                 }
             }
-            ExecEvent::ExecutionStats { task_id, stats } => {
+            ExecEvent::ExecutionStats { task_id, stats, .. } => {
                 Some(format!(
                     "📊 [执行统计] TaskID: {}\n🔧 工具调用: {}\n💬 对话轮次: {}",
                     task_id, stats.tool_calls, stats.conversation_turns
@@ -373,6 +392,35 @@ mod feishu_push_service_tests {
             ExecEvent::ReviewStatusChanged { .. } => None,
             // ExecutorDirectResponse 由 FeishuPushService 直接发送，不走 format_event
             ExecEvent::ExecutorDirectResponse { .. } => None,
+            // LoopFinished 事件的格式化消息 - 统计摘要（与 feishu_push.rs 生产代码保持一致）
+            ExecEvent::LoopFinished { loop_title, status, total_steps, completed_steps, failed_steps, duration_secs, total_tokens, .. } => {
+                let status_icon = match status.as_str() {
+                    "success" => "✅ 成功",
+                    "failed" => "❌ 失败",
+                    "partial" => "⚠️ 部分成功",
+                    "capped_step" => "🚫 步数超限",
+                    "capped_token" => "🚫 Token超限",
+                    _ => "ℹ️ 完成",
+                };
+                
+                // 格式化时长
+                let duration_str = if *duration_secs >= 3600 {
+                    let hours = *duration_secs / 3600;
+                    let mins = (*duration_secs % 3600) / 60;
+                    format!("{}h {}m", hours, mins)
+                } else if *duration_secs >= 60 {
+                    let mins = *duration_secs / 60;
+                    let secs = *duration_secs % 60;
+                    format!("{}m {}s", mins, secs)
+                } else {
+                    format!("{}s", *duration_secs)
+                };
+                
+                Some(format!(
+                    "🔁 [环路执行完成]\n📋 {}\n{} | 共 {} 步 | 成功 {} | 失败 {}\n⏱️ 用时 {} | 🔤 Token {}",
+                    loop_title, status_icon, *total_steps, *completed_steps, *failed_steps, duration_str, *total_tokens
+                ))
+            }
         }
     }
 
@@ -382,6 +430,7 @@ mod feishu_push_service_tests {
             todo_id: 1,
             todo_title: "Test Todo".to_string(),
             executor: "kimi".to_string(),
+            workspace_id: None,
         }
     }
 
@@ -389,6 +438,7 @@ mod feishu_push_service_tests {
         ExecEvent::Output {
             task_id: "task-123".to_string(),
             entry: ParsedLogEntry::new(log_type, content),
+            workspace_id: None,
         }
     }
 
@@ -403,6 +453,8 @@ mod feishu_push_service_tests {
             feishu_bot_id: None,
             feishu_receive_id: None,
             workspace_id: None,
+            duration_secs: 125,
+            total_tokens: 500,
         }
     }
 }

@@ -10,12 +10,14 @@ interface ExecEventStarted {
   todo_id: number;
   todo_title: string;
   executor: string;
+  workspace_id: number | null;
 }
 
 interface ExecEventOutput {
   type: 'Output';
   task_id: string;
   entry: LogEntry;
+  workspace_id: number | null;
 }
 
 interface ExecEventFinished {
@@ -24,6 +26,9 @@ interface ExecEventFinished {
   todo_id: number;
   success: boolean;
   result: string | null;
+  duration_secs: number;
+  total_tokens: number;
+  workspace_id: number | null;
 }
 
 interface ExecEventSync {
@@ -41,12 +46,14 @@ interface ExecEventTodoProgress {
   type: 'TodoProgress';
   task_id: string;
   progress: TodoItem[];
+  workspace_id: number | null;
 }
 
 interface ExecEventExecutionStats {
   type: 'ExecutionStats';
   task_id: string;
   stats: ExecutionStats;
+  workspace_id: number | null;
 }
 
 interface ExecEventReviewStatusChanged {
@@ -56,7 +63,21 @@ interface ExecEventReviewStatusChanged {
   review_status: string;
 }
 
-type ExecEvent = ExecEventStarted | ExecEventOutput | ExecEventFinished | ExecEventSync | ExecEventTodoProgress | ExecEventExecutionStats | ExecEventReviewStatusChanged;
+interface ExecEventLoopFinished {
+  type: 'LoopFinished';
+  loop_execution_id: number;
+  loop_id: number;
+  loop_title: string;
+  status: string;
+  total_steps: number;
+  completed_steps: number;
+  failed_steps: number;
+  duration_secs: number;
+  total_tokens: number;
+  workspace_id: number | null;
+}
+
+type ExecEvent = ExecEventStarted | ExecEventOutput | ExecEventFinished | ExecEventSync | ExecEventTodoProgress | ExecEventExecutionStats | ExecEventReviewStatusChanged | ExecEventLoopFinished;
 
 // ─── 模块级共享状态 ─────────────────────────────────────────────
 //
@@ -162,6 +183,10 @@ function connectShared(dispatch: ReturnType<typeof useApp>['dispatch']) {
         }
         case 'ReviewStatusChanged': {
           window.dispatchEvent(new CustomEvent('reviewStatusChanged', { detail: { recordId: data.record_id, todoId: data.todo_id, reviewStatus: data.review_status } }));
+          break;
+        }
+        case 'LoopFinished': {
+          window.dispatchEvent(new CustomEvent('loopExecutionFinished', { detail: { loopExecutionId: data.loop_execution_id, loopId: data.loop_id, status: data.status, totalSteps: data.total_steps, completedSteps: data.completed_steps, failedSteps: data.failed_steps, durationSecs: data.duration_secs, totalTokens: data.total_tokens } }));
           break;
         }
       }

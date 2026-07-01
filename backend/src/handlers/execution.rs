@@ -241,7 +241,8 @@ pub async fn execute_handler(
         feishu_bot_id: None,
         feishu_receive_id: None,
         workspace_path: None,
-        workspace_id: None,
+        // 从 todo 中提取 workspace_id，用于 FeishuPushService 按 workspace 隔离推送
+        workspace_id: todo.workspace_id,
     })
     .await;
     let result = result?;
@@ -536,7 +537,8 @@ pub async fn resume_execution_handler(
         feishu_bot_id: None,
         feishu_receive_id: None,
         workspace_path: None,
-        workspace_id: None,
+        // 从 todo 中提取 workspace_id，用于 FeishuPushService 按 workspace 隔离推送
+        workspace_id: todo.workspace_id,
     })
     .await?;
     let record_id = result.record_id
@@ -693,7 +695,8 @@ pub async fn smart_create_handler(
         feishu_bot_id: None,
         feishu_receive_id: None,
         workspace_path: None,
-        workspace_id: None,
+        // 从 todo 中提取 workspace_id，用于 FeishuPushService 按 workspace 隔离推送
+        workspace_id: todo.workspace_id,
     })
     .await?;
 

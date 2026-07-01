@@ -128,10 +128,14 @@ pub enum ExecEvent {
         todo_id: i64,
         todo_title: String,
         executor: String,
+        /// 执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标
+        workspace_id: Option<i64>,
     },
     Output {
         task_id: String,
         entry: ParsedLogEntry,
+        /// 执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标
+        workspace_id: Option<i64>,
     },
     Finished {
         task_id: String,
@@ -146,6 +150,10 @@ pub enum ExecEvent {
         feishu_receive_id: Option<String>,
         /// 执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标
         workspace_id: Option<i64>,
+        /// 执行时长（秒），用于推送统计摘要
+        duration_secs: i64,
+        /// 累计 Token 消耗（input + output），用于推送统计摘要
+        total_tokens: i64,
     },
     /// 同步事件：连接时发送当前实际运行的任务列表
     /// 前端收到此事件后应清空 runningTasks 并用此列表初始化
@@ -155,10 +163,14 @@ pub enum ExecEvent {
     TodoProgress {
         task_id: String,
         progress: Vec<crate::models::TodoItem>,
+        /// 执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标
+        workspace_id: Option<i64>,
     },
     ExecutionStats {
         task_id: String,
         stats: crate::models::ExecutionStats,
+        /// 执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标
+        workspace_id: Option<i64>,
     },
     ReviewStatusChanged {
         record_id: i64,
@@ -176,6 +188,35 @@ pub enum ExecEvent {
         receive_id_type: String,
         /// 要发送的文本内容
         content: String,
+    },
+    /// Loop 执行完成事件：loop 执行完成后广播此事件，
+    /// 用于 FeishuPushService 按 workspace 配置推送执行结果。
+    LoopFinished {
+        /// loop 执行记录 ID
+        loop_execution_id: i64,
+        /// loop ID
+        loop_id: i64,
+        /// loop 标题
+        loop_title: String,
+        /// 执行状态（终态枚举值，共 5 种）：
+        /// - success：全部成功
+        /// - partial：部分成功（有成功也有失败）
+        /// - failed：全部失败
+        /// - capped_step：因步数限制被截断终止
+        /// - capped_token：因 Token 限制被截断终止
+        status: String,
+        /// 总步数
+        total_steps: i32,
+        /// 成功步数
+        completed_steps: i32,
+        /// 失败步数
+        failed_steps: i32,
+        /// 执行时长（秒）
+        duration_secs: i64,
+        /// 累计 Token 消耗（input + output）
+        total_tokens: i64,
+        /// 执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标
+        workspace_id: Option<i64>,
     },
 }
 
