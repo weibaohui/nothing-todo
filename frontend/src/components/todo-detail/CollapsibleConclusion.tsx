@@ -17,6 +17,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Button, message as antdMessage } from 'antd';
+import type { MessageInstance } from 'antd/es/message/interface';
 import { CaretDownOutlined, CaretUpOutlined } from '@ant-design/icons';
 import XMarkdown from '@ant-design/x-markdown';
 import { CopyButton } from '@/components/CopyButton';
