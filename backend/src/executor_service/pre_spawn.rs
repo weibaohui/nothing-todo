@@ -191,6 +191,7 @@ pub(crate) async fn reject_start_todo_failure(
     executor_str: &str,
     record_id: i64,
     error: impl std::fmt::Display,
+    workspace_id: Option<i64>,
 ) -> ExecutionResult {
     tracing::error!("Failed to start todo execution: {}", error);
     let entry = ParsedLogEntry::error(format!("Failed to start todo execution: {}", error));
@@ -199,6 +200,7 @@ pub(crate) async fn reject_start_todo_failure(
         ExecEvent::Output {
             task_id: task_id.to_string(),
             entry,
+            workspace_id,
         },
     );
     send_event(
@@ -212,7 +214,7 @@ pub(crate) async fn reject_start_todo_failure(
             result: Some("Failed to start execution".to_string()),
             feishu_bot_id: None,
             feishu_receive_id: None,
-            workspace_id: None,
+            workspace_id,
             duration_secs: 0,
             total_tokens: 0,
         },

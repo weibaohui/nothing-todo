@@ -50,6 +50,7 @@ pub(crate) async fn run_spawned_executor_task(spawned: super::types::SpawnInputs
         runtime.todo_id,
         &runtime.todo_title,
         runtime.executor_spawn.as_ref(),
+        runtime.prepared.request.workspace_id,
     );
 
     let Some(mut child) = try_spawn_executor_child(&runtime).await else {
@@ -124,6 +125,7 @@ pub(crate) async fn handle_spawn_failure(
         ExecEvent::Output {
             task_id: task_id.to_string(),
             entry,
+            workspace_id,
         },
     );
     send_event(
@@ -244,6 +246,7 @@ pub(crate) async fn setup_log_capture_pipeline_for(
         runtime.tx.clone(),
         runtime.task_id.clone(),
         runtime.record_id,
+        runtime.prepared.request.workspace_id,
     )
     .await
 }
@@ -587,6 +590,7 @@ pub(crate) async fn handle_completed_branch(
         ctx.executor.as_ref(),
         &ctx.task_id,
         ctx.record_id,
+        ctx.workspace_id,
     )
     .await;
     let (logs_snapshot, result_str) =

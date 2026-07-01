@@ -90,6 +90,7 @@ fn emit_execution_event(
     event: &ExecutionEvent,
     tx: &broadcast::Sender<ExecEvent>,
     task_id: &str,
+    workspace_id: Option<i64>,
 ) -> ParsedLogEntry {
     let parsed = DbLogEntry::from_event_to_parsed_log_entry(event);
     send_event(
@@ -97,6 +98,7 @@ fn emit_execution_event(
         ExecEvent::Output {
             task_id: task_id.to_string(),
             entry: parsed.clone(),
+            workspace_id,
         },
     );
     parsed
@@ -110,6 +112,7 @@ fn try_parse_with_pipeline(
     line: &str,
     tx: &broadcast::Sender<ExecEvent>,
     task_id: &str,
+    workspace_id: Option<i64>,
 ) -> Vec<ParsedLogEntry> {
     let line_trimmed = line.trim();
     if line_trimmed.is_empty() {
@@ -137,7 +140,7 @@ fn try_parse_with_pipeline(
                     continue;
                 }
                 // 非 JSON 的普通 info 也转发
-                let parsed = emit_execution_event(event, tx, task_id);
+                let parsed = emit_execution_event(event, tx, task_id, workspace_id);
                 results.push(parsed);
             }
             ExecutionEvent::Error { .. }
@@ -152,7 +155,7 @@ fn try_parse_with_pipeline(
             | ExecutionEvent::Duration { .. }
             | ExecutionEvent::StepStart { .. }
             | ExecutionEvent::StepFinish { .. } => {
-                let parsed = emit_execution_event(event, tx, task_id);
+                let parsed = emit_execution_event(event, tx, task_id, workspace_id);
                 results.push(parsed);
             }
             // SessionEnd 由 pipeline.finalize() 生产，避免重复转发
@@ -160,7 +163,7 @@ fn try_parse_with_pipeline(
             | ExecutionEvent::Progress { .. } => {}
             // ModelSwitch 需转发到 DB，否则 completion 阶段 get_model_from_logs 找不到模型
             ExecutionEvent::ModelSwitch { .. } => {
-                let parsed = emit_execution_event(event, tx, task_id);
+                let parsed = emit_execution_event(event, tx, task_id, workspace_id);
                 results.push(parsed);
             }
             // 其他类型不转发
@@ -177,6 +180,7 @@ fn try_parse_stderr_with_pipeline(
     line: &str,
     tx: &broadcast::Sender<ExecEvent>,
     task_id: &str,
+    workspace_id: Option<i64>,
 ) -> Vec<ParsedLogEntry> {
     let line_trimmed = line.trim();
     if line_trimmed.is_empty() {
@@ -194,7 +198,7 @@ fn try_parse_stderr_with_pipeline(
 
     pipeline.events()[len_before..]
         .iter()
-        .map(|event| emit_execution_event(event, tx, task_id))
+        .map(|event| emit_execution_event(event, tx, task_id, workspace_id))
         .collect()
 }
 
@@ -207,6 +211,7 @@ pub(crate) fn spawn_stderr_reader<R>(
     log_flusher: Arc<LogFlusher>,
     tx: broadcast::Sender<ExecEvent>,
     task_id: String,
+    workspace_id: Option<i64>,
 ) -> Option<JoinHandle<()>>
 where
     R: AsyncRead + Unpin + Send + 'static,
@@ -227,7 +232,7 @@ where
                 }
                 // 优先尝试用 EventPipeline 解析
                 let parsed_list =
-                    try_parse_stderr_with_pipeline(&mut pipeline, &line, &tx, &task_id);
+                    try_parse_stderr_with_pipeline(&mut pipeline, &line, &tx, &task_id, workspace_id);
 
                 if !parsed_list.is_empty() {
                     for parsed in parsed_list {
@@ -255,6 +260,7 @@ where
                     ExecEvent::Output {
                         task_id: task_id.clone(),
                         entry,
+                        workspace_id,
                     },
                 );
             }
@@ -263,7 +269,7 @@ where
             let len_before = pipeline.len();
             pipeline.finalize();
             for event in &pipeline.events()[len_before..] {
-                let parsed = emit_execution_event(event, &tx, &task_id);
+                let parsed = emit_execution_event(event, &tx, &task_id, workspace_id);
                 log_flusher.push(parsed).await;
             }
         })
@@ -286,6 +292,7 @@ pub(crate) fn spawn_stdout_reader<R>(
     tx: broadcast::Sender<ExecEvent>,
     task_id: String,
     record_id: i64,
+    workspace_id: Option<i64>,
 ) -> Option<JoinHandle<()>>
 where
     R: AsyncRead + Unpin + Send + 'static,
@@ -297,6 +304,7 @@ where
     let log_flusher_for_stdout = log_flusher.clone();
     let tid = task_id;
     let rid = record_id;
+    let wid = workspace_id;
 
     Some(tokio::spawn(async move {
         // 创建 EventPipeline 用于结构化解析
@@ -311,7 +319,7 @@ where
         while let Ok(Some(line)) = reader.next_line().await {
             // 优先尝试用 EventPipeline 解析
             let parsed_list =
-                try_parse_with_pipeline(&mut pipeline, &line, &tx_clone, &tid);
+                try_parse_with_pipeline(&mut pipeline, &line, &tx_clone, &tid, wid);
 
             if !parsed_list.is_empty() {
                 for parsed in parsed_list {
@@ -326,7 +334,7 @@ where
                     }
 
                     // todo_progress：写库 + 发事件
-                    emit_todo_progress_if_present(&db_for_todo, &tx_clone, &tid, rid, &parsed).await;
+                    emit_todo_progress_if_present(&db_for_todo, &tx_clone, &tid, rid, &parsed, wid).await;
 
                     // 统计：工具调用必发；普通日志每 10 条发一次。
                     log_count += 1;
@@ -336,6 +344,7 @@ where
                         &tid,
                         &parsed,
                         log_count,
+                        wid,
                     )
                     .await;
 
@@ -361,7 +370,7 @@ where
             };
 
             // todo_progress：写库 + 发事件，让前端能实时显示进度。
-            emit_todo_progress_if_present(&db_for_todo, &tx_clone, &tid, rid, &parsed).await;
+            emit_todo_progress_if_present(&db_for_todo, &tx_clone, &tid, rid, &parsed, wid).await;
 
             // 统计：工具调用必发；普通日志每 10 条发一次。
             // 用 with_logs 持锁只读扫描，避免与 push 路径冲突。
@@ -372,6 +381,7 @@ where
                 &tid,
                 &parsed,
                 log_count,
+                wid,
             )
             .await;
 
@@ -382,6 +392,7 @@ where
                 ExecEvent::Output {
                     task_id: tid.clone(),
                     entry: parsed,
+                    workspace_id: wid,
                 },
             );
         }
@@ -390,7 +401,7 @@ where
         let len_before = pipeline.len();
         pipeline.finalize();
         for event in &pipeline.events()[len_before..] {
-            let parsed = emit_execution_event(event, &tx_clone, &tid);
+            let parsed = emit_execution_event(event, &tx_clone, &tid, wid);
             log_flusher_for_stdout.push(parsed).await;
         }
     }))
@@ -420,6 +431,7 @@ async fn emit_todo_progress_if_present(
     task_id: &str,
     record_id: i64,
     parsed: &ParsedLogEntry,
+    workspace_id: Option<i64>,
 ) {
     let Some(progress) = crate::todo_progress::try_extract_todo_progress(parsed) else {
         return;
@@ -434,6 +446,7 @@ async fn emit_todo_progress_if_present(
         ExecEvent::TodoProgress {
             task_id: task_id.to_string(),
             progress,
+            workspace_id,
         },
     );
 }
@@ -445,6 +458,7 @@ async fn maybe_emit_execution_stats(
     task_id: &str,
     parsed: &ParsedLogEntry,
     log_count: u64,
+    workspace_id: Option<i64>,
 ) {
     let is_tool_call = is_tool_call_log_type(&parsed.log_type);
     if !is_tool_call && !log_count.is_multiple_of(10) {
@@ -456,6 +470,7 @@ async fn maybe_emit_execution_stats(
         ExecEvent::ExecutionStats {
             task_id: task_id.to_string(),
             stats,
+            workspace_id,
         },
     );
 }
@@ -506,6 +521,7 @@ pub(crate) async fn setup_log_capture_pipeline<SO, SE>(
     tx: broadcast::Sender<ExecEvent>,
     task_id: String,
     record_id: i64,
+    workspace_id: Option<i64>,
 ) -> (
     Arc<LogFlusher>,
     Option<JoinHandle<()>>,
@@ -531,6 +547,7 @@ where
         tx.clone(),
         task_id.clone(),
         record_id,
+        workspace_id,
     );
     let stderr_task = spawn_stderr_reader(
         stderr_handle,
@@ -538,6 +555,7 @@ where
         log_flusher.clone(),
         tx.clone(),
         task_id.clone(),
+        workspace_id,
     );
     // 定时兜底 flush：每 3 秒检查未刷新条目，有则写库。
     let flush_timer = {

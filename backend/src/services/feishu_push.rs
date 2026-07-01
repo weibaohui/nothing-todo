@@ -95,9 +95,13 @@ impl FeishuPushService {
                                     }
                                 }
 
-                                // Extract workspace_id from Finished / LoopFinished event
+                                // Extract workspace_id from event (支持 Started, Output, Finished, TodoProgress, ExecutionStats, LoopFinished)
                                 let event_workspace_id = match &ev {
+                                    ExecEvent::Started { workspace_id, .. } => *workspace_id,
+                                    ExecEvent::Output { workspace_id, .. } => *workspace_id,
                                     ExecEvent::Finished { workspace_id, .. } => *workspace_id,
+                                    ExecEvent::TodoProgress { workspace_id, .. } => *workspace_id,
+                                    ExecEvent::ExecutionStats { workspace_id, .. } => *workspace_id,
                                     ExecEvent::LoopFinished { workspace_id, .. } => *workspace_id,
                                     _ => None,
                                 };
@@ -209,7 +213,7 @@ impl FeishuPushService {
                     todo_title, executor, task_id
                 ))
             }
-            ExecEvent::Output { task_id, entry } => {
+            ExecEvent::Output { task_id, entry, .. } => {
                 let prefix = match entry.log_type.as_str() {
                     "error" | "stderr" => "🔴",
                     "warning" => "⚠️",
@@ -251,7 +255,7 @@ impl FeishuPushService {
                     total_tokens
                 ))
             }
-            ExecEvent::TodoProgress { task_id, progress } => {
+            ExecEvent::TodoProgress { task_id, progress, .. } => {
                 if progress.is_empty() {
                     None
                 } else {
@@ -265,7 +269,7 @@ impl FeishuPushService {
                     ))
                 }
             }
-            ExecEvent::ExecutionStats { task_id, stats } => {
+            ExecEvent::ExecutionStats { task_id, stats, .. } => {
                 Some(format!(
                     "📊 [执行统计] TaskID: {}\n🔧 工具调用: {}\n💬 对话轮次: {}",
                     task_id, stats.tool_calls, stats.conversation_turns

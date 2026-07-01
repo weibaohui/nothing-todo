@@ -229,6 +229,7 @@ mod feishu_push_service_tests {
         let event = ExecEvent::TodoProgress {
             task_id: "task-123".to_string(),
             progress,
+            workspace_id: None,
         };
         let text = format_event_check(&event);
         assert!(text.is_some());
@@ -245,6 +246,7 @@ mod feishu_push_service_tests {
         let event = ExecEvent::TodoProgress {
             task_id: "task-123".to_string(),
             progress: vec![],
+            workspace_id: None,
         };
         let text = format_event_check(&event);
         assert!(text.is_none());
@@ -258,6 +260,7 @@ mod feishu_push_service_tests {
         let event = ExecEvent::TodoProgress {
             task_id: "task-123".to_string(),
             progress,
+            workspace_id: None,
         };
         let text = format_event_check(&event);
         assert!(text.is_some());
@@ -277,6 +280,7 @@ mod feishu_push_service_tests {
         let event = ExecEvent::ExecutionStats {
             task_id: "task-123".to_string(),
             stats,
+            workspace_id: None,
         };
         let text = format_event_check(&event);
         assert!(text.is_some());
@@ -322,7 +326,7 @@ mod feishu_push_service_tests {
                     todo_title, executor, task_id
                 ))
             }
-            ExecEvent::Output { task_id, entry } => {
+            ExecEvent::Output { task_id, entry, .. } => {
                 let prefix = match entry.log_type.as_str() {
                     "error" | "stderr" => "🔴",
                     "warning" => "⚠️",
@@ -364,7 +368,7 @@ mod feishu_push_service_tests {
                     total_tokens
                 ))
             }
-            ExecEvent::TodoProgress { task_id, progress } => {
+            ExecEvent::TodoProgress { task_id, progress, .. } => {
                 if progress.is_empty() {
                     None
                 } else {
@@ -378,7 +382,7 @@ mod feishu_push_service_tests {
                     ))
                 }
             }
-            ExecEvent::ExecutionStats { task_id, stats } => {
+            ExecEvent::ExecutionStats { task_id, stats, .. } => {
                 Some(format!(
                     "📊 [执行统计] TaskID: {}\n🔧 工具调用: {}\n💬 对话轮次: {}",
                     task_id, stats.tool_calls, stats.conversation_turns
@@ -399,6 +403,7 @@ mod feishu_push_service_tests {
             todo_id: 1,
             todo_title: "Test Todo".to_string(),
             executor: "kimi".to_string(),
+            workspace_id: None,
         }
     }
 
@@ -406,6 +411,7 @@ mod feishu_push_service_tests {
         ExecEvent::Output {
             task_id: "task-123".to_string(),
             entry: ParsedLogEntry::new(log_type, content),
+            workspace_id: None,
         }
     }
 

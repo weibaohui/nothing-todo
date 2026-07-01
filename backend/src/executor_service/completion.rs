@@ -107,6 +107,7 @@ pub(crate) fn emit_started_event(
     todo_id: i64,
     todo_title: &str,
     executor: &dyn CodeExecutor,
+    workspace_id: Option<i64>,
 ) {
     send_event(
         tx,
@@ -115,6 +116,7 @@ pub(crate) fn emit_started_event(
             todo_id,
             todo_title: todo_title.to_string(),
             executor: executor.executor_type().to_string(),
+            workspace_id,
         },
     );
     let entry = ParsedLogEntry::info(format!("Starting {}", executor.executor_type()));
@@ -123,6 +125,7 @@ pub(crate) fn emit_started_event(
         ExecEvent::Output {
             task_id: task_id.to_string(),
             entry,
+            workspace_id,
         },
     );
 }
@@ -184,6 +187,7 @@ pub(crate) async fn emit_post_execution_todo_progress(
     executor: &dyn CodeExecutor,
     task_id: &str,
     record_id: i64,
+    workspace_id: Option<i64>,
 ) {
     if let Some(progress) = executor.post_execution_todo_progress() {
         if let Ok(progress_json) = serde_json::to_string(&progress) {
@@ -195,6 +199,7 @@ pub(crate) async fn emit_post_execution_todo_progress(
                 ExecEvent::TodoProgress {
                     task_id: task_id.to_string(),
                     progress,
+                    workspace_id,
                 },
             );
         }
@@ -245,6 +250,7 @@ pub(crate) async fn handle_cancellation_branch(
         ExecEvent::Output {
             task_id: task_id.to_string(),
             entry,
+            workspace_id,
         },
     );
     send_event(
@@ -305,6 +311,7 @@ pub(crate) async fn handle_timeout_branch(
         ExecEvent::Output {
             task_id: task_id.to_string(),
             entry,
+            workspace_id,
         },
     );
     send_event(
@@ -463,6 +470,7 @@ fn emit_completion_events(
         ExecEvent::Output {
             task_id: task_id.to_string(),
             entry,
+            workspace_id,
         },
     );
     send_event(

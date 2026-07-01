@@ -10,12 +10,14 @@ interface ExecEventStarted {
   todo_id: number;
   todo_title: string;
   executor: string;
+  workspace_id: number | null;
 }
 
 interface ExecEventOutput {
   type: 'Output';
   task_id: string;
   entry: LogEntry;
+  workspace_id: number | null;
 }
 
 interface ExecEventFinished {
@@ -26,6 +28,7 @@ interface ExecEventFinished {
   result: string | null;
   duration_secs: number;
   total_tokens: number;
+  workspace_id: number | null;
 }
 
 interface ExecEventSync {
@@ -43,12 +46,14 @@ interface ExecEventTodoProgress {
   type: 'TodoProgress';
   task_id: string;
   progress: TodoItem[];
+  workspace_id: number | null;
 }
 
 interface ExecEventExecutionStats {
   type: 'ExecutionStats';
   task_id: string;
   stats: ExecutionStats;
+  workspace_id: number | null;
 }
 
 interface ExecEventReviewStatusChanged {

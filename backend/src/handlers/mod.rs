@@ -128,10 +128,14 @@ pub enum ExecEvent {
         todo_id: i64,
         todo_title: String,
         executor: String,
+        /// 执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标
+        workspace_id: Option<i64>,
     },
     Output {
         task_id: String,
         entry: ParsedLogEntry,
+        /// 执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标
+        workspace_id: Option<i64>,
     },
     Finished {
         task_id: String,
@@ -159,10 +163,14 @@ pub enum ExecEvent {
     TodoProgress {
         task_id: String,
         progress: Vec<crate::models::TodoItem>,
+        /// 执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标
+        workspace_id: Option<i64>,
     },
     ExecutionStats {
         task_id: String,
         stats: crate::models::ExecutionStats,
+        /// 执行所在的工作空间 ID，用于 FeishuPushService 按 workspace 隔离推送目标
+        workspace_id: Option<i64>,
     },
     ReviewStatusChanged {
         record_id: i64,
