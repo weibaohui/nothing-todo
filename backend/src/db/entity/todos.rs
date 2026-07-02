@@ -39,6 +39,12 @@ pub struct Model {
     /// 'item' = 一次性事项, 'step' = 可复用的环节 (loop 编排引用)。
     /// 同一张 todos 表承载两种语义, 由 kind 列区分; 详细见 migrations v3。
     pub kind: Option<String>,
+    /// Action 类型标记（如 "rewrite_title"、"optimize_prompt"），
+    /// 仅供前端 ActionButton 组件做 UI 分类展示，不影响执行逻辑。
+    pub action_type: Option<String>,
+    /// Action 键值，与 action_type 配合唯一标识一个 action 模板 todo。
+    /// 前端传 action_type + action_key，后端查找或自动创建对应的 todo。
+    pub action_key: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

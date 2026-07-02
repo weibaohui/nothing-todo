@@ -24,6 +24,11 @@ pub struct TodoUpdate<'a> {
     pub webhook_enabled: Option<bool>,
     pub acceptance_criteria: Option<&'a str>,
     pub auto_review_enabled: Option<bool>,
+    /// Action 类型标记（如 "rewrite_title"、"optimize_prompt"），
+    /// 仅供前端 ActionButton 组件做 UI 分类展示，不影响执行逻辑。
+    pub action_type: Option<&'a str>,
+    /// Action 键值，与 action_type 配合唯一标识一个 action 模板 todo。
+    pub action_key: Option<&'a str>,
 }
 
 pub struct SchedulerUpdate<'a> {
@@ -75,6 +80,8 @@ impl Database {
             parent_todo_id: m.parent_todo_id,
             review_template_id: m.review_template_id,
             auto_review_enabled: m.auto_review_enabled.unwrap_or(false),
+            action_type: m.action_type,
+            action_key: m.action_key,
         }
     }
 
@@ -273,6 +280,12 @@ impl Database {
         }
         if let Some(enabled) = update.auto_review_enabled {
             am.auto_review_enabled = ActiveValue::Set(Some(enabled));
+        }
+        if let Some(at) = update.action_type {
+            am.action_type = ActiveValue::Set(Some(at.to_string()));
+        }
+        if let Some(ak) = update.action_key {
+            am.action_key = ActiveValue::Set(Some(ak.to_string()));
         }
         self.exec_update(am).await
     }
@@ -818,6 +831,8 @@ impl Database {
                     tag_names,
                     workspace_path: m.workspace_path.clone(),
                     worktree: None,
+                    action_type: m.action_type,
+                    action_key: m.action_key,
                 }
             })
             .collect::<Vec<_>>())
@@ -869,6 +884,8 @@ impl Database {
                     tag_names,
                     workspace_path: m.workspace_path.clone(),
                     worktree: None,
+                    action_type: m.action_type,
+                    action_key: m.action_key,
                 }
             })
             .collect())

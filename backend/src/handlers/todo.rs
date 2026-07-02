@@ -180,6 +180,8 @@ pub async fn create_todo(
         parent_todo_id: None,
         review_template_id: None,
         auto_review_enabled: req.auto_review_enabled.unwrap_or(false),
+        action_type: req.action_type.clone(),
+        action_key: req.action_key.clone(),
     }))
 }
 
@@ -256,6 +258,8 @@ pub async fn update_todo(
             webhook_enabled: req.webhook_enabled,
             acceptance_criteria: req.acceptance_criteria.as_deref(),
             auto_review_enabled: req.auto_review_enabled,
+            action_type: req.action_type.as_deref(),
+            action_key: req.action_key.as_deref(),
         })
         .await
         .map_err(AppError::from)?;

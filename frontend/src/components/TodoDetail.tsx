@@ -172,6 +172,28 @@ export function TodoDetail({ hideTitleRow = false, onOpenPost }: TodoDetailProps
     }
   }, [selectedTodo, dispatch]);
 
+  const handleTitleUpdate = useCallback(async (newTitle: string) => {
+    if (!selectedTodo) return;
+    try {
+      const updated = await db.updateTodo(
+        selectedTodo.id,
+        newTitle,
+        selectedTodo.prompt || '',
+        selectedTodo.status || 'pending',
+        selectedTodo.executor || undefined,
+        selectedTodo.scheduler_enabled,
+        selectedTodo.scheduler_config,
+        selectedTodo.workspace_id,
+        selectedTodo.webhook_enabled,
+        selectedTodo.acceptance_criteria,
+        selectedTodo.auto_review_enabled,
+      );
+      dispatch({ type: 'UPDATE_TODO', payload: updated });
+    } catch (err: any) {
+      throw err;
+    }
+  }, [selectedTodo, dispatch]);
+
   // 升级/降级已移除：环节与 Todo 合一，无需 promote 流程
 
   const handleDelete = async () => {
@@ -240,6 +262,7 @@ export function TodoDetail({ hideTitleRow = false, onOpenPost }: TodoDetailProps
         onOpenExecuteWithArgs={handleOpenExecuteWithArgs}
         onExecute={handleExecute}
         onStatusChange={handleStatusChange}
+        onTitleUpdate={handleTitleUpdate}
         hideTitleRow={hideTitleRow}
       />
 

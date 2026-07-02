@@ -1,5 +1,5 @@
 import { Button, Tag, Badge, Popconfirm, App } from 'antd';
-import { PlayCircleOutlined, ThunderboltOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, ThunderboltOutlined, EditOutlined, DeleteOutlined, RocketOutlined } from '@ant-design/icons';
 import { StatusPicker } from '@/components/StatusPicker';
 import { ExecutorBadge } from '@/components/ExecutorBadge';
 import { PromptDisplay } from './PromptDisplay';
@@ -7,12 +7,14 @@ import { InlineTokenStats } from './InlineTokenStats';
 import { ProgressWidget } from './ProgressWidget';
 import { formatLocalDateTime } from '@/utils/datetime';
 import { CopyButton } from '@/components/CopyButton';
+import { ActionButton } from '@/components/ActionButton';
 import type { ExecutionSummary, ExecutionRecord } from '@/types';
 import type { Todo } from '@/types';
 
 export function DetailHeader({
   selectedTodo, executor, isExecuting, summary, currentTodoProgress,
   records, onDelete, onTodoDrawerOpen, onOpenExecuteWithArgs, onExecute, onStatusChange,
+  onTitleUpdate,
   hideTitleRow = false,
 }: {
   selectedTodo: Todo;
@@ -26,6 +28,7 @@ export function DetailHeader({
   onOpenExecuteWithArgs: () => void;
   onExecute: () => Promise<void>;
   onStatusChange: (status: string) => Promise<void>;
+  onTitleUpdate?: (newTitle: string) => Promise<void>;
   hideTitleRow?: boolean;
 }) {
   const { message } = App.useApp();
@@ -157,6 +160,35 @@ export function DetailHeader({
           >
             带参执行
           </Button>
+          {onTitleUpdate && (
+            <ActionButton
+              actionType="title_optimize"
+              actionKey="default"
+              prompt={`你是一个标题优化专家。请根据以下信息生成更优的标题：
+
+当前标题：{{title}}
+当前 Prompt：{{prompt}}
+
+要求：
+1. 保持原意
+2. 更简洁有力
+3. 适合 AI Todo 应用的场景
+
+请直接输出最优版本，不要加解释。`}
+              params={{
+                title: selectedTodo.title,
+                prompt: selectedTodo.prompt || '',
+              }}
+              workspaceId={selectedTodo.workspace_id || undefined}
+              onApply={onTitleUpdate}
+              buttonType="primary"
+              icon={<RocketOutlined />}
+              panelTitle="优化标题"
+              panelDescription="AI 将根据当前标题和 Prompt 生成更优的版本"
+            >
+              优化标题
+            </ActionButton>
+          )}
         </div>
       </div>
     </>
