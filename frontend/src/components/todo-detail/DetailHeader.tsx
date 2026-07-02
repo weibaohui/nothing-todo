@@ -42,6 +42,37 @@ export function DetailHeader({
             <StatusPicker value={selectedTodo.status} onChange={onStatusChange} disabled={isExecuting} />
             <h2 className="card-title" style={{ margin: 0, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedTodo.title}</h2>
             <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+              {onTitleUpdate && (
+                <ActionButton
+                  actionType="title_optimize"
+                  actionKey="default"
+                  prompt={`你是一个标题优化专家。请根据以下信息生成更优的标题。
+
+当前标题：{{title}}
+当前 Prompt：{{prompt}}
+
+要求：
+1. 保持原意
+2. 更简洁有力
+3. 适合 AI Todo 应用的场景
+
+输出格式：用 RESULT 标记包裹最终标题，不要加任何其他内容。
+
+RESULT
+优化后的标题文本
+RESULT`}
+                  params={{
+                    title: selectedTodo.title,
+                    prompt: selectedTodo.prompt || '',
+                  }}
+                  workspaceId={selectedTodo.workspace_id || undefined}
+                  onApply={onTitleUpdate}
+                  buttonType="text"
+                  icon={<RocketOutlined />}
+                  panelTitle="优化标题"
+                  panelDescription="AI 将根据当前标题和 Prompt 生成更优的版本"
+                />
+              )}
               <Button type="text" icon={<EditOutlined />} onClick={onTodoDrawerOpen} className="icon-btn" aria-label="编辑任务" />
               <Popconfirm title="删除任务" description="确定要删除吗？" onConfirm={onDelete}>
                 <Button type="text" icon={<DeleteOutlined />} className="icon-btn" aria-label="删除任务" />
@@ -160,39 +191,6 @@ export function DetailHeader({
           >
             带参执行
           </Button>
-          {onTitleUpdate && (
-            <ActionButton
-              actionType="title_optimize"
-              actionKey="default"
-              prompt={`你是一个标题优化专家。请根据以下信息生成更优的标题。
-
-当前标题：{{title}}
-当前 Prompt：{{prompt}}
-
-要求：
-1. 保持原意
-2. 更简洁有力
-3. 适合 AI Todo 应用的场景
-
-输出格式：用 RESULT 标记包裹最终标题，不要加任何其他内容。
-
-RESULT
-优化后的标题文本
-RESULT`}
-              params={{
-                title: selectedTodo.title,
-                prompt: selectedTodo.prompt || '',
-              }}
-              workspaceId={selectedTodo.workspace_id || undefined}
-              onApply={onTitleUpdate}
-              buttonType="primary"
-              icon={<RocketOutlined />}
-              panelTitle="优化标题"
-              panelDescription="AI 将根据当前标题和 Prompt 生成更优的版本"
-            >
-              优化标题
-            </ActionButton>
-          )}
         </div>
       </div>
     </>
