@@ -32,7 +32,7 @@ export function ActionButton({
   buttonType = 'default',
   icon,
   disabled = false,
-  panelTitle = '智能执行',
+  panelTitle = '自动优化标题',
   panelDescription = '检查并确认以下内容后执行',
   executor,
 }: ActionButtonProps) {
@@ -242,10 +242,10 @@ export function ActionButton({
       <Drawer
         title={panelTitle}
         open={open}
-        onClose={() => {}} // 禁止点击外部/Escape关闭，必须显式操作
-        closable={status !== 'executing'} // 执行中隐藏关闭按钮
+        onClose={status !== 'executing' ? handleClose : undefined} // 执行中禁止关闭，其他时候允许通过 X 按钮关闭
+        closable={status !== 'executing'}
         keyboard={false} // 禁止 Escape 关闭
-        maskClosable={status !== 'executing'} // 执行中禁止点击遮罩关闭
+        maskClosable={false} // 始终禁止点击遮罩关闭
         placement={isMobile ? 'bottom' : 'right'}
         width={isMobile ? '100%' : 520}
         height={isMobile ? '85vh' : undefined}

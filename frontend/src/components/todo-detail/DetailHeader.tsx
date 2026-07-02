@@ -69,7 +69,7 @@ RESULT`}
                   onApply={onTitleUpdate}
                   buttonType="text"
                   icon={<RocketOutlined />}
-                  panelTitle="优化标题"
+                  panelTitle="自动优化标题"
                   panelDescription="AI 将根据当前标题和 Prompt 生成更优的版本"
                 />
               )}
