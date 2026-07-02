@@ -1,34 +1,30 @@
-import { useState } from 'react';
-import { Button, Drawer, Spin, Typography, Space, message } from 'antd';
-import { ThunderboltOutlined } from '@ant-design/icons';
+import { useState, useEffect } from 'react';
+import { Button, Drawer, Spin, Typography, Space, message, Input, Select, Tag } from 'antd';
+import { ThunderboltOutlined, EditOutlined, CodeOutlined } from '@ant-design/icons';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useActionExecution } from './useActionExecution';
 import type { ActionButtonProps } from './types';
 
 const { Text, Paragraph } = Typography;
+const { TextArea } = Input;
+
+/** 可用的执行器选项 */
+const EXECUTOR_OPTIONS = [
+  { value: 'claudecode', label: 'Claude Code', color: '#d97706' },
+  { value: 'opencode', label: 'OpenCode', color: '#2563eb' },
+  { value: 'kilo', label: 'Kilo', color: '#7c3aed' },
+];
 
 /**
  * 可复用的一键 AI 执行组件。
  *
  * 交互流程：
- * 1. 点击按钮 → 打开 Drawer，展示参数预览（只读）
- * 2. 点击「执行」→ 调用 POST /api/actions/execute（查找或创建 todo → 执行）
- * 3. 通过 WebSocket 监听执行完成
- * 4. 完成后展示完整 markdown 结果
- * 5. 用户选择「应用」→ 调用 onApply 回调，或「拒绝」→ 关闭面板
- *
- * 后端逻辑：
- * - 根据 actionType + actionKey 查找 todo
- * - 如果不存在，自动创建 todo（prompt 来自请求）
- * - 执行该 todo，返回结果
- *
- * Prompt 模板语法：
- * - {{key}} → params 中 key 对应的值
- *
- * 示例：
- * prompt="优化标题：{{title}}，参考 Prompt：{{prompt}}"
- * params={{ title: "fix bug", prompt: "帮我修复登录超时" }}
- * → 执行消息="优化标题：fix bug，参考 Prompt：帮我修复登录超时"
+ * 1. 点击按钮 → 打开 Drawer
+ * 2. 展示可编辑的 Prompt、执行器选择器、参数预览
+ * 3. 用户可修改后点击「执行」
+ * 4. 通过 WebSocket 监听执行完成
+ * 5. 完成后展示完整 markdown 结果
+ * 6. 用户选择「应用」或「拒绝」
  */
 export function ActionButton({
   actionType,
@@ -42,10 +38,12 @@ export function ActionButton({
   icon,
   disabled = false,
   panelTitle = '智能执行',
-  panelDescription = '将使用 AI 处理以下内容',
+  panelDescription = '检查并确认以下内容后执行',
   executor,
 }: ActionButtonProps) {
   const [open, setOpen] = useState(false);
+  const [editablePrompt, setEditablePrompt] = useState(prompt);
+  const [selectedExecutor, setSelectedExecutor] = useState<string | undefined>(executor);
   const isMobile = useIsMobile();
   const { status, result, error, execute, retry, reset } = useActionExecution(
     actionType,
@@ -56,6 +54,14 @@ export function ActionButton({
     executor,
   );
 
+  // 打开时重置 editablePrompt 为默认值
+  useEffect(() => {
+    if (open) {
+      setEditablePrompt(prompt);
+      setSelectedExecutor(executor);
+    }
+  }, [open, prompt, executor]);
+
   const handleOpen = () => {
     reset();
     setOpen(true);
@@ -63,6 +69,14 @@ export function ActionButton({
 
   const handleClose = () => {
     setOpen(false);
+  };
+
+  const handleExecute = () => {
+    execute(editablePrompt, selectedExecutor);
+  };
+
+  const handleRetry = () => {
+    retry(editablePrompt, selectedExecutor);
   };
 
   const handleApply = async () => {
@@ -77,28 +91,69 @@ export function ActionButton({
   };
 
   // 从 params 中提取要展示的预览内容
-  const previewContent = Object.entries(params)
-    .map(([key, value]) => `${key}: ${value}`)
-    .join('\n');
+  const paramsPreview = Object.entries(params)
+    .map(([key, value]) => ({ key, value }));
 
   const renderContent = () => {
     if (status === 'idle') {
       return (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          {/* 描述 */}
           <Text type="secondary">{panelDescription}</Text>
-          <div
-            style={{
-              padding: 12,
-              background: '#f5f5f5',
-              borderRadius: 6,
-              maxHeight: 200,
-              overflow: 'auto',
-            }}
-          >
-            <Text ellipsis>
-              {previewContent || '(空)'}
-            </Text>
+
+          {/* Prompt 编辑区 */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <EditOutlined style={{ color: 'var(--color-text-secondary)' }} />
+              <Text strong style={{ fontSize: 13 }}>Prompt 模板</Text>
+            </div>
+            <TextArea
+              value={editablePrompt}
+              onChange={(e) => setEditablePrompt(e.target.value)}
+              autoSize={{ minRows: 4, maxRows: 12 }}
+              style={{ fontFamily: 'monospace', fontSize: 12 }}
+            />
           </div>
+
+          {/* 执行器选择 */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <CodeOutlined style={{ color: 'var(--color-text-secondary)' }} />
+              <Text strong style={{ fontSize: 13 }}>执行器</Text>
+            </div>
+            <Select
+              value={selectedExecutor}
+              onChange={setSelectedExecutor}
+              options={EXECUTOR_OPTIONS}
+              style={{ width: '100%' }}
+              placeholder="选择执行器"
+            />
+          </div>
+
+          {/* 参数预览 */}
+          {paramsPreview.length > 0 && (
+            <div>
+              <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
+                模板参数
+              </Text>
+              <div
+                style={{
+                  padding: 10,
+                  background: '#f5f5f5',
+                  borderRadius: 6,
+                  maxHeight: 120,
+                  overflow: 'auto',
+                }}
+              >
+                {paramsPreview.map(({ key, value }) => (
+                  <div key={key} style={{ marginBottom: 4 }}>
+                    <Tag color="blue" style={{ marginRight: 8 }}>{`{{${key}}}`}</Tag>
+                    <Text ellipsis style={{ fontSize: 12 }}>{value}</Text>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </Space>
       );
     }
@@ -152,7 +207,7 @@ export function ActionButton({
       return (
         <Space>
           <Button onClick={handleClose}>取消</Button>
-          <Button type="primary" onClick={execute}>
+          <Button type="primary" onClick={handleExecute}>
             执行
           </Button>
         </Space>
@@ -167,7 +222,7 @@ export function ActionButton({
       return (
         <Space>
           <Button onClick={handleClose}>关闭</Button>
-          <Button type="primary" onClick={retry}>
+          <Button type="primary" onClick={handleRetry}>
             重试
           </Button>
         </Space>
@@ -199,10 +254,13 @@ export function ActionButton({
       <Drawer
         title={panelTitle}
         open={open}
-        onClose={handleClose}
+        onClose={() => {}} // 禁止点击外部/Escape关闭，必须显式操作
+        closable={status !== 'executing'} // 执行中隐藏关闭按钮
+        keyboard={false} // 禁止 Escape 关闭
+        maskClosable={status !== 'executing'} // 执行中禁止点击遮罩关闭
         placement={isMobile ? 'bottom' : 'right'}
-        width={isMobile ? '100%' : 480}
-        height={isMobile ? '80vh' : undefined}
+        width={isMobile ? '100%' : 520}
+        height={isMobile ? '85vh' : undefined}
         footer={renderFooter()}
         destroyOnClose
       >

@@ -9,8 +9,8 @@ interface UseActionExecutionReturn {
   result: string | null;
   error: string | null;
   recordId: number | null;
-  execute: () => Promise<void>;
-  retry: () => Promise<void>;
+  execute: (prompt: string, executor?: string) => Promise<void>;
+  retry: (prompt: string, executor?: string) => Promise<void>;
   reset: () => void;
 }
 
@@ -55,10 +55,10 @@ async function callActionExecute(
 export function useActionExecution(
   actionType: string,
   actionKey: string,
-  prompt: string,
+  _defaultPrompt: string,
   params: Record<string, string>,
   workspaceId?: number,
-  executor?: string,
+  _defaultExecutor?: string,
 ): UseActionExecutionReturn {
   const [status, setStatus] = useState<ActionStatus>('idle');
   const [result, setResult] = useState<string | null>(null);
@@ -80,7 +80,6 @@ export function useActionExecution(
         setError(task.result || '执行失败');
         setStatus('failed');
       } else {
-        // 执行完成但没有 result，尝试从 execution_record 查询
         fetchResultFromRecord();
       }
     }
@@ -104,13 +103,12 @@ export function useActionExecution(
     }
   }, [recordId]);
 
-  const execute = useCallback(async () => {
+  const execute = useCallback(async (prompt: string, executor?: string) => {
     setStatus('executing');
     setResult(null);
     setError(null);
 
     try {
-      // 调用后端 API：查找或创建 todo，然后执行
       const res = await callActionExecute(
         actionType,
         actionKey,
@@ -125,10 +123,10 @@ export function useActionExecution(
       setError(err?.message || '启动执行失败');
       setStatus('failed');
     }
-  }, [actionType, actionKey, prompt, params, workspaceId, executor]);
+  }, [actionType, actionKey, params, workspaceId]);
 
-  const retry = useCallback(async () => {
-    await execute();
+  const retry = useCallback(async (prompt: string, executor?: string) => {
+    await execute(prompt, executor);
   }, [execute]);
 
   const reset = useCallback(() => {

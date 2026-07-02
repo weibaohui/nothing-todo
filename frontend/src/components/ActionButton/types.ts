@@ -25,7 +25,7 @@ export interface ActionButtonProps {
   panelTitle?: string;
   /** 面板描述（默认：将使用 AI 处理以下内容） */
   panelDescription?: string;
-  /** 覆盖执行器类型 */
+  /** 默认执行器类型 */
   executor?: string;
 }
 
