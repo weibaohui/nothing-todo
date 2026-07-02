@@ -156,6 +156,11 @@ export function PostCard({
         <CollapsibleCommand command={record.command} title="命令" />
       )}
 
+      {/* 记录 ID：便于在楼层中快速定位 */}
+      <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", fontFamily: "monospace" }}>
+        #{record.id}
+      </span>
+
       {/* 元信息 + 操作：执行器、时间、触发类型、评分、导出、统计 */}
       <div style={{
         display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap",
