@@ -164,7 +164,7 @@ export function DetailHeader({
             <ActionButton
               actionType="title_optimize"
               actionKey="default"
-              prompt={`你是一个标题优化专家。请根据以下信息生成更优的标题：
+              prompt={`你是一个标题优化专家。请根据以下信息生成更优的标题。
 
 当前标题：{{title}}
 当前 Prompt：{{prompt}}
@@ -174,7 +174,11 @@ export function DetailHeader({
 2. 更简洁有力
 3. 适合 AI Todo 应用的场景
 
-请直接输出最优版本，不要加解释。`}
+输出格式：用 RESULT 标记包裹最终标题，不要加任何其他内容。
+
+RESULT
+优化后的标题文本
+RESULT`}
               params={{
                 title: selectedTodo.title,
                 prompt: selectedTodo.prompt || '',
