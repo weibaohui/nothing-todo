@@ -177,6 +177,10 @@ export function SkillVersionUpdate() {
     handleSkillClick(skill, executor);
   };
 
+  const handleExecutorClick = (skill: SkillVersionUpdateType, executor: string) => {
+    handleSkillClick(skill, executor);
+  };
+
   const handleConfirmUpdate = async () => {
     if (!selectedSkill) return;
 
