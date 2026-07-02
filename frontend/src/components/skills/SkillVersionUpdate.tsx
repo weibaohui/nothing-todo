@@ -5,9 +5,10 @@ import {
   WarningOutlined, RightOutlined,
 } from '@ant-design/icons';
 import { EXECUTORS } from '@/types';
-import type { SkillVersionUpdate as SkillVersionUpdateType, SkillVersionInfo, SkillComparison } from '@/types';
+import type { SkillVersionUpdate as SkillVersionUpdateType, SkillVersionInfo, SkillComparison, SkillMeta } from '@/types';
 import * as db from '@/utils/database';
 import { EXECUTOR_COLORS } from './helpers';
+import { SkillDetailDrawer } from './SkillDetailDrawer';
 
 // 深色主题适配样式
 const styles = `
@@ -68,6 +69,11 @@ export function SkillVersionUpdate() {
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<SkillVersionUpdateType | null>(null);
   const [updating, setUpdating] = useState(false);
+
+  // Skill 详情 drawer 状态
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerSkill, setDrawerSkill] = useState<SkillMeta | null>(null);
+  const [drawerExecutor, setDrawerExecutor] = useState('');
 
   // 注入深色主题适配样式
   useEffect(() => {
@@ -142,6 +148,24 @@ export function SkillVersionUpdate() {
   const handleUpdateClick = (skill: SkillVersionUpdateType) => {
     setSelectedSkill(skill);
     setConfirmModalOpen(true);
+  };
+
+  const handleSkillClick = (skill: SkillVersionUpdateType, executor: string) => {
+    // 构建 SkillMeta 对象
+    const skillMeta: SkillMeta = {
+      name: skill.skill_name,
+      description: skill.description,
+      version: skill.latest_version,
+      author: null,
+      license: null,
+      keywords: [],
+      file_count: 0,
+      total_size: 0,
+      modified_at: null,
+    };
+    setDrawerSkill(skillMeta);
+    setDrawerExecutor(executor);
+    setDrawerOpen(true);
   };
 
   const handleConfirmUpdate = async () => {
@@ -257,6 +281,7 @@ export function SkillVersionUpdate() {
                   key={skill.skill_name}
                   skill={skill}
                   onUpdate={() => handleUpdateClick(skill)}
+                  onClick={() => handleSkillClick(skill, skill.latest_executor)}
                 />
               ))}
             </div>
@@ -287,6 +312,7 @@ export function SkillVersionUpdate() {
                         key={skill.skill_name}
                         skill={skill}
                         onUpdate={() => {}}
+                        onClick={() => handleSkillClick(skill, skill.latest_executor)}
                       />
                     ))}
                   </div>
@@ -336,22 +362,40 @@ export function SkillVersionUpdate() {
           </div>
         )}
       </Modal>
+
+      {/* Skill 详情 Drawer */}
+      <SkillDetailDrawer
+        skill={drawerSkill}
+        executor={drawerExecutor}
+        executorLabel={EXECUTORS.find(e => e.value === drawerExecutor)?.label || drawerExecutor}
+        open={drawerOpen}
+        onClose={() => {
+          setDrawerOpen(false);
+          setDrawerSkill(null);
+          setDrawerExecutor('');
+        }}
+        onSyncSuccess={loadData}
+      />
     </div>
   );
 }
 
-function SkillVersionCard({ skill, onUpdate }: {
+function SkillVersionCard({ skill, onUpdate, onClick }: {
   skill: SkillVersionUpdateType;
   onUpdate: () => void;
+  onClick: () => void;
 }) {
   const latestExecutorLabel = EXECUTORS.find(e => e.value === skill.latest_executor)?.label || skill.latest_executor;
 
   return (
     <Card
       size="small"
+      hoverable
+      onClick={onClick}
       style={{
         borderRadius: 12,
         borderColor: skill.has_update ? 'rgba(245, 158, 11, 0.3)' : 'var(--color-border, #e2e8f0)',
+        cursor: 'pointer',
       }}
       styles={{ body: { padding: 16 } }}
     >
@@ -375,7 +419,10 @@ function SkillVersionCard({ skill, onUpdate }: {
             type="primary"
             size="small"
             icon={<SyncOutlined />}
-            onClick={onUpdate}
+            onClick={(e) => {
+              e.stopPropagation();
+              onUpdate();
+            }}
             style={{ borderRadius: 16 }}
           >
             全部更新到 v{skill.latest_version}
