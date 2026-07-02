@@ -64,6 +64,10 @@ const DEFAULT_AUTO_SKILL_BACKUP_CRON: &str = "0 0 5 * * *";
 const DEFAULT_AUTO_SYNC_CUSTOM_TEMPLATES_CRON: &str = "0 0 4 * * *";
 /// AI 使用统计自动归档 cron 表达式(6 字段,含秒),默认每天凌晨 1 点。
 const DEFAULT_AUTO_USAGE_STATS_CRON: &str = "0 0 1 * * *";
+/// 自动更新默认检查小时(0-23),默认凌晨 3 点。
+const DEFAULT_AUTO_UPDATE_HOUR: u32 = 3;
+/// 自动更新默认间隔类型:"day" / "week" / "month"。
+const DEFAULT_AUTO_UPDATE_INTERVAL: &str = "day";
 
 /// 私有 helper:`auto_backup_*` / `auto_todo_backup_*` / `auto_skill_backup_*`
 /// 三组字段共享同一形状 (enabled: bool, cron: String, max_files: usize)。
@@ -164,6 +168,14 @@ pub struct Config {
     /// 可配置多个域名，如 ["https://app.example.com", "https://admin.example.com"]。
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub cors_allowed_origins: Vec<String>,
+    /// 是否开启自动版本更新检查
+    pub auto_update_enabled: bool,
+    /// 自动更新检查间隔类型："day" / "week" / "month"
+    pub auto_update_interval: String,
+    /// 自动更新检查小时（0-23），默认凌晨 3 点
+    pub auto_update_hour: u32,
+    /// 自动更新上次检查时间（ISO 8601），None 表示从未检查过
+    pub auto_update_last_check_at: Option<String>,
 }
 
 /// Paths for each supported executor binary.
@@ -270,6 +282,8 @@ impl Default for Config {
             auto_usage_stats_enabled: usage_stats.enabled, auto_usage_stats_cron: usage_stats.cron,
             broadcast_channel_capacity: DEFAULT_BROADCAST_CHANNEL_CAPACITY,
             cloud_sync: CloudSyncConfig::default(), cors_allowed_origins: Vec::new(),
+            auto_update_enabled: false, auto_update_interval: DEFAULT_AUTO_UPDATE_INTERVAL.to_string(),
+            auto_update_hour: DEFAULT_AUTO_UPDATE_HOUR, auto_update_last_check_at: None,
         }
     }
 }

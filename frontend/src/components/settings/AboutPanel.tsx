@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Spin, Empty, Space, Typography, Button, Alert, Modal, Collapse, message } from 'antd';
-import { ExclamationCircleFilled, ReloadOutlined, CloudDownloadOutlined, CodeOutlined } from '@ant-design/icons';
+import { Spin, Empty, Space, Typography, Button, Alert, Modal, Collapse, message, Switch, Select } from 'antd';
+import { ExclamationCircleFilled, ReloadOutlined, CloudDownloadOutlined, CodeOutlined, SettingOutlined } from '@ant-design/icons';
 import * as db from '@/utils/database';
 import { ShareCard } from '@/components/ShareCard';
 import { CopyButton } from '@/components/CopyButton';
@@ -87,6 +87,13 @@ export function AboutPanel() {
   // upgradeResult 相关状态已移除（分离式自更新方案，后端 exit(0) 后无法返回响应）。
   // 升级结果由定时刷新自动处理。
 
+  // 自动更新配置状态
+  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false);
+  const [autoUpdateInterval, setAutoUpdateInterval] = useState<string>('day');
+  const [autoUpdateHour, setAutoUpdateHour] = useState<number>(3);
+  const [autoUpdateLastCheck, setAutoUpdateLastCheck] = useState<string | null>(null);
+  const [autoUpdateLoading, setAutoUpdateLoading] = useState(false);
+
   useEffect(() => {
     setVersionLoading(true);
     db.getVersion()
@@ -95,6 +102,16 @@ export function AboutPanel() {
       })
       .catch(() => {})
       .finally(() => setVersionLoading(false));
+
+    // 加载自动更新配置
+    db.getAutoUpdateSettings()
+      .then((settings) => {
+        setAutoUpdateEnabled(settings.auto_update_enabled);
+        setAutoUpdateInterval(settings.auto_update_interval);
+        setAutoUpdateHour(settings.auto_update_hour);
+        setAutoUpdateLastCheck(settings.auto_update_last_check_at);
+      })
+      .catch(() => {});
   }, []);
 
   // 规范化版本号：去除 v 前缀、-dirty/-alpha 等后缀，只保留 semver 主干
@@ -204,6 +221,57 @@ export function AboutPanel() {
     });
   };
 
+  // 自动更新配置保存
+  const handleAutoUpdateToggle = async (enabled: boolean) => {
+    setAutoUpdateLoading(true);
+    try {
+      await db.updateAutoUpdateSettings({ auto_update_enabled: enabled });
+      setAutoUpdateEnabled(enabled);
+      message.success(enabled ? '已开启自动更新' : '已关闭自动更新');
+    } catch {
+      message.error('保存失败');
+    } finally {
+      setAutoUpdateLoading(false);
+    }
+  };
+
+  const handleAutoUpdateIntervalChange = async (interval: string) => {
+    setAutoUpdateLoading(true);
+    try {
+      await db.updateAutoUpdateSettings({ auto_update_interval: interval });
+      setAutoUpdateInterval(interval);
+    } catch {
+      message.error('保存失败');
+    } finally {
+      setAutoUpdateLoading(false);
+    }
+  };
+
+  const handleAutoUpdateHourChange = async (hour: number) => {
+    setAutoUpdateLoading(true);
+    try {
+      await db.updateAutoUpdateSettings({ auto_update_hour: hour });
+      setAutoUpdateHour(hour);
+    } catch {
+      message.error('保存失败');
+    } finally {
+      setAutoUpdateLoading(false);
+    }
+  };
+
+  // 间隔选项
+  const intervalOptions = [
+    { value: 'day', label: '每天' },
+    { value: 'week', label: '每周' },
+    { value: 'month', label: '每月' },
+  ];
+
+  // 小时选项（0-23）
+  const hourOptions = Array.from({ length: 24 }, (_, i) => ({
+    value: i,
+    label: `${String(i).padStart(2, '0')}:00`,
+  }));
+
   return (
     <Spin spinning={versionLoading}>
       <div style={{ maxWidth: 600 }}>
@@ -277,6 +345,61 @@ export function AboutPanel() {
                   </Button>
                 )}
               </Space>
+
+              {/* 自动更新设置 */}
+              <div style={{ marginTop: 16, borderTop: '1px solid var(--color-border-light)', paddingTop: 16 }}>
+                <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <SettingOutlined />
+                  <span>自动更新</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>启用自动检查更新</span>
+                    <Switch
+                      checked={autoUpdateEnabled}
+                      onChange={handleAutoUpdateToggle}
+                      loading={autoUpdateLoading}
+                    />
+                  </div>
+                  {autoUpdateEnabled && (
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span>检查频率</span>
+                        <Select
+                          value={autoUpdateInterval}
+                          onChange={handleAutoUpdateIntervalChange}
+                          options={intervalOptions}
+                          style={{ width: 120 }}
+                          size="small"
+                          disabled={autoUpdateLoading}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span>检查时间</span>
+                        <Select
+                          value={autoUpdateHour}
+                          onChange={handleAutoUpdateHourChange}
+                          options={hourOptions}
+                          style={{ width: 120 }}
+                          size="small"
+                          disabled={autoUpdateLoading}
+                        />
+                      </div>
+                      {autoUpdateLastCheck && (
+                        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                          上次检查：{new Date(autoUpdateLastCheck).toLocaleString()}
+                        </div>
+                      )}
+                      <Alert
+                        type="info"
+                        message="发现新版本后，系统会在当前运行的 Todo 或 Loop 完成后自动升级。升级期间服务会短暂重启。"
+                        showIcon
+                        style={{ fontSize: 12 }}
+                      />
+                    </>
+                  )}
+                </div>
+              </div>
 
               {/* 手动升级折叠面板（Issue #581）：在版本检查有结果后展示，
                   供无法通过一键升级完成更新的用户（如 Docker 部署、无 systemd 环境），

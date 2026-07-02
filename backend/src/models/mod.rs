@@ -751,6 +751,12 @@ pub struct UpdateConfigRequest {
     pub scheduler_default_timezone: Option<String>,
     /// WebSocket broadcast channel 容量。修改后需要重启服务才会在新连接上生效。
     pub broadcast_channel_capacity: Option<usize>,
+    /// 是否开启自动版本更新检查
+    pub auto_update_enabled: Option<bool>,
+    /// 自动更新检查间隔类型："day" / "week" / "month"
+    pub auto_update_interval: Option<String>,
+    /// 自动更新检查小时（0-23）
+    pub auto_update_hour: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

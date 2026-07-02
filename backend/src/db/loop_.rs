@@ -737,6 +737,17 @@ impl Database {
 
     // ====== Loop Executions ======
 
+    /// 检查是否存在正在运行的 loop execution（status = "running"）。
+    /// 用于自动更新前判断是否可以安全执行升级。
+    pub async fn has_running_loop_executions(&self) -> Result<bool, sea_orm::DbErr> {
+        use sea_orm::{PaginatorTrait};
+        let count = loop_executions::Entity::find()
+            .filter(loop_executions::Column::Status.eq("running"))
+            .count(&self.conn)
+            .await?;
+        Ok(count > 0)
+    }
+
     pub async fn create_loop_execution(
         &self,
         loop_id: i64,
