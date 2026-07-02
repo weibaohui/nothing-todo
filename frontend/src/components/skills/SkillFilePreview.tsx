@@ -122,8 +122,9 @@ export function SkillFilePreview({ file, executor, skillName, loading, isDark }:
             size="small"
             icon={<CopyOutlined />}
             onClick={() => {
-              navigator.clipboard.writeText(content);
-              message.success('已复制到剪贴板');
+              navigator.clipboard.writeText(content)
+                .then(() => message.success('已复制到剪贴板'))
+                .catch(() => message.error('复制失败'));
             }}
           />
           <Button

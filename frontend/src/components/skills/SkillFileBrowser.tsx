@@ -24,7 +24,9 @@ interface FileTreeNode {
   file?: SkillFileInfo;
 }
 
-// 构建文件树结构
+// 将文件列表按路径层级构建为树结构，支持目录嵌套展示。
+// 使用线性查找而非 Map：文件数量通常不多（<100），Map 初始化成本不划算；
+// 同时保持节点顺序与文件列表顺序一致，利于调试和人类阅读。
 function buildFileTree(files: SkillFileInfo[]): FileTreeNode {
   const root: FileTreeNode = {
     name: '/',
@@ -64,7 +66,9 @@ function buildFileTree(files: SkillFileInfo[]): FileTreeNode {
   return root;
 }
 
-// 过滤文件树
+// 根据搜索词递归过滤文件树，保留匹配的目录路径（即使目录本身不匹配，只要子节点有匹配就保留）。
+// 目录名匹配时保留整棵子树；文件名校验大小写不敏感。
+// 返回 null 表示该节点及所有子节点均不匹配，可直接跳过。
 function filterFileTree(node: FileTreeNode, searchText: string): FileTreeNode | null {
   if (!searchText) return node;
 
@@ -92,7 +96,8 @@ function filterFileTree(node: FileTreeNode, searchText: string): FileTreeNode | 
   };
 }
 
-// 单个文件/文件夹节点组件
+// 递归渲染文件树节点，支持展开/折叠目录、选中文件、键盘操作。
+// 使用普通 div 而非 ul/li 结构以简化样式控制，同时通过 role="treeitem" 保留无障碍语义。
 function FileTreeNodeItem({
   node,
   level,
@@ -150,7 +155,15 @@ function FileTreeNodeItem({
   return (
     <div>
       <div
+        role="treeitem"
+        tabIndex={0}
         onClick={handleClick}
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleClick();
+          }
+        }}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -236,6 +249,9 @@ function FileTreeNodeItem({
   );
 }
 
+// SkillFileBrowser：文件树浏览组件。
+// 接收文件列表，构建树结构后递归渲染；支持搜索过滤、目录展开/折叠、文件选中高亮。
+// 内部状态：searchText（搜索词）、expandedDirs（已展开目录集合）。
 export function SkillFileBrowser({ files, loading, onFileSelect, selectedFile, isDark }: SkillFileBrowserProps) {
   const [searchText, setSearchText] = useState('');
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set(['']));
@@ -259,7 +275,8 @@ export function SkillFileBrowser({ files, loading, onFileSelect, selectedFile, i
     });
   };
 
-  // 搜索时自动展开所有目录
+  // 搜索时自动展开所有目录，确保匹配结果可见；
+  // 取消搜索时不做特殊处理，已展开的目录由 expandedDirs 状态保持。
   const handleSearch = (value: string) => {
     setSearchText(value);
     if (value) {
