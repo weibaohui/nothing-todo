@@ -1088,6 +1088,8 @@ fn build_app_state(
     // 启动后台任务：bot 自启、stale binding 周期清理、history fetcher、reviewer template 初始化
     spawn_feishu_bot_starter(feishu_listener.clone(), db.clone());
     spawn_stale_binding_cleanup(db.clone());
+    // 自动版本更新调度器：按配置的间隔周期性检查 npm 新版本
+    crate::services::auto_update::spawn_auto_update_scheduler(config.clone(), db.clone());
 
     // PushService 在 AppState 之前构造，因为它要订阅事件 tx。
     use crate::services::feishu_push::FeishuPushService;

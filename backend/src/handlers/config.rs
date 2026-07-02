@@ -78,6 +78,26 @@ pub async fn update_config(
             }
             cfg.broadcast_channel_capacity = capacity;
         }
+        if let Some(enabled) = req.auto_update_enabled {
+            cfg.auto_update_enabled = enabled;
+        }
+        if let Some(interval) = req.auto_update_interval {
+            let valid = ["day", "week", "month"];
+            if !valid.contains(&interval.as_str()) {
+                return Err(AppError::BadRequest(format!(
+                    "auto_update_interval must be one of: day, week, month"
+                )));
+            }
+            cfg.auto_update_interval = interval;
+        }
+        if let Some(hour) = req.auto_update_hour {
+            if hour > 23 {
+                return Err(AppError::BadRequest(
+                    "auto_update_hour must be 0-23".to_string(),
+                ));
+            }
+            cfg.auto_update_hour = hour;
+        }
 
         cfg.normalize_paths();
         cfg.clamp_execution_timeout_secs();

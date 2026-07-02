@@ -689,6 +689,19 @@ impl Database {
             .collect())
     }
 
+    /// 检查是否存在正在运行的 todo（status = "running" 且 task_id 非空）。
+    /// 用于自动更新前判断是否可以安全执行升级。
+    pub async fn has_running_todos(&self) -> Result<bool, sea_orm::DbErr> {
+        use sea_orm::PaginatorTrait;
+        let count = todos::Entity::find()
+            .filter(todos::Column::DeletedAt.is_null())
+            .filter(todos::Column::Status.eq(TodoStatus::Running.to_string()))
+            .filter(todos::Column::TaskId.is_not_null())
+            .count(&self.conn)
+            .await?;
+        Ok(count > 0)
+    }
+
     pub async fn get_running_todos(&self) -> Result<Vec<Todo>, sea_orm::DbErr> {
         let models = todos::Entity::find()
             .filter(todos::Column::DeletedAt.is_null())

@@ -161,3 +161,25 @@ export async function upgradeVersion(): Promise<{
 }> {
   return unwrap(await api.post('/api/version/upgrade'));
 }
+
+// Auto-update settings API
+export interface AutoUpdateSettings {
+  auto_update_enabled: boolean;
+  auto_update_interval: string;
+  auto_update_hour: number;
+  auto_update_last_check_at: string | null;
+}
+
+/** 获取自动更新配置 */
+export async function getAutoUpdateSettings(): Promise<AutoUpdateSettings> {
+  return unwrap(await api.get('/api/config'));
+}
+
+/** 更新自动更新配置 */
+export async function updateAutoUpdateSettings(settings: {
+  auto_update_enabled?: boolean;
+  auto_update_interval?: string;
+  auto_update_hour?: number;
+}): Promise<void> {
+  await api.put('/api/config', settings);
+}
