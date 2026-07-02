@@ -20,6 +20,8 @@ pub struct ExecuteActionRequest {
     pub params: std::collections::HashMap<String, String>,
     /// 工作空间 ID（可选，不传则使用默认工作空间）
     pub workspace_id: Option<i64>,
+    /// 执行器类型（可选，覆盖 todo 默认的 executor）
+    pub executor: Option<String>,
 }
 
 /// Action 执行结果
@@ -46,7 +48,7 @@ pub async fn execute_action(
     // 2. 构造 message：将 prompt 中的占位符替换为 params 中的值
     let message = replace_placeholders(&req.prompt, &req.params);
 
-    // 3. 执行 todo
+    // 3. 执行 todo，使用请求中指定的执行器（覆盖 todo 默认的 executor）
     let result = crate::handlers::execution::start_todo_execution(
         crate::executor_service::RunTodoExecutionRequest {
             db: state.db.clone(),
@@ -56,7 +58,7 @@ pub async fn execute_action(
             config: state.config.clone(),
             todo_id,
             message,
-            req_executor: None,
+            req_executor: req.executor.clone(), // 使用请求中指定的执行器
             trigger_type: "action".to_string(),
             params: Some(req.params.clone()),
             resume_session_id: None,
