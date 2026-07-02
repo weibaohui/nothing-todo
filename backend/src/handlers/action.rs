@@ -42,6 +42,17 @@ pub async fn execute_action(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<ExecuteActionRequest>,
 ) -> Result<ApiResponse<ExecuteActionResult>, AppError> {
+    // 参数校验：action_type、action_key、prompt 不能为空
+    if req.action_type.trim().is_empty() {
+        return Err(AppError::BadRequest("action_type 不能为空".to_string()));
+    }
+    if req.action_key.trim().is_empty() {
+        return Err(AppError::BadRequest("action_key 不能为空".to_string()));
+    }
+    if req.prompt.trim().is_empty() {
+        return Err(AppError::BadRequest("prompt 不能为空".to_string()));
+    }
+
     // 1. 查找或创建 todo
     let (todo_id, todo_created) = find_or_create_todo(&state, &req).await?;
 
@@ -94,22 +105,31 @@ async fn find_or_create_todo(
     state: &AppState,
     req: &ExecuteActionRequest,
 ) -> Result<(i64, bool), AppError> {
-    // 1. 尝试查找已有的 todo
-    let todos = state
+    // 1. 尝试查找已有的 todo（按 action_type + action_key 精确查询）
+    if let Some(todo) = state
         .db
-        .get_todos_by_workspace_id(None)
+        .get_todo_by_action_type_and_key(&req.action_type, &req.action_key)
         .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-
-    if let Some(todo) = todos.iter().find(|t| {
-        t.action_type.as_deref() == Some(&req.action_type)
-            && t.action_key.as_deref() == Some(&req.action_key)
-    }) {
+        .map_err(|e| AppError::Internal(e.to_string()))?
+    {
         return Ok((todo.id, false));
     }
 
     // 2. 未找到，自动创建
-    let workspace_id = req.workspace_id.unwrap_or(1); // 默认使用工作空间 1
+    // 动态查找默认工作空间：优先使用请求中的 workspace_id，否则取第一个可用的工作空间
+    let workspace_id = match req.workspace_id {
+        Some(id) => id,
+        None => {
+            let dirs = state
+                .db
+                .get_project_directories()
+                .await
+                .map_err(|e| AppError::Internal(e.to_string()))?;
+            dirs.first()
+                .map(|d| d.id)
+                .ok_or_else(|| AppError::BadRequest("没有可用的工作空间".to_string()))?
+        }
+    };
     let dir = state
         .db
         .get_project_directory_by_id(workspace_id)

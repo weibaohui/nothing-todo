@@ -40,6 +40,9 @@ export function extractTitle(result: string): string {
 
   // 如果只有一行，直接返回
   const lines = text.split('\n').filter(l => l.trim());
+  if (lines.length === 0) {
+    return '';
+  }
   if (lines.length === 1) {
     return cleanMarkdown(lines[0].trim());
   }

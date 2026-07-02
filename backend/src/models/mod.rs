@@ -133,11 +133,12 @@ pub struct Todo {
     /// 是否在执行完成后自动派生一个评审 todo. 只对 normal 类型有意义.
     #[serde(default = "default_true")]
     pub auto_review_enabled: bool,
-    /// Action 类型标记（如 "rewrite_title"、"optimize_prompt"），
-    /// 仅供前端 ActionButton 组件做 UI 分类展示，不影响执行逻辑。
+    /// Action 类型标记（如 "title_optimize"、"prompt_optimize"）。
+    /// 与 action_key 配合，由 /api/actions/execute 用于查找或自动创建 action 模板 todo。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action_type: Option<String>,
     /// Action 键值，与 action_type 配合唯一标识一个 action 模板 todo。
+    /// 由 /api/actions/execute 用于查找或自动创建 action 模板 todo。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action_key: Option<String>,
 }

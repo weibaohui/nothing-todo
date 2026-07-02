@@ -3039,10 +3039,11 @@ impl Migration for V45AddTodosActionType {
     }
 }
 
-/// V46: 补加 todos.action_key 列。
+/// V46: 补加 todos.action_key 列，并为 (action_type, action_key) 创建唯一索引。
 ///
 /// action_key 与 action_type 配合，唯一标识一个 action 模板 todo。
 /// 前端传 action_type + action_key，后端查找或自动创建对应的 todo。
+/// 唯一索引防止并发请求重复创建模板 todo。
 pub(super) struct V46AddTodosActionKey;
 
 #[async_trait::async_trait]
@@ -3053,7 +3054,18 @@ impl Migration for V46AddTodosActionKey {
     async fn up(&self, db: &Database) -> Result<(), sea_orm::DbErr> {
         add_column_if_missing(db, "todos", "action_key",
             "ALTER TABLE todos ADD COLUMN action_key TEXT").await?;
-        tracing::info!("V46: todos.action_key column added");
+
+        // 创建唯一索引：(action_type, action_key) 组合唯一
+        // 忽略错误：索引已存在时会报错，属于正常情况
+        let _ = db
+            .conn
+            .execute(Statement::from_string(
+                sea_orm::DatabaseBackend::Sqlite,
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_todos_action_type_key ON todos (action_type, action_key) WHERE action_type IS NOT NULL AND action_key IS NOT NULL".to_string(),
+            ))
+            .await;
+
+        tracing::info!("V46: todos.action_key column added with unique index");
         Ok(())
     }
 }

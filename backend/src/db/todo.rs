@@ -24,10 +24,11 @@ pub struct TodoUpdate<'a> {
     pub webhook_enabled: Option<bool>,
     pub acceptance_criteria: Option<&'a str>,
     pub auto_review_enabled: Option<bool>,
-    /// Action 类型标记（如 "rewrite_title"、"optimize_prompt"），
-    /// 仅供前端 ActionButton 组件做 UI 分类展示，不影响执行逻辑。
+    /// Action 类型标记（如 "title_optimize"、"prompt_optimize"）。
+    /// 与 action_key 配合，由 /api/actions/execute 用于查找或自动创建 action 模板 todo。
     pub action_type: Option<&'a str>,
     /// Action 键值，与 action_type 配合唯一标识一个 action 模板 todo。
+    /// 由 /api/actions/execute 用于查找或自动创建 action 模板 todo。
     pub action_key: Option<&'a str>,
 }
 
@@ -145,6 +146,26 @@ impl Database {
                 Self::model_to_todo(m, tag_ids)
             })
             .collect())
+    }
+
+    /// 按 action_type + action_key 查找 todo。
+    /// 用于 ActionButton 组件的 action 模板查找。
+    pub async fn get_todo_by_action_type_and_key(
+        &self,
+        action_type: &str,
+        action_key: &str,
+    ) -> Result<Option<Todo>, sea_orm::DbErr> {
+        let model = todos::Entity::find()
+            .filter(todos::Column::ActionType.eq(action_type))
+            .filter(todos::Column::ActionKey.eq(action_key))
+            .filter(todos::Column::DeletedAt.is_null())
+            .one(&self.conn)
+            .await?;
+
+        Ok(model.map(|m| {
+            let tag_ids = vec![]; // action template 不需要 tags
+            Self::model_to_todo(m, tag_ids)
+        }))
     }
 
     pub async fn create_todo(&self, title: &str, prompt: &str) -> Result<i64, sea_orm::DbErr> {
@@ -953,6 +974,8 @@ impl Database {
                 workspace_path: ActiveValue::Set(workspace_path),
                 created_at: ActiveValue::Set(Some(now.clone())),
                 updated_at: ActiveValue::Set(Some(now)),
+                action_type: ActiveValue::Set(todo.action_type.clone()),
+                action_key: ActiveValue::Set(todo.action_key.clone()),
                 ..Default::default()
             };
             let inserted = am.insert(&txn).await?;
@@ -1041,6 +1064,8 @@ impl Database {
                 am.scheduler_config = ActiveValue::Set(todo.scheduler_config.clone());
                 am.workspace_path = ActiveValue::Set(todo.workspace_path.clone());
                 am.updated_at = ActiveValue::Set(Some(crate::models::utc_timestamp()));
+                am.action_type = ActiveValue::Set(todo.action_type.clone());
+                am.action_key = ActiveValue::Set(todo.action_key.clone());
                 let saved = am.update(&txn).await?;
 
                 // 重建 tag 关联
@@ -1082,6 +1107,8 @@ impl Database {
                     workspace_path: ActiveValue::Set(workspace_path),
                     created_at: ActiveValue::Set(Some(now.clone())),
                     updated_at: ActiveValue::Set(Some(now)),
+                    action_type: ActiveValue::Set(todo.action_type.clone()),
+                    action_key: ActiveValue::Set(todo.action_key.clone()),
                     ..Default::default()
                 };
                 let inserted = am.insert(&txn).await?;

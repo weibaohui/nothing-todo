@@ -129,14 +129,21 @@ export function ActionButton({
                   background: 'var(--color-bg-elevated)',
                   border: '1px solid var(--color-border-secondary)',
                   borderRadius: 6,
-                  maxHeight: 120,
+                  maxHeight: 150,
                   overflow: 'auto',
                 }}
               >
                 {paramsPreview.map(({ key, value }) => (
-                  <div key={key} style={{ marginBottom: 4 }}>
-                    <Tag color="blue" style={{ marginRight: 8 }}>{`{{${key}}}`}</Tag>
-                    <Text ellipsis style={{ fontSize: 12 }}>{value}</Text>
+                  <div key={key} style={{ marginBottom: 8 }}>
+                    <Tag color="blue" style={{ marginBottom: 4 }}>{`{{${key}}}`}</Tag>
+                    <div style={{
+                      fontSize: 12,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      color: 'var(--color-text-secondary)',
+                    }}>
+                      {value}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -250,7 +257,7 @@ export function ActionButton({
         width={isMobile ? '100%' : 520}
         height={isMobile ? '85vh' : undefined}
         footer={renderFooter()}
-        destroyOnClose
+        destroyOnHidden
       >
         {renderContent()}
       </Drawer>
