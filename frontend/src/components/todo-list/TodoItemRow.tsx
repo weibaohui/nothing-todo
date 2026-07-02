@@ -48,6 +48,17 @@ export function TodoItemRow({
   const isChecked = selectedIds.includes(todo.id);
   const isSelected = selectedTodoId === todo.id;
 
+  // 底部 3px 颜色条映射：按 todo 状态着色，与 LoopCard 的 progressBarColor 设计一致
+  const statusBarColor: Record<string, string> = {
+    pending: 'var(--color-text-quaternary, #94a3b8)',
+    running: 'var(--color-info, #3b82f6)',
+    completed: 'var(--color-success, #22c55e)',
+    failed: 'var(--color-error, #ef4444)',
+  };
+  // pending 状态用半透明表示"未开始"，其他状态全透明
+  const barColor = statusBarColor[todo.status] || statusBarColor.pending;
+  const barOpacity = todo.status === 'pending' ? 0.35 : 1;
+
   return (
     <div
       key={todo.id}
@@ -178,6 +189,15 @@ export function TodoItemRow({
           />
         </div>
       </div>
+      {/* 底部 3px 颜色条：按 todo 状态着色，与 LoopCard 底部进度条设计一致 */}
+      <div
+        style={{
+          position: 'absolute', left: 0, right: 0, bottom: 0, height: 3,
+          background: barColor,
+          opacity: barOpacity,
+          borderRadius: '0 0 10px 10px',
+        }}
+      />
     </div>
   );
 }
