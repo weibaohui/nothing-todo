@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Spin, Input, Card, Button, Tag, Modal, message, Empty, Tooltip } from 'antd';
+import { Spin, Input, Card, Button, Tag, Modal, message, Empty, Tooltip, Collapse } from 'antd';
 import {
   SearchOutlined, SyncOutlined, CheckCircleOutlined,
-  WarningOutlined,
+  WarningOutlined, RightOutlined,
 } from '@ant-design/icons';
 import { EXECUTORS } from '@/types';
-import type { SkillVersionUpdate as SkillVersionUpdateType, SkillVersionInfo } from '@/types';
+import type { SkillVersionUpdate as SkillVersionUpdateType, SkillVersionInfo, SkillComparison } from '@/types';
 import * as db from '@/utils/database';
 import { EXECUTOR_COLORS } from './helpers';
 
@@ -19,11 +19,51 @@ const styles = `
     background: var(--color-primary-bg, rgba(8, 145, 178, 0.1));
     border-color: var(--color-primary, #0891b2);
   }
+  .executor-version-block--same {
+    background: var(--color-fill-quaternary, #f1f5f9);
+    border-color: var(--color-border, #e2e8f0);
+  }
 `;
+
+// 从 SkillComparison 构建 SkillVersionUpdate（用于版本相同的 skill）
+function buildSameVersionUpdate(comparison: SkillComparison): SkillVersionUpdateType | null {
+  const versions: SkillVersionInfo[] = [];
+  let firstVersion: string | null = null;
+  let firstExecutor = '';
+
+  for (const [executor, presence] of Object.entries(comparison.executors)) {
+    if (presence.present) {
+      const executorLabel = EXECUTORS.find(e => e.value === executor)?.label || executor;
+      if (!firstVersion && presence.version) {
+        firstVersion = presence.version;
+        firstExecutor = executor;
+      }
+      versions.push({
+        executor,
+        executor_label: executorLabel,
+        version: presence.version,
+        modified_at: presence.modified_at,
+        is_latest: true,
+      });
+    }
+  }
+
+  if (versions.length < 2) return null;
+
+  return {
+    skill_name: comparison.skill_name,
+    description: comparison.description,
+    versions,
+    latest_version: firstVersion,
+    latest_executor: firstExecutor,
+    has_update: false,
+  };
+}
 
 export function SkillVersionUpdate() {
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<SkillVersionUpdateType[]>([]);
+  const [updateData, setUpdateData] = useState<SkillVersionUpdateType[]>([]);
+  const [comparisonData, setComparisonData] = useState<SkillComparison[]>([]);
   const [searchText, setSearchText] = useState('');
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<SkillVersionUpdateType | null>(null);
@@ -39,32 +79,65 @@ export function SkillVersionUpdate() {
     };
   }, []);
 
-  const loadData = () => {
+  const loadData = async () => {
     setLoading(true);
-    db.getSkillVersionUpdates()
-      .then(setData)
-      .catch(err => message.error('加载失败: ' + err.message))
-      .finally(() => setLoading(false));
+    try {
+      const [updates, comparisons] = await Promise.all([
+        db.getSkillVersionUpdates(),
+        db.getSkillsComparison(),
+      ]);
+      setUpdateData(updates);
+      setComparisonData(comparisons);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : '加载失败';
+      message.error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
     loadData();
   }, []);
 
-  const filtered = useMemo(() => {
-    if (!searchText) return data;
+  // 从 comparisonData 提取版本相同的 skill
+  const sameVersionSkills = useMemo(() => {
+    // 获取有版本差异的 skill 名称集合
+    const updateSkillNames = new Set(updateData.map(s => s.skill_name));
+
+    return comparisonData
+      .filter(c => !updateSkillNames.has(c.skill_name))
+      .map(buildSameVersionUpdate)
+      .filter((s): s is SkillVersionUpdateType => s !== null);
+  }, [comparisonData, updateData]);
+
+  // 过滤有差异的 skill
+  const filteredUpdates = useMemo(() => {
+    if (!searchText) return updateData;
     const lower = searchText.toLowerCase();
-    return data.filter(s =>
+    return updateData.filter(s =>
       s.skill_name.toLowerCase().includes(lower) ||
       s.description?.toLowerCase().includes(lower)
     );
-  }, [data, searchText]);
+  }, [updateData, searchText]);
+
+  // 过滤版本相同的 skill
+  const filteredSameVersion = useMemo(() => {
+    if (!searchText) return sameVersionSkills;
+    const lower = searchText.toLowerCase();
+    return sameVersionSkills.filter(s =>
+      s.skill_name.toLowerCase().includes(lower) ||
+      s.description?.toLowerCase().includes(lower)
+    );
+  }, [sameVersionSkills, searchText]);
 
   const stats = useMemo(() => {
-    const updatable = data.filter(s => s.has_update).length;
-    const latest = data.filter(s => !s.has_update).length;
-    return { updatable, latest };
-  }, [data]);
+    const updatable = updateData.filter(s => s.has_update).length;
+    return {
+      updatable,
+      total: updateData.length + sameVersionSkills.length,
+    };
+  }, [updateData, sameVersionSkills]);
 
   const handleUpdateClick = (skill: SkillVersionUpdateType) => {
     setSelectedSkill(skill);
@@ -151,9 +224,9 @@ export function SkillVersionUpdate() {
               <CheckCircleOutlined />
             </div>
             <div>
-              <div style={{ fontSize: 12, color: 'var(--color-text-secondary, #475569)' }}>已最新</div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-secondary, #475569)' }}>版本相同</div>
               <div style={{ fontSize: 20, fontWeight: 600, lineHeight: 1.2, color: 'var(--color-text, #0f172a)' }}>
-                {stats.latest}
+                {stats.total - stats.updatable}
               </div>
             </div>
           </div>
@@ -172,19 +245,57 @@ export function SkillVersionUpdate() {
         />
       </div>
 
-      {/* Skill 列表 */}
-      {filtered.length === 0 ? (
-        <Empty description="没有需要更新的 Skills" />
+      {/* 有版本差异的 Skill 列表 */}
+      {filteredUpdates.length === 0 && filteredSameVersion.length === 0 ? (
+        <Empty description="没有匹配的 Skills" />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {filtered.map(skill => (
-            <SkillVersionCard
-              key={skill.skill_name}
-              skill={skill}
-              onUpdate={() => handleUpdateClick(skill)}
+        <>
+          {filteredUpdates.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+              {filteredUpdates.map(skill => (
+                <SkillVersionCard
+                  key={skill.skill_name}
+                  skill={skill}
+                  onUpdate={() => handleUpdateClick(skill)}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* 版本相同的 Skill 折叠区域 */}
+          {filteredSameVersion.length > 0 && (
+            <Collapse
+              defaultActiveKey={[]}
+              expandIcon={({ isActive }) => (
+                <RightOutlined rotate={isActive ? 90 : 0} />
+              )}
+              style={{
+                borderRadius: 12,
+                border: '1px solid var(--color-border, #e2e8f0)',
+              }}
+              items={[{
+                key: 'same-version',
+                label: (
+                  <span style={{ fontSize: 14, color: 'var(--color-text, #0f172a)' }}>
+                    版本相同的 Skills ({filteredSameVersion.length})
+                  </span>
+                ),
+                children: (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {filteredSameVersion.map(skill => (
+                      <SkillVersionCard
+                        key={skill.skill_name}
+                        skill={skill}
+                        onUpdate={() => {}}
+                      />
+                    ))}
+                  </div>
+                ),
+                showArrow: true,
+              }]}
             />
-          ))}
-        </div>
+          )}
+        </>
       )}
 
       {/* 确认更新弹窗 */}
