@@ -84,8 +84,26 @@ export function ForumPostCard({
         transition: 'background 0.15s, border-color 0.15s',
       }}
     >
-      {/* 第一行：状态 + 标题 + 追问 badge */}
+      {/* 第一行：#id + 标题 + 追问 badge + 状态 tag（最右） */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'monospace' }}>
+          #{record.id}
+        </span>
+        <span style={{
+          fontSize: 13,
+          fontWeight: 600,
+          color: isRunning ? 'var(--color-info)' : 'var(--color-text)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          flex: 1,
+          minWidth: 0,
+        }}>
+          {title}
+        </span>
+        {replyCount != null && replyCount > 0 && (
+          <Badge count={replyCount} size="small" style={{ backgroundColor: 'var(--color-primary)' }} />
+        )}
         <span style={{
           flexShrink: 0,
           fontSize: 10,
@@ -98,19 +116,6 @@ export function ForumPostCard({
         }}>
           {statusText}
         </span>
-        <span style={{
-          fontSize: 13,
-          fontWeight: 600,
-          color: isRunning ? 'var(--color-info)' : 'var(--color-text)',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}>
-          {title}
-        </span>
-        {replyCount != null && replyCount > 0 && (
-          <Badge count={replyCount} size="small" style={{ backgroundColor: 'var(--color-primary)' }} />
-        )}
       </div>
 
       {/* 第二行：元信息 */}

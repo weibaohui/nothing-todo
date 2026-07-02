@@ -116,7 +116,7 @@ export function TodoItemRow({
         data-testid={`todo-row-checkbox-${todo.id}`}
         style={{ position: 'absolute', top: 12, left: 12, zIndex: 1 }}
       />
-      <div className="todo-item-content">
+      <div className="todo-item-content" style={{ paddingLeft: 28 }}>
         <div className="todo-item-main">
           {/* 标题行：#id + 标题 + ExecutorBadge（紧凑排列，对齐 LoopCard 标题行） */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
