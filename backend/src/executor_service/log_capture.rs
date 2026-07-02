@@ -303,6 +303,7 @@ pub(crate) fn spawn_stdout_reader<R>(
     task_id: String,
     record_id: i64,
     workspace_id: Option<i64>,
+    initial_session_id: Option<String>,
 ) -> Option<JoinHandle<()>>
 where
     R: AsyncRead + Unpin + Send + 'static,
@@ -324,7 +325,8 @@ where
         let mut reader = BufReader::new(stdout_reader).lines();
         let mut log_count = 0u64;
         // session_id 只更新一次：避免每次重复出现 session_id 时反复触发 DB UPDATE。
-        let mut session_id_updated = false;
+        // resume 场景下 DB 已有正确 session_id，跳过覆盖。
+        let mut session_id_updated = initial_session_id.is_some();
 
         while let Ok(Some(line)) = reader.next_line().await {
             // 优先尝试用 EventPipeline 解析
@@ -538,6 +540,7 @@ pub(crate) async fn setup_log_capture_pipeline<SO, SE>(
     task_id: String,
     record_id: i64,
     workspace_id: Option<i64>,
+    initial_session_id: Option<String>,
 ) -> (
     Arc<LogFlusher>,
     Option<JoinHandle<()>>,
@@ -564,6 +567,7 @@ where
         task_id.clone(),
         record_id,
         workspace_id,
+        initial_session_id,
     );
     let stderr_task = spawn_stderr_reader(
         stderr_handle,

@@ -248,6 +248,7 @@ pub(crate) async fn setup_log_capture_pipeline_for(
         runtime.task_id.clone(),
         runtime.record_id,
         runtime.prepared.request.workspace_id,
+        runtime.prepared.request.resume_session_id.clone(),
     )
     .await
 }
