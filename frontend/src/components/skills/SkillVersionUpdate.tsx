@@ -9,6 +9,18 @@ import type { SkillVersionUpdate as SkillVersionUpdateType, SkillVersionInfo } f
 import * as db from '@/utils/database';
 import { EXECUTOR_COLORS } from './helpers';
 
+// 深色主题适配样式
+const styles = `
+  .executor-version-block {
+    background: var(--color-fill-quaternary, #f1f5f9);
+    border: 1px solid var(--color-border, #e2e8f0);
+  }
+  .executor-version-block--latest {
+    background: var(--color-primary-bg, rgba(8, 145, 178, 0.1));
+    border-color: var(--color-primary, #0891b2);
+  }
+`;
+
 export function SkillVersionUpdate() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<SkillVersionUpdateType[]>([]);
@@ -16,6 +28,16 @@ export function SkillVersionUpdate() {
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<SkillVersionUpdateType | null>(null);
   const [updating, setUpdating] = useState(false);
+
+  // 注入深色主题适配样式
+  useEffect(() => {
+    const styleEl = document.createElement('style');
+    styleEl.textContent = styles;
+    document.head.appendChild(styleEl);
+    return () => {
+      document.head.removeChild(styleEl);
+    };
+  }, []);
 
   const loadData = () => {
     setLoading(true);
@@ -282,16 +304,16 @@ function ExecutorVersionBlock({ versionInfo }: { versionInfo: SkillVersionInfo }
 
   return (
     <Tooltip title={`${versionInfo.executor_label}${isLatest ? ' (最新)' : ''}`}>
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        padding: '8px 4px',
-        borderRadius: 8,
-        background: isLatest ? `${color}15` : 'var(--color-fill, #f8fafc)',
-        border: `1px solid ${isLatest ? color : 'var(--color-border, #e2e8f0)'}`,
-        transition: 'all 0.2s',
-      }}>
+      <div className={`executor-version-block ${isLatest ? 'executor-version-block--latest' : ''}`}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          padding: '8px 4px',
+          borderRadius: 8,
+          transition: 'all 0.2s',
+        }}
+      >
         <div style={{
           fontSize: 11,
           color: 'var(--color-text-secondary, #475569)',
