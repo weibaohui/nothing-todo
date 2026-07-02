@@ -7,6 +7,7 @@ import { CheckCircleOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-d
 import { TodoDrawer } from './TodoDrawer';
 import { BREAKPOINTS } from '@/constants';
 import * as db from '@/utils/database';
+import { extractTitle } from '@/utils/titleExtractor';
 import type { ExecutionRecord } from '@/types';
 import { groupBySession } from './todo-detail/helpers';
 import { DetailHeader } from './todo-detail/DetailHeader';
@@ -172,8 +173,13 @@ export function TodoDetail({ hideTitleRow = false, onOpenPost }: TodoDetailProps
     }
   }, [selectedTodo, dispatch]);
 
-  const handleTitleUpdate = useCallback(async (newTitle: string) => {
+  const handleTitleUpdate = useCallback(async (aiResult: string) => {
     if (!selectedTodo) return;
+    // 从 AI 结果中提取纯标题（处理 AI 可能返回额外解释的情况）
+    const newTitle = extractTitle(aiResult);
+    if (!newTitle) {
+      throw new Error('无法从 AI 结果中提取标题');
+    }
     try {
       const updated = await db.updateTodo(
         selectedTodo.id,
