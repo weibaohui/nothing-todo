@@ -48,7 +48,7 @@ function buildSameVersionUpdate(comparison: SkillComparison): SkillVersionUpdate
     }
   }
 
-  if (versions.length < 2) return null;
+  if (versions.length === 0) return null;
 
   return {
     skill_name: comparison.skill_name,
