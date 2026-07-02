@@ -39,7 +39,8 @@ interface QuickAddFormValues {
 
 export function WorkspaceSelect({ value, onChange, required, selectProps }: WorkspaceSelectProps) {
   const { message } = App.useApp();
-  // options.value 存 id（number），label 用「name（path）」格式展示给用户
+  // options.value 存 id（number），label 仅展示 display name（name 优先、
+  // path 兜底），不再在 UI 上暴露完整路径字符串。
   const [options, setOptions] = useState<{ label: string; value: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
@@ -52,7 +53,8 @@ export function WorkspaceSelect({ value, onChange, required, selectProps }: Work
     try {
       const dirs = await getProjectDirectories();
       setOptions(dirs.map(d => ({
-        label: d.name ? `${d.name}（${d.path}）` : d.path,
+        // label 只展示 name（人类可读名称），path 兜底；不在 UI 上暴露完整路径
+        label: d.name || d.path,
         value: d.id,
       })));
     } catch {
@@ -93,7 +95,8 @@ export function WorkspaceSelect({ value, onChange, required, selectProps }: Work
       // 刷新列表后选中新建项（按 id 选中）
       const dirs = await getProjectDirectories();
       setOptions(dirs.map(d => ({
-        label: d.name ? `${d.name}（${d.path}）` : d.path,
+        // label 只展示 name（人类可读名称），path 兜底
+        label: d.name || d.path,
         value: d.id,
       })));
       onChange?.(created.id);
