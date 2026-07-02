@@ -446,9 +446,7 @@ html, body {
 }
 
 .todo-item-content {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
+  /* 不再需要 flex — 右侧 StatusPicker 已移除，.todo-item-main 是唯一子元素 */
 }
 
 .todo-item-main {
@@ -465,8 +463,7 @@ html, body {
 
 
 /* (todo-item-desc 已移除 — 不再显示 prompt，对齐环路列表的简洁风格) */
-
-.todo-item-tags {
+/* (todo-item-status 已移除 — 列表行中不再显示圆形状态按钮，通过底部颜色条展示状态) */
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
@@ -489,21 +486,6 @@ html, body {
   letter-spacing: 0.5px;
 }
 
-/* Status Container */
-.todo-item-status {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  cursor: pointer;
-  border-radius: 50%;
-}
-
-.todo-item-status:hover {
-  background: var(--color-border-light);
-}
 
 /* ---------- Detail Panel ---------- */
 .detail-panel {

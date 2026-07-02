@@ -10,7 +10,6 @@
 import { Checkbox } from 'antd';
 import type { Todo, Tag } from '@/types';
 import { ExecutorBadge } from '@/components/ExecutorBadge';
-import { StatusPicker } from '@/components/StatusPicker';
 import { formatRelativeTime } from '@/utils/datetime';
 import { ClockCircleOutlined } from '@ant-design/icons';
 
@@ -22,7 +21,6 @@ interface TodoItemRowProps {
   onSelectTodo: (id: number) => void;
   onSelect: (id: number) => void;
   onToggleSelect: (id: number) => void;
-  onStatusChange: (todoId: number, title: string, prompt: string, newStatus: string) => void;
 }
 
 /**
@@ -37,7 +35,6 @@ export function TodoItemRow({
   onSelectTodo,
   onSelect,
   onToggleSelect,
-  onStatusChange,
 }: TodoItemRowProps) {
   // tag_ids 在 Todo 类型中是必填 number[]，但历史接口偶发返回缺失字段，
   // 所以用可选链 + 空数组兜底，避免运行时崩溃。
@@ -119,7 +116,7 @@ export function TodoItemRow({
         data-testid={`todo-row-checkbox-${todo.id}`}
         style={{ position: 'absolute', top: 12, left: 12, zIndex: 1 }}
       />
-      <div className="todo-item-content" style={{ paddingLeft: 28 }}>
+      <div className="todo-item-content">
         <div className="todo-item-main">
           {/* 标题行：#id + 标题 + ExecutorBadge（紧凑排列，对齐 LoopCard 标题行） */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
@@ -177,16 +174,6 @@ export function TodoItemRow({
             )}
             <span style={{ marginLeft: 'auto' }}>{relativeTime}</span>
           </div>
-        </div>
-        {/* StatusPicker 保持原有位置，不改变交互方式 */}
-        <div
-          className="todo-item-status"
-          aria-label="更改任务状态"
-        >
-          <StatusPicker
-            value={todo.status}
-            onChange={(newStatus) => onStatusChange(todo.id, todo.title, todo.prompt || '', newStatus)}
-          />
         </div>
       </div>
       {/* 底部 3px 颜色条：按 todo 状态着色，与 LoopCard 底部进度条设计一致 */}
