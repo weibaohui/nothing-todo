@@ -34,7 +34,7 @@ export function SkillDetailDrawer({ skill, executor, executorLabel, open, onClos
 
   const [content, setContent] = useState<string>('');
   const [files, setFiles] = useState<SkillFileInfo[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [contentLoading, setContentLoading] = useState(false);
   const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [targetExecutors, setTargetExecutors] = useState<string[]>([]);
   const [syncing, setSyncing] = useState(false);
@@ -44,7 +44,7 @@ export function SkillDetailDrawer({ skill, executor, executorLabel, open, onClos
 
   useEffect(() => {
     if (open && skill) {
-      setLoading(true);
+      setContentLoading(true);
       db.getSkillContent(executor, skill.name)
         .then(data => {
           const meta = `# ${data.skill_name}\n\n## 元信息\n- 文件数: ${data.files.length}\n- 大小: ${formatSize(skill.total_size)}\n- 更新时间: ${formatTime(skill.modified_at)}\n\n---\n\n${data.content}`;
@@ -58,7 +58,7 @@ export function SkillDetailDrawer({ skill, executor, executorLabel, open, onClos
           setContent(`# ${skill.name}\n\n${skill.description || '暂无描述'}\n\n## 元信息\n- 版本: ${skill.version || '未指定'}\n- 作者: ${skill.author || '未知'}\n- 许可证: ${skill.license || '未指定'}\n- 文件数: ${skill.file_count}\n- 大小: ${formatSize(skill.total_size)}\n- 更新时间: ${formatTime(skill.modified_at)}`);
           setFiles([]);
         })
-        .finally(() => setLoading(false));
+        .finally(() => setContentLoading(false));
     }
   }, [open, skill, executor]);
 
@@ -129,7 +129,7 @@ export function SkillDetailDrawer({ skill, executor, executorLabel, open, onClos
         onClose={onClose}
         open={open}
       >
-        {loading ? (
+        {contentLoading ? (
           <div style={{ textAlign: 'center', padding: 40 }}>
             <Spin size="large" />
           </div>
@@ -309,7 +309,7 @@ export function SkillDetailDrawer({ skill, executor, executorLabel, open, onClos
       >
         <FileBrowserFullscreen
           files={files}
-          loading={loading}
+          contentLoading={contentLoading}
           selectedFile={selectedFile}
           onFileSelect={setSelectedFile}
           executor={executor}
@@ -324,7 +324,7 @@ export function SkillDetailDrawer({ skill, executor, executorLabel, open, onClos
 // 文件浏览器全屏模态框内容组件，响应式支持手机端切换视图
 function FileBrowserFullscreen({
   files,
-  loading,
+  contentLoading,
   selectedFile,
   onFileSelect,
   executor,
@@ -332,7 +332,7 @@ function FileBrowserFullscreen({
   isDark,
 }: {
   files: SkillFileInfo[];
-  loading: boolean;
+  contentLoading: boolean;
   selectedFile: SkillFileInfo | null;
   onFileSelect: (file: SkillFileInfo) => void;
   executor: string;
@@ -365,7 +365,7 @@ function FileBrowserFullscreen({
         }}>
           <SkillFileBrowser
             files={files}
-            loading={loading}
+            loading={contentLoading}
             onFileSelect={onFileSelect}
             selectedFile={selectedFile}
             isDark={isDark}
@@ -461,7 +461,7 @@ function FileBrowserFullscreen({
           <div style={{ height: '100%', overflow: 'auto' }}>
             <SkillFileBrowser
               files={files}
-              loading={loading}
+              loading={contentLoading}
               onFileSelect={handleFileSelect}
               selectedFile={selectedFile}
               isDark={isDark}

@@ -122,7 +122,7 @@ fn resolve_skill_path_under(base: &Path, skill_name: &str) -> Result<PathBuf, Ap
 /// - 但仍拒绝绝对路径、`..` 父级引用等恶意输入
 ///
 /// 这样用户可以通过符号链接访问其他位置的 skill，同时防止路径遍历攻击。
-fn resolve_skill_path_for_read(base: &Path, skill_name: &str) -> Result<PathBuf, AppError> {
+pub(crate) fn resolve_skill_path_for_read(base: &Path, skill_name: &str) -> Result<PathBuf, AppError> {
     // 第一道：纯字符串级校验（与 resolve_skill_path_under 相同）
     let rel = Path::new(skill_name);
     if rel.as_os_str().is_empty() {
@@ -1456,5 +1456,35 @@ mod tests {
         let content = "# My Skill Title\nSome description text here.";
         let meta = parse_skill_yaml_header(content);
         assert_eq!(meta.name, "My Skill Title");
+    }
+
+    // ── resolve_skill_path_for_read() tests ─────────────────────────────────
+
+    #[test]
+    fn test_resolve_skill_path_for_read_empty_name() {
+        let base = Path::new("/skills");
+        let result = resolve_skill_path_for_read(base, "");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resolve_skill_path_for_read_absolute_path_rejected() {
+        let base = Path::new("/skills");
+        let result = resolve_skill_path_for_read(base, "/etc/passwd");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resolve_skill_path_for_read_parent_traversal_rejected() {
+        let base = Path::new("/skills");
+        let result = resolve_skill_path_for_read(base, "../etc/passwd");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resolve_skill_path_for_read_double_parent_traversal_rejected() {
+        let base = Path::new("/skills");
+        let result = resolve_skill_path_for_read(base, "foo/../../../etc/passwd");
+        assert!(result.is_err());
     }
 }
